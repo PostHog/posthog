@@ -145,7 +145,9 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    def _run(self, endpoint: str, pages: list[Any], manager: mock.MagicMock, **kwargs: Any) -> list[dict]:
+    def _run(
+        self, endpoint: str, pages: list[Any], manager: mock.MagicMock, **kwargs: Any
+    ) -> list[list[dict[str, Any]]]:
         config = JIRA_ENDPOINTS[endpoint]
         session = mock.MagicMock()
         session.get.side_effect = [_fake_response(page) for page in pages]
