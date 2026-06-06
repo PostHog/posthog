@@ -159,13 +159,21 @@ def _parse_next_url(link_header: str) -> str | None:
 
 
 def _is_same_host(url: str, host: str | None) -> bool:
-    """Whether ``url`` points at the configured GitLab host.
+    """Whether ``url`` points at the configured GitLab host over HTTPS.
 
     Pagination/resume URLs are server-controlled (Link header / Redis), so we pin them to the
-    validated host to avoid being redirected at an arbitrary internal address (SSRF).
+    validated host to avoid being redirected at an arbitrary internal address (SSRF). We also
+    require HTTPS and a matching port so the token in the Authorization header is never sent to a
+    plaintext (or otherwise mismatched) URL that merely shares the configured hostname.
     """
     try:
-        return (urlparse(url).hostname or "").lower() == _host_only(host)
+        parsed = urlparse(url)
+        configured = urlparse(normalize_host(host))
+        return (
+            parsed.scheme == "https"
+            and (parsed.hostname or "").lower() == (configured.hostname or "").lower()
+            and (parsed.port or 443) == (configured.port or 443)
+        )
     except Exception:
         return False
 

@@ -426,6 +426,32 @@ class TestGetRows:
         assert first_url.startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues")
         assert [r["id"] for r in rows] == [1]
 
+    def test_does_not_follow_plaintext_next_url_on_same_host(self):
+        # A Link header that downgrades to http on the configured host must not receive the token.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        page1 = _response(
+            json_data=[{"id": 1}],
+            link='<http://gitlab.com/api/v4/projects/1/issues?page=2>; rel="next"',
+        )
+        rows, session = self._run(manager, [page1])
+
+        assert [r["id"] for r in rows] == [1]
+        assert session.get.call_count == 1
+
+    def test_ignores_plaintext_resume_url_on_same_host(self):
+        # A saved resume URL that downgraded to http must be ignored in favour of the https initial URL.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = GitLabResumeConfig(
+            next_url="http://gitlab.com/api/v4/projects/1/issues?page=5"
+        )
+        rows, session = self._run(manager, [_response(json_data=[{"id": 1}])])
+
+        first_url = session.get.call_args_list[0].args[0]
+        assert first_url.startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues")
+        assert [r["id"] for r in rows] == [1]
+
     def test_does_not_follow_redirects(self):
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
