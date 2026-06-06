@@ -7,9 +7,9 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
@@ -203,7 +203,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             actions.startExport(exportCommand)
         },
     })),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setCohortFilters: () => {
             const searchParams: Record<string, any> = { ...router.values.searchParams }
 

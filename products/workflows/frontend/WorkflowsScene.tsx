@@ -9,9 +9,9 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -70,7 +70,7 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
             },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => [urls.workflows(values.currentTab)],
     })),
     tabAwareUrlToAction(({ actions, values }) => {
