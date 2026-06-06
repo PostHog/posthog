@@ -59,7 +59,7 @@ def update_first_party_policy_cache_task(credential_kind: str, credential_id: st
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_user_first_party_policies_task(user_id: int) -> None:
-    """Re-project a user's gateway credentials after their current team changed."""
+    """Re-project a user's gateway credentials after an is_active change (deactivation clears)."""
     for pak in PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
         user_id=user_id, scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE]
     ):
