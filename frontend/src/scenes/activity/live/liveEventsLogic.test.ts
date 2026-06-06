@@ -42,17 +42,10 @@ describe('liveEventsLogic', () => {
         it.each([
             ['malformed URL', 'not a url'],
             ['empty host', 'https://'],
+            ['missing $current_url', undefined],
         ])('does not throw and records no host for %s', async (_label, currentUrl) => {
             await expectLogic(logic, () => {
                 logic.actions.addEvents([makeLiveEvent(currentUrl)])
-            }).toMatchValues({
-                eventHosts: [],
-            })
-        })
-
-        it('records no host when $current_url is missing', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.addEvents([makeLiveEvent()])
             }).toMatchValues({
                 eventHosts: [],
             })
