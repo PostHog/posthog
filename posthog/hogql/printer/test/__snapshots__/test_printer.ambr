@@ -255,7 +255,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%@posthog.com'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%@posthog.com'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -327,7 +327,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, 'hello@posthog.com'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, 'hello@posthog.com'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -363,7 +363,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%null%'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%null%'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -399,7 +399,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%'), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, '%'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -435,7 +435,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, ''), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(ilike(events.mat_test_prop, ''), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -687,7 +687,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%@posthog.com')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%@posthog.com')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -759,7 +759,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('hello@posthog.com')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('hello@posthog.com')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -795,7 +795,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%null%')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%null%')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -831,7 +831,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('%')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -867,7 +867,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('')), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(like(lower(coalesce(events.mat_test_prop, '')), lower('')), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1407,7 +1407,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1443,7 +1443,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1479,7 +1479,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1515,7 +1515,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1551,7 +1551,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1587,7 +1587,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1623,7 +1623,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1659,7 +1659,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -1983,7 +1983,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2019,7 +2019,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has([''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2055,7 +2055,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2091,7 +2091,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', ''], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2127,7 +2127,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['hello@posthog.com', 'other_value'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2163,7 +2163,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2199,7 +2199,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2235,7 +2235,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), events.mat_test_prop IS NOT NULL))
+  WHERE and(equals(events.team_id, 99999), and(has(['null', 'NULL'], events.mat_test_prop), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2694,8 +2694,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (equals(events.mat_test_prop, 'target_value')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.mat_test_prop, 'target_value'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2767,8 +2766,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 'mango')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 'mango'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2786,8 +2784,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greaterOrEquals(events.mat_test_prop, 'mango')
-                                            AND (events.mat_test_prop IS NOT NULL)))
+  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.mat_test_prop, 'mango'), isNotNull(events.mat_test_prop)))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2805,9 +2802,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 'mango')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, 'mango'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -2825,9 +2820,7 @@
   '''
   SELECT events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), (greaterOrEquals(events.mat_test_prop, 'mango')
-                                            AND notEquals(events.mat_test_prop, '')
-                                            AND notEquals(events.mat_test_prop, 'null')))
+  WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.mat_test_prop, 'mango'), notEquals(events.mat_test_prop, ''), notEquals(events.mat_test_prop, 'null')))
   ORDER BY events.distinct_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
