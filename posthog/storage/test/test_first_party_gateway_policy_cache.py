@@ -115,12 +115,22 @@ class TestFirstPartyPolicyWireShape(FirstPartyPolicyTestMixin):
         self.assertGreater(blob["team_id"], 0)
         self.assertEqual(blob["project_token"], self.team.api_token)
         self.assertEqual(blob["scopes"], [GATEWAY_SCOPE])
-        self.assertEqual(blob["allowed_products"], ["posthog_code", "wizard"])
+        self.assertEqual(blob["gateway_slug"], "posthog_code")
         self.assertEqual(blob["billing_mode"], "internal")
         self.assertIsNone(blob["revoked_at"])
 
         # Raw token never appears in the key (only its hash).
         self.assertNotIn(token, hypercache.get_cache_key(cache_hash))
+
+    @parameterized.expand(["Posthog_Code", "slack app", "wizard/v2", "", "_leading"])
+    @patch("posthog.storage.first_party_gateway_policy_cache._derive_gateway_slug")
+    def test_malformed_gateway_slug_fails_closed(self, slug: str, mock_derive):
+        # A slug that isn't lowercase/URL-safe must not be projected — the gateway
+        # can't route it and it could escape the cache-key path segment.
+        mock_derive.return_value = slug
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
 
 
 class TestFirstPartyPolicyScopeGating(FirstPartyPolicyTestMixin):

@@ -14,10 +14,16 @@ Shape:
             "team_id": 12345,
             "project_token": "phc_...",
             "scopes": ["llm_gateway:read"],
-            "allowed_products": ["posthog_code", "wizard"],
+            "gateway_slug": "posthog_code",
             "billing_mode": "internal",
             "revoked_at": null
         }
+
+Each first-party credential is bound to exactly one gateway: the gateway's slug
+is the product, equal to the $ai_gateway_slug property (the value formerly known
+as $ai_product, now surfaced to non-PostHog orgs too) so internal billing stays
+continuous. The Go gateway resolves key → gateway → product at auth, so the blob
+carries a single gateway_slug — not a product list, and not a per-team gateway map.
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex,
 which the gateway derives identically (PostHog/ai-gateway internal/auth/firstparty.go).
@@ -28,6 +34,7 @@ fixed lifecycle would outlive it, resurrecting a stale blob on a cold Redis.
 """
 
 import os
+import re
 from typing import Any
 
 from django.conf import settings
@@ -47,16 +54,19 @@ logger = structlog.get_logger(__name__)
 
 FIRST_PARTY_REQUIRED_SCOPE = "llm_gateway:read"
 
-# Provisional values — the gateway treats both as opaque pass-through and does
-# not enforce them yet (per-product gating is an undecided follow-up, ai-gateway
-# #80/#81). The authoritative allowed_products boundary is gateway-team-owned: a
-# per-application_id allowlist (today services/llm-gateway products/config.py,
-# moving to a DB-backed source read via this hypercache mirror — server-side
-# scopes RFC #1103). Until that enforcement path is chosen, emit a stable
-# placeholder rather than coupling to either design; swap these two helpers for
-# the real source when it lands. Open: whether billing_mode is ever non-internal.
+# billing_mode is provisional — the gateway treats it as opaque pass-through and
+# does not enforce it yet. Open: whether it is ever non-internal.
 FIRST_PARTY_BILLING_MODE = "internal"
-DEFAULT_FIRST_PARTY_PRODUCTS = ["posthog_code", "wizard"]
+
+# Until the Gateway model lands (one key per gateway, slug == $ai_gateway_slug),
+# every first-party credential projects this single default slug. Swap
+# _derive_gateway_slug for the model-backed lookup when it ships.
+DEFAULT_FIRST_PARTY_GATEWAY_SLUG = "posthog_code"
+
+# Gateway slugs must be lowercase and URL-safe so they can sit in a path segment
+# and match $ai_gateway_slug 1:1. Underscores and hyphens allowed (posthog_code,
+# slack_app); no leading/trailing separator.
+_GATEWAY_SLUG_RE = re.compile(r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 
 FIRST_PARTY_POLICY_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
 FIRST_PARTY_POLICY_CACHE_MISS_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
@@ -65,7 +75,7 @@ FIRST_PARTY_POLICY_FIELDS = [
     "team_id",
     "project_token",
     "scopes",
-    "allowed_products",
+    "gateway_slug",
     "billing_mode",
     "revoked_at",
 ]
@@ -99,10 +109,10 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
     return FIRST_PARTY_REQUIRED_SCOPE in credential.scope.split()
 
 
-def _derive_allowed_products(credential: Credential) -> list[str]:
-    # Placeholder until the gateway team's per-application_id boundary is chosen
-    # (see the module constants above). Not per-credential yet by design.
-    return DEFAULT_FIRST_PARTY_PRODUCTS
+def _derive_gateway_slug(credential: Credential) -> str:
+    # Placeholder until the Gateway model lands (see the module constants above).
+    # One gateway per credential by design; not per-credential-configurable yet.
+    return DEFAULT_FIRST_PARTY_GATEWAY_SLUG
 
 
 def _ttl_for_credential(credential: Credential) -> int | None:
@@ -169,11 +179,17 @@ def _policy_for_credential(
     if credential.scoped_organizations and str(team["organization_id"]) not in credential.scoped_organizations:
         return HyperCacheStoreMissing()
 
+    # Fail closed on a malformed slug rather than write a blob the gateway can't
+    # route or that escapes its cache-key path segment.
+    gateway_slug = _derive_gateway_slug(credential)
+    if not _GATEWAY_SLUG_RE.match(gateway_slug):
+        return HyperCacheStoreMissing()
+
     return {
         "team_id": team_id,
         "project_token": project_token,
         "scopes": [FIRST_PARTY_REQUIRED_SCOPE],
-        "allowed_products": _derive_allowed_products(credential),
+        "gateway_slug": gateway_slug,
         "billing_mode": FIRST_PARTY_BILLING_MODE,
         "revoked_at": None,
     }
