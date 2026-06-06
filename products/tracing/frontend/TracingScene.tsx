@@ -38,8 +38,7 @@ export const scene: SceneExport<TracingSceneLogicProps> = {
 
 export default function TracingScene(props: TracingSceneLogicProps = {}): JSX.Element {
     const sceneLogic = tracingSceneLogic(props)
-    // Keep filters + data logic alive across tab switches by attaching them to the scene
-    // root. The root itself is kept mounted by `tabAwareScene()` even when the tab is inactive.
+    // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ tabId: props.tabId }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ tabId: props.tabId }), sceneLogic)
 
