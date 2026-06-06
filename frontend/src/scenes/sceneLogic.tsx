@@ -97,6 +97,13 @@ const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
     return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
+// Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
+// before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
+const getBootstrappedHomepage = (): SceneTab | null => {
+    const homepage = getAppContext()?.homepage
+    return homepage ? sanitizeTabForPersistence(homepage) : null
+}
+
 const persistTabs = (_tabs: SceneTab[], _homepage: SceneTab | null): void => {
     // PostHog tabs were removed — no longer persist tab state to storage.
 }
@@ -591,14 +598,16 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
     }),
-    reducers({
+    // Function form so the bootstrapped default is read at build time (per kea context),
+    // not once at module import — production sets APP_CONTEXT before the bundle loads either way.
+    reducers(() => ({
         homepage: [
-            null as SceneTab | null,
+            getBootstrappedHomepage(),
             {
                 setHomepage: (_, { tab }) => (tab ? sanitizeTabForPersistence(tab) : null),
             },
         ],
-    }),
+    })),
     selectors({
         activeTab: [
             (s) => [s.tabs],
@@ -855,8 +864,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         setHomepage: ({ tab }) => {
-            if (isSharedView() || cache.skipNextHomepageSync) {
-                cache.skipNextHomepageSync = false
+            if (isSharedView()) {
                 return
             }
             api.update('api/user_home_settings/@me/', {
@@ -1291,21 +1299,6 @@ export const sceneLogic = kea<sceneLogicType>([
             ])
             cache.initialNavigationTabCreated = true
         }
-
-        if (!isSharedView() && !cache.homepageLoaded) {
-            cache.homepageLoaded = true
-            ;(async () => {
-                try {
-                    const response = await api.get<{ homepage?: SceneTab | null }>('api/user_home_settings/@me/')
-                    if (response?.homepage) {
-                        cache.skipNextHomepageSync = true
-                        actions.setHomepage(response.homepage)
-                    }
-                } catch (error) {
-                    console.error('Failed to load homepage', error)
-                }
-            })()
-        }
     }),
 
     urlToAction(({ actions, values, cache }) => {
@@ -1360,30 +1353,36 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             }
         }
-        mapping['/'] = (_params, searchParams) => {
+        // The Home button (via `/`) and a direct visit to /home should both land on the user's
+        // configured homepage (set in the Configure home modal). Redirect there unless we're
+        // already at it, which also guards against loops when the homepage is the launchpad itself.
+        const redirectToConfiguredHomepage = (): boolean => {
             const homepage = values.homepage
-
-            if (homepage) {
-                let targetPathname = homepage.pathname
-                    ? addProjectIdIfMissing(homepage.pathname)
-                    : urls.projectHomepage()
-                if (targetPathname === '/') {
-                    targetPathname = urls.projectHomepage()
-                }
-                const targetSearch = homepage.search || ''
-                const targetHash = homepage.hash || ''
-                const loc = router.values.currentLocation
-                // Already at homepage: skip replace or replaceState loops (e.g. homepage === project root).
-                const alreadyAtHomepage =
-                    addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
-                    (loc.search || '') === targetSearch &&
-                    (loc.hash || '') === targetHash
-                if (!alreadyAtHomepage) {
-                    router.actions.replace(targetPathname, targetSearch, targetHash)
-                    return
-                }
+            if (!homepage) {
+                return false
             }
+            let targetPathname = homepage.pathname ? addProjectIdIfMissing(homepage.pathname) : urls.projectHomepage()
+            if (targetPathname === '/') {
+                targetPathname = urls.projectHomepage()
+            }
+            const targetSearch = homepage.search || ''
+            const targetHash = homepage.hash || ''
+            const loc = router.values.currentLocation
+            const alreadyAtHomepage =
+                addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
+                (loc.search || '') === targetSearch &&
+                (loc.hash || '') === targetHash
+            if (alreadyAtHomepage) {
+                return false
+            }
+            router.actions.replace(targetPathname, targetSearch, targetHash)
+            return true
+        }
 
+        mapping['/'] = (_params, searchParams) => {
+            if (redirectToConfiguredHomepage()) {
+                return
+            }
             router.actions.replace(
                 withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
             )
@@ -1403,6 +1402,17 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                     method
                 )
+            }
+        }
+
+        const projectHomepagePath = urls.projectHomepage()
+        const openProjectHomepageScene = mapping[projectHomepagePath]
+        if (openProjectHomepageScene) {
+            mapping[projectHomepagePath] = (params, searchParams, hashParams, payload) => {
+                if (redirectToConfiguredHomepage()) {
+                    return
+                }
+                return openProjectHomepageScene(params, searchParams, hashParams, payload)
             }
         }
 
