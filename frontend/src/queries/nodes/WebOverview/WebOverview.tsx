@@ -76,6 +76,8 @@ export function WebOverview(props: {
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
+                usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
+                usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
                 labelFromKey={labelFromKey}
             />
         )

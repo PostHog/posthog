@@ -1,9 +1,12 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
+import type React from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,6 +18,8 @@ interface OverviewMetricCardGridProps {
     loading: boolean
     numSkeletons: number
     samplingRate?: SamplingRate
+    usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
     labelFromKey: (key: string) => string
 }
 
@@ -23,6 +28,8 @@ export function OverviewMetricCardGrid({
     loading,
     numSkeletons,
     samplingRate,
+    usedPreAggregatedTables = false,
+    usedLazyPrecompute = false,
     labelFromKey,
 }: OverviewMetricCardGridProps): JSX.Element {
     return (
@@ -30,7 +37,15 @@ export function OverviewMetricCardGrid({
             <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
                 {loading
                     ? range(numSkeletons).map((i) => <MetricCardSkeleton key={i} />)
-                    : items.map((item) => <MetricCardCell key={item.key} item={item} labelFromKey={labelFromKey} />)}
+                    : items.map((item) => (
+                          <MetricCardCell
+                              key={item.key}
+                              item={item}
+                              usedPreAggregatedTables={usedPreAggregatedTables}
+                              usedLazyPrecompute={usedLazyPrecompute}
+                              labelFromKey={labelFromKey}
+                          />
+                      ))}
             </div>
             <SamplingNotice samplingRate={samplingRate} />
         </>
@@ -39,9 +54,13 @@ export function OverviewMetricCardGrid({
 
 function MetricCardCell({
     item,
+    usedPreAggregatedTables,
+    usedLazyPrecompute,
     labelFromKey,
 }: {
     item: OverviewItem
+    usedPreAggregatedTables: boolean
+    usedLazyPrecompute: boolean
     labelFromKey: (key: string) => string
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
@@ -49,16 +68,49 @@ function MetricCardCell({
     const value = typeof item.value === 'number' ? item.value : undefined
     const previous = typeof item.previous === 'number' ? item.previous : undefined
     const format = (n: number): string => formatItem(n, item.kind, { currency: baseCurrency })
+    const subtitle = previous != null ? `vs. ${format(previous)} prior` : item.caption
+
+    const clickable = !!item.onClick
+    const handleClick = clickable
+        ? (event: React.MouseEvent) => {
+              event.stopPropagation()
+              item.onClick?.()
+          }
+        : undefined
+    const handleKeyDown = clickable
+        ? (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  item.onClick?.()
+              }
+          }
+        : undefined
 
     return (
-        <div className="flex flex-col rounded border bg-surface-primary p-3">
+        <div
+            className={clsx(
+                'relative flex flex-col rounded border bg-surface-primary p-3 transition-colors',
+                item.selected && 'border-accent ring-1 ring-accent',
+                clickable && 'cursor-pointer hover:border-accent'
+            )}
+            onClick={handleClick}
+            onKeyDown={handleKeyDown}
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-pressed={clickable ? !!item.selected : undefined}
+        >
+            {usedLazyPrecompute ? (
+                <PreAggregatedBadge variant="precomputed" />
+            ) : usedPreAggregatedTables ? (
+                <PreAggregatedBadge variant="preagg" />
+            ) : null}
             <MetricCard
                 title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
                 value={value}
                 change={metricChange(item)}
                 goodDirection={item.isIncreaseBad ? 'down' : 'up'}
                 formatValue={format}
-                subtitle={previous != null ? `vs. ${format(previous)} prior` : undefined}
+                subtitle={subtitle}
             />
         </div>
     )
