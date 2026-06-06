@@ -3,13 +3,24 @@ import posthog, { JsonType } from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 
-import { RecipeNormalizer } from './normalizer'
+import { mergeRecipes, RecipeNormalizer, StoredRecipe } from './normalizer'
 import { CompatMessage } from './types'
 import { normalizeMessage as legacyNormalizeMessage, normalizeMessages as legacyNormalizeMessages } from './utils'
 
 // Constructed once: the constructor compiles and sorts every recipe, so per-call
 // construction would dwarf the work we're measuring.
 const recipeNormalizer = new RecipeNormalizer()
+
+// Swap the live normalizer over to a team's custom recipe set. Called wherever traces
+// render once the team's recipes load (and after every edit). Wrapped so a malformed
+// config can never break trace rendering — we keep the prior set on error.
+export function applyTeamParserRecipes(stored: StoredRecipe[]): void {
+    try {
+        recipeNormalizer.setRecipes(mergeRecipes(stored))
+    } catch {
+        // keep whatever set is currently active
+    }
+}
 
 // Normalization runs once per rendered message; sample so timing doesn't flood ingestion.
 const DEFAULT_TIMING_SAMPLE_RATE = 0.01

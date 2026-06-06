@@ -1,0 +1,6 @@
+customer_id,customer_created_at,customer_name,customer_email,signup_count
+"1","2023-01-01",John Doe,john.doe@example.com,1
+"2","2023-01-02",Jane Doe,jane.doe@example.com,2
+"3","2023-01-03",John Smith,john.smith@example.com,3
+"4","2023-01-06",Jane Smith,jane.smith@example.com,3
+"5","2023-01-07",John Doe Jr,john.doejr@example.com,1
