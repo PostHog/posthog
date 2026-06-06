@@ -16,7 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { WebAnalyticsItemKind } from '~/queries/schema/schema-general'
 
-export const NO_BASELINE_CHANGE_SENTINEL = NO_BASELINE_CHANGE_SENTINEL
+export const NO_BASELINE_CHANGE_SENTINEL = 999999
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
