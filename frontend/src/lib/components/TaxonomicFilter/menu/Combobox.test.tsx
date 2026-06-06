@@ -20,6 +20,11 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
+jest.mock('posthog-js', () => ({
+    __esModule: true,
+    default: { capture: jest.fn() },
+}))
+
 jest.mock('lib/api', () => {
     const emptyPaginated = (): Promise<{ results: any[]; count: number; next: null }> =>
         Promise.resolve({ results: [], count: 0, next: null })
@@ -38,6 +43,7 @@ jest.mock('lib/api', () => {
 })
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
+const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
 
 function renderCombobox(): ReturnType<typeof render> {
     return render(
@@ -96,6 +102,7 @@ describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
         initKeaTests()
@@ -400,5 +407,56 @@ describe('MenuFilterCombobox', () => {
         await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
         expect(await screen.findByRole('option', { name: 'Recent' })).toBeInTheDocument()
         expect(screen.getByRole('option', { name: 'Pinned' })).toBeInTheDocument()
+    })
+
+    it('captures `taxonomic filter item selected` with the legacy contract on row click', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pageview', 'Events')],
+        })
+
+        await waitFor(() => expect(document.querySelector('[data-slot="taxonomic-filter-menu-row"]')).toBeTruthy())
+        await user.click(document.querySelector('[data-slot="taxonomic-filter-menu-row"]') as HTMLElement)
+
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter item selected',
+            expect.objectContaining({
+                sourceGroupType: TaxonomicFilterGroupType.Events,
+                wasFromRecents: true,
+                wasFromPinnedList: false,
+                wasQuickFilter: false,
+                hadSearchInput: false,
+                position: 0,
+            })
+        )
+    })
+
+    it('captures debounced `taxonomic_filter_search_query` for a typed query', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'pageview' })
+
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic_filter_search_query',
+                expect.objectContaining({ searchQuery: 'pageview', inputMode: 'typed', pastedFraction: 0 })
+            )
+        )
+    })
+
+    it('captures `taxonomic filter empty result` for a no-match search', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'zzz_no_match' })
+
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic filter empty result',
+                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+            )
+        )
     })
 })

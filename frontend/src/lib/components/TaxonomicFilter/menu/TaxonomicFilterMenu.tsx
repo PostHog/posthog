@@ -158,10 +158,18 @@ export function TaxonomicFilterMenu({
             })
         } else if (previous !== 'closed' && next === 'closed') {
             const closedAt = Date.now()
+            const dwellMs = openedAtRef.current ? closedAt - openedAtRef.current : null
             posthog.capture('taxonomic filter menu closed', {
-                dwellMs: openedAtRef.current ? closedAt - openedAtRef.current : null,
+                dwellMs,
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
+            })
+            // Legacy `taxonomic filter *` contract — emitted alongside the
+            // menu-specific events so the rebuild is comparable to the
+            // control/pill variants by feature-flag value.
+            posthog.capture('taxonomic filter closed', {
+                dwellMs,
+                hadSelection: hadCommitRef.current,
             })
             lastMenuClosedAtMs = closedAt
             openedAtRef.current = null

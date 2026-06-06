@@ -80,6 +80,10 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
  *  the pill variant's top-3 face. */
 const RECENT_PINNED_PREFIX_LIMIT = 3
 
+/** Debounce before emitting `taxonomic_filter_search_query` — matches the
+ *  legacy picker so the search telemetry is comparable across variants. */
+const SEARCH_QUERY_DEBOUNCE_MS = 500
+
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
@@ -496,6 +500,79 @@ export function MenuFilterCombobox({
         }
     }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery, isAnyLoading])
 
+    // --- Telemetry parity ---------------------------------------------------
+    // Emit the legacy `taxonomic filter *` contract so the rebuild is
+    // comparable to the control/pill variants by feature-flag value (PostHog
+    // auto-attaches the active flag to every event). The meta scopes
+    // (all/recent/pinned) have no single source group, so groupType is
+    // undefined there — matching how legacy reports the active content tab.
+    const telemetryGroupType = useMemo<TaxonomicFilterGroupType | undefined>(() => {
+        const scope = showChips ? activeChip : drillTo
+        return scope === 'all' || scope === 'recent' || scope === 'pinned' ? undefined : scope
+    }, [showChips, activeChip, drillTo])
+
+    const pastedCharsRef = useRef(0)
+
+    // `taxonomic_filter_search_query` — debounced; `inputMode`/`pastedFraction`
+    // distinguish typed vs pasted input.
+    useEffect(() => {
+        const trimmed = searchQuery.trim()
+        if (!trimmed) {
+            return
+        }
+        const timer = setTimeout(() => {
+            const pastedChars = pastedCharsRef.current
+            pastedCharsRef.current = 0
+            const totalLength = searchQuery.length
+            const inputMode =
+                pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
+            posthog.capture('taxonomic_filter_search_query', {
+                searchQuery,
+                groupType: telemetryGroupType,
+                inputMode,
+                pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
+            })
+        }, SEARCH_QUERY_DEBOUNCE_MS)
+        return () => clearTimeout(timer)
+    }, [searchQuery, telemetryGroupType])
+
+    // `taxonomic filter empty result` — once per scope+query when a real search
+    // returns nothing. `emptyState.body` marks the "type more" prompt, which is
+    // not an empty result.
+    const emptyResultFiredRef = useRef<Set<string>>(new Set())
+    useEffect(() => {
+        const trimmed = searchQuery.trim()
+        if (!emptyState || emptyState.body || !trimmed) {
+            return
+        }
+        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        if (emptyResultFiredRef.current.has(key)) {
+            return
+        }
+        emptyResultFiredRef.current.add(key)
+        posthog.capture('taxonomic filter empty result', {
+            groupType: telemetryGroupType,
+            searchQuery: trimmed,
+        })
+    }, [emptyState, searchQuery, telemetryGroupType])
+
+    const captureItemSelected = useCallback(
+        (entry: MenuFilterEntry, position: number): void => {
+            const key = entryKey(entry)
+            posthog.capture('taxonomic filter item selected', {
+                groupType: entry.group.type,
+                sourceGroupType: entry.group.type,
+                wasFromRecents: recentKeys.has(key),
+                wasFromPinnedList: pinnedKeys.has(key),
+                wasQuickFilter: false,
+                hadSearchInput: !!searchQuery.trim(),
+                position,
+                query: searchQuery.trim() || undefined,
+            })
+        },
+        [recentKeys, pinnedKeys, searchQuery]
+    )
+
     const headerTitle =
         title ??
         (drillTo === 'all'
@@ -585,6 +662,9 @@ export function MenuFilterCombobox({
                                             data-attr="menu-filter-search"
                                             placeholder={activePlaceholder}
                                             onKeyDown={handleInputKeyDown}
+                                            onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
+                                                pastedCharsRef.current += e.clipboardData.getData('text').length
+                                            }}
                                         />
                                     }
                                     value={searchQuery}
@@ -690,7 +770,10 @@ export function MenuFilterCombobox({
                                             // signal that with a chevron.
                                             opensSubmenu={drillTo === TaxonomicFilterGroupType.DataWarehouse}
                                             selectedRowId={selectedRowId}
-                                            onCommit={onCommit}
+                                            onSelect={() => {
+                                                captureItemSelected(entry, filtered.indexOf(entry))
+                                                onCommit(entry)
+                                            }}
                                         />
                                     )}
                                 </Autocomplete.Collection>
@@ -718,7 +801,8 @@ interface RowProps {
     opensSubmenu?: boolean
     /** DOM id of the currently-selected row (for the trailing checkmark). */
     selectedRowId?: string | null
-    onCommit: CommitFn
+    /** Commit this row (also fires item-selected telemetry). */
+    onSelect: () => void
 }
 
 /**
@@ -745,7 +829,7 @@ function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string
     return { name: entry.name, category: entry.group.name }
 }
 
-function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onCommit }: RowProps): JSX.Element {
+function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSelect }: RowProps): JSX.Element {
     const { name, value, category } = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
@@ -754,7 +838,7 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onComm
             value={entry}
             onClick={(e) => {
                 e.preventDefault()
-                onCommit(entry)
+                onSelect()
             }}
             data-slot="taxonomic-filter-menu-row"
             className={cn(
