@@ -1,12 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -14,6 +15,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { confirmOrganizationLogic } from './confirmOrganizationLogic'
 
@@ -23,41 +25,32 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
-    const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+    const { isConfirmOrganizationSubmitting, email, next } = useValues(confirmOrganizationLogic)
+
+    const loginUrl = combineUrl(urls.login(), next ? { next } : {}).url
 
     return (
         <BridgePage view="org-creation-confirmation" hedgehog>
             <h2>Create a new organization</h2>
             <OtherRegionHint />
             <div className="flex-1">
-                <p className="text-center">
-                    <strong>
-                        Trying to join an existing organization? <br />
-                        {!showNewOrgWarning && (
-                            <Link
-                                onClick={() => {
-                                    setShowNewOrgWarning(true)
-                                }}
-                            >
-                                Read more
-                            </Link>
-                        )}
-                    </strong>
-                </p>
-                <AnimatedCollapsible collapsed={!showNewOrgWarning}>
-                    <div className="py-2">
-                        <p>
-                            If you're trying to join an existing organization, you should not create a new one. Some
-                            reasons that you may accidentally end up here are:
-                        </p>
-                        <ul className="list-disc pl-4">
-                            <li>You're logging in with the wrong email address</li>
-                            <li>Your PostHog account is at a different URL</li>
-                            <li>You need an invitation from a colleague</li>
-                        </ul>
-                    </div>
-                </AnimatedCollapsible>
+                <LemonBanner type="info" className="mb-4">
+                    <p className="font-semibold mb-1">Trying to join an existing organization?</p>
+                    <p className="mb-1">
+                        If your team already uses PostHog, don't create a new organization here — you won't be able to
+                        see their projects or data. To get access instead:
+                    </p>
+                    <ul className="list-disc pl-4 mb-2">
+                        <li>
+                            Ask an admin of that organization to <strong>invite you</strong> by email
+                        </li>
+                        <li>
+                            If you have another PostHog account,{' '}
+                            <Link to={loginUrl}>log in with a different email address</Link>
+                        </li>
+                        <li>Your team's PostHog account may be hosted at a different URL</li>
+                    </ul>
+                </LemonBanner>
             </div>
 
             <Form

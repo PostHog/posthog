@@ -34,6 +34,28 @@ describe('confirmOrganizationLogic', () => {
                     email: 'spike@spike.com',
                 })
         })
+
+        it('captures a relative next path so users can log in with another account', async () => {
+            router.actions.push('/organization/confirm-creation', {
+                email: 'spike@spike.com',
+                next: '/project/177329/replay/home',
+            })
+
+            await expectLogic(logic).toDispatchActions(['setNext']).toMatchValues({
+                next: '/project/177329/replay/home',
+            })
+        })
+
+        it('rejects an absolute next path pointing at another origin', async () => {
+            router.actions.push('/organization/confirm-creation', {
+                email: 'spike@spike.com',
+                next: 'https://evil.com/steal',
+            })
+
+            await expectLogic(logic).toDispatchActions(['setNext']).toMatchValues({
+                next: null,
+            })
+        })
     })
 
     describe('form', () => {
