@@ -2,11 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { MultipleChoiceBarChart } from 'scenes/surveys/components/question-visualizations/MultipleChoiceBarChart'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
+import {
+    computeBarColors,
+    formatCountWithPercentage,
+} from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -151,19 +154,15 @@ export function MultipleChoiceQuestionViz({
 
     const highlightedChoiceLabel = activeChoiceLabel || armedChoiceLabel
 
-    const barColors = useMemo(
-        () =>
-            chartData.map((entry, i) => {
-                const baseColor = CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length]
-
-                if (!highlightedChoiceLabel || entry.label === highlightedChoiceLabel) {
-                    return baseColor
-                }
-
-                return hexToRGBA(baseColor, activeChoiceLabel ? 0.22 : 0.35)
-            }),
-        [activeChoiceLabel, chartData, highlightedChoiceLabel]
-    )
+    const barColors = useMemo(() => {
+        const baseColors = chartData.map((_, i) => CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length])
+        return computeBarColors(
+            baseColors,
+            chartData.map((d) => d.label),
+            highlightedChoiceLabel,
+            !!activeChoiceLabel
+        )
+    }, [activeChoiceLabel, chartData, highlightedChoiceLabel])
 
     const tooltipContextByIndex = useMemo((): TooltipContext[] => {
         const totalSelections = chartData.reduce((sum, d) => sum + d.value, 0)
@@ -259,7 +258,7 @@ export function MultipleChoiceQuestionViz({
                         chartData={chartData}
                         totalResponses={totalResponses}
                         activeChoiceLabel={activeChoiceLabel}
-                        highlightedChoiceLabel={highlightedChoiceLabel}
+                        barColors={barColors}
                         tooltipContextByIndex={tooltipContextByIndex}
                         onBarClick={applyChoiceClick}
                     />
@@ -347,11 +346,7 @@ export function MultipleChoiceQuestionViz({
                                 },
                             ]}
                             labels={chartData.map((d) => d.label)}
-                            datalabelFormatter={(value) => {
-                                const total = totalResponses || 1
-                                const percentage = ((value / total) * 100).toFixed(1)
-                                return `${value} (${percentage}%)`
-                            }}
+                            datalabelFormatter={(value) => formatCountWithPercentage(value, totalResponses)}
                         />
                     </BindLogic>
                 )}

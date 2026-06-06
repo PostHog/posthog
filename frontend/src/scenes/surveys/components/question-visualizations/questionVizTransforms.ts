@@ -5,11 +5,7 @@ import { hexToRGBA } from 'lib/utils'
 const ACTIVE_DIM_ALPHA = 0.22
 const ARMED_DIM_ALPHA = 0.35
 
-/**
- * Per-bar colors with the non-highlighted bars dimmed. Shared by the rating and multiple-choice
- * charts: bars matching `highlightedLabel` (or all bars when nothing is highlighted) keep their
- * base color; the rest fade toward transparent.
- */
+// Per-bar colors, shared by the rating and multiple-choice charts: non-highlighted bars are dimmed.
 export function computeBarColors(
     baseColors: string[],
     labels: string[],
@@ -25,4 +21,9 @@ export function computeBarColors(
 
         return hexToRGBA(baseColor, hasActiveFilter ? ACTIVE_DIM_ALPHA : ARMED_DIM_ALPHA)
     })
+}
+
+export function formatCountWithPercentage(value: number, total: number): string {
+    const percentage = ((value / (total || 1)) * 100).toFixed(1)
+    return `${value} (${percentage}%)`
 }

@@ -203,9 +203,7 @@ const MOCK_RESPONSES_COUNT = {
     '0187c279-bcae-0000-34f5-4f121921f006': 25,
 }
 
-// Survey whose results actually load, so the question-visualization charts render. Covers the three
-// chart types the results page draws: a rating (NPS) bar chart, a single-choice and a multiple-choice
-// horizontal bar chart.
+// Survey whose results actually load, so the question-visualization charts render.
 const MOCK_SURVEY_WITH_RESULTS: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f099',
     name: 'survey with results',
@@ -546,9 +544,6 @@ export const SurveyView: Story = {
     },
 }
 
-// Survey results view with loaded data, so the question-visualization charts render (rating bar,
-// single- and multiple-choice horizontal bars). Overrides the query handler to return aggregate and
-// base-stats rows for this survey.
 export const SurveyResults: Story = {
     parameters: {
         pageUrl: urls.survey(MOCK_SURVEY_WITH_RESULTS.id),

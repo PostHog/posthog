@@ -10,9 +10,12 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import {
+    computeBarColors,
+    formatCountWithPercentage,
+} from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 import { RatingBarChart } from 'scenes/surveys/components/question-visualizations/RatingBarChart'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
@@ -561,17 +564,10 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     const highlightedRatingLabel = activeRatingLabel
 
     const ratingBarColors = useMemo((): string[] => {
-        return chartLabels.map((label) => {
-            const baseColor = isNpsRatingQuestion
-                ? NPS_BUCKET_COLORS[getNpsBucketByRatingLabel(label).bucket]
-                : barColor
-
-            if (!highlightedRatingLabel || label === highlightedRatingLabel) {
-                return baseColor
-            }
-
-            return hexToRGBA(baseColor, activeRatingLabel ? 0.22 : 0.35)
-        })
+        const baseColors = chartLabels.map((label) =>
+            isNpsRatingQuestion ? NPS_BUCKET_COLORS[getNpsBucketByRatingLabel(label).bucket] : barColor
+        )
+        return computeBarColors(baseColors, chartLabels, highlightedRatingLabel, !!activeRatingLabel)
     }, [activeRatingLabel, barColor, chartLabels, highlightedRatingLabel, isNpsRatingQuestion])
 
     const npsBucketByIndex = useMemo(
@@ -730,11 +726,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                         },
                                     ]}
                                     labels={chartLabels}
-                                    datalabelFormatter={(value) => {
-                                        const total = totalResponses || 1
-                                        const percentage = ((value / total) * 100).toFixed(1)
-                                        return `${value} (${percentage}%)`
-                                    }}
+                                    datalabelFormatter={(value) => formatCountWithPercentage(value, totalResponses)}
                                 />
                             </BindLogic>
                         </div>

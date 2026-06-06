@@ -5,8 +5,10 @@ import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ChoiceQuestionResponseData } from '~/types'
 
 interface NpsBucketMeta {
     label: string
@@ -14,7 +16,7 @@ interface NpsBucketMeta {
 }
 
 interface Props {
-    data: { value: number }[]
+    data: ChoiceQuestionResponseData[]
     chartLabels: string[]
     totalResponses: number
     barColors: string[]
@@ -94,12 +96,6 @@ export function RatingBarChart({
         bars: { bandPadding: 0.2 },
     }
 
-    const valueLabelFormatter = (value: number): string => {
-        const total = totalResponses || 1
-        const percentage = ((value / total) * 100).toFixed(1)
-        return `${value} (${percentage}%)`
-    }
-
     return (
         <div className="relative h-full w-full flex flex-col">
             <BarChart
@@ -119,7 +115,7 @@ export function RatingBarChart({
                 onPointClick={({ dataIndex }) => onBarClick(dataIndex)}
                 dataAttr="survey-rating"
             >
-                <ValueLabels valueFormatter={valueLabelFormatter} />
+                <ValueLabels valueFormatter={(value) => formatCountWithPercentage(value, totalResponses)} />
             </BarChart>
         </div>
     )

@@ -5,8 +5,7 @@ import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { computeBarColors } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
-import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
+import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
@@ -23,7 +22,7 @@ interface Props {
     chartData: ChoiceQuestionResponseData[]
     totalResponses: number
     activeChoiceLabel: string | null
-    highlightedChoiceLabel: string | null
+    barColors: string[]
     tooltipContextByIndex: TooltipContextData[]
     onBarClick: (index: number) => void
 }
@@ -83,20 +82,12 @@ export function MultipleChoiceBarChart({
     chartData,
     totalResponses,
     activeChoiceLabel,
-    highlightedChoiceLabel,
+    barColors,
     tooltipContextByIndex,
     onBarClick,
 }: Props): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-
-    const baseColors = chartData.map((_, i) => CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length])
-    const barColors = computeBarColors(
-        baseColors,
-        chartData.map((d) => d.label),
-        highlightedChoiceLabel,
-        !!activeChoiceLabel
-    )
 
     const series: Series[] = [
         {
@@ -120,12 +111,6 @@ export function MultipleChoiceBarChart({
         bars: { minBandSize: 32, bandPadding: 0.4 },
     }
 
-    const valueLabelFormatter = (value: number): string => {
-        const total = totalResponses || 1
-        const percentage = ((value / total) * 100).toFixed(1)
-        return `${value} (${percentage}%)`
-    }
-
     return (
         <div className="pl-4">
             <BarChart
@@ -144,7 +129,7 @@ export function MultipleChoiceBarChart({
                 onPointClick={({ dataIndex }) => onBarClick(dataIndex)}
                 dataAttr="survey-multiple-choice"
             >
-                <ValueLabels valueFormatter={valueLabelFormatter} />
+                <ValueLabels valueFormatter={(value) => formatCountWithPercentage(value, totalResponses)} />
             </BarChart>
         </div>
     )
