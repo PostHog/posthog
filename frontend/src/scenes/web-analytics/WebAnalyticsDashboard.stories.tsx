@@ -70,7 +70,7 @@ const meta: Meta = {
 }
 export default meta
 
-export function WebAnalyticsDashboard(): JSX.Element {
+function DashboardScene(): JSX.Element {
     const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
 
     useEffect(() => {
@@ -82,6 +82,26 @@ export function WebAnalyticsDashboard(): JSX.Element {
     }, [setDeviceTab, setSourceTab])
 
     return <App />
+}
+
+export function WebAnalyticsDashboard(): JSX.Element {
+    return <DashboardScene />
+}
+
+WebAnalyticsDashboardMetricCards.parameters = {
+    layout: 'fullscreen',
+    viewMode: 'story',
+    mockDate: '2023-02-01',
+    pageUrl: urls.webAnalytics(),
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+export function WebAnalyticsDashboardMetricCards(): JSX.Element {
+    return <DashboardScene />
 }
 
 WebAnalyticsDashboardLoading.parameters = {

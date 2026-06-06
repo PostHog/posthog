@@ -96,14 +96,21 @@ export function OverviewGrid({
                           />
                       ))}
             </EvenlyDistributedRows>
-            {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
-                <LemonBanner type="info" className="my-4">
-                    These results are using a sampling factor of {samplingRate.numerator}
-                    <span>{(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}</span>. Sampling
-                    is currently in beta.
-                </LemonBanner>
-            ) : null}
+            <SamplingNotice samplingRate={samplingRate} />
         </>
+    )
+}
+
+export function SamplingNotice({ samplingRate }: { samplingRate?: SamplingRate }): JSX.Element | null {
+    if (!samplingRate || (samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1)) {
+        return null
+    }
+    return (
+        <LemonBanner type="info" className="my-4">
+            These results are using a sampling factor of {samplingRate.numerator}
+            <span>{(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}</span>. Sampling is
+            currently in beta.
+        </LemonBanner>
     )
 }
 
@@ -295,7 +302,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
+export const formatItem = (
     value: number | string | undefined,
     kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }

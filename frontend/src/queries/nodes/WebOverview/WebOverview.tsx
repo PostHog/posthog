@@ -8,6 +8,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -68,6 +69,18 @@ export function WebOverview(props: {
             warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
 
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS]) {
+        return (
+            <OverviewMetricCardGrid
+                items={overviewItems}
+                loading={responseLoading}
+                numSkeletons={numSkeletons}
+                samplingRate={samplingRate}
+                labelFromKey={labelFromKey}
+            />
+        )
+    }
+
     return (
         <OverviewGrid
             items={overviewItems}
@@ -81,7 +94,7 @@ export function WebOverview(props: {
     )
 }
 
-const labelFromKey = (key: string): string => {
+export const labelFromKey = (key: string): string => {
     switch (key) {
         case 'visitors':
             return 'Visitors'
