@@ -50,6 +50,7 @@ const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
+const MAX_SPLIT_BATCH_SIZE: usize = 2_500;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -1227,15 +1228,19 @@ impl PersonHogReplica for PersonHogReplicaService {
             return Ok(Response::new(SplitPersonResponse { splits: vec![] }));
         }
 
+        if req.distinct_ids_to_split.len() > MAX_SPLIT_BATCH_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_SPLIT_BATCH_SIZE} distinct_ids per split_person request"
+            )));
+        }
+
         let results = self
             .storage
             .split_person(req.team_id, req.person_id, &req.distinct_ids_to_split)
             .await
             .map_err(|e| match &e {
-                storage::StorageError::Query(msg) if msg.starts_with("NOT_FOUND:") => {
-                    Status::not_found(msg.clone())
-                }
-                storage::StorageError::Query(msg) if msg.starts_with("FAILED_PRECONDITION:") => {
+                storage::StorageError::NotFound(msg) => Status::not_found(msg.clone()),
+                storage::StorageError::FailedPrecondition(msg) => {
                     Status::failed_precondition(msg.clone())
                 }
                 _ => log_and_convert_error(e, "split_person"),

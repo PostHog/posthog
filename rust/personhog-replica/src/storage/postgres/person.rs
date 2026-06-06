@@ -16,6 +16,9 @@ const PERSON_UUIDV5_NAMESPACE: Uuid = Uuid::from_bytes([
     0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc, 0x22,
 ]);
 
+/// Version offset for split person/PDI rows — mirrors the Django convention.
+const SPLIT_VERSION_OFFSET: i64 = 101;
+
 const POOL_LABEL: &str = "replica";
 const BULK_POOL_LABEL: &str = "bulk_replica";
 
@@ -659,35 +662,35 @@ impl PersonLookup for PostgresStorage {
         .fetch_optional(&self.primary_pool)
         .await?
         .ok_or_else(|| {
-            StorageError::Query(format!(
-                "person not found: team_id={team_id}, person_id={person_id}"
-            ))
+            StorageError::NotFound(format!("person_id={person_id} (team_id={team_id})"))
         })?;
 
-        // Step 2: Validate distinct_ids belong to this person (pre-transaction check)
+        // Step 2: Validate distinct_ids belong to this person (pre-transaction check).
+        // Query only the requested IDs rather than all of the person's distinct IDs
+        // so memory usage is bounded by the (already-capped) input size.
         let owned_dids: Vec<String> = sqlx::query_scalar!(
             r#"
             SELECT distinct_id as "distinct_id!"
             FROM posthog_persondistinctid
-            WHERE team_id = $1 AND person_id = $2
+            WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3)
             "#,
             team_id as i32,
-            person_id
+            person_id,
+            distinct_ids_to_split
         )
         .fetch_all(&self.primary_pool)
         .await?;
 
-        let owned_set: std::collections::HashSet<&str> =
-            owned_dids.iter().map(|s| s.as_str()).collect();
-        let unknown: Vec<&str> = distinct_ids_to_split
-            .iter()
-            .filter(|did| !owned_set.contains(did.as_str()))
-            .map(|s| s.as_str())
-            .collect();
-        if !unknown.is_empty() {
-            return Err(StorageError::Query(format!(
-                "NOT_FOUND: distinct_ids {:?} do not belong to person_id={person_id} (team_id={team_id})",
-                unknown
+        if owned_dids.len() != distinct_ids_to_split.len() {
+            let owned_set: std::collections::HashSet<&str> =
+                owned_dids.iter().map(|s| s.as_str()).collect();
+            let unknown: Vec<&str> = distinct_ids_to_split
+                .iter()
+                .filter(|did| !owned_set.contains(did.as_str()))
+                .map(|s| s.as_str())
+                .collect();
+            return Err(StorageError::NotFound(format!(
+                "distinct_ids {unknown:?} do not belong to person_id={person_id} (team_id={team_id})"
             )));
         }
 
@@ -710,8 +713,8 @@ impl PersonLookup for PostgresStorage {
         .await?;
 
         if locked_pdis.len() != distinct_ids_to_split.len() {
-            return Err(StorageError::Query(format!(
-                "FAILED_PRECONDITION: expected {} PDIs but locked {} (team_id={team_id}, person_id={person_id})",
+            return Err(StorageError::FailedPrecondition(format!(
+                "expected {} PDIs but locked {} (team_id={team_id}, person_id={person_id})",
                 distinct_ids_to_split.len(),
                 locked_pdis.len()
             )));
@@ -724,7 +727,7 @@ impl PersonLookup for PostgresStorage {
                 &PERSON_UUIDV5_NAMESPACE,
                 format!("{team_id}:{}", pdi.distinct_id).as_bytes(),
             );
-            let new_person_version = person_version + 101;
+            let new_person_version = person_version + SPLIT_VERSION_OFFSET;
 
             // 3b: Upsert new person (deterministic UUID, idempotent)
             sqlx::query!(
@@ -753,7 +756,7 @@ impl PersonLookup for PostgresStorage {
             .fetch_one(&mut *tx)
             .await?;
 
-            let pdi_version = pdi.version + 101;
+            let pdi_version = pdi.version + SPLIT_VERSION_OFFSET;
 
             // 3c: Reassign PDI to new person
             sqlx::query!(
