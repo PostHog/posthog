@@ -13,7 +13,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { RatingBarChartQuill } from 'scenes/surveys/components/question-visualizations/RatingBarChartQuill'
+import { RatingBarChart } from 'scenes/surveys/components/question-visualizations/RatingBarChart'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
@@ -635,8 +635,6 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
         }
     }
 
-    const handleRatingBarClick = ({ index }: GraphPointPayload): void => applyRatingClick(index)
-
     if (isThumbQuestion(question)) {
         return thumbsBreakdown ? <ThumbsBreakdownViz thumbsBreakdown={thumbsBreakdown} /> : null
     }
@@ -646,7 +644,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
             <div className="flex flex-col gap-1">
                 <div className="h-50 border rounded pt-8">
                     {useHogCharts ? (
-                        <RatingBarChartQuill
+                        <RatingBarChart
                             data={data}
                             chartLabels={chartLabels}
                             totalResponses={totalResponses}
@@ -668,7 +666,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                                     type={GraphType.Bar}
                                     hideAnnotations={true}
                                     formula="-"
-                                    onClick={handleRatingBarClick}
+                                    onClick={({ index }: GraphPointPayload) => applyRatingClick(index)}
                                     tooltip={{
                                         showHeader: false,
                                         hideColorCol: true,

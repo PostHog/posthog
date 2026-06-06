@@ -5,7 +5,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { MultipleChoiceBarChartQuill } from 'scenes/surveys/components/question-visualizations/MultipleChoiceBarChartQuill'
+import { MultipleChoiceBarChart } from 'scenes/surveys/components/question-visualizations/MultipleChoiceBarChart'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
@@ -251,13 +251,11 @@ export function MultipleChoiceQuestionViz({
         setArmedChoiceLabel(clickedChoiceLabel)
     }
 
-    const handleChoiceBarClick = ({ index }: GraphPointPayload): void => applyChoiceClick(index)
-
     return (
         <div className="space-y-4">
             <div className="border rounded py-4 max-h-[600px] overflow-y-auto">
                 {useHogCharts ? (
-                    <MultipleChoiceBarChartQuill
+                    <MultipleChoiceBarChart
                         chartData={chartData}
                         totalResponses={totalResponses}
                         activeChoiceLabel={activeChoiceLabel}
@@ -276,7 +274,7 @@ export function MultipleChoiceQuestionViz({
                             data-attr="survey-multiple-choice"
                             type={GraphType.HorizontalBar}
                             formula="-"
-                            onClick={handleChoiceBarClick}
+                            onClick={({ index }: GraphPointPayload) => applyChoiceClick(index)}
                             tooltip={{
                                 showHeader: false,
                                 hideColorCol: true,
