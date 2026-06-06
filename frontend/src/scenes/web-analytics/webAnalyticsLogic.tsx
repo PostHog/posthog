@@ -154,8 +154,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTourId: null,
             }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
-            webAnalyticsHealthLogic,
-            ['webAnalyticsHealthStatus'],
             webAnalyticsFilterLogic,
             [
                 'rawWebAnalyticsFilters',
