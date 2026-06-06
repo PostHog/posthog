@@ -9,7 +9,7 @@ import { Pool } from 'pg'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { consumeAllMessagesByOffset, ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
@@ -25,6 +25,7 @@ import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
 import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { WarpstreamHttpFetchService } from '../services/warpstream-http-fetch.service'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
@@ -41,7 +42,6 @@ interface PersistedRow {
     attempts: number
     error_kind: string
     function_kind: string
-    invocation_globals: string
 }
 
 /**
@@ -293,19 +293,17 @@ describe('CDP hog invocation rerun e2e', () => {
         }, 30_000)
 
         const originalRows = await clickhouse.query<PersistedRow>(
-            `SELECT invocation_id, status, is_retry, attempts, error_kind, function_kind, invocation_globals
+            `SELECT invocation_id, status, is_retry, attempts, error_kind, function_kind
              FROM hog_invocation_results
              WHERE team_id = ${team.id} AND function_id = '${fnFetch.id}' AND status = 'succeeded'`
         )
         const originalInvocationId = originalRows[0].invocation_id
         expect(originalRows[0].is_retry).toBe(0)
         expect(originalRows[0].function_kind).toBe('hog_function')
-        // invocation_globals is stored gzip+base64'd, not raw JSON — base64
-        // never starts with `{`. The rerun below proves the round-trip: it can
-        // only rehydrate and re-run if `decodeInvocationGlobals` decompresses
-        // this value correctly.
-        expect(originalRows[0].invocation_globals.length).toBeGreaterThan(0)
-        expect(originalRows[0].invocation_globals.startsWith('{')).toBe(false)
+        // The globals are no longer stored in ClickHouse — they live in the
+        // results topic and are fetched by reference. The rerun below is the
+        // round-trip proof: it can only rehydrate and re-run if the (partition,
+        // offset) on this row resolves back to the message and decodes.
         // The prior cyclotron_jobs row is in a terminal 'completed' state by
         // this point. The rerun path's `overwriteExisting: true` upsert
         // (cyclotron-v2 ON CONFLICT) handles the PK collision without us
@@ -338,10 +336,30 @@ describe('CDP hog invocation rerun e2e', () => {
         })
 
         // ── 3. Rerun worker drains the wrapper job ────────────────────────────────
+        // The globals aren't in ClickHouse — the worker fetches them by reference
+        // from the results topic. In prod that's Warpstream's HTTP endpoint; here
+        // we inject a fetcher that round-trips through the test Kafka by
+        // (partition, offset), proving the CH `_offset`/`_partition` match the
+        // real message coordinates end-to-end.
+        const globalsFetcher = {
+            fetchRecords: async (topic: string, refs: { partition: number; offset: number }[]) => {
+                const all = await consumeAllMessagesByOffset(topic)
+                const out = new Map<string, Buffer>()
+                for (const ref of refs) {
+                    const value = all.get(`${ref.partition}:${ref.offset}`)
+                    if (value) {
+                        out.set(`${ref.partition}:${ref.offset}`, value)
+                    }
+                }
+                return out
+            },
+        } as unknown as WarpstreamHttpFetchService
+
         rerunWorker = new CdpRerunWorkerConsumer(
             { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
             cdpDeps,
-            { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
+            { hog_function: kafkaQueue, hog_flow: postgresV2Queue },
+            globalsFetcher
         )
         await rerunWorker.start()
 

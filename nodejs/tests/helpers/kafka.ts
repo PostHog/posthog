@@ -100,6 +100,75 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     ])
 }
 
+/**
+ * Read every message currently on `topic`, keyed by `"partition:offset"`. Used
+ * by tests that need to fetch a specific record by its Kafka coordinates — e.g.
+ * the rerun paginator's by-reference globals lookup, which in production hits
+ * Warpstream's HTTP fetch endpoint but in tests round-trips through Redpanda.
+ * Relies on `partition.eof` to know when each partition is drained, with a
+ * deadline as a safety net.
+ */
+export async function consumeAllMessagesByOffset(
+    topic: string,
+    extraServerConfig?: Partial<PluginsServerConfig>
+): Promise<Map<string, Buffer>> {
+    const kafkaConfig = buildKafkaConfig(extraServerConfig)
+    const out = new Map<string, Buffer>()
+    const consumer = new KafkaConsumer(
+        {
+            ...kafkaConfig,
+            'group.id': `consume-all-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            'enable.auto.commit': false,
+            'enable.partition.eof': true,
+        },
+        { 'auto.offset.reset': 'earliest' }
+    )
+
+    await new Promise<void>((resolve, reject) => {
+        consumer.on('event.error', reject)
+        consumer.once('ready', () => resolve())
+        consumer.connect()
+    })
+
+    try {
+        const metadata = await new Promise<any>((resolve, reject) => {
+            consumer.getMetadata({ topic } as any, (err: any, md: any) => (err ? reject(err) : resolve(md)))
+        })
+        const topicMeta = metadata.topics.find((t: any) => t.name === topic)
+        const partitions: number[] = (topicMeta?.partitions ?? []).map((p: any) => p.id)
+        if (partitions.length === 0) {
+            return out
+        }
+
+        consumer.assign(partitions.map((partition) => ({ topic, partition, offset: 0 })))
+
+        const eofSeen = new Set<number>()
+        await new Promise<void>((resolve) => {
+            const deadline = setTimeout(resolve, 10_000)
+            const finish = (): void => {
+                clearTimeout(deadline)
+                resolve()
+            }
+            consumer.on('partition.eof', (eof: any) => {
+                eofSeen.add(eof.partition)
+                if (eofSeen.size >= partitions.length) {
+                    finish()
+                }
+            })
+            consumer.on('data', (message: any) => {
+                if (message.value) {
+                    out.set(`${message.partition}:${message.offset}`, message.value as Buffer)
+                }
+            })
+            consumer.consume()
+        })
+    } finally {
+        await new Promise<void>((resolve) => consumer.disconnect(() => resolve()))
+    }
+
+    return out
+}
+
 export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
     const client = AdminClient.create(kafkaConfig)
     await deleteAllTopics(kafkaConfig)

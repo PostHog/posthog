@@ -71,7 +71,10 @@ export interface HogInvocationResultRow {
     event_uuid: string
     distinct_id: string
     person_id: string
-    invocation_globals: string // globals JSON (inputs/groups/person stripped) — gzip+base64'd on produce
+    // globals JSON (inputs/groups/person stripped) — gzip+base64'd on produce.
+    // Empty on the `running` row: only the terminal row carries it (see
+    // queueLifecycleRow), since reruns reference the surviving terminal row.
+    invocation_globals: string
     version: string // microsecond-precision UInt64; serialized as string to dodge JS's 53-bit precision
     is_deleted: 0 | 1
 }
@@ -364,7 +367,14 @@ export class HogInvocationResultsService {
             event_uuid: trigger.event_uuid,
             distinct_id: trigger.distinct_id,
             person_id: trigger.person_id,
-            invocation_globals: serializeInvocationGlobals(invocation),
+            // Only the terminal row carries the globals. The ReplacingMergeTree
+            // collapses the running + terminal rows to the latest version (the
+            // terminal one), and reruns reference that surviving row's message
+            // via argMax(_offset, version) — so the running row's copy would
+            // never be read. Reruns only target finished invocations, so the
+            // terminal row always exists by the time it's rerunnable. Skipping
+            // the running row's copy halves the globals bytes on the topic.
+            invocation_globals: status === 'running' ? '' : serializeInvocationGlobals(invocation),
             version: microsecondsSinceEpoch(),
             is_deleted: 0,
         }
@@ -490,7 +500,11 @@ export class HogInvocationResultsService {
                     safeClickhouseString(
                         JSON.stringify({
                             ...row,
-                            invocation_globals: await compressInvocationGlobals(row.invocation_globals),
+                            // Empty (running-row) payloads stay empty — no point
+                            // gzipping an empty string.
+                            invocation_globals: row.invocation_globals
+                                ? await compressInvocationGlobals(row.invocation_globals)
+                                : '',
                         })
                     )
                 )

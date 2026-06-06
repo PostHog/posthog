@@ -305,9 +305,9 @@
       event_uuid String,
       distinct_id String,
       person_id String,
-      invocation_globals String,
       version UInt64,
-      is_deleted UInt8
+      is_deleted UInt8,
+      invocation_globals String
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
@@ -1773,11 +1773,8 @@
       event_uuid String,
       distinct_id String,
       person_id String,
-      invocation_globals String,
       version UInt64,
-      is_deleted UInt8,
-      globals_partition UInt64,
-      globals_offset UInt64
+      is_deleted UInt8
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1811,11 +1808,8 @@
       event_uuid String,
       distinct_id String,
       person_id String,
-      invocation_globals String,
       version UInt64,
       is_deleted UInt8 DEFAULT 0,
-      globals_partition UInt64 DEFAULT 0,
-      globals_offset UInt64 DEFAULT 0,
       INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
       INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -1863,14 +1857,11 @@
       event_uuid,
       distinct_id,
       person_id,
-      invocation_globals,
       version,
       is_deleted,
-      -- (partition, offset) of this very message in the results topic. The rerun
-      -- paginator reads these back to fetch `invocation_globals` from Warpstream
-      -- by reference rather than from the (large) persisted column.
-      _partition AS globals_partition,
-      _offset AS globals_offset,
+      -- `invocation_globals` is intentionally NOT selected: it's parsed off the
+      -- message but not persisted. `_partition`/`_offset` are the by-reference
+      -- pointer back to this message in the results topic, read on rerun.
       _timestamp,
       _offset,
       _partition
@@ -2174,9 +2165,9 @@
       event_uuid String,
       distinct_id String,
       person_id String,
-      invocation_globals String,
       version UInt64,
-      is_deleted UInt8
+      is_deleted UInt8,
+      invocation_globals String
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
@@ -7832,11 +7823,8 @@
       event_uuid String,
       distinct_id String,
       person_id String,
-      invocation_globals String,
       version UInt64,
       is_deleted UInt8 DEFAULT 0,
-      globals_partition UInt64 DEFAULT 0,
-      globals_offset UInt64 DEFAULT 0,
       INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
       INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 1,

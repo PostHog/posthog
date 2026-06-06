@@ -46,9 +46,17 @@ def HOG_INVOCATION_RESULTS_ENGINE() -> ReplacingMergeTree:
     )
 
 
-# Kafka payload column list (no CODEC clauses — ZSTD applies on the storage
-# side only). Reused between the Kafka engine table, the MV projection, and
-# the distributed read alias.
+# Columns persisted on the data table and exposed via the distributed read
+# alias.
+#
+# `invocation_globals` is deliberately absent: the globals live only in the
+# results Kafka topic now (the producer still sends them in the message), and
+# reruns fetch them back by (partition, offset) from Warpstream's HTTP fetch
+# endpoint — see the rerun paginator. Persisting them in ClickHouse for the full
+# TTL is exactly the storage cost this table family is trying to avoid. The
+# reference itself needs no dedicated column: the Kafka engine's virtual
+# `_partition`/`_offset` (materialized via `KAFKA_COLUMNS_WITH_PARTITION`) record
+# the coordinates of each row's own lifecycle message.
 #
 # `first_scheduled_at` is set by the producer to the *original* cyclotron-
 # scheduled time and carried unchanged through retries. The ReplacingMergeTree
@@ -56,7 +64,7 @@ def HOG_INVOCATION_RESULTS_ENGINE() -> ReplacingMergeTree:
 # scheduled time with `min(scheduled_at)` post-merge — every lifecycle row
 # for a given invocation carries this column verbatim so `argMax(..., version)`
 # returns it correctly regardless of merge state.
-HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = """
+HOG_INVOCATION_RESULTS_STORED_COLUMNS = """
     team_id Int64,
     function_kind LowCardinality(String),
     function_id String,
@@ -75,33 +83,23 @@ HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = """
     event_uuid String,
     distinct_id String,
     person_id String,
-    invocation_globals String,
     version UInt64,
     is_deleted UInt8
 """.strip()
 
 
-# Reference back to the Kafka message that carries this row's `invocation_globals`.
-# These are NOT sent in the Kafka payload — the producer can't know the offset a
-# message will land at. The MV materializes them from the Kafka engine's virtual
-# `_partition`/`_offset` columns at consume time, so each row records the
-# (partition, offset) of its own lifecycle message in the
-# `clickhouse_hog_invocation_results` topic. The rerun paginator uses these to
-# fetch the full globals back from Warpstream's HTTP fetch endpoint instead of
-# persisting the (large) `invocation_globals` blob in ClickHouse for 30 days.
-#
-# Lives only on the data table + distributed read alias — deliberately absent
-# from `HOG_INVOCATION_RESULTS_KAFKA_COLUMNS` so the Kafka engine table doesn't
-# expect them in the message body.
-HOG_INVOCATION_RESULTS_GLOBALS_REF_COLUMNS = """
-    globals_partition UInt64,
-    globals_offset UInt64
-""".strip()
+# The Kafka engine still parses `invocation_globals` from each message — the
+# producer keeps sending it (the topic is the source of truth for globals). The
+# MV reads every column EXCEPT that one, so the field is parsed and dropped
+# rather than persisted. Keeping it on the Kafka engine table (which has no
+# storage) is cheap and avoids relying on `input_format_skip_unknown_fields`.
+HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = HOG_INVOCATION_RESULTS_STORED_COLUMNS + ",\n    invocation_globals String"
 
 
-# The actual data lives on AUX. ZSTD on the two large String columns. Skipping
-# indexes match the listing/replay query shape — see the runs-v2 logic for
-# the canonical select.
+# The actual data lives on AUX. Skipping indexes match the listing/replay query
+# shape — see the runs-v2 logic for the canonical select. `_partition`/`_offset`
+# (from KAFKA_COLUMNS_WITH_PARTITION) double as the by-reference globals pointer
+# the rerun paginator reads back.
 HOG_INVOCATION_RESULTS_DATA_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
@@ -124,11 +122,8 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     event_uuid String,
     distinct_id String,
     person_id String,
-    invocation_globals String,
     version UInt64,
     is_deleted UInt8 DEFAULT 0,
-    globals_partition UInt64 DEFAULT 0,
-    globals_offset UInt64 DEFAULT 0,
     INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
     INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -152,8 +147,7 @@ DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_TABLE}
 (
-    {HOG_INVOCATION_RESULTS_KAFKA_COLUMNS},
-    {HOG_INVOCATION_RESULTS_GLOBALS_REF_COLUMNS}
+    {HOG_INVOCATION_RESULTS_STORED_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=HOG_INVOCATION_RESULTS_DATA_TABLE, cluster=settings.CLICKHOUSE_AUX_CLUSTER)}
@@ -214,14 +208,11 @@ AS SELECT
     event_uuid,
     distinct_id,
     person_id,
-    invocation_globals,
     version,
     is_deleted,
-    -- (partition, offset) of this very message in the results topic. The rerun
-    -- paginator reads these back to fetch `invocation_globals` from Warpstream
-    -- by reference rather than from the (large) persisted column.
-    _partition AS globals_partition,
-    _offset AS globals_offset,
+    -- `invocation_globals` is intentionally NOT selected: it's parsed off the
+    -- message but not persisted. `_partition`/`_offset` are the by-reference
+    -- pointer back to this message in the results topic, read on rerun.
     _timestamp,
     _offset,
     _partition
@@ -255,11 +246,8 @@ INSERT INTO {HOG_INVOCATION_RESULTS_DATA_TABLE} (
     event_uuid,
     distinct_id,
     person_id,
-    invocation_globals,
     version,
     is_deleted,
-    globals_partition,
-    globals_offset,
     _timestamp,
     _offset,
     _partition
@@ -283,11 +271,8 @@ SELECT
     %(event_uuid)s,
     %(distinct_id)s,
     %(person_id)s,
-    %(invocation_globals)s,
     %(version)s,
     %(is_deleted)s,
-    %(globals_partition)s,
-    %(globals_offset)s,
     now(),
     0,
     0

@@ -77,6 +77,23 @@ describe('HogInvocationResultsService', () => {
             expect(row.error_message).toBe('')
         })
 
+        it('writes globals only on the terminal row, not the running row', async () => {
+            // The ReplacingMergeTree keeps the terminal row (latest version) and
+            // reruns reference its message — so the running row carrying globals
+            // would just be wasted throughput.
+            const invocation = createExampleInvocation()
+            service.queueLifecycleRow(invocation, 'running')
+            service.queueLifecycleRow(invocation, 'succeeded')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            const running = rows.find((r) => r.status === 'running')!
+            const terminal = rows.find((r) => r.status === 'succeeded')!
+            expect(running.invocation_globals).toBe('')
+            expect(terminal.invocation_globals).not.toBe('')
+            expect((await decodeInvocationGlobals(terminal.invocation_globals)) as any).toHaveProperty('event')
+        })
+
         it('strips inputs from invocation_globals — secrets must not be persisted', async () => {
             const invocation = createExampleInvocation(
                 { id: 'fn-1', team_id: 1 },
@@ -87,7 +104,8 @@ describe('HogInvocationResultsService', () => {
                     } as any,
                 }
             )
-            service.queueLifecycleRow(invocation, 'running')
+            // Globals live on the terminal row, not the running row.
+            service.queueLifecycleRow(invocation, 'succeeded')
             await service.flush()
 
             const rows = parseProducedRows(outputs)
@@ -119,7 +137,7 @@ describe('HogInvocationResultsService', () => {
                     },
                 },
             } as any)
-            service.queueLifecycleRow(invocation, 'running')
+            service.queueLifecycleRow(invocation, 'succeeded')
             await service.flush()
 
             const rows = parseProducedRows(outputs)
@@ -293,7 +311,7 @@ describe('HogInvocationResultsService', () => {
                     timestamp: '2026-05-01T00:00:00Z',
                 },
             } as any)
-            service.queueLifecycleRow(invocation, 'running')
+            service.queueLifecycleRow(invocation, 'succeeded')
             await service.flush()
 
             const rows = parseProducedRows(outputs)

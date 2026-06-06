@@ -67,7 +67,7 @@ describe('RerunPaginatorService globals-by-reference resolution', () => {
 
     it('ignores a fetched message whose invocation_id does not match the row', async () => {
         // Offset reused by an unrelated message (e.g. original aged out of
-        // retention) — must not be trusted; caller falls back to the column.
+        // retention) — must not be trusted; the invocation is skipped.
         const fetchRecords = jest.fn().mockResolvedValue(new Map([['3:42', message('someone-else', '"wrong"')]]))
         const fetcher = { fetchRecords } as unknown as WarpstreamHttpFetchService
 
@@ -76,19 +76,30 @@ describe('RerunPaginatorService globals-by-reference resolution', () => {
         expect(resolved.has('inv-1')).toBe(false)
     })
 
-    it('skips (0, 0) refs (legacy rows) without issuing a fetch', async () => {
-        const fetchRecords = jest.fn()
+    it('ignores a message with empty globals (a running-row message)', async () => {
+        const fetchRecords = jest.fn().mockResolvedValue(new Map([['3:42', message('inv-1', '')]]))
+        const fetcher = { fetchRecords } as unknown as WarpstreamHttpFetchService
+
+        const resolved = await resolve(buildPaginator(fetcher), [buildRow()])
+
+        expect(resolved.has('inv-1')).toBe(false)
+    })
+
+    it('requests an offset-0 ref (a valid first-message position) and resolves it', async () => {
+        // With the column gone, (p, 0) is a genuine ref — the invocation_id check
+        // (not an offset>0 filter) is what guards correctness.
+        const fetchRecords = jest.fn().mockResolvedValue(new Map([['0:0', message('first', '"g"')]]))
         const fetcher = { fetchRecords } as unknown as WarpstreamHttpFetchService
 
         const resolved = await resolve(buildPaginator(fetcher), [
-            buildRow({ invocation_id: 'legacy', globals_partition: 0, globals_offset: 0 }),
+            buildRow({ invocation_id: 'first', globals_partition: 0, globals_offset: 0 }),
         ])
 
-        expect(fetchRecords).not.toHaveBeenCalled()
-        expect(resolved.size).toBe(0)
+        expect(fetchRecords).toHaveBeenCalledWith(TOPIC, [{ partition: 0, offset: 0 }])
+        expect(resolved.get('first')).toBe('"g"')
     })
 
-    it('falls back (absent from map) when a row is not in the fetch result', async () => {
+    it('skips (absent from map) when a row is not in the fetch result', async () => {
         const fetchRecords = jest.fn().mockResolvedValue(new Map())
         const fetcher = { fetchRecords } as unknown as WarpstreamHttpFetchService
 
@@ -97,7 +108,7 @@ describe('RerunPaginatorService globals-by-reference resolution', () => {
         expect(resolved.has('inv-1')).toBe(false)
     })
 
-    it('only requests refs that carry a usable offset', async () => {
+    it('requests every row ref in one batched fetch', async () => {
         const fetchRecords = jest.fn().mockResolvedValue(new Map([['1:7', message('inv-b', '"b"')]]))
         const fetcher = { fetchRecords } as unknown as WarpstreamHttpFetchService
 
@@ -106,6 +117,9 @@ describe('RerunPaginatorService globals-by-reference resolution', () => {
             buildRow({ invocation_id: 'inv-b', globals_partition: 1, globals_offset: 7 }),
         ])
 
-        expect(fetchRecords).toHaveBeenCalledWith(TOPIC, [{ partition: 1, offset: 7 }])
+        expect(fetchRecords).toHaveBeenCalledWith(TOPIC, [
+            { partition: 0, offset: 0 },
+            { partition: 1, offset: 7 },
+        ])
     })
 })

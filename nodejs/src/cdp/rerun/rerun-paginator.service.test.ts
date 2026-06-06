@@ -6,7 +6,7 @@ import { DateTime } from 'luxon'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { consumeAllMessagesByOffset, ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
@@ -22,6 +22,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
+import { WarpstreamHttpFetchService } from '../services/warpstream-http-fetch.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
@@ -194,6 +195,26 @@ describe('RerunPaginatorService integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<HogFunctionMonitoringService>
 
+        // The globals aren't stored in ClickHouse — they're fetched by reference
+        // from the results topic. In production that's Warpstream's HTTP fetch
+        // endpoint; here we round-trip through the test Kafka by (partition,
+        // offset), which proves the CH `_offset`/`_partition` line up with the
+        // real Kafka coordinates of each lifecycle message.
+        const globalsFetcher = {
+            fetchRecords: async (topic: string, refs: { partition: number; offset: number }[]) => {
+                const all = await consumeAllMessagesByOffset(topic)
+                const out = new Map<string, Buffer>()
+                for (const ref of refs) {
+                    const key = `${ref.partition}:${ref.offset}`
+                    const value = all.get(key)
+                    if (value) {
+                        out.set(key, value)
+                    }
+                }
+                return out
+            },
+        } as unknown as WarpstreamHttpFetchService
+
         paginator = new RerunPaginatorService(
             chClient,
             hogFunctionManager,
@@ -201,7 +222,9 @@ describe('RerunPaginatorService integration', () => {
             paginatorLifecycleService,
             { hog_function: hogQueue, hog_flow: hogflowQueue },
             paginatorMonitoringService,
-            10000
+            10000,
+            globalsFetcher,
+            KAFKA_HOG_INVOCATION_RESULTS
         )
     })
 

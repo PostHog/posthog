@@ -48,12 +48,22 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
     private jobQueues: RerunJobQueues
     private paginator: RerunPaginatorService | null = null
     private clickhouseClient: ClickHouseClient | null = null
+    private injectedGlobalsFetcher?: WarpstreamHttpFetchService
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: RerunJobQueues) {
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        jobQueues: RerunJobQueues,
+        // Test seam: in production the worker builds its globals fetcher from
+        // config (the Warpstream HTTP endpoint); tests inject a Kafka-backed
+        // fetcher so reruns can resolve globals without a real Warpstream agent.
+        globalsFetcher?: WarpstreamHttpFetchService
+    ) {
         super(config, deps)
         // Used by the paginator to re-enqueue rehydrated invocations as it
         // pages — hog functions to kafka, hog flows to postgres-v2.
         this.jobQueues = jobQueues
+        this.injectedGlobalsFetcher = globalsFetcher
     }
 
     override async start(): Promise<void> {
@@ -92,18 +102,12 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
                 : {}),
         })
 
-        // By-reference globals resolver — only wired when enabled and an HTTP
-        // endpoint is configured. Otherwise the paginator reads the inline
-        // `invocation_globals` column as before.
-        const globalsFetcher =
-            this.config.HOG_INVOCATION_RESULTS_GLOBALS_FROM_KAFKA &&
-            this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL
-                ? new WarpstreamHttpFetchService({
-                      url: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL,
-                      username: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME,
-                      password: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD,
-                  })
-                : null
+        // By-reference globals resolver. The globals aren't stored in ClickHouse,
+        // so reruns need a Warpstream HTTP endpoint to fetch them from the results
+        // topic; when it's unset (e.g. local dev), rerun rehydration finds no
+        // globals and skips. Logged loudly so a misconfigured prod worker is
+        // obvious. Tests inject their own fetcher (see constructor).
+        const globalsFetcher = this.injectedGlobalsFetcher ?? this.buildGlobalsFetcherFromConfig()
 
         this.paginator = new RerunPaginatorService(
             this.clickhouseClient,
@@ -131,6 +135,19 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         await this.worker.connect((jobs) => this.handleBatch(jobs))
 
         logger.info('🎬', 'CdpRerunWorkerConsumer started', { queue: RERUN_QUEUE_NAME })
+    }
+
+    private buildGlobalsFetcherFromConfig(): WarpstreamHttpFetchService | null {
+        const httpUrl = this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL
+        if (!httpUrl) {
+            logger.warn('⚠️', 'HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL unset — reruns cannot fetch globals')
+            return null
+        }
+        return new WarpstreamHttpFetchService({
+            url: httpUrl,
+            username: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME,
+            password: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD,
+        })
     }
 
     override async stop(): Promise<void> {

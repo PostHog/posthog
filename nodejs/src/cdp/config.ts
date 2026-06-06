@@ -98,15 +98,12 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_TOPIC: string
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
-    // When true, the rerun path resolves `invocation_globals` by reference —
-    // reading the (partition, offset) stored on each row and fetching the
-    // original message from Warpstream's HTTP fetch endpoint — instead of from
-    // the persisted ClickHouse column. Falls back to the column per-row when a
-    // message can't be fetched (retention, legacy rows). Requires the results
-    // topic retention to be >= the table TTL before the column can be dropped.
-    HOG_INVOCATION_RESULTS_GLOBALS_FROM_KAFKA: boolean
     // Base URL of a Warpstream agent's HTTP endpoint (e.g. http://agent:8080) on
-    // the cyclotron cluster, used for the by-reference fetch above.
+    // the cyclotron cluster. The rerun path resolves `invocation_globals` by
+    // reference — reading each row's (partition, offset) and fetching the
+    // original message from this endpoint — since the globals are no longer
+    // stored in ClickHouse. Reruns require this to be set (and the results topic
+    // retention to be >= the table TTL so the whole window is fetchable).
     HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL: string
     HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME: string
     HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD: string
@@ -224,9 +221,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
-        // Off by default — enable once the results topic retention is raised to
-        // match the table TTL so older reruns can still fetch their globals.
-        HOG_INVOCATION_RESULTS_GLOBALS_FROM_KAFKA: false,
         HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL: '',
         HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME: '',
         HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD: '',
