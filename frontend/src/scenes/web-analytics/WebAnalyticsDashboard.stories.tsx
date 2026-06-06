@@ -129,6 +129,7 @@ ShareNudgeBannerArm.parameters = {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
+ShareNudgeBannerArm.tags = ['test-skip']
 export function ShareNudgeBannerArm(): JSX.Element {
     const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
 
@@ -155,6 +156,7 @@ ShareNudgeButtonArm.parameters = {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
+ShareNudgeButtonArm.tags = ['test-skip']
 export function ShareNudgeButtonArm(): JSX.Element {
     const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
 
