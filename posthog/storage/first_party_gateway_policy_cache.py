@@ -109,12 +109,10 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
 
 
 def _gateway_for_credential(credential: Credential) -> Gateway | None:
-    """The one gateway this credential is bound to, or None if unbound.
+    """The gateway this credential is bound to, or None if unbound.
 
     A personal key binds directly; an OAuth token binds through its application
-    (the binding lives on the stable application, not the rotating token), so all
-    of an app's tokens resolve to the same gateway. Callers select_related the
-    join so this is a cached attribute access, not a query.
+    (stable across token rotation). Callers select_related the join.
     """
     if isinstance(credential, PersonalAPIKey):
         return credential.gateway
@@ -138,12 +136,9 @@ def _ttl_for_credential(credential: Credential) -> int | None:
 def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
-    The bound gateway is the source of truth for the billed team — not the user's
-    current team — so team_id is deterministic and can't drift with the key
-    owner's UI selection. Fails closed (returns HyperCacheStoreMissing) on anything
-    that would make the gateway reject the blob: missing scope, inactive user, an
-    expired OAuth token, an unbound credential, or a team with no project_token.
-    Never returns a partial blob.
+    The bound gateway is the source of truth for the billed team (not the user's
+    current team), so team_id is deterministic. Fails closed on missing scope,
+    inactive user, expired token, unbound credential, or a team with no token.
     """
     if not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
