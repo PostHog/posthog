@@ -183,6 +183,19 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # Product surface this tree serves. Subclass and override to expose a different surface
     # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
     file_system_surface: str = DEFAULT_SURFACE
+    # GET /instructions/ and /instructions/versions/ are reads; PUT/PATCH/DELETE on
+    # /instructions/ resolve to `publish_instructions` / `delete_instructions` via DRF's
+    # method mapping, so they go in the write bucket.
+    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "publish_instructions",
+        "delete_instructions",
+    ]
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
