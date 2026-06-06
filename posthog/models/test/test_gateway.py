@@ -23,6 +23,9 @@ class _TeamScopedTestMixin:
         cm = team_scope(self.team.id)  # type: ignore[attr-defined]
         cm.__enter__()
         self._team_scope_cm = cm
+        # The provision-on-create signal already gave self.team a default gateway;
+        # clear all rows so these model-unit tests control their own fixtures.
+        Gateway.all_teams.all().delete()
 
     def tearDown(self) -> None:
         if self._team_scope_cm is not None:
@@ -70,6 +73,7 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
 
     def test_same_slug_allowed_across_teams(self):
         other = Team.objects.create(organization=self.organization, name="other")
+        Gateway.all_teams.filter(team=other).delete()  # drop other's auto-provisioned default
         Gateway.objects.create(team=self.team, slug=DEFAULT_GATEWAY_SLUG, is_default=True)
         # A different team reusing the same slug is fine — attribution is keyed
         # (team_id, slug), so team_id disambiguates.
