@@ -6,7 +6,6 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
@@ -33,7 +32,6 @@ export function ChatHeader({
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
-    const { closeTabId } = useActions(sceneLogic)
     const isTitleLoading = chatTitle === 'New chat'
 
     return (
@@ -76,7 +74,6 @@ export function ChatHeader({
                         sideIcon={<IconOpenSidebar />}
                         onClick={() => {
                             openSidePanelMax(conversationId ?? undefined)
-                            closeTabId(tabId, { source: 'open_in_side_panel' })
                         }}
                     >
                         Open in context panel
