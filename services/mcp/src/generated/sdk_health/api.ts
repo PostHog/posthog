@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Returns a pre-digested health assessment of the PostHog SDKs the project is using. Covers which SDKs are current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version breakdown, and a human-readable reason for each assessment. Use this to diagnose SDK version issues, surface upgrade recommendations, or check overall SDK health.
  * @summary Get SDK health report for a project
  */
-export const SdkDoctorReportRetrieveParams = /* @__PURE__ */ zod.object({
+export const SdkHealthReportRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -20,7 +20,7 @@ export const SdkDoctorReportRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SdkDoctorReportRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const SdkHealthReportRetrieveQueryParams = /* @__PURE__ */ zod.object({
     force_refresh: zod
         .boolean()
         .optional()

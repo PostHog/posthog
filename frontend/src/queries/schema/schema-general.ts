@@ -3400,7 +3400,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'inbox'
-    | 'sdk_doctor'
+    | 'sdk_health'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'

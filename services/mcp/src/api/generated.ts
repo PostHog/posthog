@@ -38241,7 +38241,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -38252,7 +38252,7 @@ export namespace Schemas {
     export interface SdkAssessment {
       /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
       lib: string;
-      /** Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
+      /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
       readable_name: string;
       /** Most recent published version of this SDK. */
       latest_version: string;
@@ -38270,7 +38270,7 @@ export namespace Schemas {
       severity: SdkAssessmentSeverityEnum;
       /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
       reason: string;
-      /** Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
+      /** Top-level alert sentences matching the SDK Health UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
       banners: string[];
       /** Per-version assessment for all versions seen in the last 7 days. */
       releases: SdkReleaseAssessment[];
@@ -51396,7 +51396,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SdkDoctorReportRetrieveParams = {
+    export type SdkHealthReportRetrieveParams = {
     /**
      * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
      */

@@ -4,13 +4,13 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
-category: SDK Doctor
-feature: sdk_doctor
-url_prefix: /health/sdk-doctor
+category: SDK Health
+feature: sdk_health
+url_prefix: /health/sdk-health
 ui_apps: {}
 tools:
-    sdk-doctor-get:
-        operation: sdk_doctor_report_retrieve
+    sdk-health-get:
+        operation: sdk_health_report_retrieve
         enabled: true
         scopes:
             - project:read
