@@ -9,6 +9,42 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
+// Native "the network request never completed" messages. They mean the browser
+// could not reach the server at all (offline, DNS, CORS, ad-blocker, connection
+// reset) — there is no stack to act on and no bug to fix. We deliberately keep
+// "Failed to fetch dynamically imported module …" (a real, fixable stale-chunk
+// error) out of this list.
+const NON_ACTIONABLE_NETWORK_MESSAGES = new Set([
+    'Failed to fetch', // Chrome
+    'TypeError: Failed to fetch',
+    'Load failed', // Safari
+    'TypeError: Load failed',
+    'NetworkError when attempting to fetch resource.', // Firefox
+])
+
+/**
+ * Drop `$exception` events whose only error is a bare network failure.
+ *
+ * Because we enable `error_tracking.__capturePostHogExceptions`, posthog-js also
+ * reports its own internal send failures (session recorder, tracing headers,
+ * network capture). A single tab left open on a flaky connection can emit
+ * thousands of these "Failed to fetch" events, which drown out real, actionable
+ * exceptions in Error Tracking without telling us anything we can fix.
+ */
+const dropNonActionableNetworkExceptions: BeforeSendFn = (event) => {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const exceptionList = event.properties?.$exception_list
+    if (!Array.isArray(exceptionList) || exceptionList.length === 0) {
+        return event
+    }
+    const everyExceptionIsNetworkNoise = exceptionList.every((exception) =>
+        NON_ACTIONABLE_NETWORK_MESSAGES.has(String(exception?.value ?? '').trim())
+    )
+    return everyExceptionIsNetworkNoise ? null : event
+}
+
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
@@ -55,7 +91,14 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: [
+                dropNonActionableNetworkExceptions,
+                ...(Array.isArray(options.beforeSend)
+                    ? options.beforeSend
+                    : options.beforeSend
+                      ? [options.beforeSend]
+                      : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
