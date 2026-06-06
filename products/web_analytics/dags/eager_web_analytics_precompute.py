@@ -39,11 +39,10 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 import time
 
 from django.conf import settings
-from django.utils import timezone as django_timezone
 
 import dagster
 import structlog
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 
 from posthog.schema import WebStatsBreakdown
 
@@ -56,7 +55,6 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 
-from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
@@ -115,14 +113,6 @@ EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE = Counter(
     "Teams skipped by the eager warmer because they are not lazy-precompute eligible "
     "(the gate would route every tile through the raw path).",
 )
-# Number of READY precompute cache jobs present for a team after warming. Zero
-# is the alarm: it means the lazy path inserted nothing, i.e. the warmer fell
-# through to the raw path and nothing was actually warmed.
-EAGER_PRECOMPUTE_CACHE_KEYS = Gauge(
-    "web_analytics_eager_precompute_cache_keys",
-    "Count of READY (non-expired) precompute cache jobs for a team after eager warming.",
-    ["team_id"],
-)
 
 
 def _resolve_eager_audience() -> tuple[list[int], str, dict]:
@@ -139,17 +129,6 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     if not team_ids:
         return [], "no_teams_configured", diag
     return team_ids, "ok", diag
-
-
-def _count_precompute_cache_keys(team: Team) -> int:
-    """Count READY, non-expired precompute jobs for a team. Zero after a warm
-    run means the lazy path inserted nothing — the warmer fell through to the
-    raw path, which is the silent failure this check exists to surface."""
-    return PreaggregationJob.objects.filter(
-        team=team,
-        status=PreaggregationJob.Status.READY,
-        expires_at__gte=django_timezone.now(),
-    ).count()
 
 
 def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
@@ -301,23 +280,11 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 
         team_started = time.monotonic()
         team_warmed, team_failed = _warm_baseline_for_team(context, team)
-        # Post-check: confirm the lazy path actually populated the cache. Zero
-        # READY jobs after a warm run means it fell through to raw and warmed
-        # nothing — the failure mode that ran silently for days.
-        cache_keys = _count_precompute_cache_keys(team)
-        EAGER_PRECOMPUTE_CACHE_KEYS.labels(team_id=str(team_id)).set(cache_keys)
-        if cache_keys == 0:
-            context.log.error(
-                f"eager_baseline_warming_no_cache_keys team={team_id} warmed={team_warmed} — "
-                f"lazy path inserted no precompute jobs (raw fallback?)"
-            )
-            logger.error("eager_baseline_warming_no_cache_keys", team_id=team_id, warmed=team_warmed)
         logger.info(
             "eager_baseline_warming_team",
             team_id=team_id,
             warmed=team_warmed,
             failed=team_failed,
-            cache_keys=cache_keys,
             duration_ms=round((time.monotonic() - team_started) * 1000),
         )
         warmed += team_warmed

@@ -123,8 +123,6 @@ jobs:
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
                         # --- Only the products that DAGs actually import from ---
-                        # analytics_platform: DAGs only import the preaggregation_job model
-                        - 'products/analytics_platform/backend/models/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'

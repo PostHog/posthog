@@ -30,14 +30,10 @@ _QUERIES_PER_TEAM = 3 + len(BASELINE_BREAKDOWNS)
 
 
 @contextmanager
-def _eager_audience(team_ids, *, cache_keys: int = 10):
+def _eager_audience(team_ids):
     """Set the warmer audience (and, since the gate reads the same setting, the
-    lazy-eligibility list) to `team_ids`, with a non-zero cache-key post-check
-    so the 'no cache keys' alarm stays quiet."""
-    with (
-        override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=list(team_ids)),
-        patch(f"{_EAGER_MODULE}._count_precompute_cache_keys", return_value=cache_keys),
-    ):
+    lazy-eligibility list) to `team_ids`."""
+    with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=list(team_ids)):
         yield
 
 
@@ -239,7 +235,6 @@ class TestEagerBaselineLogging(APIBaseTest):
         assert team_logs[0]["team_id"] == self.team.pk
         assert team_logs[0]["warmed"] == _QUERIES_PER_TEAM
         assert team_logs[0]["failed"] == 0
-        assert team_logs[0]["cache_keys"] == 10
         assert "duration_ms" in team_logs[0]
 
         complete = self._events(cap_logs, "eager_baseline_warming_complete")
@@ -288,21 +283,6 @@ class TestEagerLazyEligibilityGuards(APIBaseTest):
         assert result == {"teams": 1, "warmed": 0, "failed": 0, "skipped": 1}
         get_runner.assert_not_called()  # never warms a team it can't serve lazily
         events = [log for log in cap_logs if log.get("event") == "eager_baseline_warming_not_lazy_eligible"]
-        assert len(events) == 1
-        assert events[0]["team_id"] == self.team.pk
-
-    @patch(f"{_EAGER_MODULE}.tag_queries")
-    @patch(f"{_EAGER_MODULE}.get_query_runner")
-    def test_alarms_when_warm_run_inserts_no_cache_keys(self, get_runner, _tag, _is_cloud):
-        get_runner.return_value = Mock(run=Mock(return_value=None))
-        with (
-            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
-            patch(f"{_EAGER_MODULE}._count_precompute_cache_keys", return_value=0),
-            capture_logs() as cap_logs,
-        ):
-            warm_eager_baseline_op(dagster.build_op_context())
-
-        events = [log for log in cap_logs if log.get("event") == "eager_baseline_warming_no_cache_keys"]
         assert len(events) == 1
         assert events[0]["team_id"] == self.team.pk
 
