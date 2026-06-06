@@ -632,8 +632,8 @@ async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_emit):
-    # scout_config is nullable and a config can be deleted mid-run; a missing config must
-    # NOT emit (a recreated config defaults to dry-run), so it fails closed.
+    # scout_config is SET_NULL: deleting the config mid-run nulls the run's FK, so the gate
+    # has no live config to emit against and fails closed.
     await database_sync_to_async(
         SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
     )()
@@ -647,6 +647,36 @@ async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_em
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-no-config",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_config_missing"
+    mock_emit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_fails_closed_when_config_deleted_then_recreated(arun_emit, ateam_emit):
+    # The config the run was dispatched with is deleted (SET_NULL nulls the run's FK) and a
+    # fresh emit-on config for the same (team, skill) is recreated before emit. The gate is
+    # anchored on the run's own (now-null) FK, not re-resolved by skill_name, so the stale run
+    # still fails closed — independent of the emit default now being True.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
+    )()
+    await database_sync_to_async(SignalScoutConfig.all_teams.create)(
+        team=ateam_emit, skill_name=arun_emit.skill_name, emit=True
+    )
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-recreated-config",
         )
 
     assert result.emitted is False
