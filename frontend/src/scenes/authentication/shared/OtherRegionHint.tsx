@@ -7,10 +7,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
-export function regionShortName(region: Region): string {
-    return region === Region.US ? 'US' : 'EU'
-}
-
 export function otherRegionOf(region: Region): Region {
     return region === Region.US ? Region.EU : Region.US
 }
@@ -37,8 +33,8 @@ export function OtherRegionHint(): JSX.Element | null {
 
     return (
         <LemonBanner type="info">
-            Already have a PostHog Cloud account? It may live in our {regionShortName(otherRegion)} region — you're
-            currently on {regionShortName(preflight.region)}.{' '}
+            Already have a PostHog Cloud account? It may live in our {otherRegion} region — you're currently on{' '}
+            {preflight.region}.{' '}
             <Link
                 to={otherRegionLoginUrl(preflight.region, location.search)}
                 disableClientSideRouting

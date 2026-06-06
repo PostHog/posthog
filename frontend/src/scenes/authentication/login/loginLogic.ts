@@ -230,8 +230,6 @@ export const loginLogic = kea<loginLogicType>([
                         )
                         throw e
                     }
-                    // On cloud, a failed login is often a wrong-region attempt (account lives on US vs EU).
-                    // The region hint is surfaced separately in the UI via <OtherRegionHint /> so it stays actionable.
                     actions.setGeneralError(code, detail)
                     throw e
                 }
