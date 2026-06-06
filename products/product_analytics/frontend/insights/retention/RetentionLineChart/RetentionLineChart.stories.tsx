@@ -5,21 +5,21 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import trendsPieFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import trendsPieBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import retentionFixture from '~/mocks/fixtures/api/projects/team_id/insights/retention.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
 
-import { TrendsPieChart } from './TrendsPieChart'
+import { realisticRetentionResult } from '../shared/retentionStoryFixtures'
+import { RetentionLineChart } from './RetentionLineChart'
 
 type Story = StoryObj<{}>
 
 const meta: Meta = {
-    title: 'Insights/TrendsPieChart',
-    component: TrendsPieChart,
+    title: 'Insights/RetentionLineChart',
+    component: RetentionLineChart,
     parameters: {
         layout: 'centered',
         mockDate: '2023-07-11',
@@ -49,8 +49,8 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function renderTrendsPieChart(insightFixture: any): JSX.Element {
-    const [dashboardItemId] = useState(() => `TrendsPieChartStory.${uniqueNode++}` as InsightShortId)
+function renderRetentionLineChart(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `RetentionLineChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
@@ -65,7 +65,7 @@ function renderTrendsPieChart(insightFixture: any): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <Stage>
-                    <TrendsPieChart />
+                    <RetentionLineChart />
                 </Stage>
             </BindLogic>
         </BindLogic>
@@ -73,27 +73,14 @@ function renderTrendsPieChart(insightFixture: any): JSX.Element {
 }
 
 export const Default: Story = {
-    render: () => renderTrendsPieChart(trendsPieFixture),
+    render: () => renderRetentionLineChart(retentionFixture),
 }
 
-export const Breakdown: Story = {
-    render: () => renderTrendsPieChart(trendsPieBreakdownFixture),
+const realisticFixture = {
+    ...retentionFixture,
+    result: realisticRetentionResult,
 }
 
-export const BreakdownWithLabels: Story = {
-    render: () =>
-        renderTrendsPieChart({
-            ...trendsPieBreakdownFixture,
-            query: {
-                ...trendsPieBreakdownFixture.query,
-                source: {
-                    ...trendsPieBreakdownFixture.query.source,
-                    trendsFilter: {
-                        ...trendsPieBreakdownFixture.query.source.trendsFilter,
-                        showLabelOnSeries: true,
-                        showValuesOnSeries: true,
-                    },
-                },
-            },
-        }),
+export const RealisticCurve: Story = {
+    render: () => renderRetentionLineChart(realisticFixture),
 }

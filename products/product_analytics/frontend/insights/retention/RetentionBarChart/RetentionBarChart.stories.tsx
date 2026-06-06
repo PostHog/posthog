@@ -5,21 +5,21 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import trendsPieFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import trendsPieBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import retentionFixture from '~/mocks/fixtures/api/projects/team_id/insights/retention.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
 
-import { TrendsPieChart } from './TrendsPieChart'
+import { realisticRetentionResult } from '../shared/retentionStoryFixtures'
+import { RetentionBarChart } from './RetentionBarChart'
 
 type Story = StoryObj<{}>
 
 const meta: Meta = {
-    title: 'Insights/TrendsPieChart',
-    component: TrendsPieChart,
+    title: 'Insights/RetentionBarChart',
+    component: RetentionBarChart,
     parameters: {
         layout: 'centered',
         mockDate: '2023-07-11',
@@ -49,8 +49,8 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function renderTrendsPieChart(insightFixture: any): JSX.Element {
-    const [dashboardItemId] = useState(() => `TrendsPieChartStory.${uniqueNode++}` as InsightShortId)
+function renderRetentionBarChart(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `RetentionBarChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
@@ -65,35 +65,37 @@ function renderTrendsPieChart(insightFixture: any): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <Stage>
-                    <TrendsPieChart />
+                    <RetentionBarChart />
                 </Stage>
             </BindLogic>
         </BindLogic>
     )
 }
 
-export const Default: Story = {
-    render: () => renderTrendsPieChart(trendsPieFixture),
-}
-
-export const Breakdown: Story = {
-    render: () => renderTrendsPieChart(trendsPieBreakdownFixture),
-}
-
-export const BreakdownWithLabels: Story = {
-    render: () =>
-        renderTrendsPieChart({
-            ...trendsPieBreakdownFixture,
-            query: {
-                ...trendsPieBreakdownFixture.query,
-                source: {
-                    ...trendsPieBreakdownFixture.query.source,
-                    trendsFilter: {
-                        ...trendsPieBreakdownFixture.query.source.trendsFilter,
-                        showLabelOnSeries: true,
-                        showValuesOnSeries: true,
-                    },
-                },
+// Build a bar-display variant from the retention fixture
+const retentionBarFixture = {
+    ...retentionFixture,
+    query: {
+        ...retentionFixture.query,
+        source: {
+            ...retentionFixture.query.source,
+            retentionFilter: {
+                ...(retentionFixture.query.source as any).retentionFilter,
+                display: 'ActionsBar',
             },
-        }),
+        },
+    },
+}
+
+export const Default: Story = {
+    render: () => renderRetentionBarChart(retentionBarFixture),
+}
+
+const realisticBarFixture = {
+    ...retentionBarFixture,
+    result: realisticRetentionResult,
+}
+
+export const RealisticCurve: Story = {
+    render: () => renderRetentionBarChart(realisticBarFixture),
 }
