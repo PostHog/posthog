@@ -45,9 +45,8 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
-    # The first-party gateway this key is bound to. Its slug is the credential's
-    # $ai_gateway_slug attribution value; a gateway can have many keys. Null for
-    # ordinary keys.
+    # First-party gateway this key binds to; its slug is the $ai_gateway_slug
+    # attribution value. Null for ordinary keys.
     gateway = models.ForeignKey(
         "posthog.Gateway",
         on_delete=models.SET_NULL,

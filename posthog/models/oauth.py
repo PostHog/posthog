@@ -23,7 +23,7 @@ from posthog.helpers.encrypted_fields import EncryptedCharField
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
-    from posthog.models import Organization, User
+    from posthog.models import Gateway, Organization, User
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -109,11 +109,9 @@ class OAuthApplication(AbstractApplication):
         help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
     )
 
-    # The first-party gateway this app's tokens are bound to. Bound on the
-    # application, not the access token, so it survives token rotation; the
-    # gateway's slug is the $ai_gateway_slug attribution value for its pha_ tokens.
-    # A gateway can have many applications/keys.
-    gateway = models.ForeignKey(
+    # Bound on the application, not the rotating access token. The gateway's slug
+    # is the $ai_gateway_slug attribution value; one gateway holds many keys.
+    gateway: "Gateway | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Gateway",
         on_delete=models.SET_NULL,
         null=True,

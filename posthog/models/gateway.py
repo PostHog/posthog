@@ -1,17 +1,10 @@
 """
-Gateway — a team's named binding for first-party LLM gateway access (RFC #1103).
+Gateway — a team's named bucket for first-party LLM gateway access (RFC #1103).
 
-Each gateway is bound to exactly one first-party credential (a phx_ personal key
-or a pha_ OAuth application; see the OneToOne fields on those models). The
-gateway's slug is the product the credential's traffic attributes to: it equals
-the $ai_gateway_slug event property the Go gateway sets at auth, so internal
-billing stays continuous. One gateway → one key → one slug; there is no per-call
-selector.
-
-Slugs are validated lowercase/URL-safe on write because the Go gateway does no
-validation of its own — it passes gateway_slug straight onto the billing ledger
-and the $ai_gateway_slug property (ai-gateway #79/#80). Django is the sole
-validator, so a malformed slug must never be persisted.
+A gateway's slug is the product its credentials attribute to: it equals the
+$ai_gateway_slug property the Go gateway sets at auth. Many keys can bind to one
+gateway. Slugs are validated lowercase/URL-safe on write — the gateway validates
+none of it and the slug flows straight onto the billing ledger (ai-gateway #79/#80).
 """
 
 from django.core.validators import RegexValidator
@@ -20,9 +13,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-# Every team is auto-provisioned a gateway with this slug; teams rename it (or add
-# more) to map onto their $ai_gateway_slug. Sharing "default" across teams is fine:
-# attribution is keyed (team_id, gateway_slug), so team_id disambiguates.
+# Auto-provisioned per team; teams rename or add more. Sharing across teams is
+# fine — attribution is keyed (team_id, slug).
 DEFAULT_GATEWAY_SLUG = "default"
 
 # Lowercase, URL-safe, no leading/trailing separator (posthog_code, slack_app, wizard).
@@ -34,16 +26,15 @@ validate_gateway_slug = RegexValidator(
 )
 
 
-class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):  # type: ignore[django-manager-missing]
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="gateways")
     slug = models.CharField(max_length=64, validators=[validate_gateway_slug])
     is_default = models.BooleanField(default=False)
 
-    # `objects` (fail-closed TeamScopedManager) comes from TeamScopedRootMixin and is
-    # what app code reaches for. Django framework internals (admin form widgets, the
-    # reverse O2O accessors on PersonalAPIKey/OAuthApplication, prefetch_related, DRF
-    # default querysets) read through `_default_manager`, which must not fail closed —
-    # point it at this unscoped sibling, mirroring ProductTeamModel.
+    # `objects` (from TeamScopedRootMixin) is fail-closed and what app code uses.
+    # Framework internals (admin widgets, reverse FK accessors, DRF) read
+    # `_default_manager`, which must not fail closed — point it at this unscoped
+    # sibling, like ProductTeamModel.
     all_teams = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
 
     class Meta:
@@ -61,9 +52,8 @@ class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
         return f"{self.slug} (team {self.team_id})"
 
     def save(self, *args: object, **kwargs: object) -> None:
-        # Field validators only run via full_clean(), which save() doesn't call.
-        # Enforce the slug invariant here so no malformed slug can reach the DB
-        # (and the gateway's billing ledger) through any write path.
+        # save() doesn't run field validators; enforce the slug invariant here so
+        # no malformed slug reaches the DB (and the billing ledger).
         self.slug = (self.slug or "").strip()
         validate_gateway_slug(self.slug)
         super().save(*args, **kwargs)
