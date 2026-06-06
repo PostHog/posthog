@@ -134,6 +134,26 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
         mock_delay.assert_not_called()
 
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.HYPERCACHE_SIGNAL_UPDATE_COUNTER")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_enqueue_failure_records_counter_and_does_not_propagate(
+        self, mock_delay, mock_settings, mock_counter, mock_transaction
+    ):
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+        mock_delay.side_effect = Exception("broker down")
+
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        mock_counter.labels.assert_called_once_with(
+            namespace="team_metadata", cache_name="llm_gateway_policy", operation="enqueue", result="failure"
+        )
+        mock_counter.labels.return_value.inc.assert_called_once_with()
+
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
     def test_team_delete_clears_cache(self, mock_clear, mock_settings):
