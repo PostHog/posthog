@@ -22,6 +22,7 @@ MAX_RETRY_AFTER_SECONDS = 60
 
 DEFAULT_HOST = "https://gitlab.com"
 HOST_NOT_ALLOWED_ERROR = "GitLab host is not allowed"
+HTTP_NOT_ALLOWED_ERROR = "GitLab host must use HTTPS"
 
 
 class GitLabRetryableError(Exception):
@@ -62,6 +63,12 @@ def _base_url(host: str | None) -> str:
 
 def _host_only(host: str | None) -> str:
     return (urlparse(normalize_host(host)).hostname or "").lower()
+
+
+def _is_https(host: str | None) -> bool:
+    # The personal access token rides in the Authorization header, so refuse plaintext HTTP to
+    # keep an on-path attacker from capturing it.
+    return urlparse(normalize_host(host)).scheme == "https"
 
 
 def _encode_project(project: str) -> str:
@@ -176,6 +183,10 @@ def validate_credentials(
     if not host_only:
         return False, "Invalid GitLab host"
 
+    # Refuse plaintext HTTP before sending the token in the Authorization header.
+    if not _is_https(host):
+        return False, HTTP_NOT_ALLOWED_ERROR
+
     # The host is customer-controlled (self-hosted GitLab), so block hosts that resolve to
     # private/internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
     if team_id is not None:
@@ -241,6 +252,11 @@ def get_rows(
     config = GITLAB_ENDPOINTS[endpoint]
     headers = _get_headers(personal_access_token)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+
+    # The token rides in the Authorization header, so refuse plaintext HTTP at run time too in case
+    # the host was edited after source creation. Non-retryable — see get_non_retryable_errors().
+    if not _is_https(host):
+        raise GitLabHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
     # Re-check at run time (not just at source-create) in case the host was edited or now resolves
     # to an internal address (SSRF / DNS rebinding). Only enforced on cloud.

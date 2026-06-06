@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GitLabSourceConfig
 from posthog.temporal.data_imports.sources.gitlab.gitlab import (
     HOST_NOT_ALLOWED_ERROR,
+    HTTP_NOT_ALLOWED_ERROR,
     GitLabResumeConfig,
     gitlab_source,
     validate_credentials as validate_gitlab_credentials,
@@ -86,6 +87,7 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             "403 Client Error": "Your GitLab token lacks the required permissions (needs the `read_api` scope). Please check the token and try again.",
             "404 Client Error": "Project not found. Please verify the project id/path and the token's access.",
             HOST_NOT_ALLOWED_ERROR: "The GitLab host is not allowed. Please use a publicly reachable instance URL.",
+            HTTP_NOT_ALLOWED_ERROR: "The GitLab host must use HTTPS. Please update the instance URL to use https://.",
         }
 
     def get_schemas(

@@ -288,6 +288,16 @@ class TestValidateCredentials:
             assert msg == "internal address"
             patched.return_value.get.assert_not_called()
 
+    @pytest.mark.parametrize("host", ["http://gitlab.example.com", "http://gitlab.example.com:8080/api/v4"])
+    def test_rejects_plaintext_http(self, host):
+        # The token rides the Authorization header, so a plaintext HTTP host must be refused before
+        # any request is issued.
+        with self._patch_session(_response(status_code=200)) as patched:
+            valid, msg = validate_credentials(host, "tok", "group/project")
+            assert valid is False
+            assert msg == gitlab_module.HTTP_NOT_ALLOWED_ERROR
+            patched.return_value.get.assert_not_called()
+
 
 class TestGitLabSourceResponse:
     @pytest.mark.parametrize(
@@ -433,6 +443,31 @@ class TestGetRows:
         ):
             self._run(manager, [_response(json_data=[{"id": 1}])])
         assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+
+    def test_rejects_plaintext_http_before_request(self):
+        # A plaintext HTTP host must be refused at run time (host could have been edited after
+        # source creation) before the token-bearing request goes out.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        session = mock.MagicMock()
+        with (
+            mock.patch.object(gitlab_module, "make_tracked_session", return_value=session),
+            mock.patch.object(gitlab_module, "Batcher", _FakeBatcher),
+            pytest.raises(gitlab_module.GitLabHostNotAllowedError) as exc,
+        ):
+            list(
+                get_rows(
+                    host="http://gitlab.example.com",
+                    personal_access_token="tok",
+                    project="group/project",
+                    endpoint="issues",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+        assert gitlab_module.HTTP_NOT_ALLOWED_ERROR in str(exc.value)
+        session.get.assert_not_called()
 
     def test_passes_allow_redirects_false(self):
         manager = mock.MagicMock()
