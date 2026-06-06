@@ -1,10 +1,25 @@
-// AUTO-GENERATED from services/mcp/definitions/health.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from services/mcp/definitions/health_issues.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { HealthIssuesListQueryParams, HealthIssuesRetrieveParams } from '@/generated/health/api'
+import { HealthIssuesListQueryParams, HealthIssuesRetrieveParams } from '@/generated/health_issues/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const HealthIssuesGetSchema = HealthIssuesRetrieveParams.omit({ project_id: true })
+
+const healthIssuesGet = (): ToolBase<typeof HealthIssuesGetSchema, Schemas.HealthIssueDetail> => ({
+    name: 'health-issues-get',
+    schema: HealthIssuesGetSchema,
+    handler: async (context: Context, params: z.infer<typeof HealthIssuesGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HealthIssueDetail>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/health_issues/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const HealthIssuesListSchema = HealthIssuesListQueryParams
 
@@ -32,21 +47,6 @@ const healthIssuesList = (): ToolBase<
     },
 })
 
-const HealthIssuesGetSchema = HealthIssuesRetrieveParams.omit({ project_id: true })
-
-const healthIssuesGet = (): ToolBase<typeof HealthIssuesGetSchema, Schemas.HealthIssueDetail> => ({
-    name: 'health-issues-get',
-    schema: HealthIssuesGetSchema,
-    handler: async (context: Context, params: z.infer<typeof HealthIssuesGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HealthIssueDetail>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/health_issues/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const HealthIssuesSummarySchema = z.object({})
 
 const healthIssuesSummary = (): ToolBase<typeof HealthIssuesSummarySchema, Schemas.HealthIssueSummary> => ({
@@ -64,7 +64,7 @@ const healthIssuesSummary = (): ToolBase<typeof HealthIssuesSummarySchema, Schem
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'health-issues-list': healthIssuesList,
     'health-issues-get': healthIssuesGet,
+    'health-issues-list': healthIssuesList,
     'health-issues-summary': healthIssuesSummary,
 }

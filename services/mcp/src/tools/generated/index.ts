@@ -20,7 +20,7 @@ import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
-import { GENERATED_TOOLS as health } from './health'
+import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
@@ -62,7 +62,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...error_tracking,
     ...experiments,
     ...feature_flags,
-    ...health,
+    ...health_issues,
     ...integrations,
     ...logs,
     ...marketing_analytics,

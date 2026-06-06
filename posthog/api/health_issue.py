@@ -138,11 +138,12 @@ class HealthIssueDetailSerializer(HealthIssueSerializer):
         # "populate() isn't reentrant". At request time Django is fully set up.
         from posthog.temporal.health_checks.framework import render_alert_for_issue  # noqa: PLC0415
 
-        cached = getattr(obj, "_rendered_alert", None)
-        if cached is None:
-            cached = render_alert_for_issue(obj)
-            obj._rendered_alert = cached
-        return cached
+        # Cache on the serializer instance (keyed by issue id) so the three
+        # method fields render once, without mutating the model instance.
+        cache = self.__dict__.setdefault("_alert_cache", {})
+        if obj.pk not in cache:
+            cache[obj.pk] = render_alert_for_issue(obj)
+        return cache[obj.pk]
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_title(self, obj: HealthIssue) -> str:
@@ -156,7 +157,7 @@ class HealthIssueDetailSerializer(HealthIssueSerializer):
     def get_link(self, obj: HealthIssue) -> str:
         return self._content(obj).link
 
-    @extend_schema_field(HealthIssueRemediationSerializer)
+    @extend_schema_field(HealthIssueRemediationSerializer(allow_null=True))
     def get_remediation(self, obj: HealthIssue) -> dict[str, str] | None:
         # Remediation is a static, kind-level constant (not per-issue), so it
         # comes from the registry rather than the rendered AlertContent.

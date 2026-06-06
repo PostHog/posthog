@@ -19053,7 +19053,7 @@ export namespace Schemas {
       /** Relative path (e.g. '/web/health') to the page in PostHog where the issue can be investigated. */
       readonly link: string;
       /** Guidance on fixing this kind of issue, split into `human` (how to fix it in the PostHog UI) and `agent` (how an agent should investigate and apply the fix). Null if the check provides no guidance. */
-      readonly remediation: HealthIssueRemediation;
+      readonly remediation: HealthIssueRemediation | null;
     }
 
     /**
