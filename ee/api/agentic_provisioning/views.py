@@ -7,7 +7,7 @@ import base64
 import hashlib
 import secrets
 import unicodedata
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -34,13 +34,7 @@ from rest_framework.response import Response
 from posthog.api.authentication import password_reset_token_generator
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
-from posthog.models.oauth import (
-    OAuthAccessToken,
-    OAuthApplication,
-    OAuthRefreshToken,
-    find_oauth_access_token,
-    find_oauth_refresh_token,
-)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -579,6 +573,7 @@ def _handle_existing_user(
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -844,6 +839,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
             {
+                "issued_at": timezone.now().isoformat(),
                 "user_id": user.id,
                 "org_id": str(organization.id),
                 "team_id": team.id,
@@ -951,6 +947,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -1075,6 +1072,21 @@ def _exchange_authorization_code(request: Request) -> Response:
             {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
         )
 
+    # Provisioning auth codes live in the cache, not OAuthGrant, so an app-wide
+    # session revoke can't sweep them — reject codes issued before the stamp here.
+    # Codes minted before `issued_at` shipped lack the field; fail closed — they are
+    # at most AUTH_CODE_TTL_SECONDS old and the client can re-run the flow.
+    sessions_revoked_at = oauth_app.sessions_revoked_at if oauth_app else None
+    if sessions_revoked_at is not None:
+        issued_at_raw = code_data.get("issued_at")
+        issued_at = datetime.fromisoformat(issued_at_raw) if issued_at_raw else None
+        if issued_at is None or issued_at < sessions_revoked_at:
+            _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                status=400,
+            )
+
     # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
     # ceiling has to be enforced here before the token is created by hand.
     requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
@@ -1140,70 +1152,99 @@ def _exchange_refresh_token(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
-    old_refresh = find_oauth_refresh_token(refresh_token_value)
-    if old_refresh is None:
-        _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
-        return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
-
-    oauth_app = old_refresh.application
-    user = old_refresh.user
-    scoped_teams = old_refresh.scoped_teams
-    old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
-
-    # Cap the refreshed scope at the app's current ceiling before touching any
-    # token rows — a since-tightened ceiling must drop the removed scopes, and a
-    # token now fully outside the ceiling has to re-authorize rather than refresh.
-    # Done up front so a rejected refresh never revokes the caller's only token.
-    app_scopes = oauth_app.scopes if oauth_app else []
-    narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
-    if narrowed_scopes is None:
-        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
-        return Response(
-            {
-                "error": "invalid_grant",
-                "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
-            },
-            status=400,
+    # Lock the refresh-token row so the rotate-and-mint below serializes against
+    # revoke_application_sessions' bulk sweep — a refresh that validated its token
+    # before the sweep committed must not mint fresh tokens after it. Locking only
+    # `self` avoids deadlocking with the sweep, which updates the application row
+    # first. Mirrors the DOT path (OAuthValidator._reject_refresh_racing_revoke).
+    with transaction.atomic():
+        old_refresh = (
+            OAuthRefreshToken.objects.select_for_update(of=("self",))
+            .select_related("user", "application", "access_token")
+            .filter(token=refresh_token_value, revoked__isnull=True)
+            .first()
         )
-    new_scope = " ".join(narrowed_scopes)
+        if old_refresh is None:
+            _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400
+            )
 
-    # provisioning_partner_type is a stable marker set at partner registration;
-    # checking it instead of is_provisioning_partner prevents a bypass when an admin
-    # clears provisioning_auth_method to disable a partner without revoking tokens.
-    if oauth_app and oauth_app.provisioning_partner_type:
-        if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
-            return error
+        oauth_app = old_refresh.application
+        user = old_refresh.user
+        scoped_teams = old_refresh.scoped_teams
+        old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
-    old_access = old_refresh.access_token
-    old_refresh.access_token = None
-    old_refresh.revoked = timezone.now()
-    old_refresh.save(update_fields=["access_token", "revoked"])
+        # Re-read the revoke stamp in a fresh statement: the joined application row
+        # above comes from the pre-lock snapshot, so it can miss a revoke we waited on.
+        sessions_revoked_at = (
+            OAuthApplication.objects.filter(pk=oauth_app.pk).values_list("sessions_revoked_at", flat=True).first()
+            if oauth_app
+            else None
+        )
+        if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
+            _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                status=400,
+            )
 
-    if old_access:
-        old_access.delete()
+        # Cap the refreshed scope at the app's current ceiling before touching any
+        # token rows — a since-tightened ceiling must drop the removed scopes, and a
+        # token now fully outside the ceiling has to re-authorize rather than refresh.
+        # Done up front so a rejected refresh never revokes the caller's only token.
+        app_scopes = oauth_app.scopes if oauth_app else []
+        narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
+        if narrowed_scopes is None:
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
+            return Response(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                },
+                status=400,
+            )
+        new_scope = " ".join(narrowed_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+        # provisioning_partner_type is a stable marker set at partner registration;
+        # checking it instead of is_provisioning_partner prevents a bypass when an admin
+        # clears provisioning_auth_method to disable a partner without revoking tokens.
+        if oauth_app and oauth_app.provisioning_partner_type:
+            if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+                return error
 
-    new_access_value = generate_random_oauth_access_token(None)
-    new_access = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=new_access_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=new_scope,
-        scoped_teams=scoped_teams,
-    )
+        old_access = old_refresh.access_token
+        old_refresh.access_token = None
+        old_refresh.revoked = timezone.now()
+        old_refresh.save(update_fields=["access_token", "revoked"])
 
-    new_refresh_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=new_refresh_value,
-        user=user,
-        access_token=new_access,
-        scoped_teams=scoped_teams,
-    )
+        if old_access:
+            old_access.delete()
+
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
+        )
+
+        new_access_value = generate_random_oauth_access_token(None)
+        new_access = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=new_access_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=new_scope,
+            scoped_teams=scoped_teams,
+        )
+
+        new_refresh_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=new_refresh_value,
+            user=user,
+            access_token=new_access,
+            scoped_teams=scoped_teams,
+        )
 
     _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
 
