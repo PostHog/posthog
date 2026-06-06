@@ -8,8 +8,8 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
@@ -588,7 +588,7 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQueueFilters: () => {
             const nextValues = getQueueUrlState(values.queueFilters, values.selectedQueueId, values.queueItemFilters)
             const urlValues = getQueueUrlState(

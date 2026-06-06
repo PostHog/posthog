@@ -4,8 +4,8 @@ import { router } from 'kea-router'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils'
 import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -353,7 +353,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         }
     }),
 
-    tabAwareActionToUrl(() => {
+    trackedActionToUrl(() => {
         // Only preserve params that belong to the shared logic — drop stale
         // params from other pages (e.g. event, timestamp, msg from trace view).
         function sharedSearchParams(): Record<string, unknown> {

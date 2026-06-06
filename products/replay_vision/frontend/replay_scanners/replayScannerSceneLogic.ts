@@ -1,9 +1,9 @@
 import { actions, kea, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -66,7 +66,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
         ],
     }),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setActiveTab: () => {
             const defaultTab: EditorTab = values.scannerId === 'new' ? 'configuration' : 'observations'
             const tab = values.activeTab === defaultTab ? undefined : values.activeTab
