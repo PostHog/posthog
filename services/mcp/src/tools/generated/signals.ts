@@ -281,25 +281,6 @@ const inboxSourceConfigsUpdate = (): ToolBase<typeof InboxSourceConfigsUpdateSch
     },
 })
 
-const SignalsScoutConfigListSchema = z.object({})
-
-const signalsScoutConfigList = (): ToolBase<
-    typeof SignalsScoutConfigListSchema,
-    WithPostHogUrl<Schemas.SignalScoutConfig[]>
-> => ({
-    name: 'signals-scout-config-list',
-    schema: SignalsScoutConfigListSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SignalScoutConfig[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
-        })
-        return await withPostHogUrl(context, result, '/inbox')
-    },
-})
-
 const SignalsScoutConfigCreateSchema = SignalsScoutConfigCreateBody
 
 const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSchema, Schemas.SignalScoutConfig> => ({
@@ -326,6 +307,25 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
             body,
         })
         return result
+    },
+})
+
+const SignalsScoutConfigListSchema = z.object({})
+
+const signalsScoutConfigList = (): ToolBase<
+    typeof SignalsScoutConfigListSchema,
+    WithPostHogUrl<Schemas.SignalScoutConfig[]>
+> => ({
+    name: 'signals-scout-config-list',
+    schema: SignalsScoutConfigListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
     },
 })
 
@@ -552,8 +552,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
-    'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-create': signalsScoutConfigCreate,
+    'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
