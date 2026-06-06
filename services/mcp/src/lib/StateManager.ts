@@ -1,7 +1,14 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findRecoverableApiError,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -244,6 +251,11 @@ export class StateManager {
         cacheKey: D
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
+        // Invoked when the fetcher fails with an expected client error (4xx),
+        // before falling back to the stale cached value. Lets the caller drop
+        // a now-invalid cache entry so the next call re-resolves instead of
+        // repeatedly fetching a dead id.
+        onClientError?: (error: PostHogApiError) => Promise<void>
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -262,7 +274,23 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            // Expected client errors (4xx) on this best-effort cached path are
+            // not bugs — e.g. a 404/403 for a project the key can no longer
+            // access (deleted project, revoked/scoped token, or stale cache).
+            // Capturing them turns pure observability noise into error-tracking
+            // issues, so suppress capture while still falling back to the stale
+            // cached value. Reserve `_reportException` for unexpected failures
+            // (5xx, network, non-HTTP) that are actually actionable.
+            const apiError = findRecoverableApiError(error)
+            const clientError =
+                apiError instanceof PostHogApiError && apiError.status >= 400 && apiError.status < 500
+                    ? apiError
+                    : undefined
+            if (!clientError) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            } else if (opts.onClientError) {
+                await opts.onClientError(clientError).catch(() => {})
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
@@ -322,6 +350,12 @@ export class StateManager {
                     throw result.error
                 }
                 return result.data
+            },
+            // A 404/403 means the cached default project id is dead for this key.
+            // Clear it so the next resolution re-derives a fresh default instead
+            // of fetching the same inaccessible id every call.
+            onClientError: async () => {
+                await this._cache.delete('projectId')
             },
         })
     }

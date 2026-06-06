@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -598,6 +599,68 @@ describe('StateManager', () => {
             const result = await stateManager.getAnalyticsContext()
 
             expect(result).toEqual({})
+        })
+    })
+
+    describe('getCachedOrFetchProject error handling', () => {
+        const projectId = '11428'
+
+        const apiError = (status: number): PostHogApiError =>
+            new PostHogApiError({
+                status,
+                statusText: status === 404 ? 'Not Found' : 'Forbidden',
+                body: '',
+                url: `/api/projects/${projectId}/`,
+                method: 'GET',
+            })
+
+        beforeEach(async () => {
+            await cache.set('projectId', projectId)
+        })
+
+        it('suppresses exception capture and clears the cached projectId on a 404', async () => {
+            const get = vi.fn().mockResolvedValue({ success: false, error: apiError(404) })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException')
+
+            const result = await stateManager.getCachedOrFetchProject()
+
+            expect(result).toBeUndefined()
+            expect(reportSpy).not.toHaveBeenCalled()
+            expect(await cache.get('projectId')).toBeUndefined()
+        })
+
+        it('suppresses exception capture on a 403', async () => {
+            const get = vi.fn().mockResolvedValue({ success: false, error: apiError(403) })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException')
+
+            await stateManager.getCachedOrFetchProject()
+
+            expect(reportSpy).not.toHaveBeenCalled()
+        })
+
+        it('returns the stale cached project when the refetch 404s', async () => {
+            const stale = { id: 11428, uuid: 'project-uuid', name: 'Stale', organization: 'org-1' }
+            await cache.set(`cachedProject:${projectId}` as any, stale as any)
+            await cache.set(`cachedProjectFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+            const get = vi.fn().mockResolvedValue({ success: false, error: apiError(404) })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+
+            const result = await stateManager.getCachedOrFetchProject()
+
+            expect(result).toEqual(stale)
+        })
+
+        it('still captures unexpected (5xx) failures and keeps the cached projectId', async () => {
+            const get = vi.fn().mockResolvedValue({ success: false, error: apiError(500) })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException')
+
+            await stateManager.getCachedOrFetchProject()
+
+            expect(reportSpy).toHaveBeenCalledOnce()
+            expect(await cache.get('projectId')).toBe(projectId)
         })
     })
 })
