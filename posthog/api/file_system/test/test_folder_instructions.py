@@ -100,7 +100,8 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
 
         response = self.client.get(self._instructions_url(folder_id) + "versions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        versions = response.json()
+        body = response.json()
+        versions = body["results"]
         self.assertEqual([v["version"] for v in versions], [3, 2, 1])
         # Version-history entries omit the markdown content (progressive disclosure).
         self.assertNotIn("content", versions[0])

@@ -1050,4 +1050,7 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             return folder
 
         versions = get_folder_instructions_versions(folder)
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(FolderInstructionsVersionSerializer(page, many=True).data)
         return Response(FolderInstructionsVersionSerializer(versions, many=True).data)
