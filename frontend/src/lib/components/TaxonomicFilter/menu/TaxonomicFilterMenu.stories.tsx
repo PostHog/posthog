@@ -8,6 +8,7 @@ import { actionsModel } from '~/models/actionsModel'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { DataWarehousePopoverField, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { TaxonomicFilterMenu } from './TaxonomicFilterMenu'
 import { MenuFilterEntry } from './types'
@@ -295,6 +296,66 @@ export const DataWarehouseConfig: Story = {
         docs: {
             description: {
                 story: 'DataWarehouse config form rendered standalone so it lands on the DWH interface immediately. Wide table with mixed types (string / integer / decimal / datetime / boolean / lazy_table / view) exercises every column-type filter in the dropdowns plus the linked-tables hint in the HogQL fallback. Tabs are configured to mirror the funnel popover (Aggregation target / Timestamp / Unique ID).',
+            },
+        },
+    },
+}
+
+// ---- Default "All" surface with recents/pinned --------------------------
+// Renders the combobox directly on the `all` scope so the recents-first
+// default surface is the initial snapshot (no click-through the dropdown
+// menu first). Recents/pinned are synthesized so the order is deterministic.
+
+function recentPinnedEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string): MenuFilterEntry {
+    return {
+        item: { name } as never,
+        group: {
+            type: groupType,
+            name: groupName,
+            getName: (t: any) => t?.name,
+            getValue: (t: any) => t?.name,
+        } as unknown as TaxonomicFilterGroup,
+        name,
+    }
+}
+
+function DefaultSurfaceContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    const recentEntries = [
+        recentPinnedEntry(TaxonomicFilterGroupType.Events, 'signed up', 'Events'),
+        recentPinnedEntry(TaxonomicFilterGroupType.EventProperties, 'plan', 'Event properties'),
+    ]
+    const pinnedEntries = [recentPinnedEntry(TaxonomicFilterGroupType.EventProperties, 'industry', 'Event properties')]
+    return (
+        <div className="flex flex-col gap-3 max-w-2xl">
+            <TaxonomicFilterHeadless.Root
+                bindRootProps={false}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.EventProperties,
+                ]}
+            >
+                <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[480px] bg-surface-primary">
+                    <MenuFilterCombobox
+                        drillTo="all"
+                        recentEntries={recentEntries}
+                        pinnedEntries={pinnedEntries}
+                        onCommit={() => {}}
+                        onBack={() => {}}
+                    />
+                </div>
+            </TaxonomicFilterHeadless.Root>
+        </div>
+    )
+}
+
+export const DefaultSurfaceWithRecents: Story = {
+    render: () => <DefaultSurfaceContainer />,
+    parameters: {
+        docs: {
+            description: {
+                story: 'The default "All" surface staff land on, brought in line with the pill variant: recents lead, then pinned, then the cross-tab content in fixed (learnable) order. Recent/pinned rows are tagged with their source (e.g. "Events - recent"), and the category dropdown exposes Recent and Pinned alongside the content categories so they stay navigable.',
             },
         },
     },

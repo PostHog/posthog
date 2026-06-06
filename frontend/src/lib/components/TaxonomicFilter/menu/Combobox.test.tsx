@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { useState } from 'react'
 
@@ -52,7 +53,46 @@ function renderCombobox(): ReturnType<typeof render> {
     )
 }
 
-describe('MenuFilterCombobox loading vs empty state', () => {
+function makeEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string): any {
+    return {
+        item: { name },
+        group: { type: groupType, name: groupName, getName: (t: any) => t?.name, getValue: (t: any) => t?.name },
+        name,
+    }
+}
+
+function renderAll(options: {
+    groupTypes: TaxonomicFilterGroupType[]
+    recentEntries?: any[]
+    pinnedEntries?: any[]
+    searchQuery?: string
+}): ReturnType<typeof render> {
+    return render(
+        <Provider>
+            <TaxonomicFilterHeadless.Root
+                taxonomicGroupTypes={options.groupTypes}
+                onChange={jest.fn()}
+                searchQuery={options.searchQuery ?? ''}
+            >
+                <MenuFilterCombobox
+                    drillTo="all"
+                    recentEntries={options.recentEntries}
+                    pinnedEntries={options.pinnedEntries}
+                    onCommit={jest.fn()}
+                    onBack={jest.fn()}
+                />
+            </TaxonomicFilterHeadless.Root>
+        </Provider>
+    )
+}
+
+function rowTexts(): string[] {
+    return Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]')).map(
+        (el) => el.textContent ?? ''
+    )
+}
+
+describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
@@ -230,5 +270,111 @@ describe('MenuFilterCombobox loading vs empty state', () => {
 
         // The crucial assertion — no additional fetch fired for the typed query.
         expect(cohortCalls).toBe(1)
+    })
+
+    it('leads the "All" surface with recents then pinned, above the content rows', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'my_pinned_prop', 'Event properties')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const rows = rowTexts()
+        // Fixed, learnable order: recent first, pinned second, content after.
+        expect(rows[0]).toContain('my_recent_event')
+        expect(rows[1]).toContain('my_pinned_prop')
+        const recentIdx = rows.findIndex((t) => t.includes('my_recent_event'))
+        const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
+        expect(contentIdx).toBeGreaterThan(recentIdx)
+    })
+
+    it('shows a recent that is also in the catalog only once (deduped from content)', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'pageview' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pageview', 'Events')],
+        })
+
+        await waitFor(() => expect(screen.getAllByText('pageview').length).toBeGreaterThan(0))
+        const pageviewRows = rowTexts().filter((t) => t.includes('pageview'))
+        expect(pageviewRows).toHaveLength(1)
+    })
+
+    it('floats $email to the top of the content when searching "email"', async () => {
+        apiGet.mockImplementation((url: string) => {
+            if (url.includes('property_definitions')) {
+                return Promise.resolve({
+                    results: [
+                        { id: 1, name: 'other_prop' },
+                        { id: 2, name: '$email' },
+                    ],
+                    count: 2,
+                })
+            }
+            return Promise.resolve({ results: [], count: 0 })
+        })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.EventProperties], searchQuery: 'email' })
+
+        await waitFor(() => expect(screen.getByText('other_prop')).toBeInTheDocument())
+        const rows = rowTexts()
+        const emailIdx = rows.findIndex((t) => t.includes('$email'))
+        const otherIdx = rows.findIndex((t) => t.includes('other_prop'))
+        expect(emailIdx).toBeGreaterThanOrEqual(0)
+        expect(emailIdx).toBeLessThan(otherIdx)
+    })
+
+    it('drops the recents/pinned prefix once the query no longer matches them', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+            searchQuery: 'zzz_no_match',
+        })
+
+        await waitFor(() => expect(screen.getAllByText('autocapture').length).toBeGreaterThan(0))
+        // The recent does not match the query, so it must not lead the list.
+        expect(screen.queryByText('my_recent_event')).not.toBeInTheDocument()
+    })
+
+    it('tags recents and pinned rows with their source recency', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'my_pinned_prop', 'Event properties')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const rows = rowTexts()
+        // Recency shows as a right-side badge ("Recent" / "Pinned"); the source
+        // group still reads as the row's category label.
+        const recentRow = rows.find((t) => t.includes('my_recent_event'))
+        const pinnedRow = rows.find((t) => t.includes('my_pinned_prop'))
+        expect(recentRow).toContain('Recent')
+        expect(recentRow).toContain('Events')
+        expect(pinnedRow).toContain('Pinned')
+        expect(pinnedRow).toContain('Event properties')
+    })
+
+    it('exposes Recent and Pinned as category options in the dropdown', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'r', 'Events')],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'p', 'Event properties')],
+        })
+
+        await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
+        expect(await screen.findByRole('option', { name: 'Recent' })).toBeInTheDocument()
+        expect(screen.getByRole('option', { name: 'Pinned' })).toBeInTheDocument()
     })
 })
