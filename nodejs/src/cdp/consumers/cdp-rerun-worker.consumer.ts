@@ -10,6 +10,7 @@ import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { RerunJobQueues, RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
+import { WarpstreamHttpFetchService } from '../services/warpstream-http-fetch.service'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Heartbeat interval — the cyclotron-v2 lock timeout is 30s by default, send
@@ -91,6 +92,19 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
                 : {}),
         })
 
+        // By-reference globals resolver — only wired when enabled and an HTTP
+        // endpoint is configured. Otherwise the paginator reads the inline
+        // `invocation_globals` column as before.
+        const globalsFetcher =
+            this.config.HOG_INVOCATION_RESULTS_GLOBALS_FROM_KAFKA &&
+            this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL
+                ? new WarpstreamHttpFetchService({
+                      url: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL,
+                      username: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME,
+                      password: this.config.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD,
+                  })
+                : null
+
         this.paginator = new RerunPaginatorService(
             this.clickhouseClient,
             this.hogFunctionManager,
@@ -98,7 +112,9 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             this.invocationResultsService.invocationResultsRowsService,
             this.jobQueues,
             this.invocationResultsService.monitoringService,
-            this.config.HOG_INVOCATION_RERUN_MAX_COUNT
+            this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+            globalsFetcher,
+            this.config.HOG_INVOCATION_RESULTS_TOPIC
         )
 
         this.worker = new CyclotronV2Worker({

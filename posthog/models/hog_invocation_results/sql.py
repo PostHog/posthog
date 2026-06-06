@@ -81,6 +81,24 @@ HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = """
 """.strip()
 
 
+# Reference back to the Kafka message that carries this row's `invocation_globals`.
+# These are NOT sent in the Kafka payload — the producer can't know the offset a
+# message will land at. The MV materializes them from the Kafka engine's virtual
+# `_partition`/`_offset` columns at consume time, so each row records the
+# (partition, offset) of its own lifecycle message in the
+# `clickhouse_hog_invocation_results` topic. The rerun paginator uses these to
+# fetch the full globals back from Warpstream's HTTP fetch endpoint instead of
+# persisting the (large) `invocation_globals` blob in ClickHouse for 30 days.
+#
+# Lives only on the data table + distributed read alias — deliberately absent
+# from `HOG_INVOCATION_RESULTS_KAFKA_COLUMNS` so the Kafka engine table doesn't
+# expect them in the message body.
+HOG_INVOCATION_RESULTS_GLOBALS_REF_COLUMNS = """
+    globals_partition UInt64,
+    globals_offset UInt64
+""".strip()
+
+
 # The actual data lives on AUX. ZSTD on the two large String columns. Skipping
 # indexes match the listing/replay query shape — see the runs-v2 logic for
 # the canonical select.
@@ -109,6 +127,8 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     invocation_globals String,
     version UInt64,
     is_deleted UInt8 DEFAULT 0,
+    globals_partition UInt64 DEFAULT 0,
+    globals_offset UInt64 DEFAULT 0,
     INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
     INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -132,7 +152,8 @@ DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_TABLE}
 (
-    {HOG_INVOCATION_RESULTS_KAFKA_COLUMNS}
+    {HOG_INVOCATION_RESULTS_KAFKA_COLUMNS},
+    {HOG_INVOCATION_RESULTS_GLOBALS_REF_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=HOG_INVOCATION_RESULTS_DATA_TABLE, cluster=settings.CLICKHOUSE_AUX_CLUSTER)}
@@ -196,6 +217,11 @@ AS SELECT
     invocation_globals,
     version,
     is_deleted,
+    -- (partition, offset) of this very message in the results topic. The rerun
+    -- paginator reads these back to fetch `invocation_globals` from Warpstream
+    -- by reference rather than from the (large) persisted column.
+    _partition AS globals_partition,
+    _offset AS globals_offset,
     _timestamp,
     _offset,
     _partition
@@ -232,6 +258,8 @@ INSERT INTO {HOG_INVOCATION_RESULTS_DATA_TABLE} (
     invocation_globals,
     version,
     is_deleted,
+    globals_partition,
+    globals_offset,
     _timestamp,
     _offset,
     _partition
@@ -258,6 +286,8 @@ SELECT
     %(invocation_globals)s,
     %(version)s,
     %(is_deleted)s,
+    %(globals_partition)s,
+    %(globals_offset)s,
     now(),
     0,
     0

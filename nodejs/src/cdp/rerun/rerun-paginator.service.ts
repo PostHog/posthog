@@ -2,6 +2,7 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
@@ -14,6 +15,7 @@ import {
     HogInvocationResultsService,
     decodeInvocationGlobals,
 } from '../services/monitoring/hog-invocation-results.service'
+import { WarpstreamHttpFetchService } from '../services/warpstream-http-fetch.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -65,7 +67,12 @@ interface InvocationRow {
     attempts: number
     last_scheduled_at: string
     first_scheduled_at: string
+    // Inline globals — retained for rows written before the by-reference path
+    // (and while topic retention is being raised). Preferred source is the
+    // (partition, offset) ref below, fetched from Warpstream.
     invocation_globals: string
+    globals_partition: number
+    globals_offset: number
 }
 
 export interface PageOutcome {
@@ -111,7 +118,12 @@ export class RerunPaginatorService {
         private jobQueues: RerunJobQueues,
         private monitoringService: HogFunctionMonitoringService,
         // Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var).
-        private maxCount: number
+        private maxCount: number,
+        // Optional by-reference globals resolver. When set (and a row carries a
+        // usable offset ref), the paginator fetches `invocation_globals` from the
+        // results topic via Warpstream instead of reading the ClickHouse column.
+        private globalsFetcher: WarpstreamHttpFetchService | null = null,
+        private globalsTopic: string = ''
     ) {}
 
     /**
@@ -397,6 +409,8 @@ export class RerunPaginatorService {
                     argMax(parent_run_id, version)         AS parent_run_id,
                     argMax(attempts, version)              AS attempts,
                     argMax(invocation_globals, version)    AS invocation_globals,
+                    argMax(globals_partition, version)     AS globals_partition,
+                    argMax(globals_offset, version)        AS globals_offset,
                     argMax(first_scheduled_at, version)    AS first_scheduled_at,
                     max(scheduled_at)                      AS last_scheduled_at
                 FROM hog_invocation_results
@@ -441,6 +455,11 @@ export class RerunPaginatorService {
     ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
         const maxAttempts = state.request.filter.max_attempts
 
+        // Resolve globals for the whole page in one batched Warpstream fetch
+        // (when by-reference is enabled); rows not covered fall back to the
+        // inline `invocation_globals` column below.
+        const resolvedGlobals = await this.resolveGlobalsByReference(rows)
+
         // Rehydrate the whole page concurrently — `addGroupsToGlobals` and the
         // hog function manager are LazyLoader-backed and batch their DB lookups
         // across concurrent callers, so a sequential loop would defeat that.
@@ -455,7 +474,8 @@ export class RerunPaginatorService {
                         teamId,
                         state.function_kind,
                         state.function_id,
-                        row
+                        row,
+                        resolvedGlobals.get(row.invocation_id) ?? row.invocation_globals
                     )
                     if (!invocation) {
                         counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
@@ -492,15 +512,65 @@ export class RerunPaginatorService {
         }
     }
 
+    /**
+     * Resolve each row's `invocation_globals` by reference from the results
+     * topic, when the by-reference path is enabled. Returns invocation_id -> the
+     * stored `invocation_globals` field (still gzip+base64'd —
+     * `decodeInvocationGlobals` handles that). Rows whose message can't be
+     * fetched are absent; the caller falls back to the inline column.
+     */
+    private async resolveGlobalsByReference(rows: InvocationRow[]): Promise<Map<string, string>> {
+        const resolved = new Map<string, string>()
+        if (!this.globalsFetcher || !this.globalsTopic) {
+            return resolved
+        }
+        // Skip (0, 0) refs: those are legacy rows (column default) that still
+        // carry the inline column. A real partition-0/offset-0 message is
+        // vanishingly rare in a rerun window and is covered by the column too
+        // during the dual-read transition.
+        const refs = rows
+            .filter((r) => r.globals_offset > 0 || r.globals_partition > 0)
+            .map((r) => ({ partition: r.globals_partition, offset: r.globals_offset }))
+        if (refs.length === 0) {
+            return resolved
+        }
+
+        const records = await this.globalsFetcher.fetchRecords(this.globalsTopic, refs)
+        for (const row of rows) {
+            const value = records.get(`${row.globals_partition}:${row.globals_offset}`)
+            if (!value) {
+                continue
+            }
+            try {
+                const message = parseJSON(value.toString('utf8')) as {
+                    invocation_id?: string
+                    invocation_globals?: string
+                }
+                // Guard against a retention-evicted offset being reused by an
+                // unrelated message: only trust a record whose invocation_id
+                // matches the row we asked for.
+                if (message.invocation_id === row.invocation_id && typeof message.invocation_globals === 'string') {
+                    resolved.set(row.invocation_id, message.invocation_globals)
+                }
+            } catch {
+                // Malformed message — fall back to the inline column.
+            }
+        }
+        return resolved
+    }
+
     private async rehydrateInvocation(
         teamId: number,
         functionKind: RerunFunctionKind,
         functionId: string,
-        row: InvocationRow
+        row: InvocationRow,
+        // Stored `invocation_globals` (gzip+base64 or legacy raw JSON) — either
+        // fetched by reference from Warpstream or read from the inline column.
+        invocationGlobalsRaw: string
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
-            parsedGlobals = await decodeInvocationGlobals(row.invocation_globals)
+            parsedGlobals = await decodeInvocationGlobals(invocationGlobalsRaw)
         } catch {
             return null
         }
