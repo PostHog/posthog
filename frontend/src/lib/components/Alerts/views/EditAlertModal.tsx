@@ -90,17 +90,9 @@ export function EditAlertModal({
         simulationResult,
         simulationResultLoading,
         simulationDateFrom,
-        thresholdBoundsFormError,
     } = useValues(formLogic)
-    const {
-        deleteAlert,
-        snoozeAlert,
-        clearSnooze,
-        simulateAlert,
-        clearSimulation,
-        setSimulationDateFrom,
-        setAlertFormSubmitAttempted,
-    } = useActions(formLogic)
+    const { deleteAlert, snoozeAlert, clearSnooze, simulateAlert, clearSimulation, setSimulationDateFrom } =
+        useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -227,7 +219,6 @@ export function EditAlertModal({
                                     <AlertDefinitionSection
                                         alertForm={alertForm}
                                         alertMode={alertMode}
-                                        thresholdBoundsFormError={thresholdBoundsFormError}
                                         isBreakdownValid={isBreakdownValid}
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
@@ -327,7 +318,6 @@ export function EditAlertModal({
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
                             disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
-                            onClick={() => setAlertFormSubmitAttempted()}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}
                         </LemonButton>

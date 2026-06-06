@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { LemonSelectOption } from '@posthog/lemon-ui'
 
@@ -7,7 +8,6 @@ import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
-import { AccessControlUIVersion, captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -56,24 +56,21 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
         ) => ({ accessControl }),
-        updateAccessControlDefault: (level: AccessControlLevel, source: AccessControlUIVersion = 'v1') => ({
+        updateAccessControlDefault: (level: AccessControlLevel) => ({
             level,
-            source,
         }),
         updateAccessControlRoles: (
             accessControls: {
                 role: RoleType['id']
                 level: AccessControlLevel | null
-            }[],
-            source: AccessControlUIVersion = 'v1'
-        ) => ({ accessControls, source }),
+            }[]
+        ) => ({ accessControls }),
         updateAccessControlMembers: (
             accessControls: {
                 member: OrganizationMemberType['id']
                 level: AccessControlLevel | null
-            }[],
-            source: AccessControlUIVersion = 'v1'
-        ) => ({ accessControls, source }),
+            }[]
+        ) => ({ accessControls }),
     }),
     loaders(({ values }) => ({
         accessControls: [
@@ -100,22 +97,21 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     }
                 },
 
-                updateAccessControlDefault: async ({ level, source }) => {
+                updateAccessControlDefault: async ({ level }) => {
                     await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                         access_level: level,
                     })
 
-                    captureAccessControlEvent('access control default access level changed', {
+                    posthog.capture('access control default access level changed', {
                         resource: values.resource,
                         access_level: level,
                         old_access_level: values.accessControlDefault?.access_level,
-                        ui_version: source,
                     })
 
                     return values.accessControls
                 },
 
-                updateAccessControlRoles: async ({ accessControls, source }) => {
+                updateAccessControlRoles: async ({ accessControls }) => {
                     for (const { role, level } of accessControls) {
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
@@ -123,20 +119,19 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         })
 
                         const oldAccessControl = values.accessControlRoles.find((ac) => ac.role === role)
-                        captureAccessControlEvent('access control role access level changed', {
+                        posthog.capture('access control role access level changed', {
                             resource: values.resource,
                             action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
                             role: role,
                             access_level: level,
                             old_access_level: oldAccessControl?.access_level,
-                            ui_version: source,
                         })
                     }
 
                     return values.accessControls
                 },
 
-                updateAccessControlMembers: async ({ accessControls, source }) => {
+                updateAccessControlMembers: async ({ accessControls }) => {
                     for (const { member, level } of accessControls) {
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
@@ -146,13 +141,12 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         const oldAccessControl = values.accessControlMembers.find(
                             (ac) => ac.organization_member === member
                         )
-                        captureAccessControlEvent('access control member access level changed', {
+                        posthog.capture('access control member access level changed', {
                             resource: values.resource,
                             action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
                             member: member,
                             access_level: level,
                             old_access_level: oldAccessControl?.access_level,
-                            ui_version: source,
                         })
                     }
 

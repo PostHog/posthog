@@ -326,7 +326,6 @@ describe('BatchExportHogFunctionService', () => {
                     }
                     return Promise.resolve(result)
                 }),
-                fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
             }
 
             api['batchExportHogFunctionService']['groupsManager'] = new GroupsManagerService(

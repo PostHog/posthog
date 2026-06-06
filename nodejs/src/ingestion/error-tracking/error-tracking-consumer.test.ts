@@ -11,8 +11,7 @@ import { PostgresUse } from '~/utils/db/postgres'
 import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
-import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
@@ -56,11 +55,24 @@ jest.mock('../../utils/logger', () => ({
     },
 }))
 
-const createMockPersonRepository = (): jest.Mocked<PersonReadRepository> => ({
+// Create a mock PersonRepository to avoid database schema issues
+const createMockPersonRepository = (): jest.Mocked<PersonRepository> => ({
     fetchPerson: jest.fn().mockResolvedValue(undefined),
     fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
-    fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
+    fetchPersonsByPersonIds: jest.fn(),
     fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
+    createPerson: jest.fn(),
+    updatePerson: jest.fn(),
+    updatePersonAssertVersion: jest.fn(),
+    updatePersonsBatch: jest.fn(),
+    deletePerson: jest.fn(),
+    addDistinctId: jest.fn(),
+    addPersonlessDistinctId: jest.fn(),
+    addPersonlessDistinctIdForMerge: jest.fn(),
+    addPersonlessDistinctIdsBatch: jest.fn(),
+    personPropertiesSize: jest.fn(),
+    updateCohortsAndFeatureFlagsForMerge: jest.fn(),
+    inTransaction: jest.fn(),
 })
 
 // Mock the CymbalClient to avoid real HTTP calls
@@ -195,14 +207,10 @@ describe('ErrorTrackingConsumer', () => {
             teamManager: hub.teamManager,
             errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
-            groupTypeManager: new ReadOnlyGroupTypeManager({
-                fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
-                fetchGroupTypesByTeamIds: jest.fn().mockResolvedValue({}),
-                fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
-            }),
+            groupTypeManager: hub.groupTypeManager,
             cookielessManager: hub.cookielessManager,
             redisPool: hub.redisPool,
-            personRepository: createMockPersonRepository(),
+            personRepository: hub.personRepository,
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
         // Replace Kafka consumer with mock to avoid actual connections
@@ -244,6 +252,10 @@ describe('ErrorTrackingConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
+
+        // Replace the real personRepository with a mock to avoid database schema issues
+        // (the test database may be missing the last_seen_at column)
+        hub.personRepository = createMockPersonRepository()
 
         consumer = await createConsumer(hub)
     })

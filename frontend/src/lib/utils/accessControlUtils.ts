@@ -1,24 +1,7 @@
-import posthog from 'posthog-js'
-
 import { toSentenceCase } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
-
-/** Which iteration of the access control settings UI an interaction came from. */
-export type AccessControlUIVersion = 'v1' | 'v2'
-
-/**
- * Capture an access control analytics event. All events are tagged with
- * `platform_feature: ACCESS_CONTROL` so usage of the feature can be grouped and
- * filtered together, matching the tagging used elsewhere (e.g. RestrictedArea).
- */
-export const captureAccessControlEvent = (event: string, properties?: Record<string, unknown>): void => {
-    posthog.capture(event, {
-        ...properties,
-        platform_feature: AvailableFeature.ACCESS_CONTROL,
-    })
-}
+import { APIScopeObject, AccessControlLevel, AccessControlResourceType } from '~/types'
 
 /**
  * Returns the minimum allowed access level for a resource.

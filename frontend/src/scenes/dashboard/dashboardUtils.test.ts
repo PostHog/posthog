@@ -39,7 +39,7 @@ describe('getDashboardTileDisplayName', () => {
 describe('isWidgetTileVisibleOnPlacement', () => {
     it.each([
         [DashboardPlacement.Dashboard, true],
-        [DashboardPlacement.Public, true],
+        [DashboardPlacement.Public, false],
         [DashboardPlacement.Export, false],
     ])('placement=%s → %s', (placement, expected) => {
         expect(isWidgetTileVisibleOnPlacement(placement)).toBe(expected)

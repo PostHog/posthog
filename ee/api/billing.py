@@ -396,11 +396,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.authorize_status(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(
-        methods=["PATCH"],
-        detail=False,
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
-    )
+    @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
 

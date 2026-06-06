@@ -68,7 +68,7 @@ export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType 
                             </p>
                             <CodeSnippet language={Language.Bash}>
                                 {[
-                                    "curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh",
+                                    "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/download/posthog-cli-v0.0.2/posthog-cli-installer.sh | sh",
                                     'posthog-cli-update',
                                 ].join('\n')}
                             </CodeSnippet>

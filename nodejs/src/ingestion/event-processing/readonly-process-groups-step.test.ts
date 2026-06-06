@@ -1,7 +1,7 @@
 import { createTestTeam } from '../../../tests/helpers/team'
 import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
-import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PipelineResultType } from '../pipelines/results'
 import { createReadOnlyProcessGroupsStep } from './readonly-process-groups-step'
 
@@ -23,7 +23,7 @@ type TestInput = {
 }
 
 describe('createReadOnlyProcessGroupsStep', () => {
-    let mockGroupTypeManager: jest.Mocked<Pick<ReadOnlyGroupTypeManager, 'fetchGroupTypes'>>
+    let mockGroupTypeManager: jest.Mocked<Pick<GroupTypeManager, 'fetchGroupTypes'>>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -59,9 +59,7 @@ describe('createReadOnlyProcessGroupsStep', () => {
     ])('$desc', async ({ processPerson, hasGroups, expectFetchGroupTypes }) => {
         mockGroupTypeManager.fetchGroupTypes.mockResolvedValue({ org: 0 })
 
-        const step = createReadOnlyProcessGroupsStep<TestInput>(
-            mockGroupTypeManager as unknown as ReadOnlyGroupTypeManager
-        )
+        const step = createReadOnlyProcessGroupsStep<TestInput>(mockGroupTypeManager as unknown as GroupTypeManager)
         const result = await step(
             createInput({
                 processPerson,
@@ -82,9 +80,7 @@ describe('createReadOnlyProcessGroupsStep', () => {
     it('enriches properties with $group_N using read-only fetch', async () => {
         mockGroupTypeManager.fetchGroupTypes.mockResolvedValue({ org: 0, project: 1 })
 
-        const step = createReadOnlyProcessGroupsStep<TestInput>(
-            mockGroupTypeManager as unknown as ReadOnlyGroupTypeManager
-        )
+        const step = createReadOnlyProcessGroupsStep<TestInput>(mockGroupTypeManager as unknown as GroupTypeManager)
         const input = createInput({
             preparedEvent: createTestPreIngestionEvent({
                 properties: { $groups: { org: 'posthog', project: 'posthog-js' } },
@@ -105,9 +101,7 @@ describe('createReadOnlyProcessGroupsStep', () => {
     it('skips unknown group types without writing', async () => {
         mockGroupTypeManager.fetchGroupTypes.mockResolvedValue({ org: 0 })
 
-        const step = createReadOnlyProcessGroupsStep<TestInput>(
-            mockGroupTypeManager as unknown as ReadOnlyGroupTypeManager
-        )
+        const step = createReadOnlyProcessGroupsStep<TestInput>(mockGroupTypeManager as unknown as GroupTypeManager)
         const input = createInput({
             preparedEvent: createTestPreIngestionEvent({
                 properties: { $groups: { org: 'posthog', unknown_type: 'value' } },

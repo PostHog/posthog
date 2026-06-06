@@ -8,7 +8,6 @@ export type HealthIssueKind =
     | 'scroll_depth'
     | 'authorized_urls'
     | 'reverse_proxy'
-    | 'partial_proxy'
     | 'web_vitals'
     | 'ingestion_lag'
     | 'ingestion_warning'
@@ -88,7 +87,6 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     scroll_depth: 'web_analytics',
     authorized_urls: 'web_analytics',
     reverse_proxy: 'web_analytics',
-    partial_proxy: 'web_analytics',
     web_vitals: 'web_analytics',
 }
 
@@ -98,7 +96,6 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     scroll_depth: 'No scroll depth tracking',
     authorized_urls: 'No authorized URLs',
     reverse_proxy: 'No reverse proxy',
-    partial_proxy: 'Partial reverse proxy',
     web_vitals: 'No web vitals',
     ingestion_lag: 'Ingestion lag',
     external_data_failure: 'External data failures',

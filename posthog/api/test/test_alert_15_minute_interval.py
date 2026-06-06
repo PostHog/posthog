@@ -51,7 +51,7 @@ class TestAlert15MinuteInterval(APIBaseTest):
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "15 min alert",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"lower": 0}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "calculation_interval": AlertCalculationInterval.EVERY_15_MINUTES,
         }
         payload.update(overrides)

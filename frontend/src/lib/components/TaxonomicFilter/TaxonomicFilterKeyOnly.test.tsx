@@ -20,13 +20,6 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-// Rows only appear after a chain of async hops (kea mount -> loader breakpoint -> mocked API -> reducer ->
-// virtualized render). That resolves in ~250ms locally but can exceed RTL's 1s default under CI parallelism,
-// which is what makes the mount-gated assertions flake. Give them generous headroom.
-const RENDER_TIMEOUT_MS = 3000
-const waitForTestId = (testId: string): Promise<void> =>
-    waitFor(() => expect(screen.getByTestId(testId)).toBeInTheDocument(), { timeout: RENDER_TIMEOUT_MS })
-
 describe('TaxonomicFilter selectingKeyOnly mode', () => {
     let recents: ReturnType<typeof recentTaxonomicFiltersLogic.build>
 
@@ -83,7 +76,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
         it('records an EventProperty selection to recents when selectingKeyOnly is set', async () => {
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('prop-filter-event_properties-0')
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
+            })
 
             await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
@@ -99,7 +94,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
             const recordSpy = jest.spyOn(recents.actions, 'recordRecentFilter')
             renderFilter()
 
-            await waitForTestId('prop-filter-event_properties-0')
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
+            })
 
             await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
@@ -117,7 +114,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true, onChange })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {
@@ -158,7 +157,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
 
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
@@ -175,7 +176,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {
@@ -192,7 +195,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter()
 
-            await waitForTestId('taxonomic-tab-recent_filters')
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {
@@ -207,7 +212,9 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitForTestId('taxonomic-tab-recent_filters')
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {

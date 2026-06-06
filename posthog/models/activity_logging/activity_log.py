@@ -271,7 +271,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "name": "organization name",
         "enforce_2fa": "two-factor authentication requirement",
         "members_can_invite": "member invitation permissions",
-        "members_can_create_projects": "member project creation permissions",
         "members_can_use_personal_api_keys": "personal API key permissions",
         "allow_publicly_shared_resources": "public sharing permissions",
         "is_member_join_email_enabled": "member join email notifications",

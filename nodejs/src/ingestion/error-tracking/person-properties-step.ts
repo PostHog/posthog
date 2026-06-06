@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineResult, ok } from '../pipelines/results'
@@ -28,7 +28,7 @@ function personKey(teamId: number, distinctId: string): string {
  * This is a batch step to avoid N+1 queries when processing multiple events.
  */
 export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
-    personRepository: PersonReadRepository
+    personRepository: PersonRepository
 ): BatchProcessingStep<T, T & { person: Person | null }> {
     return async function fetchPersonBatchStep(inputs: T[]): Promise<PipelineResult<T & { person: Person | null }>[]> {
         if (inputs.length === 0) {
@@ -43,7 +43,7 @@ export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
         // Batch fetch all persons in a single query
         const persons =
             lookups.length > 0
-                ? await personRepository.fetchPersonsByDistinctIds(lookups, 'error-tracking/person-properties')
+                ? await personRepository.fetchPersonsByDistinctIds(lookups, true, 'error-tracking/person-properties')
                 : []
 
         // Build lookup map

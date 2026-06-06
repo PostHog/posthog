@@ -48,7 +48,6 @@ import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } 
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
-import { taxonomicTriggerWrapperClassName } from './triggerLayout'
 import { CommitFn, DrillCategory, MenuFilterEntry, MenuFilterState, TaxonomicFilterGroup } from './types'
 
 export interface TaxonomicFilterMenuProps {
@@ -455,7 +454,19 @@ export function TaxonomicFilterMenu({
                     eventDetails.cancel()
                 }}
             >
-                <span ref={triggerWrapRef} className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
+                {/*
+                 * `flex min-w-0 w-full` (not `inline-flex`) so the wrap
+                 * fills its parent column instead of sizing to the
+                 * trigger's intrinsic width. Without `min-w-0` the
+                 * default `min-width: auto` makes the wrap grow to its
+                 * content and overflow narrow parents — long filter
+                 * names then bleed past the parity wrapper instead of
+                 * truncating like the legacy trigger.
+                 */}
+                <span
+                    ref={triggerWrapRef}
+                    className={cn('relative flex min-w-0', fullWidthTrigger ? 'w-full' : 'max-w-full')}
+                >
                     <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     <PopoverTrigger
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}

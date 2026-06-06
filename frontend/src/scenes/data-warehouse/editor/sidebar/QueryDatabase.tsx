@@ -785,17 +785,6 @@ export const QueryDatabase = ({
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            {item.record.type !== 'endpoint' ? (
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        void copyToClipboard(item.name)
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Copy view name</ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }

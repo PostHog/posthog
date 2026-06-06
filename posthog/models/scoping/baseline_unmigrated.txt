@@ -167,7 +167,6 @@ TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
 TeamSessionSummariesConfig
-TeamWorkflowsConfig
 Text
 Threshold
 Ticket

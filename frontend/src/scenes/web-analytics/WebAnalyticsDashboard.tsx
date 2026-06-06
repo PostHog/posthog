@@ -671,6 +671,8 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
 
     return (
         <>
@@ -679,7 +681,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
-            <LiveBotTiles />
+            {showLiveTiles && <LiveBotTiles />}
             <Tiles tiles={tiles} />
         </>
     )
@@ -700,7 +702,11 @@ const HealthTabLabel = (): JSX.Element => {
     )
 }
 
-const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
+const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
+        return []
+    }
+
     return [
         {
             key: ProductTab.HEALTH,
@@ -710,7 +716,11 @@ const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] =>
     ]
 }
 
-const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
+        return []
+    }
+
     return [
         {
             key: ProductTab.LIVE,
@@ -832,6 +842,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         interaction: 'function',
         callback: () => setProductTab(ProductTab.HEALTH),
         scope: Scene.WebAnalytics,
+        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
 
     useEffect(() => {
@@ -851,9 +862,9 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
-                ...liveTab(),
+                ...liveTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
-                ...healthTab(),
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

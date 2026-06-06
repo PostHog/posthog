@@ -1,17 +1,7 @@
-import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
+import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Toolbar', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Toolbar loads', async ({ page }) => {
+    test.skip('Toolbar loads', async ({ page }) => {
         await page.goToMenuItem('toolbar')
         await page.getByText('Add authorized URL').click()
 

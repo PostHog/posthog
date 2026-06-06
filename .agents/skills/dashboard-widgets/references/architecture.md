@@ -50,19 +50,6 @@ CI: `test_run_widgets.py` (registry + catalog + OpenAPI serializer count), `regi
 
 Default pattern: copy `error_tracking_list` end-to-end (`frontend/widgets/error_tracking/`). Use `session_replay_list` when you need catalog `availability`, replay throttles, or session-recording RBAC.
 
-## Charts → use insight tiles, not widgets
-
-**Do not ship chart-based widget types** (trends, time series, funnels, breakdowns, pie/bar/line as the primary tile body).
-
-Dashboards already have **insight tiles** for HogQL/query visualizations — comparisons, formulas, breakdowns, subscriptions, and insight-linked alerts. A chart widget duplicates that stack in a smaller tile with worse ergonomics.
-
-| Need on a dashboard                        | Use                                                           |
-| ------------------------------------------ | ------------------------------------------------------------- |
-| Trend, funnel, retention, stickiness, etc. | Save or build an **insight** → add as a normal dashboard tile |
-| Product-native list/table/card context     | **Widget** (`error_tracking_list`, `session_replay_list`, …)  |
-
-If intake is chart-only, **stop** — help the engineer add the right insight to the dashboard instead of a new `widget_type`. Lists may include small non-chart metadata (badges, sparklines in a row) when the product scene does; the tile body is still a list, not a chart canvas.
-
 Per-type add flow (ordered checklist): [checklist-new-widget-type.md](checklist-new-widget-type.md).
 
 ## Backend registry entry shape

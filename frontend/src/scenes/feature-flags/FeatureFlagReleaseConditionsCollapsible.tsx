@@ -71,6 +71,7 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -591,6 +592,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -627,7 +629,6 @@ const ConditionContent = ({
                                                 }}
                                                 suffix={<span>%</span>}
                                                 className="w-20"
-                                                data-attr="rollout-percentage"
                                             />
                                         </div>
                                         {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (

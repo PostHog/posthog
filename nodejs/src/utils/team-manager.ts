@@ -2,30 +2,21 @@ import { Properties } from '~/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
+import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
 }
 
-export interface TeamManagerOptions {
-    /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
-    loaderRetry?: LoaderRetryOptions
-}
-
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
-    constructor(
-        private postgres: PostgresRouter,
-        options?: TeamManagerOptions
-    ) {
+    constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
-            loaderRetry: options?.loaderRetry,
             loader: async (teamIdOrTokens: string[]) => {
                 return await this.fetchTeams(teamIdOrTokens)
             },

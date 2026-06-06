@@ -24,18 +24,35 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import {
-    DashboardPlacement,
-    DashboardTile,
-    DashboardType,
-    InsightColor,
-    InsightShortId,
-    QueryBasedInsightModel,
-} from '~/types'
+import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
+import _dashboardJson from './__mocks__/dashboard.json'
+
+const dashboardJson = getQueryBasedDashboard(_dashboardJson as any as DashboardType)!
+
+export function insightOnDashboard(
+    insightId: number,
+    dashboardsRelation: number[],
+    insight: Partial<QueryBasedInsightModel> = {}
+): QueryBasedInsightModel {
+    const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
+    let tile = dashboardJson.tiles[0]
+    if (tiles.length) {
+        tile = tiles[0]
+    }
+    if (!tile.insight) {
+        throw new Error('tile has no insight')
+    }
+    return {
+        ...tile.insight,
+        dashboards: dashboardsRelation,
+        dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
+        query: { ...tile.insight.query, ...insight.query, kind: (tile.insight.query?.kind || insight.query?.kind)! },
+    }
+}
 
 const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
     id: 4,
@@ -56,6 +73,30 @@ const WIDGET_TILE_WITH_CUSTOM_NAME: DashboardTile<QueryBasedInsightModel> = {
     widget: { id: '2', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
     layouts: {},
     color: null,
+}
+
+let tileId = 0
+export const tileFromInsight = (
+    insight: QueryBasedInsightModel,
+    id: number = tileId++
+): DashboardTile<QueryBasedInsightModel> => ({
+    id: id,
+    layouts: {},
+    color: null,
+    insight: insight,
+})
+
+export const dashboardResult = (
+    dashboardId: number,
+    tiles: DashboardTile<QueryBasedInsightModel>[],
+    filters: Partial<DashboardFilter> = {}
+): DashboardType<QueryBasedInsightModel> => {
+    return {
+        ...dashboardJson,
+        filters: { ...dashboardJson.filters, ...filters },
+        id: dashboardId,
+        tiles,
+    }
 }
 
 const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
@@ -1559,42 +1600,6 @@ describe('dashboardLogic', () => {
                 results: [],
                 hasMore: false,
             })
-        })
-
-        it('does not fetch run_widgets on public placement', async () => {
-            logic = dashboardLogic({
-                id: 5,
-                placement: DashboardPlacement.Public,
-                dashboard: {
-                    ...dashboards[5],
-                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType<QueryBasedInsightModel>,
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
-
-            await expectLogic(logic, () => {
-                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
-            }).toFinishAllListeners()
-
-            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
-        })
-
-        it('enables widget tiles on public dashboards when tile metadata is present', async () => {
-            logic = dashboardLogic({
-                id: 5,
-                placement: DashboardPlacement.Public,
-                dashboard: {
-                    ...dashboards[5],
-                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType<QueryBasedInsightModel>,
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.dashboardWidgetsEnabled).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {

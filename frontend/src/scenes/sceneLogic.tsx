@@ -38,6 +38,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
@@ -839,7 +840,11 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         setTabs: () => persistTabs(values.tabs, values.homepage),
-        activateTab: () => {
+        activateTab: ({ tab }, _, __, previousState) => {
+            const previousActiveTabId = selectors.activeTabId(previousState)
+            if (previousActiveTabId && previousActiveTabId !== tab.id) {
+                sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(previousActiveTabId, tab.id)
+            }
             persistTabs(values.tabs, values.homepage)
         },
         duplicateTab: () => persistTabs(values.tabs, values.homepage),
@@ -1012,6 +1017,10 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             if (tabId !== lastTabId) {
+                if (lastTabId) {
+                    sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(lastTabId, tabId)
+                }
+
                 const scrollTop = values.tabScrollDepths[tabId] ?? 0
                 window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 1)
                 window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 10)

@@ -191,38 +191,6 @@ describe('savedInsightsLogic', () => {
             })
     })
 
-    it('carries per-row search_match_type through to the results', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/insights/': () => {
-                    const base = createSavedInsights('hello', 0)
-                    return [
-                        200,
-                        {
-                            ...base,
-                            results: base.results.map((r, i) => ({
-                                ...r,
-                                search_match_type: i === 0 ? 'exact' : 'similar',
-                            })),
-                        },
-                    ]
-                },
-            },
-        })
-
-        logic.actions.setSavedInsightsFilters({ search: 'hello' })
-        await expectLogic(logic)
-            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
-            .toMatchValues({
-                insights: partial({
-                    results: partial([
-                        partial({ name: 'hello 1', search_match_type: 'exact' }),
-                        partial({ name: 'hello 2', search_match_type: 'similar' }),
-                    ]),
-                }),
-            })
-    })
-
     it('can duplicate and does not use derived name for name', async () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = ''

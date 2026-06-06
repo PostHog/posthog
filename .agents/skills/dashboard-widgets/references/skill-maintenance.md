@@ -6,19 +6,17 @@
 
 One canonical home per topic — link elsewhere; do not copy tables or long prose.
 
-| Topic                        | Canonical doc                                                                                                        |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Intake / spec questions      | [widget-intake.md](widget-intake.md) (incl. [discover product UI](widget-intake.md#discover-product-ui-in-the-repo)) |
-| Add flow (files + order)     | [checklist-new-widget-type.md](checklist-new-widget-type.md)                                                         |
-| Model, naming, scaling rules | [architecture.md](architecture.md)                                                                                   |
-| Widgets vs insight charts    | [architecture.md § Charts → insight tiles](architecture.md#charts--use-insight-tiles-not-widgets)                    |
-| Product RBAC                 | [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)                                 |
-| Tile min/max size            | [layout-and-ux.md § Tile min/max size](layout-and-ux.md#tile-minmax-size-grid-rows--columns)                         |
-| Registry entry shapes (code) | [architecture.md](architecture.md)                                                                                   |
-| Product scene UI in tiles    | [composition.md § Product visual parity](composition.md#product-visual-parity)                                       |
-| Update flow                  | [managing-existing-widgets.md](managing-existing-widgets.md) — [SKILL.md §3](../SKILL.md#3-update-a-shipped-type)    |
-| Verify commands              | [SKILL.md §6 Verify](../SKILL.md#6-verify)                                                                           |
-| Human entry / nav            | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md)                                |
+| Topic                        | Canonical doc                                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Intake / spec questions      | [widget-intake.md](widget-intake.md)                                                                              |
+| Add flow (files + order)     | [checklist-new-widget-type.md](checklist-new-widget-type.md)                                                      |
+| Model, naming, scaling rules | [architecture.md](architecture.md)                                                                                |
+| Product RBAC                 | [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)                              |
+| Tile min/max size            | [layout-and-ux.md § Tile min/max size](layout-and-ux.md#tile-minmax-size-grid-rows--columns)                      |
+| Registry entry shapes (code) | [architecture.md](architecture.md)                                                                                |
+| Update flow                  | [managing-existing-widgets.md](managing-existing-widgets.md) — [SKILL.md §3](../SKILL.md#3-update-a-shipped-type) |
+| Verify commands              | [SKILL.md §6 Verify](../SKILL.md#6-verify)                                                                        |
+| Human entry / nav            | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md)                             |
 
 ## When this applies
 
@@ -53,7 +51,6 @@ Platform-only refactors with **no** behavior or agent-facing surface change may 
 | Setup / availability gating                | [availability-and-gating.md](availability-and-gating.md); BE `availability_requirements` note                                                  |
 | Tile layout / mins / add placement         | [layout-and-ux.md](layout-and-ux.md); [architecture.md](architecture.md) if REST/MCP add path changed                                          |
 | WidgetCard / edit modal composition        | [composition.md](composition.md)                                                                                                               |
-| Product scene UI parity in widget body     | [composition.md § Product visual parity](composition.md#product-visual-parity)                                                                 |
 | MCP tools or agent flows                   | [mcp.md](mcp.md)                                                                                                                               |
 | New product area / tach / UI reuse pattern | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                               |
 | Human contributor entry point              | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md) registry table / Verify block                            |

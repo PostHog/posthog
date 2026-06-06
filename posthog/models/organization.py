@@ -232,12 +232,6 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
-    members_can_create_projects = models.BooleanField(
-        default=False,
-        null=True,
-        blank=True,
-        help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
-    )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(

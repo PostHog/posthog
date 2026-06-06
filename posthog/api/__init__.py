@@ -30,7 +30,7 @@ from products.exports.backend.api import exports
 from products.notebooks.backend.api.notebook import NotebookViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
-from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
+from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -667,12 +667,6 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
-    r"single_session_summaries",
-    SingleSessionSummaryViewSet,
-    "project_single_session_summaries",
-    ["project_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"quick_filters",

@@ -31,11 +31,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
-export interface SavedInsightListItem extends QueryBasedInsightModel {
-    search_match_type?: 'exact' | 'similar' | null
-}
-
-export interface InsightsResult extends CountedPaginatedResponse<SavedInsightListItem> {
+export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsightModel> {
     /* not in the API response */
     filters?: SavedInsightFilters | null
     /* not in the API response */
@@ -146,7 +142,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                             results: [insight, ...response.results],
                             filters,
                             offset: params.offset,
-                        } as InsightsResult
+                        } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
                     } catch {
                         // no insight with this ID found, discard
                     }
@@ -165,7 +161,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     ...response,
                     filters,
                     offset: params.offset,
-                } as InsightsResult
+                } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
                 const response = await insightsApi.update(insight.id, {

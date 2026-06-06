@@ -8,10 +8,6 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import {
-    canToggleAnnotationsInInsightQuery,
-    getAnnotationsToggleText,
-} from 'lib/components/Cards/InsightCard/annotationsToggle'
-import {
     canToggleDisplayLabelsInInsightQuery,
     getDisplayLabelsToggleText,
     isDisplayLabelsEnabledInInsightQuery,
@@ -475,10 +471,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (query) => !!query && canToggleDisplayLabelsInInsightQuery(query),
         ],
         canToggleLegendForInsight: [(s) => [s.query], (query) => !!query && canToggleLegendInInsightQuery(query)],
-        canToggleAnnotationsForInsight: [
-            (s) => [s.query],
-            (query) => !!query && canToggleAnnotationsInInsightQuery(query),
-        ],
         displayLabelsShownForInsight: [
             (s) => [s.query],
             (query) => !!query && isDisplayLabelsEnabledInInsightQuery(query),
@@ -488,10 +480,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (query) => (query ? getDisplayLabelsToggleText(query) : 'Show values on series'),
         ],
         legendToggleTextForInsight: [(s) => [s.query], (query) => (query ? getLegendToggleText(query) : 'Show legend')],
-        annotationsToggleTextForInsight: [
-            (s) => [s.query],
-            (query) => (query ? getAnnotationsToggleText(query) : 'Hide annotations'),
-        ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
             (insight, savedInsight): boolean => {
@@ -621,10 +609,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-            const insightName = savedInsight.name || savedInsight.derived_name
-            tryShowMCPHint('insights.create', {
-                derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
-            })
+            tryShowMCPHint('insights.create')
 
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 

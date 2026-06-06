@@ -13,36 +13,6 @@ const THEME: ChartTheme = { colors: ['#1f77b4'], backgroundColor: '#ffffff' }
 ;<LineChart series={SERIES} labels={LABELS} theme={THEME} />
 ```
 
-## Theme
-
-Charts are **headless about color** — every chart takes a `ChartTheme` (`colors`
-plus axis/grid/tooltip colors) and owns no palette of its own. Supply it however
-you like, but the intended source is quill's design tokens.
-
-`@posthog/quill-tokens` defines the data-viz palette as CSS vars
-(`--data-color-1..15`, `--color-graph-*`). Read them into a `ChartTheme` with the
-built-in helpers instead of hand-rolling per consumer:
-
-```tsx
-import { useChartTheme, BarChart } from '@posthog/quill-charts'
-
-function MyChart() {
-  const theme = useChartTheme() // re-reads on light/dark toggle
-  return <BarChart series={SERIES} labels={LABELS} theme={theme} />
-}
-```
-
-- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class` / `theme`
-  attribute flips on `<html>` or `<body>`.
-- `themeFromCssVars(opts?)` — one-shot, non-React read.
-- `DEFAULT_CHART_COLORS` — fallback palette used when the token vars aren't loaded
-  (no quill-tokens stylesheet, or SSR). Without tokens loaded you get this palette,
-  not black. Load `@posthog/quill-tokens/color-system.css` to get the real tokens.
-
-Both helpers read from `document.body` by default. If you use the **scoped** token
-build (vars gated behind `[data-quill]`) and quill isn't mounted on `<body>`, pass
-`root` pointing inside the scoped subtree: `useChartTheme({ root: myQuillEl })`.
-
 ## Series
 
 - `series.overlay` (default `false`): marks an auxiliary series derived from primary data — trend lines and moving averages. Excluded from stack computation and from the y-axis baseline calculation, so a trendline projection won't drag the axis below 0 when the underlying data is non-negative. (CI bands are not overlays — they represent real data uncertainty whose range should still influence the axis.)

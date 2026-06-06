@@ -145,13 +145,6 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
     # https://github.com/ClickHouse/ClickHouse/issues/64487
     optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
-    # The mirror image of the setting above, for `and(event != '1', event != '2', event != '3')` being optimized into
-    # `event NOT IN ('1', '2', '3')`. With transform_null_in=1 the new analyzer rewrites the synthesized notIn to
-    # notNullIn inconsistently between the shard (producing) and initiator (consuming) headers of a distributed query,
-    # so column matching fails with `Cannot find column minIf(..., notIn(...)) in source stream, there are only columns:
-    # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
-    # without touching NULL semantics (unlike transform_null_in).
-    optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None

@@ -1,4 +1,4 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
@@ -7,6 +7,8 @@ import { GroupRepository } from './groups/repositories/group-repository.interfac
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
+
+export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>

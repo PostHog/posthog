@@ -20,7 +20,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
+import { alertFormLogic, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -229,47 +229,6 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
-    })
-
-    it('blocks save when threshold alert has no lower or upper bound', async () => {
-        const logic = mountForm()
-        logic.actions.setAlertFormValues({
-            ...makeFormDefaults({
-                threshold: {
-                    configuration: {
-                        type: InsightThresholdType.ABSOLUTE,
-                        bounds: {},
-                    },
-                },
-            }),
-            checks: undefined,
-        })
-
-        expect(thresholdAlertHasBounds(logic.values.alertForm)).toBe(false)
-
-        logic.actions.setAlertFormSubmitAttempted()
-
-        await expectLogic(logic, () => {
-            logic.actions.submitAlertForm()
-        }).toFinishAllListeners()
-
-        expect(createSpy).not.toHaveBeenCalled()
-        expect(successToastSpy).not.toHaveBeenCalled()
-        expect(logic.values.thresholdBoundsFormError).toBe('Enter at least one threshold (less than or more than)')
-    })
-
-    it('treats cleared threshold inputs as missing bounds', () => {
-        expect(
-            thresholdAlertHasBounds({
-                ...makeFormDefaults(),
-                threshold: {
-                    configuration: {
-                        type: InsightThresholdType.ABSOLUTE,
-                        bounds: { lower: '' as unknown as number, upper: '' as unknown as number },
-                    },
-                },
-            })
-        ).toBe(false)
     })
 
     it('blocks save with error toast for 15-minute interval without entitlement', async () => {

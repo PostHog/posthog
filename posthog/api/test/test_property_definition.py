@@ -580,21 +580,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         if expected_names:
             assert [r["name"] for r in response.json()["results"]] == expected_names
 
-    def test_feature_flag_filter_with_event_names_does_not_require_eventproperty_rows(self) -> None:
-        PropertyDefinition.objects.create(team=self.team, name="$feature/my-flag", property_type="Boolean")
-        PropertyDefinition.objects.create(team=self.team, name="$feature/other-flag", property_type="Boolean")
-        # No EventProperty rows for $feature/* — this is the post-fix state
-
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/"
-            f"?is_feature_flag=true&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
-        )
-        assert response.status_code == status.HTTP_200_OK
-        names = [r["name"] for r in response.json()["results"]]
-        assert "$feature/my-flag" in names
-        assert "$feature/other-flag" in names
-        assert all(r["is_seen_on_filtered_events"] is None for r in response.json()["results"])
-
     @patch("posthoganalytics.capture")
     def test_delete_property_definition(self, mock_capture):
         property_definition = PropertyDefinition.objects.create(

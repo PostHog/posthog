@@ -48,7 +48,7 @@ jobs:
             - name: Reconcile master CI incident with Slack
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
-                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
               with:
                   script: |
                       const script = require('./.github/scripts/ci-alerts-devex.js')

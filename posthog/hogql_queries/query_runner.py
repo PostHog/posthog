@@ -819,9 +819,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentFunnelsQuery":
-        from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import (
-            ExperimentFunnelsQueryRunner,
-        )
+        from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 
         return ExperimentFunnelsQueryRunner(
             query=query,
@@ -833,9 +831,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentTrendsQuery":
-        from products.experiments.backend.hogql_queries.experiment_trends_query_runner import (
-            ExperimentTrendsQueryRunner,
-        )
+        from .experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 
         return ExperimentTrendsQueryRunner(
             query=query,
@@ -847,7 +843,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+        from .experiments.experiment_query_runner import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -859,9 +855,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
-            ExperimentExposuresQueryRunner,
-        )
+        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),

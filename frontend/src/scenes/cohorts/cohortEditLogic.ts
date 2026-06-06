@@ -1,17 +1,4 @@
-import {
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    isBreakpoint,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -489,9 +476,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     })
                     actions.checkIfFinishedCalculating(cohort)
                     if (existingCohort.id === 'new') {
-                        tryShowMCPHint('cohorts.create', {
-                            derivedPrompt: cohort.name ? `Build a cohort called ${cohort.name}` : undefined,
-                        })
+                        tryShowMCPHint('cohorts.create')
                     }
                     if (cohort.id !== 'new') {
                         actions.refreshPersonsData()
@@ -650,19 +635,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
-                        try {
-                            const newCohort = await api.cohorts.get(cohort.id)
-                            // breakpoint() throws to abort once the logic unmounts. Because this runs
-                            // in a detached setTimeout callback (not the listener body), that throw
-                            // would otherwise surface as an unhandled rejection — keep it contained.
-                            breakpoint()
-                            actions.checkIfFinishedCalculating(newCohort)
-                        } catch (e: any) {
-                            if (!isBreakpoint(e)) {
-                                throw e
-                            }
-                            // Poll superseded or logic unmounted — stop quietly.
-                        }
+                        const newCohort = await api.cohorts.get(cohort.id)
+                        breakpoint()
+                        actions.checkIfFinishedCalculating(newCohort)
                     }, 1000)
                 )
             } else {

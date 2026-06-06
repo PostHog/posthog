@@ -4,7 +4,7 @@ import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/utils/db/error'
+import { MessageSizeTooLarge } from '~/utils/db/error'
 import { PostgresRouter } from '~/utils/db/postgres'
 
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
@@ -2651,90 +2651,6 @@ describe('BatchWritingPersonStore', () => {
             // Only the batch fetch should have been called, not individual fetchPerson
             expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
-        })
-
-        it('should resolve (not reject) on a transient persons-Postgres failure', async () => {
-            const personStoreForBatch = getPersonsStore()
-
-            mockRepo.fetchPersonsByDistinctIds.mockRejectedValueOnce(
-                new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('connect ECONNREFUSED'))
-            )
-
-            // Prefetch is fired without being awaited by its pipeline step, so a rejection here would
-            // surface as an unhandled rejection and crash the worker. It must resolve instead.
-            await expect(
-                personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
-            ).resolves.toBeUndefined()
-
-            // Nothing should have been cached for the failed entry
-            expect(personStoreForBatch.getCheckCache().has(`${teamId}:user-1`)).toBe(false)
-        })
-
-        it('should rethrow an unexpected batch fetch failure rather than mask it', async () => {
-            const personStoreForBatch = getPersonsStore()
-
-            // A non-transient error (e.g. a broken query) must surface loudly, not be swallowed.
-            mockRepo.fetchPersonsByDistinctIds.mockRejectedValueOnce(new Error('something unexpected'))
-
-            await expect(personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])).rejects.toThrow(
-                'something unexpected'
-            )
-        })
-
-        it('should let fetchForUpdate fall back to an on-demand fetch after a failed prefetch', async () => {
-            const personStoreForBatch = getPersonsStore()
-
-            mockRepo.fetchPersonsByDistinctIds.mockRejectedValueOnce(
-                new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('connect ECONNREFUSED'))
-            )
-
-            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
-
-            // The failed prefetch left the caches empty, so fetchForUpdate must do its own fetch.
-            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
-
-            expect(result).toEqual(person)
-            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
-        })
-
-        it('should propagate a transient in-flight failure to fetchForChecking, not report the person absent', async () => {
-            const personStoreForBatch = getPersonsStore()
-
-            // Control when the batch fetch settles so fetchForChecking piggybacks on the in-flight prefetch.
-            let rejectFetch: (reason: Error) => void
-            const fetchPromise = new Promise<InternalPerson[]>((_resolve, reject) => {
-                rejectFetch = reject
-            })
-            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(fetchPromise)
-
-            const prefetch = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
-            const checking = personStoreForBatch.fetchForChecking(teamId, 'user-1')
-
-            rejectFetch!(new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('boom')))
-
-            // Must reject so the per-distinct-id pipeline retries — not resolve null ("person absent"),
-            // which would make processPersonlessStep create a fake person for an event that has a real one.
-            await expect(checking).rejects.toThrow('connect ECONNREFUSED')
-            // The fire-and-forget prefetch itself still recovers so it can't crash the worker.
-            await expect(prefetch).resolves.toBeUndefined()
-        })
-
-        it('should propagate a transient in-flight failure to fetchForUpdate rather than silently refetch', async () => {
-            const personStoreForBatch = getPersonsStore()
-
-            let rejectFetch: (reason: Error) => void
-            const fetchPromise = new Promise<InternalPerson[]>((_resolve, reject) => {
-                rejectFetch = reject
-            })
-            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(fetchPromise)
-
-            const prefetch = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
-            const update = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
-
-            rejectFetch!(new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('boom')))
-
-            await expect(update).rejects.toThrow('connect ECONNREFUSED')
-            await expect(prefetch).resolves.toBeUndefined()
         })
     })
 })

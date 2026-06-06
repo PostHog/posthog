@@ -131,9 +131,6 @@ describe('vercel-ai middleware', () => {
         it.each([
             ['posthog_distinct_id', 'user-1'],
             ['$ai_session_id', 'session-123'],
-            ['$ai_prompt_name', 'my-prompt'],
-            ['$ai_prompt_version', 'v2'],
-            ['$ai_prompt_version', 2],
         ])('promotes ai.telemetry.metadata.%s to event properties', (key, value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
@@ -168,29 +165,15 @@ describe('vercel-ai middleware', () => {
             expect(event.distinct_id).toBe('user-123')
         })
 
-        it.each(['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version'])(
-            'ignores empty ai.telemetry.metadata.%s',
-            (key) => {
-                const event = createEvent('$ai_generation', {
-                    'ai.operationId': 'ai.generateText.doGenerate',
-                    [`ai.telemetry.metadata.${key}`]: '',
-                })
-                convertOtelEvent(event)
-
-                expect(event.properties![key]).toBeUndefined()
-                expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
-            }
-        )
-
-        it.each([0, -1, 1.5])('ignores invalid numeric ai.telemetry.metadata.$ai_prompt_version=%s', (value) => {
+        it('ignores empty $ai_session_id metadata', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
-                'ai.telemetry.metadata.$ai_prompt_version': value,
+                'ai.telemetry.metadata.$ai_session_id': '',
             })
             convertOtelEvent(event)
 
-            expect(event.properties!['$ai_prompt_version']).toBeUndefined()
-            expect(event.properties!['ai.telemetry.metadata.$ai_prompt_version']).toBeUndefined()
+            expect(event.properties!['$ai_session_id']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
         })
     })
 

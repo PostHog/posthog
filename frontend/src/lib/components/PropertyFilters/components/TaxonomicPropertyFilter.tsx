@@ -17,7 +17,6 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -333,7 +332,7 @@ export function TaxonomicPropertyFilter({
             }}
         />
     ) : (
-        <span className={taxonomicTriggerWrapperClassName()}>
+        <span className="relative inline-flex max-w-full min-w-0">
             {legacyDropdown}
             <TaxonomicMenuToggle />
         </span>

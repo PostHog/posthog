@@ -36,9 +36,7 @@ import {
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
 import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { createPersonHogClient } from '../ingestion/personhog'
-import { PersonHogGroupReadRepository } from '../ingestion/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '../ingestion/personhog/personhog-person-read-repository'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -48,7 +46,9 @@ import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
-import { ReadOnlyGroupTypeManager } from '../worker/ingestion/readonly-group-type-manager'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
+import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
+import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -169,14 +169,22 @@ export class ErrorTrackingServer implements NodeServer {
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
 
-        if (!personhogClient) {
-            throw new Error(
-                'PersonHog client is required for error tracking — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
-            )
-        }
-
-        const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
-        const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres)
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
+            clientLabel
+        )
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+        const groupRepository = buildGroupRepository(
+            personhogClient,
+            postgresGroupRepository,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
+            clientLabel
+        )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
 
@@ -232,7 +240,7 @@ export class ErrorTrackingServer implements NodeServer {
                     teamManager,
                     errorTrackingSettingsManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository),
+                    groupTypeManager: new GroupTypeManager(groupRepository, teamManager),
                     cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,

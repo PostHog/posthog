@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconGear, IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorButton,
@@ -15,7 +15,6 @@ import {
     LemonTabs,
     LemonTag,
     Popover,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
@@ -28,7 +27,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
-import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
+import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
 import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
@@ -638,18 +637,14 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
                     onClick={() => deleteSeriesBreakdown()}
                 />
             </div>
-            <div className="ml-1 mt-2">
-                {seriesBreakdownData.warning ? (
-                    <div className="flex items-center gap-1.5 text-warning bg-warning-highlight rounded px-2 py-1 mt-1 mb-2 text-xs font-medium">
-                        <span>{BREAKDOWN_LIMIT_LABEL}</span>
-                        <Tooltip title={seriesBreakdownData.warning}>
-                            <IconInfo className="text-base shrink-0 ml-auto" />
-                        </Tooltip>
-                    </div>
-                ) : null}
-                {seriesBreakdownData.seriesData.map((series, index) => (
-                    <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
-                ))}
+            <div className="ml-4 mt-2">
+                {seriesBreakdownData.error ? (
+                    <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
+                ) : (
+                    seriesBreakdownData.seriesData.map((series, index) => (
+                        <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
+                    ))
+                )}
             </div>
         </>
     )

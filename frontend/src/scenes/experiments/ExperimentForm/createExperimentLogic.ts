@@ -383,9 +383,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.createExperimentSuccess()
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
                     lemonToast.success('Experiment created successfully!')
-                    tryShowMCPHint('experiments.create', {
-                        derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
-                    })
+                    tryShowMCPHint('experiments.create')
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()

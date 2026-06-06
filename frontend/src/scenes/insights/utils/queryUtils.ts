@@ -255,7 +255,6 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             stacked: undefined,
             detailedResultsAggregationType: undefined,
             excludeBoxPlotOutliers: undefined,
-            showAnnotations: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,

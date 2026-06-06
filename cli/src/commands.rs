@@ -25,8 +25,6 @@ pub struct Cli {
     #[arg(long, default_value = "false")]
     no_fail: bool,
 
-    /// Skip SSL certificate verification when talking to the PostHog API. Use only with
-    /// self-signed certificates.
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
 
@@ -34,10 +32,8 @@ pub struct Cli {
     #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
     rate_limit: Option<usize>,
 
-    /// Load PostHog credentials from this dotenv-style file when not present in the process
-    /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
-    /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
-    #[arg(long = "dotenv-file", alias = "env-file", value_name = "PATH")]
+    /// Load PostHog credentials from this dotenv-style file when not present in the process environment.
+    #[arg(long, value_name = "PATH")]
     env_file: Option<PathBuf>,
 
     /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting

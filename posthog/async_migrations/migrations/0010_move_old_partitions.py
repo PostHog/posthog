@@ -46,23 +46,18 @@ class Migration(AsyncMigrationDefinition):
         return is_cloud()
 
     def _get_partitions_to_move(self):
-        # Partition bounds come from the request body (AsyncMigration.parameters), so they are
-        # bound as query parameters rather than interpolated into the SQL text.
+        # nosemgrep: clickhouse-injection-taint - migration params, not user input
         result = sync_execute(
-            """
+            f"""
             SELECT DISTINCT partition_id FROM system.parts
             WHERE
                 table = 'sharded_events'
                 AND (
-                    partition < %(oldest_partition)s
-                    OR partition > %(newest_partition)s
+                    partition < '{self.get_parameter("OLDEST_PARTITION_TO_KEEP")}'
+                    OR partition > '{self.get_parameter("NEWEST_PARTITION_TO_KEEP")}'
                 )
             ORDER BY partition_id
-        """,
-            {
-                "oldest_partition": self.get_parameter("OLDEST_PARTITION_TO_KEEP"),
-                "newest_partition": self.get_parameter("NEWEST_PARTITION_TO_KEEP"),
-            },
+        """
         )
 
         return [row[0] for row in result]

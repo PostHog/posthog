@@ -1155,10 +1155,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
-                const surveyType = survey.type ? `${survey.type} ` : ''
-                tryShowMCPHint('surveys.create', {
-                    derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
-                })
+                tryShowMCPHint('surveys.create')
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)

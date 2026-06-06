@@ -1,4 +1,4 @@
-import { GroupTypeIndex, ProjectId, TeamId } from '../../types'
+import { GroupTypeIndex, TeamId } from '../../types'
 import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonHogClient } from './client'
 import { withRetry } from './grpc-retry'
@@ -42,17 +42,6 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
         return withRetry('PersonHogGroupReadRepository.fetchGroupTypesByTeamIds', () =>
             timedGrpc(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
                 this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds, callerTag)
-            )
-        )
-    }
-
-    async fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[],
-        callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
-        return withRetry('PersonHogGroupReadRepository', () =>
-            timedGrpc(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
-                this.grpcClient.groups.fetchGroupTypesByProjectIds(projectIds, callerTag)
             )
         )
     }

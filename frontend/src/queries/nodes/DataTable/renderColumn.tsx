@@ -1,4 +1,3 @@
-import type { ReactJsonViewProps } from '@microlink/react-json-view'
 import { combineUrl, router } from 'kea-router'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -49,17 +48,6 @@ import { aiObservabilityColumnRenderers } from 'products/ai_observability/fronte
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
-
-// Wraps the JSON viewer in a horizontally scrollable container so wide or deeply
-// nested objects stay readable inside fixed-width table cells, where the surrounding
-// table clips overflow and offers no horizontal scroll of its own (e.g. dashboard tiles).
-function JSONCell(props: ReactJsonViewProps): JSX.Element {
-    return (
-        <div className="overflow-x-auto max-w-full">
-            <JSONViewer {...props} />
-        </div>
-    )
-}
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
@@ -161,7 +149,7 @@ export function renderColumn(
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
                     return (
-                        <JSONCell
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={Object.keys(JSON.stringify(value)).length > 10 ? 0 : 1}
@@ -170,7 +158,7 @@ export function renderColumn(
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
                     return (
-                        <JSONCell
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={JSON.stringify(value).length > 10 ? 0 : 1}
@@ -192,9 +180,9 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                return <JSONCell src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
+                return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
-            return <JSONCell src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
@@ -462,13 +450,13 @@ export function renderColumn(
         return formatCurrency(Number(value), baseCurrency)
     }
     if (typeof value === 'object') {
-        return <JSONCell src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
     } else if (
         typeof value === 'string' &&
         ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
     ) {
         try {
-            return <JSONCell src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         } catch {
             // do nothing
         }

@@ -6,7 +6,7 @@
 2. Work **§1 → §8 below in order**. Do not skip step 2 (permissions).
 3. **§5b, §9, §10** — after MVP tests green.
 
-Default **implementation template:** mirror `products/dashboards/frontend/widgets/error_tracking/` (`error_tracking_list`). Use `session_replay_list` / `widgets/session_replay/` when replay throttles, availability, or session RBAC apply.
+Default copy spine: `products/dashboards/frontend/widgets/error_tracking/` (`error_tracking_list`). Use `session_replay_list` when replay throttles, availability, or session RBAC apply.
 
 ## 1. Backend registry
 
@@ -60,10 +60,9 @@ No change to `AddWidgetModal` grouping for normal adds — `getDashboardWidgetCa
 
 ### 4b. Adding a variant to an existing group
 
-Use when the product area already has a widget and you need another **list/table/card** presentation in the same group — not a chart ([architecture.md § Charts → insight tiles](architecture.md#charts--use-insight-tiles-not-widgets)).
+Use when the product area already has a widget and you need another visualization (e.g. a chart alongside a list widget in the same group).
 
-- [ ] Confirmed the ask is **not** chart-primary — trends/graphs → insight tile on the dashboard
-- [ ] New **unique** catalog key / `widget_type` (e.g. `error_tracking_top_issues`) — not a config fork of the existing type
+- [ ] New **unique** catalog key / `widget_type` (e.g. `error_tracking_trends`) — not a config fork of the existing type
 - [ ] Reuse sibling **`groupId`** exactly; label comes from `DASHBOARD_WIDGET_GROUP_LABELS[groupId]`
 - [ ] Distinct **`label`**, **`description`**, **`defaultConfig`**, **`defaultLayout`** (and usually `headerTitle`)
 - [ ] Full backend stack: new `widgets/<widget_type>.py`, `WIDGET_REGISTRY` entry with `required_product_access`, `EXPECTED_WIDGET_TYPES`, extend `DashboardWidgetType`
@@ -84,7 +83,6 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 | Scenes / posthog helper | Import shared helper (e.g. `posthog.session_recordings…`) | Import from `scenes/<area>/…` when UI still lives there | `session_replay_list` |
 
 - [ ] If importing **`products/<product>/frontend/…`**: add **`products.<product>`** to `tach.toml` → `products.dashboards` `depends_on`
-- [ ] **Product visual parity** — tile body uses the same list/card/empty/skeleton/setup components as the product scene where they exist; see [composition.md § Product visual parity](composition.md#product-visual-parity)
 - [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `required_product_access` (+ optional `PRODUCT_ACCESS_DENIED_MESSAGES` / catalog `product_access_denied_message`)
 - [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `availability_requirements` string when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)
@@ -96,9 +94,8 @@ Directory: `products/dashboards/frontend/widgets/<product>/` (snake_case product
 
 - [ ] Implement `Component` with `DashboardWidgetComponentProps` (`tileId`, `config`, `result`, `loading`, `error`, `onRefresh`, `onUpdateConfig`)
 - [ ] Setup gating: catalog `availability` for simple team-flag checks, or private setup gate inside the widget `Component` for richer rules — do not modify product `SetupPrompt`
-- [ ] **Own loading UI** — early-return with `WidgetLoadingState` (typed skeleton as `children` when helpful); prefer the **product's** skeleton component (e.g. `ErrorTrackingIssueListSkeleton`), not a generic placeholder
-- [ ] **Product visual parity** — import list/card/empty/setup UI from the product scene ([composition.md § Product visual parity](composition.md#product-visual-parity)); avoid dashboard-only row markup when shared components exist
-- [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states only when the product has no shared empty component
+- [ ] **Own loading UI** — early-return with `WidgetLoadingState` (typed skeleton as `children` when helpful)
+- [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states
 - [ ] Do **not** render card chrome — `DashboardWidgetItem` + catalog handle headers/menus
 
 Minimal skeleton:

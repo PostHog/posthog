@@ -103,9 +103,6 @@ class TestVercelInstallationAPI(VercelTestBase):
         assert response.json() == {"finalized": True}
 
     def test_invalid_installation_id_format(self):
-        # The token is bound to a different installation than the URL targets, so the
-        # per-installation authorization check rejects the request before the URL format
-        # is ever validated.
         url = "/api/vercel/v1/installations/invalid-id/"
         response = self._request("get", url=url, auth_type="system")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

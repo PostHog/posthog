@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { IconGear, IconPlus } from '@posthog/icons'
 
 import api from 'lib/api'
-import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -117,19 +116,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
         logic: [verifyEmailLogic],
-        values: [
-            membersLogic,
-            ['memberCount'],
-            organizationLogic,
-            ['currentOrganizationId'],
-            // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
-            // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does stamp
-            // $lib_custom_api_host on events, which the checker detects — this keeps the "set up a
-            // reverse proxy" nudge from contradicting the onboarding checklist, which marks the task
-            // complete on the same signal. The checker throttles its own detection query internally.
-            reverseProxyCheckerLogic,
-            ['hasReverseProxy'],
-        ],
+        values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
         actions: [
             eventUsageLogic,
             ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
@@ -186,8 +173,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.noticeDismissedThisSession,
                 sceneLogic.selectors.activeSceneId,
                 (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
-                // null = not yet checked; we only nudge once detection confirms there's no proxy.
-                s.hasReverseProxy,
             ],
             (
                 organization,
@@ -203,8 +188,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 currentLocation,
                 noticeDismissedThisSession,
                 activeSceneId,
-                liveEventCount,
-                hasReverseProxy
+                liveEventCount
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
@@ -250,11 +234,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     isCloudOrDev &&
                     shouldFetchProxyRecords() &&
                     proxyRecords !== null &&
-                    proxyRecords.length === 0 &&
-                    // ...and only once the checker has confirmed there's no self-managed proxy
-                    // routing events. While it's still null (not yet checked) we hold the nudge
-                    // back to avoid flashing it at DIY-proxy users before detection resolves.
-                    hasReverseProxy === false
+                    proxyRecords.length === 0
                 ) {
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {

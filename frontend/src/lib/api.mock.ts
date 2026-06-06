@@ -205,9 +205,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         subscription_event: {},
         payment_event: {},
     } as CustomerAnalyticsConfig,
-    workflows_config: {
-        capture_workflows_engagement_events: false,
-    },
     base_currency: CurrencyCode.USD,
     default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },

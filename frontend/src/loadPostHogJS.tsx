@@ -161,7 +161,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 ...options.sessionRecording,
             },
             person_profiles: 'always',
-            tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
+            __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app

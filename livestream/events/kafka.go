@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -188,9 +187,8 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 		return nil
 	}
 
-	topics := splitTopics(c.topic)
-	if err := c.consumer.SubscribeTopics(topics, rebalanceCallback); err != nil {
-		log.Fatalf("Failed to subscribe to topics: %v", err)
+	if err := c.consumer.SubscribeTopics([]string{c.topic}, rebalanceCallback); err != nil {
+		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
 	for i := 0; i < c.parallel; i++ {
@@ -400,14 +398,4 @@ func applyKafkaConfigOverrides(config *kafka.ConfigMap, consumerConfig configs.C
 	if consumerConfig.MaxPollIntervalMs > 0 {
 		_ = config.SetKey("max.poll.interval.ms", consumerConfig.MaxPollIntervalMs)
 	}
-}
-
-func splitTopics(topic string) []string {
-	out := make([]string, 0, 2)
-	for p := range strings.SplitSeq(topic, ",") {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }

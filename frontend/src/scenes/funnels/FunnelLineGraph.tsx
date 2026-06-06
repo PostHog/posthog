@@ -133,7 +133,7 @@ export function FunnelLineGraph({
                               })
                           }
                 }
-                hideAnnotations={inSharedMode || funnelsFilter?.showAnnotations === false}
+                hideAnnotations={inSharedMode}
             />
         </LineGraphWrapper>
     )

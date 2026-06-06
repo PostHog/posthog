@@ -14,9 +14,9 @@ import { GroupRepositoryTransaction } from './group-repository-transaction.inter
 
 /**
  * Read-only group lookups backed by personhog gRPC. Used by services that
- * only need to fetch group data (CDP, error tracking). Always uses eventual
- * consistency. Independent of GroupRepository — the two interfaces have
- * different parameter shapes reflecting their different backends and consumers.
+ * only need to fetch group data (CDP). Always uses eventual consistency.
+ * Independent of GroupRepository — the two interfaces have different
+ * parameter shapes reflecting their different backends and consumers.
  */
 export interface GroupReadRepository {
     fetchGroupsByKeys(
@@ -35,11 +35,6 @@ export interface GroupReadRepository {
 
     fetchGroupTypesByTeamIds(
         teamIds: TeamId[],
-        callerTag?: string
-    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
-
-    fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[],
         callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 }

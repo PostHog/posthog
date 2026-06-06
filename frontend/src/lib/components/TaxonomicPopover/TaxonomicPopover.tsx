@@ -4,7 +4,6 @@ import { Ref, forwardRef, useEffect, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
-import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
@@ -211,18 +210,16 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     // the call site's layout exactly. The legacy path needs a thin
     // positioned wrapper to host the floating toggle.
     //
-    // The rebuilt menu can't honour these legacy capabilities, so a call site
-    // that needs any of them stays on the classic filter (still with the
-    // toggle) — no behaviour is silently lost:
+    // The rebuilt menu doesn't model these legacy capabilities yet, so a
+    // call site that needs any of them stays on the classic filter (still
+    // with the toggle) — no behaviour is silently lost:
     //   - `allowClear`            — the clear (X) affordance
+    //   - `selectingKeyOnly`      — key-only selection semantics
+    //   - `definitionPopoverRenderer` — custom definition popover
     //   - `closeOnChange={false}` — keep-open-after-select
     //   - a forwarded `ref`       — the rebuilt trigger can't receive it
-    //
-    // `selectingKeyOnly` (key-based onChange) and `definitionPopoverRenderer`
-    // (the hover definition card) are superseded by the rebuilt menu itself —
-    // its onChange already commits the resolved key and its preview pane
-    // replaces the definition popover — so they no longer gate the new menu.
-    const newMenuSupportsCallSite = !allowClear && closeOnChange && ref == null
+    const newMenuSupportsCallSite =
+        !allowClear && !selectingKeyOnly && !definitionPopoverRenderer && closeOnChange && ref == null
     if (useNewMenu && newMenuSupportsCallSite) {
         return (
             <TaxonomicPopoverMenu<ValueType>
@@ -257,7 +254,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         )
     }
     return (
-        <span className={taxonomicTriggerWrapperClassName(buttonPropsRest.fullWidth)}>
+        <span className="relative inline-flex max-w-full min-w-0">
             {legacyEl}
             <TaxonomicMenuToggle />
         </span>

@@ -15,7 +15,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
-import { AlertsFiltersBar } from '../AlertsFiltersBar'
 import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -29,7 +28,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
-    const { alertsSortedByState, alertsResponseLoading, pagination, alertsCount, isFiltering } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, pagination, alertsCount } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
 
@@ -126,7 +125,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
+    const isEmpty = alertsCount === 0 && !alertsResponseLoading
     // TODO: add info here to sign up for alerts early access
     return (
         <>
@@ -164,25 +163,17 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             )}
 
             {isEmpty ? null : (
-                <>
-                    <AlertsFiltersBar />
-                    <LemonTable
-                        loading={alertsResponseLoading}
-                        columns={columns}
-                        dataSource={alertsSortedByState}
-                        noSortingCancellation
-                        rowKey="id"
-                        loadingSkeletonRows={5}
-                        nouns={['alert', 'alerts']}
-                        pagination={pagination}
-                        rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
-                        emptyState={
-                            isFiltering ? (
-                                <div className="py-8 text-center text-secondary">No alerts match your filters</div>
-                            ) : undefined
-                        }
-                    />
-                </>
+                <LemonTable
+                    loading={alertsResponseLoading}
+                    columns={columns}
+                    dataSource={alertsSortedByState}
+                    noSortingCancellation
+                    rowKey="id"
+                    loadingSkeletonRows={5}
+                    nouns={['alert', 'alerts']}
+                    pagination={pagination}
+                    rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
+                />
             )}
         </>
     )

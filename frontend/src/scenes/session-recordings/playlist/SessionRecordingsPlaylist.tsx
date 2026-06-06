@@ -199,7 +199,7 @@ function PlayerWrapper({
             style={style}
         >
             {isFiltersExpanded && (
-                <div className="h-full overflow-y-auto rounded border">
+                <div className="h-full rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
                         filters={filters}

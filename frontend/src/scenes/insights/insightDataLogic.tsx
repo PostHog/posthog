@@ -73,7 +73,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'setInsightMetadata', 'loadInsightSuccess'],
+            ['setInsight', 'setInsightMetadata'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -288,14 +288,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             if (result) {
                 actions.setInsightData({ ...values.insightData, result })
-            }
-        },
-        loadInsightSuccess: ({ insight }) => {
-            // `internalQuery` wins over `insight.query` in the `query` selector, and the SQL editor
-            // updates a different logic instance — so a reload alone leaves this scene on the stale
-            // query until a hard refresh. Re-sync the override to the freshly loaded query.
-            if (insight.query && !objectsEqual(insight.query, values.query)) {
-                actions.syncQueryFromProps(insight.query)
             }
         },
         cancelChanges: () => {

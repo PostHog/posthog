@@ -209,9 +209,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
-                    tryShowMCPHint('dashboards.create', {
-                        derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
-                    })
+                    tryShowMCPHint('dashboards.create')
                     if (show && values.redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))

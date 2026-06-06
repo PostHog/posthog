@@ -1,14 +1,15 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
 import { mcpHintLogic } from './mcpHintLogic'
 import { MCPInstallCommand } from './MCPInstallCommand'
-import { getSurfacePrompts, type SurfaceKey } from './prompts'
+import { SURFACE_PROMPTS, type SurfaceKey } from './prompts'
 
 const FIRST_SEEN_KEY_PREFIX = 'mcp-use-case-card-first-seen:'
 
@@ -41,27 +42,16 @@ export function MCPUseCaseCard({
     expiresAfterMs?: number
     forceDisplay?: boolean
 }): JSX.Element | null {
-    const { effectiveOptOut, featureEnabled, userRole, topEvents } = useValues(mcpHintLogic)
-    const { loadTopEvents } = useActions(mcpHintLogic)
+    const { effectiveOptOut, featureEnabled } = useValues(mcpHintLogic)
     const [expired] = useState(() => (expiresAfterMs ? getExpiryState(surfaceKey, expiresAfterMs).expired : false))
-    const triedLoadingEvents = useRef(false)
 
-    const willRender = forceDisplay || (featureEnabled && !effectiveOptOut && !expired)
-
-    useEffect(() => {
-        // Only the SQL editor surface benefits from the team's real event names — keep the call narrow.
-        // Fetch at most once per mount; a failed call returns [] and must not retry on re-render.
-        if (willRender && surfaceKey === 'sql.execute' && !triedLoadingEvents.current) {
-            triedLoadingEvents.current = true
-            loadTopEvents()
-        }
-    }, [willRender, surfaceKey, loadTopEvents])
-
-    if (!willRender) {
+    if (forceDisplay == false && (!featureEnabled || effectiveOptOut || expired)) {
         return null
     }
 
-    const { examples } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
+    const { examples } = SURFACE_PROMPTS[surfaceKey]
+
+    const isStorybook = inStorybook() || inStorybookTestRunner()
 
     return (
         <div
@@ -72,7 +62,11 @@ export function MCPUseCaseCard({
         >
             <div className="flex items-center gap-2">
                 <IconSparkles className="size-4 shrink-0" />
-                <h4 className="m-0 text-sm font-semibold">Or do it from your agent</h4>
+                <h4
+                    className={cn('m-0 text-sm font-semibold rainbow-text', { 'rainbow-text-animating': !isStorybook })}
+                >
+                    Or do it from your agent
+                </h4>
             </div>
             <div className="text-sm text-default">
                 Ask <AgentBadgeRotator />:

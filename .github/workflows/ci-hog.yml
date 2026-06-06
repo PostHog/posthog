@@ -77,7 +77,6 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -106,7 +105,6 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   cache: 'pnpm'
-                  token: ${{ github.token }}
 
             - name: Check if ANTLR definitions are up to date
               run: |
@@ -183,7 +181,6 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
             - name: Install uv
               id: setup-uv-hogql-python
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -208,7 +205,6 @@ jobs:
                   node-version-file: .nvmrc
                   cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
-                  token: ${{ github.token }}
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
             - name: Publish the package in the npm registry

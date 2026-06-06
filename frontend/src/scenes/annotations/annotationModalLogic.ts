@@ -36,7 +36,6 @@ export interface AnnotationModalForm {
     dateMarker: Dayjs
     scope: AnnotationType['scope']
     content: AnnotationType['content']
-    emoji: AnnotationType['emoji']
     dashboardItemId: AnnotationType['dashboard_item'] | null
     dashboardId: AnnotationType['dashboard_id'] | null
 }
@@ -98,12 +97,11 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
-        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content, emoji }, insightId, dashboardId }) => {
+        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content }, insightId, dashboardId }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
-                emoji,
             })
             if (insightId) {
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
@@ -148,7 +146,6 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             defaults: {
                 dateMarker: dayjs().tz(values.timezone),
                 content: '',
-                emoji: null,
                 scope: AnnotationScope.Project,
                 dashboardItemId: null,
                 dashboardId: null,
@@ -157,14 +154,13 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 content: !content?.trim() ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
-                const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId } = data
+                const { dateMarker, content, scope, dashboardItemId, dashboardId } = data
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
                     const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
                         date_marker: dateMarker.toISOString(),
                         content,
-                        emoji: emoji || null,
                         scope,
                         // update to new insight we're saving from
                         dashboard_item: dashboardItemId,
@@ -177,18 +173,12 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                     const createdAnnotation = await api.annotations.create({
                         date_marker: dateMarker.toISOString(),
                         content,
-                        emoji: emoji || null,
                         scope,
                         dashboard_item: dashboardItemId,
                         dashboard_id: dashboardId,
                     })
                     actions.appendAnnotations([createdAnnotation])
-                    const trimmedContent = content?.trim() ?? ''
-                    const snippet = trimmedContent.length > 60 ? trimmedContent.slice(0, 57) + '…' : trimmedContent
-                    const date = dateMarker.format('YYYY-MM-DD')
-                    tryShowMCPHint('annotations.create', {
-                        derivedPrompt: snippet ? `Annotate ${date}: ${snippet}` : undefined,
-                    })
+                    tryShowMCPHint('annotations.create')
                 }
                 actions.closeModal()
             },

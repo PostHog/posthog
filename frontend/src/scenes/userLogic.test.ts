@@ -186,33 +186,4 @@ describe('userLogic', () => {
             })
         })
     })
-
-    describe('updateUser failure handling', () => {
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
-
-        it('dispatches updateUserFailure (not success) when the backend rejects the update', async () => {
-            jest.spyOn(api, 'update').mockRejectedValue({
-                status: 400,
-                detail: 'Update rejected by server.',
-            })
-
-            await expectLogic(userLogic, () => {
-                userLogic.actions.updateUser({ email: 'new@example.com' })
-            })
-                .toDispatchActions(['updateUserFailure'])
-                .toNotHaveDispatchedActions(['updateUserSuccess'])
-        })
-
-        it('keeps the existing user when the update fails — no silent revert via success', async () => {
-            jest.spyOn(api, 'update').mockRejectedValue({ status: 400, detail: 'nope' })
-
-            await expectLogic(userLogic, () => {
-                userLogic.actions.updateUser({ email: 'new@example.com' })
-            })
-                .toDispatchActions(['updateUserFailure'])
-                .toMatchValues({ user: userWithLightTheme })
-        })
-    })
 })

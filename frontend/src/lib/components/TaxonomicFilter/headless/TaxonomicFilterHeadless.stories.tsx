@@ -17,7 +17,7 @@ const meta: Meta = {
         docs: {
             description: {
                 component:
-                    'Headless TaxonomicFilter built on Quill primitives. The compound `<Root>/<Input>/<Categories>/<Panel>` API is opt-in via the `TAXONOMIC_FILTER_MENU_REBUILD` feature flag and replaces the kea-based `<TaxonomicFilter>` once parity is verified.',
+                    'Headless TaxonomicFilter built on Quill primitives. The compound `<Root>/<Input>/<Categories>/<Panel>` API is opt-in via the `TAXONOMIC_FILTER_HEADLESS` feature flag and replaces the kea-based `<TaxonomicFilter>` once parity is verified.',
             },
         },
     },

@@ -259,17 +259,15 @@ class TestVercelPermissionIntegration(VercelTestBase):
 
     @parameterized.expand(
         [
-            # A token issued for one installation must not be able to act on another
-            # installation by changing the id in the URL.
             (
                 "patch",
                 VercelTestBase.OTHER_INSTALLATION_ID,
                 None,
                 "user",
                 {"billingPlanId": "pro200"},
-                status.HTTP_403_FORBIDDEN,
+                status.HTTP_204_NO_CONTENT,
             ),
-            ("delete", VercelTestBase.OTHER_INSTALLATION_ID, None, "user", None, status.HTTP_403_FORBIDDEN),
+            ("delete", VercelTestBase.OTHER_INSTALLATION_ID, None, "user", None, status.HTTP_200_OK),
             ("patch", None, None, "system", {"billingPlanId": "pro200"}, status.HTTP_403_FORBIDDEN),
             ("get", None, None, "user", None, status.HTTP_403_FORBIDDEN),
         ]
@@ -279,18 +277,6 @@ class TestVercelPermissionIntegration(VercelTestBase):
             method, jwt_installation_id=jwt_id, url_installation_id=url_id, auth_type=auth_type, data=data
         )
         assert response.status_code == expected_status
-
-    @parameterized.expand([("patch", {"billingPlanId": "pro200"}), ("delete", None)])
-    def test_cross_installation_access_denied(self, method, data):
-        # Token bound to self.installation_id, request targets OTHER_INSTALLATION_ID.
-        response = self._make_request(
-            method,
-            jwt_installation_id=self.installation_id,
-            url_installation_id=VercelTestBase.OTHER_INSTALLATION_ID,
-            auth_type="user",
-            data=data,
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [

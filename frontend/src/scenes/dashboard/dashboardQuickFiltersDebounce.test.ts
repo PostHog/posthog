@@ -13,7 +13,7 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, PropertyOperator, QueryBasedInsightModel, QuickFilterOption } from '~/types'
 
-import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
+import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.test'
 import { QUICK_FILTER_DEBOUNCE_MS } from './dashboardUtils'
 
 const mockOption: QuickFilterOption = {

@@ -4,7 +4,6 @@ procs:
         shell: 'pnpm --filter=@posthog/frontend build:products && pnpm --filter=@posthog/playwright exec playwright test --ui'
         env:
             BASE_URL: 'http://localhost:8010'
-            EMAIL_HOST: 'email.test.posthog.net'
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
@@ -19,8 +18,6 @@ procs:
             DEBUG: '1'
             E2E_TESTING: '1'
             PERSON_ON_EVENTS_OVERRIDE: '1'
-            PERSONHOG_ENABLED: '0'
-            PERSONHOG_ADDR: ''
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
@@ -34,8 +31,6 @@ procs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
             DEBUG: '1'
             E2E_TESTING: '1'
-            PERSONHOG_ENABLED: '0'
-            PERSONHOG_ADDR: ''
 
     frontend:
         shell: './bin/start-frontend'

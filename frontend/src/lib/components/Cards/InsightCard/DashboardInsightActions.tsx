@@ -8,7 +8,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
-import { toggleAnnotationsInInsightQuery } from './annotationsToggle'
 import { toggleDisplayLabelsInInsightQuery } from './displayLabelsToggle'
 import { toggleLegendInInsightQuery } from './legendToggle'
 
@@ -18,7 +17,6 @@ type DashboardInsightActionsProps = {
     dashboardId: number | undefined
     canToggleDisplayLabels: boolean
     canToggleLegend: boolean
-    canToggleAnnotations: boolean
 }
 
 /** Quick visualization toggles in the insight card ⋯ menu on dashboard (and similar placements). */
@@ -28,22 +26,17 @@ export function DashboardInsightActions({
     dashboardId,
     canToggleDisplayLabels,
     canToggleLegend,
-    canToggleAnnotations,
 }: DashboardInsightActionsProps): JSX.Element | null {
     const {
         displayLabelsToggleTextForInsight,
         legendToggleTextForInsight,
-        annotationsToggleTextForInsight,
         query: activeQuery,
     } = useValues(insightLogic(insightLogicProps))
     const { updateInsightDirect } = useActions(insightsModel)
-    const {
-        reportDashboardInsightValuesOnSeriesToggled,
-        reportDashboardInsightLegendToggled,
-        reportDashboardInsightAnnotationsToggled,
-    } = useActions(eventUsageLogic)
+    const { reportDashboardInsightValuesOnSeriesToggled, reportDashboardInsightLegendToggled } =
+        useActions(eventUsageLogic)
 
-    if (!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations) {
+    if (!canToggleDisplayLabels && !canToggleLegend) {
         return null
     }
 
@@ -86,25 +79,6 @@ export function DashboardInsightActions({
                     fullWidth
                 >
                     {legendToggleTextForInsight}
-                </LemonButton>
-            )}
-            {canToggleAnnotations && (
-                <LemonButton
-                    onClick={() => {
-                        const currentQuery = activeQuery ?? insight.query
-                        const query = toggleAnnotationsInInsightQuery(currentQuery)
-                        if (query !== currentQuery) {
-                            updateInsightDirect(insight, { query })
-                            reportDashboardInsightAnnotationsToggled(
-                                dashboardId,
-                                insight.id,
-                                DashboardEventSource.MoreDropdown
-                            )
-                        }
-                    }}
-                    fullWidth
-                >
-                    {annotationsToggleTextForInsight}
                 </LemonButton>
             )}
             <LemonDivider />

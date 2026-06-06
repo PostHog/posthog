@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -12,7 +11,6 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { shortTimeZone } from 'lib/utils'
@@ -179,35 +177,6 @@ export function AnnotationModal({
                         data-attr="create-annotation-input"
                         maxLength={400}
                     />
-                </LemonField>
-                <LemonField
-                    name="emoji"
-                    label="Emoji"
-                    showOptional
-                    info="Shown in place of the default badge when this annotation appears on a chart."
-                >
-                    {({ value, onChange }) => (
-                        <div className="flex items-center gap-2">
-                            <EmojiPickerPopover
-                                onSelect={(emoji) => onChange(emoji)}
-                                data-attr="annotation-emoji-picker"
-                            />
-                            {value ? (
-                                <div className="flex items-center gap-1">
-                                    <span className="text-2xl leading-none">{value}</span>
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconX />}
-                                        tooltip="Remove emoji"
-                                        onClick={() => onChange(null)}
-                                        data-attr="annotation-emoji-clear"
-                                    />
-                                </div>
-                            ) : (
-                                <span className="text-secondary text-sm">No emoji selected</span>
-                            )}
-                        </div>
-                    )}
                 </LemonField>
             </Form>
         </LemonModal>

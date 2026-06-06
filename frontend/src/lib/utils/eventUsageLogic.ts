@@ -537,11 +537,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
-        reportDashboardInsightAnnotationsToggled: (
-            dashboardId: number | undefined,
-            insightId: number,
-            source: DashboardEventSource
-        ) => ({ dashboardId, insightId, source }),
         /** Empty-state AI prompt chips (ai-first empty dashboard only). */
         reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
             promptLabel,
@@ -1440,13 +1435,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardInsightLegendToggled: async ({ dashboardId, insightId, source }) => {
             posthog.capture('dashboard insight legend toggled', {
-                dashboard_id: dashboardId,
-                insight_id: insightId,
-                source,
-            })
-        },
-        reportDashboardInsightAnnotationsToggled: async ({ dashboardId, insightId, source }) => {
-            posthog.capture('dashboard insight annotations toggled', {
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,

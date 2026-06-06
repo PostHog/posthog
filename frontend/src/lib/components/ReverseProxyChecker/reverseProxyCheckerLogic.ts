@@ -16,9 +16,7 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
     loaders(({ values, cache }) => ({
         hasReverseProxy: [
-            // null until the detection query resolves — consumers must distinguish "not yet
-            // checked" from a confirmed `false` so they don't act before the result is in.
-            null as boolean | null,
+            false as boolean | null,
             {
                 loadHasReverseProxy: async () => {
                     if (cache.lastCheckedTimestamp > Date.now() - CHECK_INTERVAL_MS) {

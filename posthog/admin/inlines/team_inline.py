@@ -48,7 +48,6 @@ class TeamInline(TabularInlinePaginated):
             "remote_config_cache_actions",
             "api_token_display",
             "admit_state",
-            "ai_gateway_actions",
             "policy_cache_blob",
         )
     ] + ["displayed_name"]

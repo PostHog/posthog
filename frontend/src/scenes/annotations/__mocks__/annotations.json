@@ -19,8 +19,7 @@
             "created_at": "2022-08-23T19:59:32.953086Z",
             "updated_at": "2022-08-23T19:59:32.953338Z",
             "deleted": false,
-            "scope": "organization",
-            "emoji": "🚀"
+            "scope": "organization"
         },
         {
             "id": 114042,
@@ -38,8 +37,7 @@
             "created_at": "2022-08-22T14:04:44.095170Z",
             "updated_at": "2022-08-22T14:04:44.095461Z",
             "deleted": false,
-            "scope": "organization",
-            "emoji": "🎉"
+            "scope": "organization"
         },
         {
             "id": 113760,

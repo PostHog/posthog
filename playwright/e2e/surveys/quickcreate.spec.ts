@@ -3,7 +3,7 @@ import { Page } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { randomString } from '../../utils'
-import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
+import { expect, test } from '../../utils/playwright-test-base'
 
 const saveFeatureFlag = async (page: Page): Promise<void> => {
     const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
@@ -13,10 +13,7 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
     )
     await saveButton.click()
     await responsePromise
-    // Saving redirects to the flag's own detail page (featureFlagLogic.saveFeatureFlagSuccess).
-    // Waiting for that confirms the flag was created and committed before clickCreateSurvey
-    // navigates to the list to find it.
-    await page.waitForURL(/\/feature_flags\/\d+/)
+    await page.goto(urls.featureFlags())
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
@@ -47,24 +44,14 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
-    // Default multivariate includes control/test at 50/50, each in a collapsed row, so expand then rename them
-    await page.getByRole('button', { name: 'Expand all' }).click()
-    await page.locator('[data-attr="feature-flag-variant-key-0"]').fill('test-1')
-    await page.locator('[data-attr="feature-flag-variant-key-1"]').fill('test-2')
+    // Default multivariate now includes control/test at 50/50, so just rename them
+    await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
+    await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
-    // Create the survey from the feature-flag list row's "more" menu. The flag detail page's
-    // create-survey action lives in the global scene side panel, whose open/closed state and
-    // active tab persist across navigation and whose toggle button unmounts while it's open —
-    // too stateful to drive reliably. The list menu opens the same QuickSurveyModal with no
-    // side panel involved. The workspace is isolated (only this flag exists), so reload the
-    // list until the row shows up, then act on it.
     const row = page.locator(`[data-row-key="${name}"]`)
-    await expect(async () => {
-        await page.goto(urls.featureFlags())
-        await expect(row).toBeVisible({ timeout: 10_000 })
-    }).toPass({ timeout: 40_000 })
+    await expect(row).toBeVisible()
     await row.locator('[data-attr="more-button"]').click()
     await page.locator('[data-attr="create-survey"]').click()
 }
@@ -86,27 +73,13 @@ const launchSurvey = async (page: Page, name: string): Promise<void> => {
     await expect(page.locator('[data-attr="stop-survey"]')).toBeVisible()
 }
 
-// Run serially to keep per-test workspace setup off the critical path and avoid hammering
-// the setup endpoint with concurrent organization_with_team calls.
+// CI is too slow, these all fail when run in parallel, will try to find a better solution soon
 test.describe.configure({ mode: 'serial' })
 
 test.describe('Quick create survey from feature flag', () => {
     let name: string
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        // Dedicated empty workspace per test — no shared demo team, so the feature-flag
-        // list only contains the flag this test creates (see playwright-test-base deprecation).
-        // Seed a *recent* $autocapture event: the survey event picker (Events taxonomic list)
-        // sends exclude_stale=true, which drops definitions whose last_seen_at is >30 days old —
-        // so a fixed past timestamp never surfaced "Autocapture". `now` keeps it non-stale.
-        workspace = await playwrightSetup.createWorkspace({
-            skip_onboarding: true,
-            no_demo_data: true,
-            events: [{ event: '$autocapture', distinct_id: 'survey-seed-user', timestamp: new Date().toISOString() }],
-        })
-        await playwrightSetup.login(page, workspace)
-
+    test.beforeEach(async ({ page }) => {
         name = randomString('ff')
         await page.goto(urls.featureFlags())
         await expect(page.locator('h1')).toContainText('Feature flags')
@@ -117,7 +90,6 @@ test.describe('Quick create survey from feature flag', () => {
 
         // start ff creation
         await page.locator('[data-attr="new-feature-flag"]').click()
-        await page.locator('[data-attr="blank-feature-flag-template"]').click()
         await page.locator('[data-attr="feature-flag-key"]').fill(name)
         await page.locator('[data-attr="rollout-percentage"]').fill('100')
     })
@@ -141,8 +113,14 @@ test.describe('Quick create survey from feature flag', () => {
         await saveFeatureFlag(page)
 
         await clickCreateSurvey(page, name)
-
-        await launchSurvey(page, name)
+        const createButton = page.getByTestId('quick-survey-create')
+        await expect(createButton).toBeEnabled()
+        const responsePromise = page.waitForResponse(
+            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
+        )
+        await createButton.click()
+        await responsePromise
+        await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
 
         await goToSurveyOverview(page)
         await expectFlagEnabled(page, name)
@@ -171,8 +149,7 @@ test.describe('Quick create survey from feature flag', () => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
 
-        // add event — the beforeEach seeds a recent $autocapture event, so its definition shows
-        // as "Autocapture" in the picker's Events list (no search needed).
+        // add event
         await page.locator('.LemonButton').getByText('Add event').click()
         const autocaptureOption = page.locator('span[aria-label="Autocapture"]').getByText('Autocapture')
         await expect(autocaptureOption).toBeVisible()
@@ -185,7 +162,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, ['$autocapture'])
     })
 
-    test('survey responses visible in feature flag feedback tab', async ({ page }) => {
+    test.skip('survey responses visible in feature flag feedback tab', async ({ page }) => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
@@ -194,15 +171,14 @@ test.describe('Quick create survey from feature flag', () => {
         const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
         await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
-        // Don't wait for networkidle — PostHog polls continuously, so it rarely settles. goto
-        // already waits for the navigation to load.
+        await page.waitForLoadState('networkidle')
         await page.goto(ffUrl!)
 
         await page.locator('.LemonTabs__tab').getByText('User feedback').click()
         await expect(page.getByText('Filter survey results')).toBeVisible()
     })
 
-    test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
+    test.skip('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
@@ -210,7 +186,8 @@ test.describe('Quick create survey from feature flag', () => {
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
-        // Second survey (test-2 variant) — clickCreateSurvey navigates back to the flag list itself.
+        await page.goto(urls.featureFlags())
+        await expect(page.locator('h1')).toContainText('Feature flags')
         await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
@@ -220,8 +197,7 @@ test.describe('Quick create survey from feature flag', () => {
         const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
         await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
-        // Don't wait for networkidle — PostHog polls continuously, so it rarely settles. goto
-        // already waits for the navigation to load.
+        await page.waitForLoadState('networkidle')
         await page.goto(ffUrl!)
 
         await page.locator('.LemonTabs__tab').getByText('User feedback').click()

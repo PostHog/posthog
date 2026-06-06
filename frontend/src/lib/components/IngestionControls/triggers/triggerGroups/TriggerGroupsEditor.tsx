@@ -10,6 +10,7 @@ import {
     LemonModal,
     LemonSelect,
     LemonSnack,
+    LemonTag,
 } from '@posthog/lemon-ui'
 
 import { FlagSelector } from 'lib/components/FlagSelector'
@@ -82,7 +83,6 @@ export function TriggerGroupsEditor(): JSX.Element {
         previewLegacyGroups,
         _savingStateLoading,
         shouldShowMigrationBanner,
-        hasLegacyTriggers,
     } = useValues(replayTriggersV2Logic)
     const {
         addTriggerGroup,
@@ -135,7 +135,7 @@ export function TriggerGroupsEditor(): JSX.Element {
                 </div>
                 {!isAddingGroup && !editingGroupId && (
                     <div className="flex gap-2">
-                        {hasLegacyTriggers && (
+                        {triggerGroups.length === 0 && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -537,18 +537,79 @@ interface DeleteLastGroupModalProps {
 }
 
 function DeleteLastGroupModal({ isOpen, onClose, onConfirm, groupName }: DeleteLastGroupModalProps): JSX.Element {
+    const { legacyTriggersPreview } = useValues(replayTriggersV2Logic)
+
+    const { sampleRate, minDurationMs, matchType, urls, events, flag, hasConditions } = legacyTriggersPreview
+
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Delete last trigger group?">
             <div className="space-y-4">
                 <p>
-                    "{groupName}" is your only trigger group. Deleting it will replace it with a default group that{' '}
-                    <strong>records all sessions</strong>, so your project keeps using trigger groups.
+                    Deleting "{groupName}" will remove all trigger groups and your project will revert to using{' '}
+                    <strong>legacy recording triggers</strong>.
                 </p>
 
                 <p className="text-sm text-muted">
-                    To record a subset of sessions instead, edit the group's conditions or sample rate rather than
-                    deleting it. To stop recording entirely, disable session recording in General settings.
+                    Your project will immediately use the following legacy trigger configuration:
                 </p>
+
+                <div className="border rounded p-3 bg-surface-primary">
+                    {hasConditions ? (
+                        <>
+                            <div className="mb-2">
+                                <span className="text-sm">
+                                    Match <b>sessions</b> against{' '}
+                                    <LemonTag type="success" className="uppercase">
+                                        {matchType}
+                                    </LemonTag>{' '}
+                                    criteria
+                                </span>
+                            </div>
+
+                            {/* Conditions */}
+                            <div className="space-y-2 text-sm mb-3">
+                                {urls.length > 0 && (
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-muted">User has visited URL matching pattern</span>
+                                        {urls.map((u) => (
+                                            <LemonSnack key={u.url}>{u.url}</LemonSnack>
+                                        ))}
+                                    </div>
+                                )}
+                                {events.length > 0 && (
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-muted">Event</span>
+                                        {events.map((event) => (
+                                            <LemonSnack key={event}>{event}</LemonSnack>
+                                        ))}
+                                        <span className="text-muted">occurred</span>
+                                    </div>
+                                )}
+                                {flag && (
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-muted">Feature flag</span>
+                                        <LemonSnack>{typeof flag === 'string' ? flag : flag.key}</LemonSnack>
+                                        <span className="text-muted">is enabled</span>
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : null}
+
+                    {/* Sample rate - always shown */}
+                    <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted">Sample</span>
+                        <span className="font-semibold">{Math.round(sampleRate * 100)}%</span>
+                        <span className="text-muted">of all sessions</span>
+                    </div>
+
+                    {/* Minimum duration */}
+                    {minDurationMs !== undefined && minDurationMs !== null && minDurationMs > 0 && (
+                        <div className="text-sm text-muted mt-3">
+                            Minimum duration: <b>{minDurationMs / 1000}</b> seconds
+                        </div>
+                    )}
+                </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t">
                     <LemonButton type="secondary" onClick={onClose}>
@@ -560,7 +621,7 @@ function DeleteLastGroupModal({ isOpen, onClose, onConfirm, groupName }: DeleteL
                         onClick={onConfirm}
                         data-attr="trigger-group-delete-last-confirm"
                     >
-                        Delete and record all sessions
+                        Delete and use legacy trigger settings
                     </LemonButton>
                 </div>
             </div>

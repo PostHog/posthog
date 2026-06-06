@@ -150,12 +150,7 @@ export class IngestionGeneralServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
-        // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
-        // transient failure can surface as an unhandled rejection and restart the worker.
-        const teamManager = new TeamManager(this.postgres, {
-            loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
-        })
+        const teamManager = new TeamManager(this.postgres)
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)

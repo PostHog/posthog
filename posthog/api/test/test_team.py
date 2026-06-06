@@ -25,6 +25,7 @@ from posthog.api.team import (
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
+from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.group_type_mapping import (
@@ -43,11 +44,9 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.common.test_utils import start_test_worker
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
-from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
@@ -629,12 +628,7 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(
-                temporal,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-            ):
+            with start_test_worker(temporal):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -680,12 +674,7 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(
-                temporal,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-            ):
+            with start_test_worker(temporal):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -3483,17 +3472,17 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         token_after = get_or_mint_live_events_token(self.team, second_user_id)
         assert token_before != token_after
 
-    def test_signing_key_rotation_partitions_the_cache_namespace(self) -> None:
-        # JWT signing-key rotation must invalidate cached tokens automatically — otherwise
+    def test_secret_key_rotation_partitions_the_cache_namespace(self) -> None:
+        # SECRET_KEY rotation must invalidate cached tokens automatically — otherwise
         # the livestream service would reject the cached old-key signatures for up
-        # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
+        # to the cache TTL. We embed a fingerprint of SECRET_KEY in the cache key so
         # the namespace partitions cleanly on rotation.
         from posthog.api.team import get_or_mint_live_events_token
 
-        token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
-        with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
-            token_new_key = get_or_mint_live_events_token(self.team, self.user.id)
-        assert token_old_key != token_new_key
+        token_old_secret = get_or_mint_live_events_token(self.team, self.user.id)
+        with override_settings(SECRET_KEY="completely-different-rotated-secret"):
+            token_new_secret = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_old_secret != token_new_secret
 
 
 # Sensitive Team/Project settings the frontend gates behind

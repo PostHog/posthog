@@ -241,7 +241,7 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
-    it('shows widget tiles on public dashboards', () => {
+    it('hides widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,
             widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
@@ -281,7 +281,7 @@ describe('DashboardItems', () => {
             return {}
         })
 
-        const { getByTestId } = render(<DashboardItems />)
-        expect(getByTestId('widget-card')).toBeInTheDocument()
+        const { queryByTestId } = render(<DashboardItems />)
+        expect(queryByTestId('widget-card')).not.toBeInTheDocument()
     })
 })

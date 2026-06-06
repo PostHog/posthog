@@ -1,6 +1,5 @@
 import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
-import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -51,7 +50,6 @@ import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorT
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
-import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -97,7 +95,6 @@ import {
     LogsPiiScrubSettings,
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
-import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
@@ -354,15 +351,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LLMProviderKeysSettings />,
                 docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
-            },
-            {
-                id: 'ai-observability-parser-recipes',
-                title: 'Custom parsing',
-                description:
-                    "Add recipes that normalize provider message shapes the built-in recipes don't cover. They apply when rendering traces.",
-                component: <ParserRecipesSettings />,
-                flag: 'LLM_ANALYTICS_RECIPE_NORMALIZER',
-                keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
         ],
     },
@@ -726,23 +714,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsPiiScrubSettings />,
                 flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
-            },
-            {
-                id: 'logs-distinct-id-attribute-key',
-                title: 'Link to person',
-                description: (
-                    <>
-                        The log attribute PostHog reads to identify which person a log belongs to. Matched against the
-                        person&apos;s distinct IDs to surface logs on their profile. Defaults to{' '}
-                        <code>posthogDistinctId</code> — the key the JavaScript and React Native SDKs auto-attach.
-                        Override only if your backend pipeline emits the person identifier under a different key.
-                    </>
-                ),
-                searchDescription:
-                    "The log attribute PostHog reads to identify which person a log belongs to. Matched against the person's distinct IDs to surface logs on their profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your backend pipeline emits the person identifier under a different key.",
-                component: <LogsDistinctIdAttributeKey />,
-                flag: 'LOGS_SETTINGS',
-                keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
                 id: 'logs-retention',
@@ -1238,38 +1209,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-workflows',
-        title: 'Workflows',
-        group: 'Products',
-        flag: 'WORKFLOWS_ENGAGEMENT_EVENTS',
-        settings: [
-            {
-                id: 'workflows-engagement-events',
-                title: 'Engagement events',
-                description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event.',
-                docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
-                component: <WorkflowsEngagementEventsSettings />,
-                keywords: [
-                    'workflows',
-                    'email',
-                    'engagement',
-                    'events',
-                    'capture',
-                    'tracking',
-                    'sent',
-                    'delivered',
-                    'opened',
-                    'clicked',
-                    'bounced',
-                    'blocked',
-                    'failed',
-                ],
             },
         ],
     },

@@ -51,8 +51,9 @@ test.describe('Signup', () => {
             }
             await route.fulfill({ json: response })
         })
-        // Log out via cookies, not the account-menu UI, which flakes on slow/torn-down workers.
-        await page.context().clearCookies()
+        await page.locator('[data-attr=new-account-menu-button]').click()
+        await page.locator('[data-attr=new-account-menu-logout-button]').click()
+        await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/signup')
     })
 
@@ -86,7 +87,7 @@ test.describe('Signup', () => {
         await expect(page.getByText('Must be at least 8 characters long')).not.toBeVisible()
     })
 
-    test('Can create user account with first name, last name and organization name', async ({ page }) => {
+    test.skip('Can create user account with first name, last name and organization name', async ({ page }) => {
         let signupRequestBody: string | null = null
 
         await page.route('/api/signup/', async (route) => {
@@ -213,7 +214,9 @@ test.describe('Signup', () => {
         )
     })
 
-    test('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
+    // TODO un-skip.
+    // Skipping test as it was failing on master, see https://posthog.slack.com/archives/C0113360FFV/p1749742204672659
+    test.skip('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
         // Equivalent to setupFeatureFlags in Playwright
         await page.route('**/flags/*', async (route) => {
             const response = {

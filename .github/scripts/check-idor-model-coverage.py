@@ -208,10 +208,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingComment",
         "SessionSummary",
         "SharePassword",
-        # Per-(Slack workspace, Slack channel) approval state — looked up by
-        # `(slack_workspace_id, slack_channel_id)` from the Slack event handler,
-        # never by user-supplied ID. `approved_by` is for audit only.
-        "SlackChannel",
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",

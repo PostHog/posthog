@@ -8,7 +8,6 @@ import { Link } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { getTreeItemsProducts } from '~/products'
@@ -47,7 +46,6 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     const logic = navPanelAdvertisementRecommendedLogic()
     const { oldestRecommendedProduct } = useValues(logic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
 
     const campaignFlagPayload = getFeatureFlagPayload('nav-panel-campaign') as CampaignPayload | undefined
 
@@ -55,8 +53,8 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         return null
     }
 
-    // Campaign flag payload takes priority over product recommendations, but campaigns promote cloud features so are not shown on hobby
-    if (isCloudOrDev && isCampaignPayload(campaignFlagPayload)) {
+    // Campaign flag payload takes priority over product recommendations
+    if (isCampaignPayload(campaignFlagPayload)) {
         return <NavPanelCampaignContent campaign={campaignFlagPayload} />
     }
 

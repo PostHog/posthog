@@ -104,11 +104,7 @@ describe('SelectExistingFeatureFlagModal', () => {
 
         logic.actions.openSelectExistingFeatureFlagModal()
 
-        // Wait for the feature flags data to be populated rather than just checking loading state.
-        // This avoids a race where `loadCurrentTeamSuccess` fires after the modal opens and
-        // triggers a second `loadFeatureFlags` call, briefly resetting loading back to true.
         await waitFor(() => {
-            expect(logic.values.featureFlags.results.length).toBeGreaterThan(0)
             expect(logic.values.featureFlagsLoading).toBe(false)
         })
 

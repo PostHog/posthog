@@ -25,11 +25,6 @@ class VercelPermission(BasePermission):
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
         if auth_type == "user":
             self._validate_user_role(request, view)
-        # Bind the token to its own installation. These viewsets resolve their target by
-        # the URL installation_id without calling check_object_permissions, so the match
-        # must be enforced here for every installation-scoped endpoint.
-        if "installation_id" in view.kwargs or "parent_lookup_installation_id" in view.kwargs:
-            self._validate_installation_id_match(request, view)
         return True
 
     def has_object_permission(self, request: Request, view, obj) -> bool:

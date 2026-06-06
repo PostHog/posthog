@@ -20,7 +20,6 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
-from django.utils.http import url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -68,10 +67,7 @@ AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
-DEEP_LINK_MAX_PATH_LENGTH = 2000
-# Control chars, whitespace, and backslashes never appear in a legitimate in-app path; they are the
-# building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
-DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
+SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
@@ -95,10 +91,7 @@ PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-# Stripe's contracted scope ceiling, seeded onto the legacy Stripe Projects OAuth
-# app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
-# the default in `_exchange_authorization_code` when no per-code scopes are given).
-STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
+LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # Cap partner-supplied prefix below the full label length so " - {team_name}" still
@@ -1067,13 +1060,7 @@ def _exchange_authorization_code(request: Request) -> Response:
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
     # Use partner's OAuth app if available, fall back to Stripe
-    try:
-        oauth_app = _get_oauth_app_for_code(code_data)
-    except LegacyStripeOAuthAppMissingError:
-        _capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
-        return Response(
-            {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
-        )
+    oauth_app = _get_oauth_app_for_code(code_data)
 
     # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
     # ceiling has to be enforced here before the token is created by hand.
@@ -2038,17 +2025,18 @@ def deep_links(request: Request) -> Response:
             status=403,
         )
 
-    # `purpose` is a free-form label retained for analytics. `path` is the generic
-    # destination: any in-app path the partner wants the user to land on after login.
     purpose = request.data.get("purpose", "dashboard")
-    path = request.data.get("path")
-    if path and not _is_safe_deep_link_path(path):
+    if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
         _capture_provisioning_event(
-            "deep_link_created", "invalid_path", partner=access_token.application, purpose=purpose
+            "deep_link_created", "unsupported_purpose", partner=access_token.application, purpose=purpose
         )
-        return _error_response(
-            "invalid_path",
-            "path must be a relative in-app path beginning with a single '/'",
+        return Response(
+            {
+                "error": {
+                    "code": "unsupported_purpose",
+                    "message": f"Unsupported purpose: {purpose}. Supported: {', '.join(sorted(SUPPORTED_DEEP_LINK_PURPOSES))}",
+                }
+            },
             status=400,
         )
 
@@ -2066,7 +2054,6 @@ def deep_links(request: Request) -> Response:
             "user_id": access_token.user_id,
             "team_id": team_id,
             "purpose": purpose,
-            "path": path or None,
         },
         timeout=DEEP_LINK_TTL_SECONDS,
     )
@@ -2282,48 +2269,28 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
-class LegacyStripeOAuthAppMissingError(Exception):
-    """The configured Stripe Projects OAuth app could not be resolved.
+def _get_legacy_stripe_oauth_app():
+    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        try:
+            return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
+        except OAuthApplication.DoesNotExist:
+            logger.warning(
+                "provisioning.oauth_app.client_id_not_found",
+                client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
+            )
 
-    Raised instead of fabricating an app on demand: a missing app is an
-    operational misconfiguration, not something to paper over with a freshly
-    created application that carries no scope ceiling.
-    """
+    from oauthlib.common import generate_token
 
-
-def _seed_stripe_app_scopes(app: OAuthApplication) -> None:
-    """Seed the Stripe Projects app's scope ceiling when it is unset.
-
-    Region-agnostic by design: US and EU each hold their own OAuthApplication
-    row, so this runs independently the first time the app is resolved in each
-    region. Pre-seeding via the ops step in the slice notes avoids the on-request
-    write, but this keeps the ceiling correct even if that step is missed.
-    """
-    if app.scopes:
-        return
-    app.scopes = list(STRIPE_CONTRACTED_SCOPES)
-    app.save(update_fields=["scopes"])
-
-
-def _get_legacy_stripe_oauth_app() -> OAuthApplication:
-    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
-    if not client_id:
-        error = LegacyStripeOAuthAppMissingError("STRIPE_POSTHOG_OAUTH_CLIENT_ID is not configured")
-        capture_exception(error)
-        raise error
-
-    try:
-        app = OAuthApplication.objects.get(client_id=client_id)
-    except OAuthApplication.DoesNotExist as exc:
-        error = LegacyStripeOAuthAppMissingError("Stripe Projects OAuth app not found for configured client_id")
-        # Chain the DoesNotExist so the captured event keeps its traceback; the new
-        # error was never raised, so it carries no traceback of its own.
-        error.__cause__ = exc
-        capture_exception(error, additional_properties={"client_id": client_id})
-        raise error from None
-
-    _seed_stripe_app_scopes(app)
-    return app
+    return OAuthApplication.objects.create(
+        name=LEGACY_STRIPE_APP_NAME,
+        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
+        client_secret="",
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://localhost",
+        algorithm="RS256",
+        provisioning_can_issue_deep_links=True,
+    )
 
 
 def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
@@ -2355,13 +2322,11 @@ def _get_callback_url(partner_id: str) -> str:
     return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
 
 
-def _get_oauth_app_for_code(code_data: dict) -> OAuthApplication:
+def _get_oauth_app_for_code(code_data: dict):
     """Resolve the OAuthApplication for a token exchange.
 
     If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the legacy Stripe Projects app lookup, which
-    hard-fails (raising ``LegacyStripeOAuthAppMissingError``) if the configured
-    app is missing rather than fabricating one.
+    Otherwise fall back to the legacy Stripe Projects app lookup.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:
@@ -2421,7 +2386,6 @@ def agentic_login(request: Any) -> HttpResponseBase:
     user_id = link_data.get("user_id")
     team_id = link_data.get("team_id")
     purpose = link_data.get("purpose", "dashboard")
-    path = link_data.get("path")
 
     if not user_id:
         _capture_deep_link_event("invalid_token_data")
@@ -2448,31 +2412,11 @@ def agentic_login(request: Any) -> HttpResponseBase:
     _capture_deep_link_event("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    redirect_path = _deep_link_redirect_path(purpose, team_id, path)
+    redirect_path = _deep_link_redirect_path(purpose, team_id)
     return HttpResponseRedirect(redirect_path)
 
 
-def _is_safe_deep_link_path(path: object) -> bool:
-    """Allow only relative, same-origin in-app paths so a deep link can't become an open redirect."""
-    return (
-        isinstance(path, str)
-        and 0 < len(path) <= DEEP_LINK_MAX_PATH_LENGTH
-        # Reject control chars, whitespace, and backslashes (the `/\` backslash-host form included).
-        and not DEEP_LINK_DISALLOWED_PATH_CHARS.search(path)
-        and path.startswith("/")
-        # Reject protocol-relative (`//`) forms; a single leading `/` keeps it same-origin.
-        and not path.startswith("//")
-        and url_has_allowed_host_and_scheme(path, allowed_hosts=None)
-    )
-
-
-def _deep_link_redirect_path(purpose: str, team_id: int | None, path: str | None = None) -> str:
-    if path and _is_safe_deep_link_path(path):
-        return path
-    if path:
-        # Unreachable in normal operation (mint-time validation already ran); a hit here means
-        # cache tampering or a mint-side regression.
-        logger.warning("agentic_login.unsafe_path_in_cache", path=path)
+def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
     if team_id and Team.objects.filter(id=team_id).exists():
         return f"/project/{team_id}"
     return "/"
