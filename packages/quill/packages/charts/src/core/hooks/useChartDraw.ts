@@ -19,6 +19,8 @@ interface UseChartDrawOptions {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in. `0` disables. */
     hoverAnimationMs?: number
+    /** Data reveal progress (0..1) forwarded to the static draw — redraws when it changes. */
+    revealProgress?: number
 }
 
 function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: ChartDimensions): void {
@@ -41,6 +43,7 @@ export function useChartDraw({
     drawStatic,
     drawHover,
     hoverAnimationMs = 0,
+    revealProgress = 1,
 }: UseChartDrawOptions): void {
     // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
     // window where a stale RAF can paint after the new setup runs.
@@ -81,6 +84,7 @@ export function useChartDraw({
                 theme,
                 hoverProgress: 1,
                 resetHoverFade: () => 1,
+                revealProgress,
             })
             ctx.restore()
         })
@@ -91,7 +95,7 @@ export function useChartDraw({
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
+    }, [ctx, dimensions, scales, series, labels, theme, drawStatic, revealProgress])
 
     // The RAF loop ticks until hoverProgress reaches 1, then exits and waits for the next
     // dep change. Timer is held in a ref so cancel/restart cycles resume the fade smoothly.

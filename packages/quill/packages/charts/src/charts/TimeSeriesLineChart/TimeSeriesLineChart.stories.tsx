@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import type { Series } from '../../core/types'
@@ -246,6 +248,32 @@ export const DateAxis: Story = {
                     </div>
                 ))}
             </div>
+        )
+    },
+}
+
+export const Loading: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const [loading, setLoading] = useState(true)
+        return (
+            <Stage>
+                <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', gap: 12 }}>
+                    <TimeSeriesLineChart
+                        series={SERIES}
+                        labels={DAYS}
+                        theme={theme}
+                        config={{ yAxis: { showGrid: true } }}
+                        loading={loading}
+                    />
+                    <button
+                        onClick={() => setLoading((v) => !v)}
+                        style={{ alignSelf: 'center', padding: '4px 16px', cursor: 'pointer' }}
+                    >
+                        {loading ? 'Stop loading' : 'Start loading'}
+                    </button>
+                </div>
+            </Stage>
         )
     },
 }

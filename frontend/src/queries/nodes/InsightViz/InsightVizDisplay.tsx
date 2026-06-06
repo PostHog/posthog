@@ -163,7 +163,8 @@ export function InsightVizDisplay({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (insightDataLoading) {
+        // Fresh load — no previous result to show behind the loader
+        if (insightDataLoading && insightData?.result == null) {
             return (
                 <InsightLoadingState
                     queryId={queryId}

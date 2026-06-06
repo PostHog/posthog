@@ -4,6 +4,7 @@ import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '..
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { dimColor } from '../../core/color-utils'
 import {
     buildSegmentResolveValue,
     buildStackedPositionValue,
@@ -35,6 +36,9 @@ interface LineChartPrivate {
     __lineChart: ScaleSet
 }
 
+const DEFAULT_LINE_GLOW_BLUR = 5
+const LINE_GLOW_ALPHA = 0.5
+
 export interface LineChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
@@ -47,6 +51,8 @@ export interface LineChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Draw the empty scaled grid (no data line) and show the loading hog. */
+    loading?: boolean
 }
 
 export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
@@ -67,8 +73,10 @@ function LineChartInner<Meta = unknown>({
     className,
     dataAttr,
     children,
+    loading = false,
 }: LineChartProps<Meta>): React.ReactElement {
-    const { yScaleType = 'linear', percentStackView = false, showGrid = false, valueDomain } = config ?? {}
+    const { yScaleType = 'linear', percentStackView = false, showGrid = false, valueDomain, lineGlow } = config ?? {}
+    const glowBlur = lineGlow === true ? DEFAULT_LINE_GLOW_BLUR : typeof lineGlow === 'number' ? lineGlow : 0
 
     const hasMultipleFilledSeries = useMemo(() => {
         const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
@@ -148,7 +156,15 @@ function LineChartInner<Meta = unknown>({
     )
 
     const drawStatic = useCallback(
-        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
+        ({
+            ctx,
+            dimensions,
+            scales,
+            series: coloredSeries,
+            labels: drawLabels,
+            theme,
+            revealProgress = 1,
+        }: ChartDrawArgs) => {
             const d3Scales = (scales._private as LineChartPrivate | undefined)?.__lineChart
             if (!d3Scales) {
                 return
@@ -171,6 +187,12 @@ function LineChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
 
+            // While loading, draw the real grid/scales but no data line — the shimmer + hog render
+            // on top via the overlay layer.
+            if (loading) {
+                return
+            }
+
             // Clip data drawing to the plot area so an overlay series with values outside
             // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
             // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
@@ -187,6 +209,11 @@ function LineChartInner<Meta = unknown>({
             )
             ctx.clip()
 
+            // Fade the data in as a load completes — grid (drawn above) stays at full opacity.
+            if (revealProgress < 1) {
+                ctx.globalAlpha = revealProgress
+            }
+
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
@@ -200,14 +227,24 @@ function LineChartInner<Meta = unknown>({
                     drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
                 }
                 if (!s.fill?.lowerData) {
-                    drawLine(drawCtx, s, yValues)
+                    if (glowBlur > 0) {
+                        ctx.save()
+                        // Translucent halo (crisp stroke stays opaque) so overlapping near-baseline
+                        // series don't compound into one bright band.
+                        ctx.shadowColor = dimColor(s.color, LINE_GLOW_ALPHA)
+                        ctx.shadowBlur = glowBlur
+                        drawLine(drawCtx, s, yValues)
+                        ctx.restore()
+                    } else {
+                        drawLine(drawCtx, s, yValues)
+                    }
                     drawPoints(drawCtx, s, yValues)
                 }
             }
 
             ctx.restore()
         },
-        [showGrid, stackedData]
+        [showGrid, stackedData, loading, glowBlur]
     )
 
     const drawHover = useCallback(
@@ -259,6 +296,7 @@ function LineChartInner<Meta = unknown>({
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            loading={loading}
         >
             {children}
         </Chart>

@@ -286,6 +286,9 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Soft glow around each line stroke, in the line's own color. `true` uses the default blur;
+     *  pass a number to set the blur radius in px. Defaults to off. */
+    lineGlow?: boolean | number
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
@@ -311,6 +314,9 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
+    /** Data reveal progress (0..1) — chart types fade the series in over this as a load completes.
+     *  Defaults to 1 (fully revealed) for charts that don't animate a reveal. */
+    revealProgress?: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

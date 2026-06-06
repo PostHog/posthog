@@ -16,6 +16,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -76,11 +77,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         showConfidenceIntervals,
         confidenceLevel,
     } = useValues(trendsDataLogic(insightProps))
+    const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
+
+    const loading = insightDataLoading
 
     const labels = currentPeriodResult?.labels ?? []
 
@@ -264,7 +268,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    if (!hasData) {
+    // While a query is in flight we keep the previous chart frame (with the loading hog) rather than
+    // flashing the empty state — only show it once we've settled with genuinely no data.
+    if (!hasData && !loading) {
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
@@ -282,8 +288,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}
+            loading={loading}
         >
-            {insight.id ? (
+            {insight.id && !loading ? (
                 <TrendsAlertOverlays
                     insightId={insight.id}
                     insightProps={insightProps}
@@ -293,7 +300,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     isHidden={getTrendsHidden}
                 />
             ) : null}
-            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+            {showAnnotations && !loading && (
+                <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
+            )}
         </TimeSeriesLineChart>
     )
 }

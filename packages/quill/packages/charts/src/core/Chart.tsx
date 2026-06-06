@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { ChartLoadingOverlay } from '../components/ChartLoadingOverlay/ChartLoadingOverlay'
 import { AxisLabels } from '../overlays/AxisLabels'
 import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
@@ -57,6 +58,8 @@ const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
 }
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+const LOADING_FADE_MS = 500
+const LOADING_REVEAL_MS = 650
 
 function resolveHoverAnimationMs(animateHover: boolean | number | undefined): number {
     if (animateHover === true) {
@@ -113,6 +116,9 @@ export interface ChartProps<Meta = unknown> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Loading: keep the real scales/grid but hide the axis tick labels and show the hog loader
+     *  where the data would render. The data line itself is suppressed by the chart-type `drawStatic`. */
+    loading?: boolean
 }
 
 export function Chart<Meta = unknown>({
@@ -133,6 +139,7 @@ export function Chart<Meta = unknown>({
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
+    loading = false,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -222,6 +229,34 @@ export function Chart<Meta = unknown>({
         [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current]
     )
 
+    // Reveal: when a load completes, fade the data in from 0..1 while the loader overlay fades out.
+    // Steady states stay pinned at 1 so charts don't re-animate the reveal on unrelated re-renders.
+    const [revealProgress, setRevealProgress] = useState(loading ? 0 : 1)
+    const prevLoadingRef = useRef(loading)
+    useEffect(() => {
+        const wasLoading = prevLoadingRef.current
+        prevLoadingRef.current = loading
+        if (loading) {
+            setRevealProgress(0)
+            return
+        }
+        if (!wasLoading) {
+            setRevealProgress(1)
+            return
+        }
+        let raf = 0
+        const start = performance.now()
+        const tick = (): void => {
+            const p = Math.min(1, (performance.now() - start) / LOADING_REVEAL_MS)
+            setRevealProgress(p)
+            if (p < 1) {
+                raf = requestAnimationFrame(tick)
+            }
+        }
+        raf = requestAnimationFrame(tick)
+        return () => cancelAnimationFrame(raf)
+    }, [loading])
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -235,6 +270,7 @@ export function Chart<Meta = unknown>({
         drawStatic,
         drawHover: composedDrawHover,
         hoverAnimationMs,
+        revealProgress,
     })
 
     const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
@@ -286,6 +322,21 @@ export function Chart<Meta = unknown>({
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
+    // Keep the loading overlay mounted through a fade-out so the chart data eases in underneath
+    // rather than the overlay snapping away the moment `loading` flips off.
+    const [overlayMounted, setOverlayMounted] = useState(loading)
+    const [overlayVisible, setOverlayVisible] = useState(loading)
+    useEffect(() => {
+        if (loading) {
+            setOverlayMounted(true)
+            setOverlayVisible(true)
+            return
+        }
+        setOverlayVisible(false)
+        const timer = setTimeout(() => setOverlayMounted(false), LOADING_FADE_MS)
+        return () => clearTimeout(timer)
+    }, [loading])
+
     return (
         <ChartLayoutContext.Provider value={layoutValue}>
             <ChartHoverContext.Provider value={hoverValue}>
@@ -308,7 +359,7 @@ export function Chart<Meta = unknown>({
                                 yTickFormatter={resolvedYFormatter}
                                 yRightTickFormatter={resolvedYRightFormatter}
                                 hideXAxis={hideXAxis}
-                                hideYAxis={hideYAxis}
+                                hideYAxis={loading || hideYAxis}
                                 axisColor={axisColor}
                                 orientation={axisOrientation}
                                 labelToCoord={labelToCoord}
@@ -324,7 +375,21 @@ export function Chart<Meta = unknown>({
 
                             {children}
 
-                            {tooltipCtx && showTooltip && (
+                            {overlayMounted && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        pointerEvents: 'none',
+                                        opacity: overlayVisible ? 1 : 0,
+                                        transition: `opacity ${LOADING_FADE_MS}ms ease`,
+                                    }}
+                                >
+                                    <ChartLoadingOverlay shimmer />
+                                </div>
+                            )}
+
+                            {!loading && tooltipCtx && showTooltip && (
                                 <Tooltip
                                     context={tooltipCtx}
                                     renderTooltip={renderTooltip}

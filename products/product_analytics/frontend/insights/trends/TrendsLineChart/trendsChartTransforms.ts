@@ -230,5 +230,6 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         percentStackView: opts.isPercentStackView,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
+        lineGlow: true,
     }
 }

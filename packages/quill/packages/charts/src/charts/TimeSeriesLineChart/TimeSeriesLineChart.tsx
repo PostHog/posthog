@@ -48,6 +48,8 @@ export interface TimeSeriesLineChartConfig {
     showCrosshair?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
+    /** Soft glow around each line, in the line's own color. `true` for the default blur, or a px radius. */
+    lineGlow?: boolean | number
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
@@ -61,6 +63,8 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     className?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Show the PostHog logo loading animation over the chart. */
+    loading?: boolean
 }
 
 export function TimeSeriesLineChart<Meta = unknown>({
@@ -74,6 +78,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
     children,
     onError,
+    loading,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
     const {
         xAxis,
@@ -87,6 +92,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
+        lineGlow,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -123,6 +129,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         valueDomain,
+        lineGlow,
     }
 
     return (
@@ -136,6 +143,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             onError={onError}
+            loading={loading}
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}

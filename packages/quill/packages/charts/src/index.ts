@@ -1,3 +1,7 @@
+// Loading overlay
+export { ChartLoadingOverlay, HogLoader } from './components/ChartLoadingOverlay/ChartLoadingOverlay'
+export type { ChartLoadingOverlayProps, HogLoaderProps } from './components/ChartLoadingOverlay/ChartLoadingOverlay'
+
 // Components
 export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
