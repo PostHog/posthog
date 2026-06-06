@@ -473,12 +473,15 @@ class IntercomSourceConfig(config.Config):
 
 @config.config
 class IterableSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
 class JiraSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
