@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { decodeParams, router } from 'kea-router'
+import { decodeParams, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
@@ -9,8 +9,7 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { isAbortedRequest, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -497,7 +496,7 @@ export const personsLogic = kea<personsLogicType>([
             router.actions.push(urls.cohort(cohort.id))
         },
     })),
-    tabAwareActionToUrl(({ values, props }) => ({
+    trackedActionToUrl(({ values, props }) => ({
         setListFilters: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]
@@ -527,7 +526,7 @@ export const personsLogic = kea<personsLogicType>([
             }
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {

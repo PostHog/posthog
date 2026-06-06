@@ -2,11 +2,14 @@
 
 Two distinct skill families live in this directory:
 
-1. **Official PostHog skills** — `signals/`, `inbox-exploration/`. First-party PostHog
-   skills published via `products/posthog_ai/dist/skills/` and loaded by users through
-   the PostHog MCP. They teach a caller how to query, browse, and reason about signals
-   data. They are not part of the automated agent path — humans (and human-driven
-   agents) reach for them on demand.
+1. **Official PostHog skills** — `signals/`, `inbox-exploration/`,
+   `authoring-signals-scouts/`. First-party PostHog skills published via
+   `products/posthog_ai/dist/skills/` and loaded by users through the PostHog MCP. They
+   teach a caller how to query, browse, and reason about signals data —
+   `authoring-signals-scouts/` is the meta one: it teaches a user's agent how to write,
+   edit, and adapt the scout fleet itself (per-team via the skills store, or canonically
+   in this directory). They are not part of the automated agent path — humans (and
+   human-driven agents) reach for them on demand.
 2. **Scout fleet** — `signals-scout-*/`. Canonical default skills that the headless
    Signals agent loads into its system prompt at runtime. These are also the first
    example of PostHog shipping templated skills _into a user's PostHog Skills Store_:

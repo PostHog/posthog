@@ -9,10 +9,10 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from './sdkConstants'
-import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
+import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkHealthLogic } from './sdkHealthLogic'
 
 // The version drill-in SQL and Activity page URL are computed by the backend (sql_query /
-// activity_page_url on each release) so the UI and the SDK Doctor MCP tool stay in lockstep.
+// activity_page_url on each release) so the UI and the SDK Health MCP tool stay in lockstep.
 const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
         title: (
@@ -112,7 +112,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
 ]
 
 export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
-    const { augmentedData, reportLoading: loading } = useValues(sdkDoctorLogic)
+    const { augmentedData, reportLoading: loading } = useValues(sdkHealthLogic)
 
     const sdk = augmentedData[sdkType]!
     const links = SDK_DOCS_LINKS[sdkType]

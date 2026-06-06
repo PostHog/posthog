@@ -1,7 +1,6 @@
 import { actions, kea, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -15,7 +14,6 @@ export interface ReplayObservationSceneLogicProps {
 export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'observations', 'replayObservationSceneLogic']),
     props({} as ReplayObservationSceneLogicProps),
-    tabAwareScene(),
 
     actions({
         setObservationId: (observationId: string) => ({ observationId }),
@@ -72,7 +70,7 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.replayVisionObservation(':observationId')]: ({ observationId }) => {
             const next = observationId || ''
             if (next !== values.observationId) {

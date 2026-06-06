@@ -1,17 +1,15 @@
 import { kea, path, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { sdkDoctorSceneLogicType } from './sdkDoctorSceneLogicType'
+import type { sdkHealthSceneLogicType } from './sdkHealthSceneLogicType'
 
-export const sdkDoctorSceneLogic = kea<sdkDoctorSceneLogicType>([
-    path(['scenes', 'onboarding', 'sdks', 'sdkDoctorSceneLogic']),
-    tabAwareScene(),
+export const sdkHealthSceneLogic = kea<sdkHealthSceneLogicType>([
+    path(['scenes', 'onboarding', 'sdks', 'sdkHealthSceneLogic']),
     selectors({
         breadcrumbs: [
             () => [],
@@ -22,9 +20,9 @@ export const sdkDoctorSceneLogic = kea<sdkDoctorSceneLogicType>([
                     path: urls.health(),
                 },
                 {
-                    key: Scene.SdkDoctor,
-                    name: sceneConfigurations[Scene.SdkDoctor].name,
-                    iconType: sceneConfigurations[Scene.SdkDoctor].iconType || 'default_icon_type',
+                    key: Scene.SdkHealth,
+                    name: sceneConfigurations[Scene.SdkHealth].name,
+                    iconType: sceneConfigurations[Scene.SdkHealth].iconType || 'default_icon_type',
                 },
             ],
         ],
