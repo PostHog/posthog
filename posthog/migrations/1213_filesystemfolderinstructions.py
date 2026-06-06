@@ -7,7 +7,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1210_team_ingested_production_event")]
+    dependencies = [("posthog", "1212_grandfather_stripe_provisioned_pat")]
 
     operations = [
         migrations.CreateModel(
@@ -47,7 +47,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "team",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
+                    ),
                 ),
             ],
             options={

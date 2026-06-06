@@ -1,9 +1,9 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -64,7 +64,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         return {
             setTab: () => [urls.replay(values.tab), router.values.searchParams, router.values.hashParams],
         }

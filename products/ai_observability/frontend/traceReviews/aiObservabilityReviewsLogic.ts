@@ -10,8 +10,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
@@ -208,7 +208,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'reviews' }
             const urlValues = {
