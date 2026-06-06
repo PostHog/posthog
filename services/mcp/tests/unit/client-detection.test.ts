@@ -25,6 +25,8 @@ describe('isCodingAgentClient', () => {
             ['zed'],
             ['aider'],
             ['copilot'],
+            ['devin'],
+            ['librechat'],
             ['notion'],
         ])('returns true for %s', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
@@ -43,8 +45,12 @@ describe('isCodingAgentClient', () => {
             ['GitHub Copilot Chat'],
             ['zed-editor'],
             ['Codex CLI'],
+            ['LibreChat'],
+            ['libre-chat'],
+            ['LibreChat/1.2.3'],
             ['notion-mcp-client'],
             ['Notion'],
+            ['Devin'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
         })
@@ -170,6 +176,8 @@ describe('MCPClientProfile', () => {
             ['aider'],
             ['github.copilot'],
             ['GitHub Copilot Chat'],
+            ['LibreChat'],
+            ['libre-chat'],
             ['notion-mcp-client'],
         ])('returns true for %s', (clientName) => {
             expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)

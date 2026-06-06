@@ -370,9 +370,6 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """
 
     def _list_url(self) -> str:
-        # The viewset exposes the singleton via an explicit `@action(url_path="current")`
-        # (not `list()`), so the route is /project_profile/current/. Generated TS clients
-        # call /current/; tests must match or the requests 404 and never exercise the view.
         return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
     def _seed_profile(self, *, team: Team | None = None) -> str:
@@ -488,7 +485,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is False
-        assert body[0]["run_interval_minutes"] == 1440
+        assert body[0]["run_interval_minutes"] == 60
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

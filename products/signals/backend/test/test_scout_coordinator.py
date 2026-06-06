@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import pytest_asyncio
@@ -20,22 +21,32 @@ from posthog.sync import database_sync_to_async
 
 from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_coordinator import (
+    DEFAULT_ENROLLED_TEAM_IDS,
+    SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
     PlannedRun,
     SignalsScoutCoordinatorWorkflow,
+    StampDispatchedRunsInput,
+    _enrolled_team_ids,
     fetch_enabled_signals_scout_runs_activity,
+    stamp_dispatched_signals_scout_runs_activity,
 )
 
-_FLAG_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.feature_enabled"
+_PAYLOAD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.get_feature_flag_payload"
+_IS_CLOUD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.is_cloud"
 
-# The coordinator scans every team in the DB. These async tests commit (no transaction
-# rollback across the worker thread), so leftover teams from other modules can leak into
-# the scan. Flag only the teams this module created to keep the scan deterministic.
+# Enrollment is driven by the `signals-scout` flag payload allowlist. These async tests commit
+# (no transaction rollback across the worker thread), so leftover teams from other modules can
+# leak in. Enroll only the teams this module created to keep the scan deterministic.
 _FLAGGED_TEAM_IDS: set[str] = set()
+
+
+def _allowlist_payload() -> dict:
+    return {"guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS]}
 
 
 @pytest_asyncio.fixture
@@ -88,29 +99,29 @@ def _create_config(team: Team, skill_name: str, **kwargs: Any) -> SignalScoutCon
 
 @pytest.fixture(autouse=True)
 def _flag_on(request):
-    """Treat every team as in the dogfood flag by default.
+    """Enroll every team this module created via the `signals-scout` flag payload allowlist.
 
-    Tests covering the gate itself opt out with `@pytest.mark.flag_off` and set their own
-    `feature_enabled` behavior.
+    Tests covering enrollment itself opt out with `@pytest.mark.flag_off` and set their own
+    payload.
     """
     if request.node.get_closest_marker("flag_off"):
         yield
         return
-    with patch(_FLAG_PATH, side_effect=lambda key, distinct_id, *a, **k: distinct_id in _FLAGGED_TEAM_IDS):
+    with patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: _allowlist_payload()):
         yield
 
 
 @pytest.fixture(autouse=True)
-def _stub_canonical_seed(request):
-    """Stub `seed_canonical_skills` to a no-op so tests assert on hand-authored skills only.
+def _stub_canonical_sync(request):
+    """Stub `sync_canonical_skills` to a no-op so tests assert on hand-authored skills only.
 
-    Tests that exercise the real sync opt out via `@pytest.mark.real_canonical_seed`.
+    Tests that exercise the real sync opt out via `@pytest.mark.real_canonical_sync`.
     """
-    if request.node.get_closest_marker("real_canonical_seed"):
+    if request.node.get_closest_marker("real_canonical_sync"):
         yield
         return
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.seed_canonical_skills",
+        "products.signals.backend.temporal.agentic.scout_coordinator.sync_canonical_skills",
         return_value=None,
     ):
         yield
@@ -122,20 +133,84 @@ async def _run_activity() -> list[PlannedRun]:
     return output.planned_runs
 
 
-# ── Gate: the signals-scout flag is the single team-level gate ───────────────────
+# ── Enrollment: the signals-scout flag payload allowlist is the single gate ──────
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"guaranteed_team_ids": [5, 6]}, {5, 6}),
+        ({"guaranteed_team_ids": [5, 6], "skip_team_ids": [6]}, {5}),
+        ('{"guaranteed_team_ids": [7]}', {7}),  # JSON string payload
+        ({"guaranteed_team_ids": []}, set()),  # explicit empty list → intentional drain-all
+        ({}, set(DEFAULT_ENROLLED_TEAM_IDS)),  # absent key → defaults
+        (None, set(DEFAULT_ENROLLED_TEAM_IDS)),  # no payload → defaults
+        ({"guaranteed_team_ids": "nope"}, set(DEFAULT_ENROLLED_TEAM_IDS)),  # wrong type → defaults
+        ({"guaranteed_team_ids": [5, 6], "skip_team_ids": "nope"}, {5, 6}),  # bad skip ignored
+    ],
+)
+@pytest.mark.flag_off
+def test_enrolled_team_ids_parses_payload(payload, expected):
+    # is_cloud → True so the fallback resolves to DEFAULT_ENROLLED_TEAM_IDS (see the
+    # off-cloud fail-closed case below).
+    with patch(_PAYLOAD_PATH, return_value=payload), patch(_IS_CLOUD_PATH, return_value=True):
+        assert _enrolled_team_ids() == expected
+
+
+@pytest.mark.flag_off
+def test_enrolled_team_ids_uses_match_value_true():
+    # The team list lives in the payload, not the release conditions — assert we request the
+    # true-variant payload so a group-targeted/disabled flag can't starve discovery.
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [9]}) as mock_payload:
+        _enrolled_team_ids()
+    args, kwargs = mock_payload.call_args
+    assert args[0] == "signals-scout"
+    assert args[1] == SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID
+    assert kwargs.get("match_value") is True
+
+
+@pytest.mark.flag_off
+def test_enrolled_team_ids_falls_back_to_defaults_on_error():
+    with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")), patch(_IS_CLOUD_PATH, return_value=True):
+        assert _enrolled_team_ids() == set(DEFAULT_ENROLLED_TEAM_IDS)
+
+
+@pytest.mark.flag_off
+@override_settings(DEBUG=False)
+def test_enrolled_team_ids_fails_closed_off_cloud():
+    # Self-hosted (not cloud, not debug): a missing payload enrolls no one, so the coordinator
+    # never starts scout runs for an unintended tenant. An explicit payload is still honored.
+    with patch(_IS_CLOUD_PATH, return_value=False):
+        with patch(_PAYLOAD_PATH, return_value=None):
+            assert _enrolled_team_ids() == set()
+        with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [5]}):
+            assert _enrolled_team_ids() == {5}
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.flag_off
-async def test_team_not_in_flag_is_skipped(ateam):
+async def test_team_not_in_allowlist_is_skipped(ateam):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
     await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
 
-    with patch(_FLAG_PATH, return_value=False):
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": []}):
         planned = await _run_activity()
 
     assert planned == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+async def test_skip_team_ids_drains_an_enrolled_team(ateam):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+
+    # Enrolled via guaranteed but overridden by skip → drained.
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [ateam.id], "skip_team_ids": [ateam.id]}):
+        planned = await _run_activity()
+
+    assert all(p.team_id != ateam.id for p in planned)
 
 
 @pytest.mark.asyncio
@@ -160,7 +235,7 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
     config = await database_sync_to_async(SignalScoutConfig.all_teams.get)(team=ateam, skill_name="signals-scout-foo")
     assert config.enabled is True
-    assert config.run_interval_minutes == 1440
+    assert config.run_interval_minutes == 60
     assert config.emit is False
     # Never-run row is immediately due, so it's dispatched this tick.
     assert [(p.team_id, p.skill_name) for p in planned] == [(ateam.id, "signals-scout-foo")]
@@ -206,7 +281,26 @@ async def test_config_within_interval_is_not_due(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_overdue_config_runs_and_stamps_last_run_at(ateam):
+async def test_overdue_config_is_planned_without_stamping(ateam):
+    # Planning only selects due runs — it must NOT advance last_run_at. The schedule is
+    # stamped after dispatch (see test_stamp_activity_advances_dispatched_configs) so a
+    # fan-out failure can't suppress a scout for a full interval.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    old = timezone.now() - timedelta(minutes=2000)
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
+    )
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-foo"]
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == old
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stamp_activity_advances_dispatched_configs(ateam):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
     old = timezone.now() - timedelta(minutes=2000)
     config = await database_sync_to_async(_create_config)(
@@ -214,9 +308,12 @@ async def test_overdue_config_runs_and_stamps_last_run_at(ateam):
     )
 
     before = timezone.now()
-    planned = await _run_activity()
+    env = ActivityEnvironment()
+    await env.run(
+        stamp_dispatched_signals_scout_runs_activity,
+        StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+    )
 
-    assert [p.skill_name for p in planned] == ["signals-scout-foo"]
     refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
     assert refreshed.last_run_at is not None and refreshed.last_run_at >= before
 
@@ -290,7 +387,7 @@ async def test_seed_failure_does_not_abort_tick(ateam):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.seed_canonical_skills",
+        "products.signals.backend.temporal.agentic.scout_coordinator.sync_canonical_skills",
         side_effect=RuntimeError("simulated seed failure"),
     ):
         planned = await _run_activity()
@@ -300,11 +397,11 @@ async def test_seed_failure_does_not_abort_tick(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.real_canonical_seed
+@pytest.mark.real_canonical_sync
 async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     # Enrolling a team seeds the canonical fleet; the coordinator then auto-registers a
     # config per seeded skill and dispatches the due ones.
-    await database_sync_to_async(seed_canonical_skills)(ateam)
+    await database_sync_to_async(sync_canonical_skills)(ateam)
     seeded = await database_sync_to_async(
         lambda: set(
             LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)
@@ -319,6 +416,27 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     )()
     assert config_names == seeded
     assert {p.skill_name for p in planned} == seeded
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.real_canonical_sync
+async def test_payload_enrolled_unseeded_team_is_seeded_by_tick(ateam):
+    # The flag-driven path with no manual seed: ateam is enrolled via the payload (autouse
+    # fixture) but has no scout skills yet. The tick itself must seed the canonical fleet,
+    # register configs, and dispatch — proving an operator only edits the flag payload.
+    pre_seeded = await database_sync_to_async(
+        lambda: LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").exists()
+    )()
+    assert pre_seeded is False
+
+    planned = await _run_activity()
+
+    config_names = await database_sync_to_async(
+        lambda: set(SignalScoutConfig.all_teams.filter(team=ateam).values_list("skill_name", flat=True))
+    )()
+    assert config_names  # fleet seeded + configs auto-registered by the tick
+    assert {p.skill_name for p in planned} == config_names
 
 
 # ── Workflow-level dispatch ─────────────────────────────────────────────────────
@@ -397,3 +515,40 @@ async def test_workflow_dispatches_children_fire_and_forget():
         (1, "signals-scout-b"),
         (2, "signals-scout-c"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_hard_dispatch_error_does_not_stamp():
+    # A non-dedupe start_child error must abort before the stamp activity, so the affected
+    # configs stay unstamped and re-dispatch next tick instead of being suppressed.
+    planned = [PlannedRun(team_id=1, skill_name="signals-scout-a")]
+    fake_fetch_result = type("R", (), {"planned_runs": planned})()
+    execute_activity_calls: list[Any] = []
+
+    async def fake_execute_activity(activity, *args, **kwargs):
+        execute_activity_calls.append(activity)
+        return fake_fetch_result
+
+    async def fake_start_child(_workflow_run, run_input, **kwargs):
+        raise RuntimeError("temporal unavailable")
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
+            return_value=type("Info", (), {"workflow_id": "tick-1"})(),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
+            side_effect=fake_start_child,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="temporal unavailable"):
+            await coordinator.run(CoordinatorWorkflowInput())
+
+    # Only the planning activity ran — the stamp activity never executed.
+    assert execute_activity_calls == [fetch_enabled_signals_scout_runs_activity]
