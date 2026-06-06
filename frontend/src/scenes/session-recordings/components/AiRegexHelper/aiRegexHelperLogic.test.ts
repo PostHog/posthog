@@ -6,6 +6,8 @@ import { initKeaTests } from '~/test/init'
 
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
 
+const GENERIC_ERROR = 'Failed to generate regex. Try again?'
+
 describe('aiRegexHelperLogic', () => {
     let logic: ReturnType<typeof aiRegexHelperLogic.build>
 
@@ -31,49 +33,53 @@ describe('aiRegexHelperLogic', () => {
         expectLogic(logic).toMatchValues({ generatedRegex: '^/auth/.*$', error: '', isLoading: false })
     })
 
-    it('surfaces the model error message on a result-error response', async () => {
-        jest.spyOn(api.recordings, 'aiRegex').mockResolvedValue({
-            result: 'error',
-            data: { output: 'Please ask questions only about regex generation.' },
-        })
+    const errorCases: {
+        name: string
+        mock: () => void
+        expectedError: string
+    }[] = [
+        {
+            name: 'surfaces the model error message on a result-error response',
+            mock: () =>
+                jest.spyOn(api.recordings, 'aiRegex').mockResolvedValue({
+                    result: 'error',
+                    data: { output: 'Please ask questions only about regex generation.' },
+                }),
+            expectedError: 'Please ask questions only about regex generation.',
+        },
+        {
+            name: 'surfaces the server-provided detail when the request throws an ApiError',
+            mock: () =>
+                jest.spyOn(api.recordings, 'aiRegex').mockRejectedValue(
+                    new ApiError('Invalid response from OpenAI', 400, undefined, {
+                        detail: 'Invalid response from OpenAI',
+                    })
+                ),
+            expectedError: 'Invalid response from OpenAI',
+        },
+        {
+            name: 'falls back to a generic message for non-ApiError failures',
+            mock: () => jest.spyOn(api.recordings, 'aiRegex').mockRejectedValue(new Error('network down')),
+            expectedError: GENERIC_ERROR,
+        },
+        {
+            name: 'falls back to a generic message for an unrecognised response shape',
+            mock: () => jest.spyOn(api.recordings, 'aiRegex').mockResolvedValue({} as any),
+            expectedError: GENERIC_ERROR,
+        },
+        {
+            name: 'falls back to a generic message for a success response missing output',
+            mock: () => jest.spyOn(api.recordings, 'aiRegex').mockResolvedValue({ result: 'success' } as any),
+            expectedError: GENERIC_ERROR,
+        },
+    ]
 
-        logic.actions.setInput('what is the weather?')
-        await expectLogic(logic, () => logic.actions.handleGenerateRegex()).toFinishAllListeners()
-
-        expectLogic(logic).toMatchValues({
-            error: 'Please ask questions only about regex generation.',
-            generatedRegex: '',
-        })
-    })
-
-    it('surfaces the server-provided detail when the request throws an ApiError', async () => {
-        jest.spyOn(api.recordings, 'aiRegex').mockRejectedValue(
-            new ApiError('Invalid response from OpenAI', 400, undefined, {
-                detail: 'Invalid response from OpenAI',
-            })
-        )
+    it.each(errorCases)('$name', async ({ mock, expectedError }) => {
+        mock()
 
         logic.actions.setInput('something')
         await expectLogic(logic, () => logic.actions.handleGenerateRegex()).toFinishAllListeners()
 
-        expectLogic(logic).toMatchValues({ error: 'Invalid response from OpenAI', isLoading: false })
-    })
-
-    it('falls back to a generic message for non-ApiError failures', async () => {
-        jest.spyOn(api.recordings, 'aiRegex').mockRejectedValue(new Error('network down'))
-
-        logic.actions.setInput('something')
-        await expectLogic(logic, () => logic.actions.handleGenerateRegex()).toFinishAllListeners()
-
-        expectLogic(logic).toMatchValues({ error: 'Failed to generate regex. Try again?', isLoading: false })
-    })
-
-    it('falls back to a generic message for an unrecognised response shape', async () => {
-        jest.spyOn(api.recordings, 'aiRegex').mockResolvedValue({} as any)
-
-        logic.actions.setInput('something')
-        await expectLogic(logic, () => logic.actions.handleGenerateRegex()).toFinishAllListeners()
-
-        expectLogic(logic).toMatchValues({ error: 'Failed to generate regex. Try again?' })
+        expectLogic(logic).toMatchValues({ error: expectedError, generatedRegex: '', isLoading: false })
     })
 })

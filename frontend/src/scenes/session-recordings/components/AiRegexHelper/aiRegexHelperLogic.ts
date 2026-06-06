@@ -63,7 +63,7 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
             try {
                 const content = await api.recordings.aiRegex(values.input)
 
-                if (content?.result === 'success') {
+                if (content?.result === 'success' && content.data?.output) {
                     posthog.capture('ai_regex_helper_generate_regex_success')
                     actions.setGeneratedRegex(content.data.output)
                 } else if (content?.result === 'error') {
