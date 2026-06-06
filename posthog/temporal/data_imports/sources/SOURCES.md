@@ -85,6 +85,7 @@ the row lists both.
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | iterable         | HTTP                        | requests                                                        | ✅                          |
+| jira             | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
@@ -200,7 +201,6 @@ doesn't conflict with concurrent PRs.
 - google_drive
 - helpscout
 - instagram
-- jira
 - kafka
 - lever
 - marketo
