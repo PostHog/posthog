@@ -1,8 +1,7 @@
 import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -237,7 +236,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             setSceneState: actionToUrl,
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             // Ignore sub-routes like /experiments/shared-metrics/new
             // The :id parameter should only be 'new' or a number, not strings like 'shared-metrics'
