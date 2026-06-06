@@ -46,6 +46,7 @@ export const Default: Story = {
 
 export const Loading: Story = {
     args: { items: [], loading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const ConversionGoal: Story = {
