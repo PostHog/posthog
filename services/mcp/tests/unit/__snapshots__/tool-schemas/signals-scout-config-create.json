@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for creating (upserting) a per-scout config by `skill_name`.\n\nUnlike `SignalScoutConfigSerializer` (update-by-id, `skill_name` fixed), this takes the\n`skill_name` as the key so an author can set posture right after creating the scout skill,\nwithout waiting for the coordinator's hourly tick to materialize the row. Omitted posture\nfields keep their model defaults on create and stay untouched when the row already exists.",
+    "properties": {
+        "emit": {
+            "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+            "type": "boolean"
+        },
+        "enabled": {
+            "description": "Whether this scout runs on its schedule (default true). Disabled scouts are skipped by the coordinator.",
+            "type": "boolean"
+        },
+        "run_interval_minutes": {
+            "description": "Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+            "maximum": 43200,
+            "minimum": 10,
+            "type": "number"
+        },
+        "skill_name": {
+            "description": "The `signals-scout-*` skill this config controls. Must already exist as a scout skill on this project (author the skill first) and must start with `signals-scout-`.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["skill_name"],
+    "type": "object"
+}
