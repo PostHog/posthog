@@ -13,6 +13,7 @@ from rest_framework import serializers
 from posthog.schema import Severity
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -845,3 +846,40 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         model = SignalScoutConfig
         fields = ["id", "skill_name", "enabled", "emit", "run_interval_minutes", "last_run_at", "created_at"]
         read_only_fields = ["id", "created_at"]
+
+
+class SignalScoutConfigCreateSerializer(serializers.Serializer):
+    """Request body for creating (upserting) a per-scout config by `skill_name`.
+
+    Unlike `SignalScoutConfigSerializer` (update-by-id, `skill_name` fixed), this takes the
+    `skill_name` as the key so an author can set posture right after creating the scout skill,
+    without waiting for the coordinator's hourly tick to materialize the row. Omitted posture
+    fields keep their model defaults on create and stay untouched when the row already exists.
+    """
+
+    skill_name = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "The `signals-scout-*` skill this config controls. Must already exist as a scout "
+            "skill on this project (author the skill first) and must start with `signals-scout-`."
+        ),
+    )
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule (default true). Disabled scouts are skipped by the coordinator.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=10,
+        max_value=43200,
+        help_text="Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+    )
+
+    def validate_skill_name(self, value: str) -> str:
+        if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
+            raise serializers.ValidationError(f"Must start with `{SIGNALS_SCOUT_SKILL_PREFIX}`.")
+        return value

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -130,6 +130,56 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Create the per-scout config for a `signals-scout-*` skill, or update it in place if one already exists (upsert keyed on `skill_name`). Lets an author set `emit` (false = dry-run), `run_interval_minutes`, and `enabled` immediately after creating the skill, without waiting for the coordinator's hourly tick to materialize the row. The skill must already exist on this project — author it first. Omitted posture fields keep their defaults on create and are left untouched when the row already exists. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * @summary Create or update a scout config
+ */
+export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutConfigCreateBodySkillNameMax = 200
+
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
+
+export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        skill_name: zod
+            .string()
+            .max(signalsScoutConfigCreateBodySkillNameMax)
+            .describe(
+                'The `signals-scout-*` skill this config controls. Must already exist as a scout skill on this project (author the skill first) and must start with `signals-scout-`.'
+            ),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this scout runs on its schedule (default true). Disabled scouts are skipped by the coordinator.'
+            ),
+        emit: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
+            .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
+            .optional()
+            .describe(
+                'Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.'
+            ),
+    })
+    .describe(
+        "Request body for creating (upserting) a per-scout config by `skill_name`.\n\nUnlike `SignalScoutConfigSerializer` (update-by-id, `skill_name` fixed), this takes the\n`skill_name` as the key so an author can set posture right after creating the scout skill,\nwithout waiting for the coordinator's hourly tick to materialize the row. Omitted posture\nfields keep their model defaults on create and stay untouched when the row already exists."
+    )
 
 /**
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.

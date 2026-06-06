@@ -4879,6 +4879,20 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-create": {
+        "description": "Create the per-scout config for a `signals-scout-*` skill, or update it in place if one already exists (upsert keyed on `skill_name`). Set `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox), `run_interval_minutes` (10–43200), and `enabled` at authoring time, without waiting for the coordinator to materialize the row on its next tick. The skill must already exist on this project — author it first. Omitted posture fields keep their defaults on create and are left untouched when the row exists.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create or update a scout config",
+        "title": "Create or update a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-config-list": {
         "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",

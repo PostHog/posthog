@@ -18,6 +18,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
@@ -525,3 +526,49 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _create_scout_skill(self, name: str) -> LLMSkill:
+        return LLMSkill.objects.create(team=self.team, name=name, description="d", body="b")
+
+    def test_create_makes_config_when_skill_exists(self) -> None:
+        self._create_scout_skill("signals-scout-foo")
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "emit": True, "enabled": True, "run_interval_minutes": 30},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-foo")
+        assert config.emit is True
+        assert config.enabled is True
+        assert config.run_interval_minutes == 30
+        assert config.created_by_id == self.user.id
+        assert config.enabled_by_id == self.user.id
+
+    def test_create_upserts_existing_config_without_resetting_omitted_fields(self) -> None:
+        self._create_scout_skill("signals-scout-foo")
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", emit=False, run_interval_minutes=120
+        )
+
+        # Set only `emit` — the schedule must stay where it was.
+        response = self.client.post(
+            self._list_url(), data={"skill_name": "signals-scout-foo", "emit": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-foo")
+        assert config.emit is True
+        assert config.run_interval_minutes == 120
+
+    def test_create_rejects_non_scout_skill_name(self) -> None:
+        self._create_scout_skill("signals-scout-foo")
+        response = self.client.post(self._list_url(), data={"skill_name": "custom-helper"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_rejects_when_skill_does_not_exist(self) -> None:
+        response = self.client.post(self._list_url(), data={"skill_name": "signals-scout-ghost"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-ghost").exists()

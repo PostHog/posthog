@@ -26,6 +26,7 @@ import type {
     SignalReportApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
+    SignalScoutConfigCreateApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -214,6 +215,27 @@ export const signalsScoutConfigList = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/`
+}
+
+/**
+ * Create the per-scout config for a `signals-scout-*` skill, or update it in place if one already exists (upsert keyed on `skill_name`). Lets an author set `emit` (false = dry-run), `run_interval_minutes`, and `enabled` immediately after creating the skill, without waiting for the coordinator's hourly tick to materialize the row. The skill must already exist on this project — author it first. Omitted posture fields keep their defaults on create and are left untouched when the row already exists. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * @summary Create or update a scout config
+ */
+export const signalsScoutConfigCreate = async (
+    projectId: string,
+    signalScoutConfigCreateApi: SignalScoutConfigCreateApi,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi> => {
+    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutConfigCreateApi),
     })
 }
 

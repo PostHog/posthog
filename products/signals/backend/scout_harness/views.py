@@ -39,6 +39,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
+from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
@@ -52,6 +53,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
+    SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
@@ -518,6 +520,65 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, *args, **kwargs) -> Response:
         configs = SignalScoutConfig.objects.unscoped().filter(team_id=_canonical_team_id(self)).order_by("skill_name")
         return Response(SignalScoutConfigSerializer(configs, many=True).data)
+
+    @extend_schema(
+        request=SignalScoutConfigCreateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Existing config updated (upsert)."),
+            201: OpenApiResponse(response=SignalScoutConfigSerializer, description="New config created."),
+            400: OpenApiResponse(
+                description="`skill_name` has the wrong prefix, or no such scout skill exists on this project."
+            ),
+        },
+        summary="Create or update a scout config",
+        description=(
+            "Create the per-scout config for a `signals-scout-*` skill, or update it in place if "
+            "one already exists (upsert keyed on `skill_name`). Lets an author set `emit` (false = "
+            "dry-run), `run_interval_minutes`, and `enabled` immediately after creating the skill, "
+            "without waiting for the coordinator's hourly tick to materialize the row. The skill "
+            "must already exist on this project — author it first. Omitted posture fields keep their "
+            "defaults on create and are left untouched when the row already exists. Enabling records "
+            "`enabled_by` and is activity-logged since it drives spend."
+        ),
+        operation_id="signals_scout_config_create",
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = SignalScoutConfigCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        skill_name = data["skill_name"]
+        team_id = _canonical_team_id(self)
+
+        # A config whose skill doesn't exist never runs — the coordinator dispatches by
+        # skill_name. Require the scout skill up front so the row can't dangle.
+        skill_exists = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists()
+        if not skill_exists:
+            raise exceptions.ValidationError(
+                {"skill_name": f"No scout skill named '{skill_name}' on this project — author the skill first."}
+            )
+
+        existing = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, skill_name=skill_name).first()
+        # Only the posture fields the caller actually sent: omitted fields fall to the model
+        # defaults on create and are left untouched on update (so setting just `emit` later
+        # doesn't reset the schedule).
+        posture = {field: data[field] for field in ("enabled", "emit", "run_interval_minutes") if field in data}
+
+        # Record who enabled the scout when the upsert leaves it enabled and it wasn't before,
+        # mirroring `partial_update` — enablement drives spend.
+        resulting_enabled = posture.get("enabled", existing.enabled if existing is not None else True)
+        was_enabled = existing.enabled if existing is not None else False
+        enabled_by = {"enabled_by": request.user} if resulting_enabled and not was_enabled else {}
+
+        config, created = SignalScoutConfig.objects.unscoped().update_or_create(
+            team_id=team_id,
+            skill_name=skill_name,
+            defaults={**posture, **enabled_by},
+            create_defaults={**posture, **enabled_by, "created_by": request.user},
+        )
+        return Response(
+            SignalScoutConfigSerializer(config).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     @extend_schema(
         request=SignalScoutConfigSerializer,

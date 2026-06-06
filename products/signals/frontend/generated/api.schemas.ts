@@ -170,6 +170,32 @@ export interface SignalScoutConfigApi {
 }
 
 /**
+ * Request body for creating (upserting) a per-scout config by `skill_name`.
+
+Unlike `SignalScoutConfigSerializer` (update-by-id, `skill_name` fixed), this takes the
+`skill_name` as the key so an author can set posture right after creating the scout skill,
+without waiting for the coordinator's hourly tick to materialize the row. Omitted posture
+fields keep their model defaults on create and stay untouched when the row already exists.
+ */
+export interface SignalScoutConfigCreateApi {
+    /**
+     * The `signals-scout-*` skill this config controls. Must already exist as a scout skill on this project (author the skill first) and must start with `signals-scout-`.
+     * @maxLength 200
+     */
+    skill_name: string
+    /** Whether this scout runs on its schedule (default true). Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
 
 One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
