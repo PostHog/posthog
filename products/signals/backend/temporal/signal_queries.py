@@ -353,7 +353,6 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     team = await Team.objects.aget(pk=input.team_id)
     inserted_at_threshold = timezone.now() - timedelta(minutes=30)
-    max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
 
     signal_ids = [s.signal_id for s in input.signals]
     timestamps = [s.timestamp for s in input.signals]
@@ -384,7 +383,12 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 
     expected_count = len(signal_ids)
 
-    for attempt in range(max_attempts):
+    # Bound by wall-clock, not attempt count: an attempt budget can demand more sleep than
+    # start_to_close allows, making the graceful return below unreachable so the activity
+    # times out and raises instead of proceeding.
+    deadline = timezone.now() + timedelta(seconds=input.max_wait_time_seconds)
+    attempt = 0
+    while timezone.now() < deadline:
         temporalio.activity.heartbeat(attempt)
 
         result = await execute_hogql_query_with_retry(
@@ -408,12 +412,16 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             )
             return
 
-        # Sleep in chunks so we keep heartbeating during the poll interval
-        remaining = WAIT_POLL_INTERVAL_SECONDS
-        while remaining > 0:
-            chunk = min(remaining, 5)
+        attempt += 1
+
+        # Sleep up to one poll interval before the next query, in small chunks so we keep
+        # heartbeating, and never past the deadline.
+        sleep_until = min(timezone.now() + timedelta(seconds=WAIT_POLL_INTERVAL_SECONDS), deadline)
+        while timezone.now() < sleep_until:
+            chunk = min(5.0, (sleep_until - timezone.now()).total_seconds())
+            if chunk <= 0:
+                break
             await asyncio.sleep(chunk)
-            remaining -= chunk
             temporalio.activity.heartbeat(attempt)
 
     logger.warning(

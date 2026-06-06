@@ -850,6 +850,9 @@ BATCH_SIZE = 5
 BATCH_DEBOUNCE_SECONDS = 5
 TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
 
+# Per-batch ClickHouse readiness wait (Step 7). Paid on grouping's serialized critical path, so keep it short.
+CH_READINESS_WAIT_SECONDS = 120
+
 
 @dataclass
 class _ProcessedBatchSignal:
@@ -1198,22 +1201,38 @@ async def _process_signal_batch(
                 source_id=signal.source_id,
             )
 
-    # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
+    # Step 7: best-effort wait for emitted signals to land in CH so the next batch can match them.
+    # The batch's assign + embed work is already committed above, so this is never fatal to the batch.
     if emitted_signals:
-        await workflow.execute_activity(
-            wait_for_signal_in_clickhouse_activity,
-            WaitForClickHouseInput(
-                team_id=team_id,
-                signals=[
-                    WaitForClickHouseSignal(signal_id=sid, timestamp=result.timestamp)
-                    for sid, result in emitted_signals
-                ],
-                max_wait_time_seconds=3600,
-            ),
-            start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+        _PATCH_CH_WAIT_NON_FATAL = "ch-readiness-wait-non-fatal-v1"
+        non_fatal_wait = workflow.patched(_PATCH_CH_WAIT_NON_FATAL)
+        wait_input = WaitForClickHouseInput(
+            team_id=team_id,
+            signals=[
+                WaitForClickHouseSignal(signal_id=sid, timestamp=result.timestamp) for sid, result in emitted_signals
+            ],
+            max_wait_time_seconds=CH_READINESS_WAIT_SECONDS if non_fatal_wait else 3600,
         )
+        if non_fatal_wait:
+            try:
+                await workflow.execute_activity(
+                    wait_for_signal_in_clickhouse_activity,
+                    wait_input,
+                    start_to_close_timeout=timedelta(seconds=CH_READINESS_WAIT_SECONDS + 120),
+                    heartbeat_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                # Readiness wait failed; the next batch may not yet match these signals (eventual dedup).
+                logger.warning("ClickHouse readiness wait failed; proceeding", team_id=team_id)
+        else:
+            await workflow.execute_activity(
+                wait_for_signal_in_clickhouse_activity,
+                wait_input,
+                start_to_close_timeout=timedelta(hours=1, minutes=5),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
     # Spawn summary workflows after CH wait. Stable ID + ALLOW_DUPLICATE: Temporal rejects concurrent
     # starts with the same ID (caught below); re-spawning is allowed only if the previous run has closed.
