@@ -4,11 +4,13 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
 
 import { mergePinnedTabs, sceneLogic } from './sceneLogic'
 import type { testLogicType, tabAwareTestLogicType } from './sceneLogic.testType'
@@ -220,6 +222,89 @@ describe('sceneLogic', () => {
         expect(tab3Instances).toHaveLength(1)
         expect(tab3Instances[0].pinned).toBe(false)
         expect(pinnedTabs.map((tab) => tab.id)).not.toContain('tab-3')
+    })
+    describe('/home honors the configured homepage', () => {
+        const dashboardHomepage = {
+            id: 'homepage-dashboard-42',
+            pathname: urls.dashboard(42),
+            search: '',
+            hash: '',
+            title: 'Default dashboard',
+            iconType: 'dashboard' as const,
+            active: false,
+            pinned: true,
+            sceneId: Scene.Dashboard,
+            sceneKey: 'dashboard-42',
+            sceneParams: { params: {}, searchParams: {}, hashParams: {} },
+        }
+
+        it('redirects /home to the configured dashboard homepage', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+        })
+
+        it('stays on the launchpad at /home when no homepage is configured', async () => {
+            logic.actions.setHomepage(null)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+        })
+
+        it('bootstraps the homepage from APP_CONTEXT so a direct /home visit redirects on first paint', async () => {
+            logic.unmount()
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            let bootstrappedHomepagePathname = ''
+            let redirectedPathname = ''
+            try {
+                initKeaTests()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    homepage: dashboardHomepage,
+                } as unknown as AppContext
+                ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                router.actions.push(urls.eventDefinitions())
+                const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
+                // Simulate a fresh mount the same way the suite's beforeEach does.
+                bootstrappedLogic.cache.tabsLoaded = false
+                bootstrappedLogic.mount()
+                // homepage is populated synchronously from APP_CONTEXT — no setHomepage / API round-trip needed.
+                bootstrappedHomepagePathname = removeProjectIdIfPresent(
+                    bootstrappedLogic.values.homepage?.pathname ?? ''
+                )
+                router.actions.push(urls.projectHomepage())
+                await expectLogic(bootstrappedLogic).delay(1)
+                redirectedPathname = removeProjectIdIfPresent(router.values.location.pathname)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+            expect(bootstrappedHomepagePathname).toEqual(urls.dashboard(42))
+            expect(redirectedPathname).toEqual(urls.dashboard(42))
+        })
+
+        it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage(), { modal: 'feature', other: 'dropped' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+            expect(router.values.searchParams).toEqual({ modal: 'feature' })
+        })
+
+        it('does not loop when the launchpad is the homepage and a forwarded param is present', async () => {
+            logic.actions.setHomepage({
+                ...dashboardHomepage,
+                id: 'homepage-launchpad',
+                pathname: urls.projectHomepage(),
+            })
+            router.actions.push(urls.projectHomepage(), { modal: 'feature' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(router.values.searchParams).toEqual({ modal: 'feature' })
+        })
     })
     describe('mergePinnedTabs', () => {
         const tabBase = { search: '', hash: '', title: '', iconType: 'blank' as const }
