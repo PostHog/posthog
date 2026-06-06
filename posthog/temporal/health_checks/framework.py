@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
+
+from django.conf import settings
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
+from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS, ensure_registry_loaded
 
-if TYPE_CHECKING:
-    from posthog.models.health_issue import HealthIssue
+# Severity → signal weight. Critical issues hit weight 1.0, which triggers the
+# Signals summary pipeline; lower severities rank below in the inbox feed.
+_SEVERITY_WEIGHT: dict[str, float] = {
+    HealthIssue.Severity.CRITICAL: 1.0,
+    HealthIssue.Severity.WARNING: 0.7,
+    HealthIssue.Severity.INFO: 0.4,
+}
 
 
 @dataclass(frozen=True)
@@ -52,6 +60,45 @@ class Remediation:
         # Frozen dataclass — normalize in place via object.__setattr__.
         object.__setattr__(self, "human", inspect.cleandoc(self.human))
         object.__setattr__(self, "agent", inspect.cleandoc(self.agent))
+
+
+@dataclass(frozen=True)
+class SignalContent:
+    """An inbox signal rendered from a newly-firing health issue.
+
+    Checks opt into the Signals inbox by overriding `HealthCheck.render_signal`
+    to return one of these. `description` is what a reviewer reads in the feed;
+    `weight` ranks it (see `_SEVERITY_WEIGHT`); `extra` is product metadata that
+    must satisfy the `health_checks`/`health_issue` schema variant in
+    `frontend/src/queries/schema/schema-signals.ts`.
+
+    The signal's remediation is not carried here — it's the check's static
+    `Remediation` (human/agent), which the signal emitter reads directly and
+    maps onto the signal's top-level `remediation` field.
+    """
+
+    description: str
+    weight: float
+    extra: dict[str, Any]
+
+
+def build_signal_extra(issue: HealthIssue, *, title: str, summary: str, link: str) -> dict[str, Any]:
+    """Assemble the `extra` envelope for a health-check signal.
+
+    Shape must match the `health_checks`/`health_issue` variant in
+    `frontend/src/queries/schema/schema-signals.ts`. `render_signal` overrides
+    call this so the envelope stays consistent across checks.
+    """
+    return {
+        "kind": issue.kind,
+        "severity": issue.severity,
+        "issue_id": str(issue.id),
+        "title": title,
+        "summary": summary,
+        "link": link,
+        "url": f"{settings.SITE_URL}{link}",
+        "payload": issue.payload,
+    }
 
 
 @dataclass(frozen=True)
@@ -144,6 +191,20 @@ class HealthCheck:
             summary=f"{cls.kind} ({issue.severity})",
             link="/health",
         )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        """Build the inbox signal for a newly-firing issue, or None to skip.
+
+        The base default returns None — a check surfaces in the Signals inbox
+        only by overriding this and writing its own description / weight / extra.
+        Overrides build their own prose rather than reusing `render_alert`: the
+        alert phrasing (a destination notification) and the inbox phrasing (a
+        reviewer-facing finding) are deliberately separate. Use `_SEVERITY_WEIGHT`
+        for the standard severity → weight mapping. The remediation is not set
+        here — it comes from the check's static `remediation` constant.
+        """
+        return None
 
 
 def health_check_class_for_kind(kind: str) -> type[HealthCheck] | None:
