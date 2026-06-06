@@ -5,6 +5,7 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import HttpResponse
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -60,7 +61,7 @@ class TestGetContextForTemplate(APIBaseTest):
             UserHomeSettings.objects.create(user=self.user, team=self.team, homepage=stored_homepage)
 
         request = RequestFactory().get("/")
-        SessionMiddleware(lambda _: None).process_request(request)
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
         request.user = self.user
 
         actual = get_context_for_template("layout", request)
