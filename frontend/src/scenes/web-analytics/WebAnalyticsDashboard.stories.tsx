@@ -113,3 +113,37 @@ WebAnalyticsDashboardLoading.decorators = [
 export function WebAnalyticsDashboardLoading(): JSX.Element {
     return <App />
 }
+
+ShareNudgeBannerArm.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'banner',
+    },
+}
+export function ShareNudgeBannerArm(): JSX.Element {
+    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+
+    useEffect(() => {
+        setSourceTab(SourceTab.REFERRING_DOMAIN)
+        setDeviceTab(DeviceTab.BROWSER)
+    }, [setDeviceTab, setSourceTab])
+
+    return <App />
+}
+
+ShareNudgeButtonArm.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'button',
+    },
+}
+export function ShareNudgeButtonArm(): JSX.Element {
+    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+
+    useEffect(() => {
+        setSourceTab(SourceTab.REFERRING_DOMAIN)
+        setDeviceTab(DeviceTab.BROWSER)
+    }, [setDeviceTab, setSourceTab])
+
+    return <App />
+}
