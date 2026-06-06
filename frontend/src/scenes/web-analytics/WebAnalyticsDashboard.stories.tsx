@@ -115,9 +115,18 @@ export function WebAnalyticsDashboardLoading(): JSX.Element {
 }
 
 ShareNudgeBannerArm.parameters = {
+    layout: 'fullscreen',
+    viewMode: 'story',
+    mockDate: '2023-02-01',
+    pageUrl: urls.webAnalytics(),
     featureFlags: {
         [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
         [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'banner',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
 export function ShareNudgeBannerArm(): JSX.Element {
@@ -132,9 +141,18 @@ export function ShareNudgeBannerArm(): JSX.Element {
 }
 
 ShareNudgeButtonArm.parameters = {
+    layout: 'fullscreen',
+    viewMode: 'story',
+    mockDate: '2023-02-01',
+    pageUrl: urls.webAnalytics(),
     featureFlags: {
         [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
         [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'button',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
     },
 }
 export function ShareNudgeButtonArm(): JSX.Element {
