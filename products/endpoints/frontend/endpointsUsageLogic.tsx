@@ -1,9 +1,8 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { dateStringToDayJs } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -41,6 +40,8 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         setMaterializationType: (materializationType: 'materialized' | 'inline' | null) => ({ materializationType }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setBreakdownBy: (breakdownBy: EndpointsUsageBreakdown | null) => ({ breakdownBy }),
+        refresh: true,
+        clearCooldown: true,
     }),
 
     reducers({
@@ -77,18 +78,32 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                 setBreakdownBy: (_, { breakdownBy }) => breakdownBy,
             },
         ],
+        cooldownActive: [
+            false,
+            {
+                refresh: () => true,
+                clearCooldown: () => false,
+            },
+        ],
+        refreshKey: [
+            0,
+            {
+                refresh: (state) => state + 1,
+            },
+        ],
     }),
 
     selectors({
         endpointNames: [
             (s) => [s.allEndpoints],
-            (allEndpoints: EndpointType[]): string[] =>
-                allEndpoints
-                    .filter((e) => e.last_executed_at)
-                    .map((e) => e.name)
-                    .sort(),
+            (allEndpoints: EndpointType[]): string[] => allEndpoints.map((e) => e.name).sort(),
+        ],
+        activeEndpointNames: [
+            (s) => [s.endpointNames],
+            (endpointNames: string[]): Set<string> => new Set(endpointNames),
         ],
         endpointNamesLoading: [(s) => [s.allEndpointsLoading], (loading: boolean): boolean => loading],
+        canRefresh: [(s) => [s.cooldownActive], (cooldownActive: boolean): boolean => !cooldownActive],
         dateRange: [
             (s) => [s.dateFilter],
             (dateFilter): { date_from: string | null; date_to: string | null } => {
@@ -192,7 +207,18 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         ],
     }),
 
-    tabAwareActionToUrl(({ values }) => {
+    listeners(({ actions }) => ({
+        refresh: () => {
+            setTimeout(
+                () => {
+                    actions.clearCooldown()
+                },
+                15 * 60 * 1000
+            )
+        },
+    })),
+
+    trackedActionToUrl(({ values }) => {
         const actionToUrl = ({
             dateFilter = values.dateFilter,
             endpointFilter = values.endpointFilter,
@@ -251,14 +277,41 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
-        [urls.endpointsUsage()]: (_, searchParams) => {
+    urlToAction(({ actions, values }) => ({
+        [urls.endpoints()]: (_, searchParams) => {
+            if (searchParams.tab !== 'usage') {
+                return
+            }
             const { dateFrom, dateTo, endpointFilter, materializationType, interval, breakdownBy } = searchParams
-            actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
-            actions.setEndpointFilter(endpointFilter ? endpointFilter.split(',') : [])
-            actions.setMaterializationType(materializationType ?? null)
-            actions.setInterval(interval ?? INITIAL_INTERVAL)
-            actions.setBreakdownBy(breakdownBy ?? null)
+
+            const nextDateFrom = dateFrom ?? INITIAL_DATE_FROM
+            const nextDateTo = dateTo ?? INITIAL_DATE_TO
+            if (nextDateFrom !== values.dateFilter.dateFrom || nextDateTo !== values.dateFilter.dateTo) {
+                actions.setDates(nextDateFrom, nextDateTo)
+            }
+
+            const nextEndpointFilter: string[] = endpointFilter ? endpointFilter.split(',') : []
+            if (
+                nextEndpointFilter.length !== values.endpointFilter.length ||
+                nextEndpointFilter.some((v: string, i: number) => v !== values.endpointFilter[i])
+            ) {
+                actions.setEndpointFilter(nextEndpointFilter)
+            }
+
+            const nextMaterializationType = materializationType ?? null
+            if (nextMaterializationType !== values.materializationType) {
+                actions.setMaterializationType(nextMaterializationType)
+            }
+
+            const nextInterval = interval ?? INITIAL_INTERVAL
+            if (nextInterval !== values.interval) {
+                actions.setInterval(nextInterval)
+            }
+
+            const nextBreakdownBy = breakdownBy ?? null
+            if (nextBreakdownBy !== values.breakdownBy) {
+                actions.setBreakdownBy(nextBreakdownBy)
+            }
         },
     })),
 ])

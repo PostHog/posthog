@@ -18,11 +18,11 @@ import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuratio
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
+import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
-import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import {
     HogFunctionConfigurationClearChangesButton,
@@ -32,6 +32,7 @@ import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
+import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -49,7 +50,6 @@ export function HogFunctionConfiguration({
     const logicProps = { templateId, subTemplateId, id, logicKey }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
-        configuration,
         loading,
         loaded,
         hogFunction,
@@ -61,6 +61,7 @@ export function HogFunctionConfiguration({
         showExpectedVolume,
         canEditSource,
         showTesting,
+        survey,
     } = useValues(logic)
 
     if (loading && !loaded) {
@@ -155,11 +156,7 @@ export function HogFunctionConfiguration({
                                             disabled={loading}
                                             bordered
                                             fullWidth
-                                            label={
-                                                <span className="flex flex-1">
-                                                    {configuration.enabled ? 'Enabled' : 'Disabled'}
-                                                </span>
-                                            }
+                                            label="Enable destination"
                                             tooltip={
                                                 <>
                                                     {value
@@ -176,6 +173,7 @@ export function HogFunctionConfiguration({
 
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
                             {showFilters && <HogFunctionFilters />}
+                            {survey && <SurveyResponseKeysReference questions={survey.questions} />}
                             {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                         </div>
 

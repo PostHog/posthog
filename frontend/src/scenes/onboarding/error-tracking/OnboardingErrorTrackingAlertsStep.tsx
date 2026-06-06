@@ -10,8 +10,8 @@ import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionI
 
 import { IntegrationType, OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
 import {
     ErrorTrackingAlertIntegrationType,
     onboardingErrorTrackingAlertsLogic,

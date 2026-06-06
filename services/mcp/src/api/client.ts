@@ -1,95 +1,45 @@
+import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
-import { ErrorCode } from '@/lib/errors'
+import { getUserAgent } from '@/lib/constants'
+import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
-import {
-    type ApiEventDefinition,
-    ApiEventDefinitionSchema,
-    ApiListResponseSchema,
-    type ApiOAuthIntrospection,
-    ApiOAuthIntrospectionSchema,
-    type ApiPropertyDefinition,
-    ApiPropertyDefinitionSchema,
-    type ApiRedactedPersonalApiKey,
-    ApiRedactedPersonalApiKeySchema,
-    type ApiUser,
-    ApiUserSchema,
+import type {
+    ApiEventDefinition,
+    ApiOAuthIntrospection,
+    ApiPropertyDefinition,
+    ApiRedactedPersonalApiKey,
+    ApiUser,
 } from '@/schema/api'
-import {
-    type CreateDashboardInput,
-    CreateDashboardInputSchema,
-    type ListDashboardsData,
-    ListDashboardsSchema,
-    type SimpleDashboard,
-    SimpleDashboardSchema,
-} from '@/schema/dashboards'
 import type {
     Experiment,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
-    ExperimentUpdateApiPayload,
+    ResolvedMetricEntry,
 } from '@/schema/experiments'
-import {
-    ExperimentCreatePayloadSchema,
-    ExperimentExposureQueryResponseSchema,
-    ExperimentExposureQuerySchema,
-    ExperimentSchema,
-    ExperimentUpdateApiPayloadSchema,
-} from '@/schema/experiments'
-import {
-    type CreateFeatureFlagInput,
-    CreateFeatureFlagInputSchema,
-    type FeatureFlag,
-    FeatureFlagSchema,
-    type UpdateFeatureFlagInput,
-    UpdateFeatureFlagInputSchema,
-} from '@/schema/flags'
-import {
-    type CreateInsightInput,
-    CreateInsightInputSchema,
-    type ListInsightsData,
-    type SimpleInsight,
-    SimpleInsightSchema,
-} from '@/schema/insights'
-import { type Organization, OrganizationSchema } from '@/schema/orgs'
-import { type Project, ProjectSchema } from '@/schema/projects'
-import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
+import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { isShortId } from '@/tools/insights/utils'
 
-import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
-import { ActionResponseSchema } from '../schema/actions.js'
-import type {
-    LogAttribute,
-    LogAttributeValue,
-    LogsListAttributeValuesInput,
-    LogsListAttributesInput,
-    LogsQueryInput,
-    LogsQueryResponse,
-} from '../schema/logs.js'
-import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
-import type {
-    CreateSurveyInput,
-    GetSurveySpecificStatsInput,
-    GetSurveyStatsInput,
-    ListSurveysInput,
-    SurveyListItemOutput,
-    SurveyOutput,
-    SurveyResponseStatsOutput,
-    UpdateSurveyInput,
-} from '../schema/surveys.js'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    SurveyListItemOutputSchema,
-    SurveyOutputSchema,
-    SurveyResponseStatsOutputSchema,
-    UpdateSurveyInputSchema,
-} from '../schema/surveys.js'
-import { buildApiFetcher } from './fetcher.js'
-import { type Schemas, createApiClient } from './generated.js'
+import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
+
+// Default overall timeout for an SSE stream (wall-clock cap from connect to close).
+// Sized to comfortably cover the slowest known caller (session summarization, ~5 min
+// average) with headroom for cold-cache LLM calls.
+const SSE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
+
+// Per-read inactivity timeout: if no chunk (not even a keepalive comment) arrives
+// within this window, the server is assumed dead. Must comfortably exceed the
+// server-side keepalive interval — kept in sync with `SSE_KEEPALIVE_INTERVAL = 15s`
+// in `ee/api/session_summaries.py`. If you change one, check the other.
+const SSE_READ_TIMEOUT_MS = 30_000
+
+export interface GroupType {
+    group_type: string
+    group_type_index: number
+    name_singular: string | null
+    name_plural: string | null
+}
 
 // Global search types
 export const SearchableEntitySchema = z.enum([
@@ -105,25 +55,55 @@ export const SearchableEntitySchema = z.enum([
 ])
 export type SearchableEntity = z.infer<typeof SearchableEntitySchema>
 
-export const SearchResultSchema = z.object({
-    type: z.string(),
-    result_id: z.string(),
-    extra_fields: z.record(z.any()),
-    rank: z.number().optional(),
-})
-export type SearchResult = z.infer<typeof SearchResultSchema>
+export interface SearchResult {
+    type: string
+    result_id: string
+    extra_fields: Record<string, unknown>
+    rank?: number
+}
 
-export const SearchResponseSchema = z.object({
-    results: z.array(SearchResultSchema),
-    counts: z.record(z.number().nullable()),
-})
-export type SearchResponse = z.infer<typeof SearchResponseSchema>
+export interface SearchResponse {
+    results: SearchResult[]
+    counts?: Record<string, number | null>
+}
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
+
+export interface DataWarehouseSyncWarning {
+    table_name: string
+    schema_name: string
+    source_type: string
+    status: string
+    message: string
+}
+
+export interface QueryEndpointResponse {
+    results: unknown
+    columns?: unknown
+    formatted_results?: string
+    // null (not just absent) when the query response carries no warnings — the backend
+    // serializes the field explicitly rather than omitting it.
+    warnings?: DataWarehouseSyncWarning[] | null
+}
 
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
+    /**
+     * Public-facing base URL used when building links the user clicks (e.g. `_posthogUrl`).
+     * Defaults to `baseUrl` when unset or empty. Distinct from `baseUrl` so deployments can route
+     * API traffic over a cluster-internal hostname while still rendering public links
+     * (e.g. https://us.posthog.com) in tool responses.
+     */
+    publicBaseUrl?: string | undefined
+    clientUserAgent?: string | undefined
+    mcpClientName?: string | undefined
+    mcpClientVersion?: string | undefined
+    mcpProtocolVersion?: string | undefined
+    mcpConsumer?: string | undefined
+    oauthClientName?: string | undefined
+    mcpSessionId?: string | undefined
+    mcpConversationId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -131,32 +111,218 @@ type Endpoint = Record<string, any>
 export class ApiClient {
     public config: ApiConfig
     public baseUrl: string
-    // NOTE: The OpenAPI schema for the generated client is not always accurate
-    public generated: ReturnType<typeof createApiClient>
+    public publicBaseUrl: string
 
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
-
-        this.generated = createApiClient(buildApiFetcher(this.config), this.baseUrl)
-    }
-
-    private buildHeaders(): Record<string, string> {
-        return {
-            Authorization: `Bearer ${this.config.apiToken}`,
-            'Content-Type': 'application/json',
-        }
+        // `||` (not `??`) so an empty string — e.g. the Workers vitest config sets
+        // env vars to '' — falls back to baseUrl instead of yielding relative links.
+        this.publicBaseUrl = config.publicBaseUrl || config.baseUrl
     }
 
     getProjectBaseUrl(projectId: string): string {
         if (projectId === '@current') {
-            return this.baseUrl
+            return this.publicBaseUrl
         }
 
-        return `${this.baseUrl}/project/${projectId}`
+        return `${this.publicBaseUrl}/project/${projectId}`
     }
 
-    private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
+    private async fetch(url: string, options?: RequestInit): Promise<Response> {
+        // TODO: should we move rate limiting from `fetchJson` to here?
+        const defaultHeaders: HeadersInit = {
+            Authorization: `Bearer ${this.config.apiToken}`,
+            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
+            ...(this.config.clientUserAgent
+                ? {
+                      // Forward the originating client's User-Agent as a custom header so the
+                      // PostHog API can attach it to analytics events for MCP source attribution.
+                      'x-posthog-mcp-user-agent': this.config.clientUserAgent,
+                  }
+                : {}),
+            // Forward MCP clientInfo fields from the initialize request so the
+            // PostHog API can attach them to analytics events.
+            ...(this.config.mcpClientName ? { 'x-posthog-mcp-client-name': this.config.mcpClientName } : {}),
+            ...(this.config.mcpClientVersion ? { 'x-posthog-mcp-client-version': this.config.mcpClientVersion } : {}),
+            ...(this.config.mcpProtocolVersion
+                ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
+                : {}),
+            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
+            ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
+            // Forward MCP session and conversation ids so backend logs and OTLP
+            // spans for downstream API hops can correlate with the same MCP context
+            // the events carry. This is attribute-based correlation only — we do
+            // not forward `traceparent` (the Worker emits no OTLP today), so the
+            // Django-rooted span is not a child of any Worker-side span.
+            ...(this.config.mcpSessionId ? { 'x-posthog-mcp-session-id': this.config.mcpSessionId } : {}),
+            ...(this.config.mcpConversationId
+                ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
+                : {}),
+            'X-PostHog-Client': 'mcp',
+        }
+        if (options?.body) {
+            defaultHeaders['Content-Type'] = 'application/json'
+        }
+        return fetch(url, {
+            ...options,
+            headers: {
+                ...defaultHeaders,
+                ...options?.headers,
+            },
+        })
+    }
+
+    /**
+     * Generic HTTP request with auth, rate limiting, and retries.
+     * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
+     */
+    async request<T = unknown>(opts: {
+        method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+        path: string
+        body?: Record<string, unknown>
+        query?: Record<string, unknown>
+        headers?: Record<string, string>
+        responseType?: 'json' | 'text'
+    }): Promise<T> {
+        const searchParams = new URLSearchParams()
+        if (opts.query) {
+            for (const [k, v] of Object.entries(opts.query)) {
+                if (v === undefined || v === null) {
+                    continue
+                }
+                if (Array.isArray(v) && v.length === 0) {
+                    continue
+                }
+                // JSON-stringify objects and arrays so backends that use json.loads() on query params work correctly
+                if (typeof v === 'object') {
+                    searchParams.append(k, JSON.stringify(v))
+                } else {
+                    searchParams.append(k, String(v))
+                }
+            }
+        }
+        const qs = searchParams.toString()
+        const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
+
+        const fetchOptions: RequestInit = {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            ...(opts.headers ? { headers: opts.headers } : {}),
+        }
+
+        if (opts.responseType === 'text') {
+            const response = await this.fetch(url, fetchOptions)
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new PostHogApiError({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText,
+                    url,
+                    method: opts.method,
+                })
+            }
+            return (await response.text()) as T
+        }
+
+        const result = await this.fetchJson<T>(url, fetchOptions)
+
+        if (!result.success) {
+            // Re-throw the original error instance so callers can instanceof-check
+            // typed errors (e.g. PostHogPermissionError) that fetchJson throws.
+            throw result.error
+        }
+        return result.data as T
+    }
+
+    /**
+     * Open a Server-Sent Events (text/event-stream) connection and invoke `onEvent`
+     * for each parsed event. Resolves when the server closes the stream, throws on
+     * HTTP error, missing body, per-read inactivity, or overall stream timeout.
+     *
+     * Used by tools that consume long-running streaming endpoints (e.g. session
+     * summarization) where a synchronous request would exceed gateway timeouts.
+     */
+    async requestSSE<T = unknown>(opts: {
+        method: 'GET' | 'POST'
+        path: string
+        body?: Record<string, unknown>
+        onEvent: (event: string, data: T) => void
+        timeoutMs?: number
+    }): Promise<void> {
+        const url = `${this.baseUrl}${opts.path}`
+        const fetchOptions: RequestInit = {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            headers: {
+                Accept: 'text/event-stream',
+            },
+        }
+
+        const response = await this.fetch(url, fetchOptions)
+
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(
+                `SSE request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+            )
+        }
+
+        if (!response.body) {
+            throw new Error(`SSE response has no body: ${opts.method} ${url}`)
+        }
+
+        const timeoutMs = opts.timeoutMs ?? SSE_DEFAULT_TIMEOUT_MS
+        const readTimeoutMs = SSE_READ_TIMEOUT_MS
+        const startTime = Date.now()
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+
+        const parser = createParser({
+            onEvent: ({ event, data }) => {
+                const eventType = event ?? 'message'
+                try {
+                    const parsed = JSON.parse(data) as T
+                    opts.onEvent(eventType, parsed)
+                } catch {
+                    // Non-JSON data, pass as-is
+                    opts.onEvent(eventType, data as T)
+                }
+            },
+        })
+
+        try {
+            while (true) {
+                if (Date.now() - startTime > timeoutMs) {
+                    throw new Error(`SSE stream timed out after ${timeoutMs}ms`)
+                }
+
+                let readTimeoutId: ReturnType<typeof setTimeout>
+                const readResult = await Promise.race([
+                    reader.read(),
+                    new Promise<never>((_, reject) => {
+                        readTimeoutId = setTimeout(
+                            () => reject(new Error(`SSE read timed out — no data received for ${readTimeoutMs}ms`)),
+                            readTimeoutMs
+                        )
+                    }),
+                ])
+                clearTimeout(readTimeoutId!)
+                const { done, value } = readResult
+                if (done) {
+                    break
+                }
+
+                parser.feed(decoder.decode(value, { stream: true }))
+            }
+        } finally {
+            await reader.cancel()
+            reader.releaseLock()
+        }
+    }
+
+    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const maxRetries = 3
         const baseBackoffMs = 2000
         const method = options?.method ?? 'GET'
@@ -166,13 +332,7 @@ export class ApiClient {
                 // Apply rate limiting before making the request
                 await globalRateLimiter.throttle()
 
-                const response = await fetch(url, {
-                    ...options,
-                    headers: {
-                        ...this.buildHeaders(),
-                        ...options?.headers,
-                    },
-                })
+                const response = await this.fetch(url, options)
 
                 // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
@@ -214,33 +374,70 @@ export class ApiClient {
                         errorData = { detail: errorText }
                     }
 
-                    if (errorData.type === 'validation_error' && errorData.code) {
-                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
-                        throw new Error(`Validation error: ${errorData.code}`)
+                    if (response.status === 403 && errorData?.code === 'permission_denied') {
+                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                        const missingScope = scopeMatch?.[1]
+                        // Warn, not error: PostHogPermissionError is thrown and handled by callers,
+                        // and a missing scope is a user-config issue rather than a service bug.
+                        console.warn(
+                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+                        )
+                        throw new PostHogPermissionError({
+                            detail: errorData.detail || 'permission denied',
+                            missingScope,
+                            url,
+                            method,
+                        })
+                    }
+
+                    if (errorData.type === 'validation_error') {
+                        const detail = errorData.detail || errorData.code || 'unknown'
+                        const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+                        throw new PostHogValidationError({
+                            detail,
+                            attr: errorData.attr ?? undefined,
+                            code: errorData.code ?? undefined,
+                            extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
+                            url,
+                            method,
+                        })
+                    }
+
+                    if (response.status === 404) {
+                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                        if (experimentMatch) {
+                            const experimentId = experimentMatch[1]
+                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+                            throw new Error(
+                                `Experiment ${experimentId} not found in this project. ` +
+                                    `If the id is correct, the experiment may belong to a different project — ` +
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
+                            )
+                        }
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
-                    throw new Error(
-                        `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-                    )
+                    throw new PostHogApiError({
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: errorText,
+                        url,
+                        method,
+                    })
                 }
 
-                const rawData = await response.json()
-                const parseResult = schema.safeParse(rawData)
-
-                if (!parseResult.success) {
-                    const rawDataKeysJSON = JSON.stringify(Object.keys(rawData as any))
-                    console.error(
-                        `[API] Schema validation failed on ${method} ${url}:\n` +
-                            `  Error: ${parseResult.error.message}\n` +
-                            `  Raw response keys: ${rawDataKeysJSON}`
-                    )
-                    throw new Error(
-                        `Response validation failed on ${method} ${url}: ${parseResult.error.message}\nResponse keys: ${rawDataKeysJSON}`
-                    )
+                const rawText = await response.text()
+                if (!rawText) {
+                    return { success: true, data: {} as T }
                 }
 
-                return { success: true, data: parseResult.data }
+                try {
+                    const rawData = JSON.parse(rawText)
+                    return { success: true, data: rawData as T }
+                } catch {
+                    return { success: true, data: rawText as T }
+                }
             } catch (error) {
                 // Only retry on rate limit errors, not other errors
                 if (error instanceof Error && error.message.includes('Rate limit')) {
@@ -259,12 +456,10 @@ export class ApiClient {
 
     organizations(): Endpoint {
         return {
-            list: async (): Promise<Result<Organization[]>> => {
-                const responseSchema = z.object({
-                    results: z.array(OrganizationSchema),
-                })
-
-                const result = await this.fetchWithSchema(`${this.baseUrl}/api/organizations/`, responseSchema)
+            list: async (): Promise<Result<Schemas.OrganizationBasic[]>> => {
+                const result = await this.fetchJson<{ results: Schemas.OrganizationBasic[] }>(
+                    `${this.baseUrl}/api/organizations/`
+                )
 
                 if (result.success) {
                     return { success: true, data: result.data.results }
@@ -272,20 +467,15 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({ orgId }: { orgId: string }): Promise<Result<Organization>> => {
-                return this.fetchWithSchema(`${this.baseUrl}/api/organizations/${orgId}/`, OrganizationSchema)
+            get: async ({ orgId }: { orgId: string }): Promise<Result<Schemas.OrganizationBasic>> => {
+                return this.fetchJson<Schemas.OrganizationBasic>(`${this.baseUrl}/api/organizations/${orgId}/`)
             },
 
             projects: ({ orgId }: { orgId: string }) => {
                 return {
-                    list: async (): Promise<Result<Project[]>> => {
-                        const responseSchema = z.object({
-                            results: z.array(ProjectSchema),
-                        })
-
-                        const result = await this.fetchWithSchema(
-                            `${this.baseUrl}/api/organizations/${orgId}/projects/`,
-                            responseSchema
+                    list: async (): Promise<Result<Schemas.ProjectBackwardCompat[]>> => {
+                        const result = await this.fetchJson<{ results: Schemas.ProjectBackwardCompat[] }>(
+                            `${this.baseUrl}/api/organizations/${orgId}/projects/`
                         )
 
                         if (result.success) {
@@ -301,10 +491,7 @@ export class ApiClient {
     apiKeys(): Endpoint {
         return {
             current: async (): Promise<Result<ApiRedactedPersonalApiKey>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/personal_api_keys/@current`,
-                    ApiRedactedPersonalApiKeySchema
-                )
+                return this.fetchJson<ApiRedactedPersonalApiKey>(`${this.baseUrl}/api/personal_api_keys/@current`)
             },
         }
     }
@@ -312,7 +499,7 @@ export class ApiClient {
     oauth(): Endpoint {
         return {
             introspect: async ({ token }: { token: string }): Promise<Result<ApiOAuthIntrospection>> => {
-                return this.fetchWithSchema(`${this.baseUrl}/oauth/introspect`, ApiOAuthIntrospectionSchema, {
+                return this.fetchJson<ApiOAuthIntrospection>(`${this.baseUrl}/oauth/introspect`, {
                     method: 'POST',
                     body: JSON.stringify({ token }),
                     headers: {
@@ -326,8 +513,8 @@ export class ApiClient {
 
     projects(): Endpoint {
         return {
-            get: async ({ projectId }: { projectId: string }): Promise<Result<Project>> => {
-                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/`, ProjectSchema)
+            get: async ({ projectId }: { projectId: string }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`)
             },
 
             propertyDefinitions: async ({
@@ -365,23 +552,15 @@ export class ApiClient {
 
                     const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${searchParams}`
 
-                    const response = await fetch(url, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const response = await this.fetch(url)
 
                     if (!response.ok) {
                         throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
                     }
 
-                    const data = await response.json()
-                    const responseSchema = ApiListResponseSchema(ApiPropertyDefinitionSchema)
-                    const parsedData = responseSchema.parse(data)
+                    const data = (await response.json()) as { results: ApiPropertyDefinition[] }
 
-                    const propertyDefinitionsWithoutHidden = parsedData.results.filter(
-                        (def: ApiPropertyDefinition) => !def.hidden
-                    )
+                    const propertyDefinitionsWithoutHidden = data.results.filter((def) => !def.hidden)
 
                     return { success: true, data: propertyDefinitionsWithoutHidden }
                 } catch (error) {
@@ -409,21 +588,15 @@ export class ApiClient {
 
                     const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/?${searchParams}`
 
-                    const response = await fetch(requestUrl, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const response = await this.fetch(requestUrl)
 
                     if (!response.ok) {
                         throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
                     }
 
-                    const data = await response.json()
-                    const responseSchema = ApiListResponseSchema(ApiEventDefinitionSchema)
-                    const parsedData = responseSchema.parse(data)
+                    const data = (await response.json()) as { results: ApiEventDefinition[] }
 
-                    return { success: true, data: parsedData.results }
+                    return { success: true, data: data.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -448,11 +621,7 @@ export class ApiClient {
                     const searchParams = new URLSearchParams({ name: eventName })
                     const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
 
-                    const findResponse = await fetch(findUrl, {
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                        },
-                    })
+                    const findResponse = await this.fetch(findUrl)
 
                     if (findResponse.status === 404) {
                         return {
@@ -465,18 +634,13 @@ export class ApiClient {
                         throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
                     }
 
-                    const eventDef = await findResponse.json()
-                    const parsedEventDef = ApiEventDefinitionSchema.parse(eventDef)
+                    const eventDef = (await findResponse.json()) as ApiEventDefinition
 
                     // Updating the event definition by ID
-                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${parsedEventDef.id}/`
+                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${eventDef.id}/`
 
-                    const updateResponse = await fetch(updateUrl, {
+                    const updateResponse = await this.fetch(updateUrl, {
                         method: 'PATCH',
-                        headers: {
-                            Authorization: `Bearer ${this.config.apiToken}`,
-                            'Content-Type': 'application/json',
-                        },
                         body: JSON.stringify(data),
                     })
 
@@ -484,10 +648,9 @@ export class ApiClient {
                         throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
                     }
 
-                    const responseData = await updateResponse.json()
-                    const parsedData = ApiEventDefinitionSchema.parse(responseData)
+                    const responseData = (await updateResponse.json()) as ApiEventDefinition
 
-                    return { success: true, data: parsedData }
+                    return { success: true, data: responseData }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -497,28 +660,9 @@ export class ApiClient {
 
     experiments({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Experiment[]>
-            > => {
-                try {
-                    const limit = params?.limit ?? 50
-                    const offset = params?.offset ?? 0
-
-                    const response = await this.generated.get('/api/projects/{project_id}/experiments/', {
-                        path: { project_id: projectId },
-                        query: { limit, offset },
-                    })
-
-                    return { success: true, data: response.results as Experiment[] }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
             get: async ({ experimentId }: { experimentId: number }): Promise<Result<Experiment>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                    ExperimentSchema
+                return this.fetchJson<Experiment>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`
                 )
             },
 
@@ -566,7 +710,7 @@ export class ApiClient {
                     experiment_id: experimentId,
                     experiment_name: experiment.name,
                     exposure_criteria: experiment.exposure_criteria,
-                    feature_flag: experiment.feature_flag as FeatureFlag,
+                    feature_flag: experiment.feature_flag ?? undefined,
                     start_date: experiment.start_date,
                     end_date: experiment.end_date,
                     holdout: experiment.holdout,
@@ -581,9 +725,8 @@ export class ApiClient {
                     ...(refresh ? { refresh: 'blocking' } : {}),
                 }
 
-                const result = await this.fetchWithSchema(
+                const result = await this.fetchJson<ExperimentExposureQueryResponse>(
                     `${this.baseUrl}/api/environments/${projectId}/query/`,
-                    ExperimentExposureQueryResponseSchema,
                     {
                         method: 'POST',
                         body: JSON.stringify(queryRequest),
@@ -611,6 +754,8 @@ export class ApiClient {
             }): Promise<
                 Result<{
                     experiment: Experiment
+                    primaryMetricEntries: ResolvedMetricEntry[]
+                    secondaryMetricEntries: ResolvedMetricEntry[]
                     primaryMetricsResults: any[]
                     secondaryMetricsResults: any[]
                     exposures: ExperimentExposureQueryResponse
@@ -656,20 +801,15 @@ export class ApiClient {
 
                 const { exposures } = experimentExposure.data
 
-                // Prepare metrics queries
-                const sharedPrimaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'primary')
-                    .map(({ query }: any) => query)
-                const allPrimaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
-
-                const sharedSecondaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'secondary')
-                    .map(({ query }: any) => query)
-                const allSecondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
+                // Build the per-position metric entries. Each entry knows whether the metric
+                // was defined inline on the experiment or attached via a shared saved metric, so
+                // the result row can be self-describing to MCP callers.
+                const primaryMetricEntries = buildMetricEntries(experiment, 'primary')
+                const secondaryMetricEntries = buildMetricEntries(experiment, 'secondary')
 
                 // Execute queries for primary metrics
                 const primaryResults = await Promise.all(
-                    allPrimaryMetrics.map(async (metric) => {
+                    primaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -682,9 +822,8 @@ export class ApiClient {
                                 ...(refresh ? { refresh: 'blocking' } : {}),
                             }
 
-                            const result = await this.fetchWithSchema(
+                            const result = await this.fetchJson<unknown>(
                                 `${this.baseUrl}/api/environments/${projectId}/query/`,
-                                z.any(),
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
@@ -700,7 +839,7 @@ export class ApiClient {
 
                 // Execute queries for secondary metrics
                 const secondaryResults = await Promise.all(
-                    allSecondaryMetrics.map(async (metric) => {
+                    secondaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -713,9 +852,8 @@ export class ApiClient {
                                 ...(refresh ? { refresh: 'blocking' } : {}),
                             }
 
-                            const result = await this.fetchWithSchema(
+                            const result = await this.fetchJson<unknown>(
                                 `${this.baseUrl}/api/environments/${projectId}/query/`,
-                                z.any(),
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
@@ -733,222 +871,12 @@ export class ApiClient {
                     success: true,
                     data: {
                         experiment,
+                        primaryMetricEntries,
+                        secondaryMetricEntries,
                         primaryMetricsResults: primaryResults,
                         secondaryMetricsResults: secondaryResults,
                         exposures,
                     },
-                }
-            },
-
-            create: async (experimentData: z.infer<typeof ExperimentCreateSchema>): Promise<Result<Experiment>> => {
-                // Transform agent input to API payload
-                const createBody = ExperimentCreatePayloadSchema.parse(experimentData)
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/`,
-                    ExperimentSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(createBody),
-                    }
-                )
-            },
-
-            update: async ({
-                experimentId,
-                updateData,
-            }: {
-                experimentId: number
-                updateData: ExperimentUpdateApiPayload
-            }): Promise<Result<Experiment>> => {
-                try {
-                    const updateBody = ExperimentUpdateApiPayloadSchema.parse(updateData)
-
-                    return this.fetchWithSchema(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        ExperimentSchema,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify(updateBody),
-                        }
-                    )
-                } catch (error) {
-                    return { success: false, error: new Error(`Update failed: ${error}`) }
-                }
-            },
-
-            delete: async ({
-                experimentId,
-            }: {
-                experimentId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const deleteResponse = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            headers: this.buildHeaders(),
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (deleteResponse.ok) {
-                        return {
-                            success: true,
-                            data: { success: true, message: 'Experiment deleted successfully' },
-                        }
-                    }
-
-                    return {
-                        success: false,
-                        error: new Error(`Delete failed with status: ${deleteResponse.status}`),
-                    }
-                } catch (error) {
-                    return { success: false, error: new Error(`Delete failed: ${error}`) }
-                }
-            },
-        }
-    }
-
-    featureFlags({ projectId }: { projectId: string }): Endpoint {
-        return {
-            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Array<{ id: number; key: string; name: string; active: boolean; updated_at?: string | null }>>
-            > => {
-                try {
-                    const limit = params?.limit ?? 50
-                    const offset = params?.offset ?? 0
-
-                    const response = await this.generated.get('/api/projects/{project_id}/feature_flags/', {
-                        path: { project_id: projectId },
-                        query: { limit, offset },
-                    })
-
-                    return {
-                        success: true,
-                        data: response.results.map((f) => ({
-                            id: f.id,
-                            key: f.key,
-                            name: f.name ?? '',
-                            active: f.active ?? false,
-                            updated_at: f.updated_at ?? null,
-                        })),
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            get: async ({ flagId }: { flagId: string | number }): Promise<Result<FeatureFlag>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`,
-                    FeatureFlagSchema
-                )
-            },
-
-            findByKey: async ({ key }: { key: string }): Promise<Result<FeatureFlag | undefined>> => {
-                const listResult = await this.featureFlags({ projectId }).list()
-
-                if (!listResult.success) {
-                    return { success: false, error: listResult.error }
-                }
-
-                const found = listResult.data.find((f: { key: string }) => f.key === key)
-
-                if (!found) {
-                    return { success: true, data: undefined }
-                }
-
-                const flagResult = await this.featureFlags({ projectId }).get({ flagId: found.id })
-
-                if (!flagResult.success) {
-                    return { success: false, error: flagResult.error }
-                }
-
-                return { success: true, data: flagResult.data }
-            },
-
-            create: async ({ data }: { data: CreateFeatureFlagInput }): Promise<Result<FeatureFlag>> => {
-                const validatedInput = CreateFeatureFlagInputSchema.parse(data)
-
-                const body = {
-                    key: validatedInput.key,
-                    name: validatedInput.name,
-                    description: validatedInput.description,
-                    active: validatedInput.active,
-                    filters: validatedInput.filters,
-                }
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/`,
-                    FeatureFlagSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(body),
-                    }
-                )
-            },
-
-            update: async ({
-                key,
-                data,
-            }: {
-                key: string
-                data: UpdateFeatureFlagInput
-            }): Promise<Result<FeatureFlag>> => {
-                const validatedInput = UpdateFeatureFlagInputSchema.parse(data)
-                const findResult = await this.featureFlags({ projectId }).findByKey({ key })
-
-                if (!findResult.success) {
-                    return findResult
-                }
-
-                if (!findResult.data) {
-                    return {
-                        success: false,
-                        error: new Error(`Feature flag not found: ${key}`),
-                    }
-                }
-
-                const body = {
-                    key: key,
-                    name: validatedInput.name,
-                    description: validatedInput.description,
-                    active: validatedInput.active,
-                    filters: validatedInput.filters,
-                }
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/feature_flags/${findResult.data.id}/`,
-                    FeatureFlagSchema,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(body),
-                    }
-                )
-            },
-
-            delete: async ({ flagId }: { flagId: number }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`, {
-                        method: 'PATCH',
-                        headers: this.buildHeaders(),
-                        body: JSON.stringify({ deleted: true }),
-                    })
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete feature flag: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Feature flag deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
                 }
             },
         }
@@ -956,51 +884,34 @@ export class ApiClient {
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
-                try {
-                    const response = await this.generated.get('/api/projects/{project_id}/insights/', {
-                        path: { project_id: projectId },
-                        query: params
-                            ? {
-                                  limit: params.limit,
-                                  offset: params.offset,
-                                  //@ts-expect-error search is not implemented as a query parameter
-                                  search: params.search,
-                              }
-                            : {},
-                    })
-
-                    return { success: true, data: response.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
+            get: async ({
+                insightId,
+                variables_override,
+                filters_override,
+            }: {
+                insightId: string
+                variables_override?: string
+                filters_override?: string
+            }): Promise<Result<Schemas.Insight>> => {
+                const params = new URLSearchParams()
+                if (variables_override) {
+                    params.set('variables_override', variables_override)
                 }
-            },
+                if (filters_override) {
+                    params.set('filters_override', filters_override)
+                }
 
-            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<SimpleInsight>> => {
-                const validatedInput = CreateInsightInputSchema.parse(data)
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/`,
-                    SimpleInsightSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
-            },
-
-            get: async ({ insightId }: { insightId: string }): Promise<Result<SimpleInsight>> => {
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
                 if (isShortId(insightId)) {
-                    const searchParams = new URLSearchParams({ short_id: insightId })
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
+                    // The list endpoint accepts ?short_id=... and runs the same
+                    // InsightSerializer.to_representation, which applies
+                    // variables_override / filters_override from query_params. So
+                    // short_id resolution + override application happen in one hop.
+                    params.set('short_id', insightId)
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
 
-                    const responseSchema = z.object({
-                        results: z.array(SimpleInsightSchema),
-                    })
-
-                    const result = await this.fetchWithSchema(url, responseSchema)
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
 
                     if (!result.success) {
                         return result
@@ -1019,16 +930,22 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                    SimpleInsightSchema
+                const queryString = params.toString() ? `?${params}` : ''
+                return this.fetchJson<Schemas.Insight>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
                 )
             },
 
-            update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<SimpleInsight>> => {
-                return this.fetchWithSchema(
+            create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ ...data, saved: true }),
+                })
+            },
+
+            update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
-                    SimpleInsightSchema,
                     {
                         method: 'PATCH',
                         body: JSON.stringify(data),
@@ -1042,11 +959,13 @@ export class ApiClient {
                 insightId: number
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`, {
-                        method: 'PATCH',
-                        headers: this.buildHeaders(),
-                        body: JSON.stringify({ deleted: true }),
-                    })
+                    const response = await this.fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`,
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({ deleted: true }),
+                        }
+                    )
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete insight: ${response.statusText}`)
@@ -1064,17 +983,74 @@ export class ApiClient {
                 }
             },
 
-            query: async ({ query }: { query: Record<string, any> }): Promise<Result<any>> => {
+            list: async ({ params }: { params?: Record<string, any> } = {}): Promise<
+                Result<Array<Schemas.Insight>>
+            > => {
+                try {
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                const queryResponseSchema = z.object({
-                    results: z.any(),
-                    columns: z.any(),
-                })
-
-                return this.fetchWithSchema(url, queryResponseSchema, {
+                return this.fetchJson<QueryEndpointResponse>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
+                })
+            },
+
+            validate: async ({
+                query,
+                language,
+                connectionId,
+            }: {
+                query: string
+                language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+                connectionId?: string
+            }): Promise<
+                Result<{
+                    isValid: boolean
+                    query: string
+                    errors: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    warnings: Array<{
+                        message: string
+                        start?: number | null
+                        end?: number | null
+                        fix?: string | null
+                    }>
+                    notices: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    table_names: string[]
+                    ch_table_names?: string[] | null
+                }>
+            > => {
+                const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                const queryBody: Record<string, unknown> = { kind: 'HogQLMetadata', language, query }
+                if (connectionId) {
+                    queryBody.connectionId = connectionId
+                }
+                return this.fetchJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ query: queryBody }),
                 })
             },
 
@@ -1084,11 +1060,8 @@ export class ApiClient {
                     insight_type: 'sql',
                 }
 
-                const sqlResponseSchema = z.array(z.any())
-
-                const result = await this.fetchWithSchema(
+                const result = await this.fetchJson<unknown[]>(
                     `${this.baseUrl}/api/environments/${projectId}/max_tools/create_and_query_insight/`,
-                    sqlResponseSchema,
                     {
                         method: 'POST',
                         body: JSON.stringify(requestBody),
@@ -1112,232 +1085,135 @@ export class ApiClient {
         }
     }
 
-    dashboards({ projectId }: { projectId: string }): Endpoint {
-        return {
-            list: async ({ params }: { params?: ListDashboardsData } = {}): Promise<
-                Result<
-                    Array<{
-                        id: number
-                        name: string
-                        description?: string | null | undefined
-                    }>
-                >
-            > => {
-                const validatedParams = params ? ListDashboardsSchema.parse(params) : undefined
-                const searchParams = new URLSearchParams()
-
-                if (validatedParams?.limit) {
-                    searchParams.append('limit', String(validatedParams.limit))
-                }
-                if (validatedParams?.offset) {
-                    searchParams.append('offset', String(validatedParams.offset))
-                }
-                if (validatedParams?.search) {
-                    searchParams.append('search', validatedParams.search)
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/dashboards/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const simpleDashboardSchema = z.object({
-                    id: z.number(),
-                    name: z.string(),
-                    description: z.string().nullish(),
-                })
-
-                const responseSchema = z.object({
-                    results: z.array(simpleDashboardSchema),
-                })
-
-                const result = await this.fetchWithSchema(url, responseSchema)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            get: async ({ dashboardId }: { dashboardId: number }): Promise<Result<SimpleDashboard>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    SimpleDashboardSchema
-                )
-            },
-
-            create: async ({ data }: { data: CreateDashboardInput }): Promise<Result<{ id: number; name: string }>> => {
-                const validatedInput = CreateDashboardInputSchema.parse(data)
-
-                const createResponseSchema = z.object({
-                    id: z.number(),
-                    name: z.string(),
-                })
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/`,
-                    createResponseSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
-            },
-
-            update: async ({
-                dashboardId,
-                data,
-            }: {
-                dashboardId: number
-                data: any
-            }): Promise<Result<{ id: number; name: string }>> => {
-                const updateResponseSchema = z.object({
-                    id: z.number(),
-                    name: z.string(),
-                })
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    updateResponseSchema,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    }
-                )
-            },
-
-            delete: async ({
-                dashboardId,
-            }: {
-                dashboardId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const response = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                        {
-                            method: 'PATCH',
-                            headers: this.buildHeaders(),
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete dashboard: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Dashboard deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            addInsight: async ({
-                data,
-            }: {
-                data: { insightId: number; dashboardId: number }
-            }): Promise<Result<any>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${data.insightId}/`,
-                    z.any(),
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify({ dashboards: [data.dashboardId] }),
-                    }
-                )
-            },
-
-            reorderTiles: async ({
-                dashboardId,
-                tileOrder,
-            }: {
-                dashboardId: number
-                tileOrder: number[]
-            }): Promise<Result<{ success: boolean; message: string; tiles: Array<{ id: number; order: number }> }>> => {
-                // Calculate new layout positions based on the specified order
-                // Use 2-column grid for larger layouts (sm and above), single column for xs
-                const tileWidth = 6 // Half of 12-column grid
-                const tileHeight = 5
-
-                const tiles = tileOrder.map((tileId, index) => {
-                    const row = Math.floor(index / 2)
-                    const col = index % 2
-
-                    return {
-                        id: tileId,
-                        layouts: {
-                            // 2-column layout for sm and larger screens
-                            sm: { x: col * tileWidth, y: row * tileHeight, w: tileWidth, h: tileHeight },
-                            // Single column for xs (mobile)
-                            xs: { x: 0, y: index * tileHeight, w: 6, h: tileHeight },
-                        },
-                    }
-                })
-
-                const result = await this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/dashboards/${dashboardId}/`,
-                    z.object({
-                        id: z.number(),
-                        tiles: z.array(
-                            z.object({
-                                id: z.number(),
-                                layouts: z.record(z.any()).nullish(),
-                            })
-                        ),
-                    }),
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify({ tiles }),
-                    }
-                )
-
-                if (!result.success) {
-                    return result
-                }
-
-                // Return a summary of the updated order
-                const updatedTiles = result.data.tiles
-                    .filter((tile) => tileOrder.includes(tile.id))
-                    .map((tile) => ({
-                        id: tile.id,
-                        order: tileOrder.indexOf(tile.id),
-                    }))
-                    .sort((a, b) => a.order - b.order)
-
-                return {
-                    success: true,
-                    data: {
-                        success: true,
-                        message: `Successfully reordered ${updatedTiles.length} tiles on dashboard ${dashboardId}`,
-                        tiles: updatedTiles,
-                    },
-                }
-            },
-        }
-    }
-
     query({ projectId }: { projectId: string }): Endpoint {
+        const queryUrl = `${this.baseUrl}/api/environments/${projectId}/query/`
+
+        // Bridge assistant-facing schema shape to the query API shape.
+        // The LLM emits `filterGroup` as a flat array; the API expects a nested PropertyGroupFilter.
+        const normalizeQuery = (query: Record<string, unknown>): Record<string, unknown> => {
+            const normalized = { ...query }
+            if (Array.isArray(normalized.filterGroup)) {
+                if (normalized.filterGroup.length > 0) {
+                    normalized.filterGroup = {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: normalized.filterGroup }],
+                    }
+                } else {
+                    delete normalized.filterGroup
+                }
+            }
+            return normalized
+        }
+
+        const runActorsQuery = async (
+            query: Record<string, unknown>,
+            select: readonly string[],
+            orderBy: readonly string[] = []
+        ): Promise<{
+            query: Record<string, unknown>
+            results: { columns: string[]; results: any[][] }
+            hasMore: boolean
+            offset: number
+        }> => {
+            const normalized = normalizeQuery(query)
+            const includeRecordings = Boolean(normalized.includeRecordings)
+            const finalSelect = includeRecordings ? [...select, 'matched_recordings'] : [...select]
+
+            const wrappedQuery = {
+                kind: 'ActorsQuery',
+                source: normalized,
+                select: finalSelect,
+                orderBy: [...orderBy],
+                limit: 100,
+            }
+
+            const response = await this.request<{
+                results: any[][]
+                hasMore?: boolean
+                offset?: number
+            }>({
+                method: 'POST',
+                path: `/api/environments/${projectId}/query/`,
+                body: { query: wrappedQuery },
+            })
+
+            const baseUrl = this.getProjectBaseUrl(projectId)
+
+            // `actor` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            const columns: string[] = []
+            for (const field of finalSelect) {
+                if (field === 'actor') {
+                    columns.push('distinct_id', 'email', 'name')
+                } else if (field === 'matched_recordings') {
+                    columns.push('recordings')
+                } else {
+                    columns.push(field)
+                }
+            }
+
+            const results = (response.results ?? []).map((row) => {
+                const cells: any[] = []
+                for (let i = 0; i < finalSelect.length; i++) {
+                    const field = finalSelect[i]
+                    const cell = row[i]
+                    if (field === 'actor') {
+                        const props = cell?.properties ?? {}
+                        cells.push(cell?.distinct_ids?.[0] ?? null, props.email, props.name)
+                    } else if (field === 'matched_recordings') {
+                        const links = (cell ?? [])
+                            .map((r: any) => r.session_id)
+                            .filter(Boolean)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
+                        cells.push(links)
+                    } else {
+                        cells.push(cell)
+                    }
+                }
+                return cells
+            })
+
+            return {
+                query: wrappedQuery,
+                results: { columns, results },
+                hasMore: response.hasMore ?? false,
+                offset: response.offset ?? 0,
+            }
+        }
+
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                const responseSchema = z.object({
-                    results: z.array(z.any()),
-                })
-
-                return this.fetchWithSchema(`${this.baseUrl}/api/environments/${projectId}/query/`, responseSchema, {
+                return this.fetchJson<{ results: unknown[] }>(queryUrl, {
                     method: 'POST',
                     body: JSON.stringify({ query: queryBody }),
                 })
             },
+
+            runQuery: async ({
+                query,
+            }: {
+                query: Record<string, unknown>
+            }): Promise<{ results: unknown; formatted_results?: string }> => {
+                return this.request<{ results: unknown; formatted_results?: string }>({
+                    method: 'POST',
+                    path: `/api/environments/${projectId}/query/`,
+                    body: { query: normalizeQuery(query) },
+                })
+            },
+
+            trendsActors: async ({ query }: { query: Record<string, unknown> }) =>
+                runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
+
+            lifecycleActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
+                runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
         }
     }
 
     users(): Endpoint {
         return {
             me: async (): Promise<Result<ApiUser>> => {
-                const result = await this.fetchWithSchema(`${this.baseUrl}/api/users/@me/`, ApiUserSchema)
+                const result = await this.fetchJson<ApiUser>(`${this.baseUrl}/api/users/@me/`)
 
                 if (!result.success) {
                     return result
@@ -1346,328 +1222,6 @@ export class ApiClient {
                 return {
                     success: true,
                     data: result.data,
-                }
-            },
-        }
-    }
-
-    surveys({ projectId }: { projectId: string }): Endpoint {
-        return {
-            list: async ({ params }: { params?: ListSurveysInput } = {}): Promise<
-                Result<Array<SurveyListItemOutput>>
-            > => {
-                const validatedParams = params ? ListSurveysInputSchema.parse(params) : undefined
-                const searchParams = new URLSearchParams()
-
-                if (validatedParams?.limit) {
-                    searchParams.append('limit', String(validatedParams.limit))
-                }
-                if (validatedParams?.offset) {
-                    searchParams.append('offset', String(validatedParams.offset))
-                }
-                if (validatedParams?.search) {
-                    searchParams.append('search', validatedParams.search)
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const responseSchema = z.object({
-                    results: z.array(SurveyListItemOutputSchema),
-                })
-
-                const result = await this.fetchWithSchema(url, responseSchema)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            get: async ({ surveyId }: { surveyId: string }): Promise<Result<SurveyOutput>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                    SurveyOutputSchema
-                )
-            },
-
-            create: async ({ data }: { data: CreateSurveyInput }): Promise<Result<SurveyOutput>> => {
-                const validatedInput = CreateSurveyInputSchema.parse(data)
-
-                return this.fetchWithSchema(`${this.baseUrl}/api/projects/${projectId}/surveys/`, SurveyOutputSchema, {
-                    method: 'POST',
-                    body: JSON.stringify(validatedInput),
-                })
-            },
-
-            update: async ({
-                surveyId,
-                data,
-            }: {
-                surveyId: string
-                data: UpdateSurveyInput
-            }): Promise<Result<SurveyOutput>> => {
-                const validatedInput = UpdateSurveyInputSchema.parse(data)
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                    SurveyOutputSchema,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(validatedInput),
-                    }
-                )
-            },
-
-            delete: async ({
-                surveyId,
-                softDelete = true,
-            }: {
-                surveyId: string
-                softDelete?: boolean
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const fetchOptions: RequestInit = {
-                        method: softDelete ? 'PATCH' : 'DELETE',
-                        headers: this.buildHeaders(),
-                    }
-
-                    if (softDelete) {
-                        fetchOptions.body = JSON.stringify({ archived: true })
-                    }
-
-                    const response = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/surveys/${surveyId}/`,
-                        fetchOptions
-                    )
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to ${softDelete ? 'archive' : 'delete'} survey: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: `Survey ${softDelete ? 'archived' : 'deleted'} successfully`,
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            globalStats: async ({ params }: { params?: GetSurveyStatsInput } = {}): Promise<
-                Result<SurveyResponseStatsOutput>
-            > => {
-                const validatedParams = GetSurveyStatsInputSchema.parse(params)
-
-                const searchParams = getSearchParamsFromRecord(validatedParams)
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/surveys/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
-            },
-
-            stats: async (params: GetSurveySpecificStatsInput): Promise<Result<SurveyResponseStatsOutput>> => {
-                const validatedParams = GetSurveySpecificStatsInputSchema.parse(params)
-
-                const searchParams = getSearchParamsFromRecord(validatedParams)
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${validatedParams.survey_id}/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
-            },
-        }
-    }
-
-    logs({ projectId }: { projectId: string }): Endpoint {
-        return {
-            query: async ({ params }: { params: LogsQueryInput }): Promise<Result<LogsQueryResponse>> => {
-                const queryBody = {
-                    query: {
-                        dateRange: {
-                            date_from: params.dateFrom,
-                            date_to: params.dateTo,
-                        },
-                        severityLevels: params.severityLevels ?? [],
-                        serviceNames: params.serviceNames ?? [],
-                        searchTerm: params.searchTerm ?? null,
-                        orderBy: params.orderBy ?? 'latest',
-                        limit: params.limit ?? 100,
-                        after: params.after ?? null,
-                        filterGroup: { type: 'AND', values: [] },
-                    },
-                }
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/logs/query/`,
-                    LogsQueryResponseSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(queryBody),
-                    }
-                )
-            },
-
-            attributes: async ({
-                params,
-            }: {
-                params?: LogsListAttributesInput
-            } = {}): Promise<Result<{ results: LogAttribute[]; count: number }>> => {
-                const searchParams = getSearchParamsFromRecord({
-                    search: params?.search,
-                    attribute_type: params?.attributeType ?? 'log',
-                    limit: params?.limit ?? 100,
-                    offset: params?.offset ?? 0,
-                })
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/logs/attributes/?${searchParams}`
-
-                return this.fetchWithSchema(url, LogsListAttributesResponseSchema)
-            },
-
-            values: async ({
-                params,
-            }: {
-                params: LogsListAttributeValuesInput
-            }): Promise<Result<LogAttributeValue[]>> => {
-                const searchParams = getSearchParamsFromRecord({
-                    key: params.key,
-                    attribute_type: params.attributeType ?? 'log',
-                    value: params.search,
-                })
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
-
-                return this.fetchWithSchema(url, z.array(LogAttributeValueSchema))
-            },
-        }
-    }
-
-    actions({ projectId }: { projectId: string }): Endpoint {
-        return {
-            /**
-             * List all actions in the project
-             */
-            list: async ({ params }: { params?: ListActionsInput } = {}): Promise<Result<Array<ActionResponse>>> => {
-                const searchParams = new URLSearchParams()
-
-                if (params?.limit) {
-                    searchParams.append('limit', String(params.limit))
-                }
-                if (params?.offset) {
-                    searchParams.append('offset', String(params.offset))
-                }
-
-                const url = `${this.baseUrl}/api/projects/${projectId}/actions/${searchParams.toString() ? `?${searchParams}` : ''}`
-
-                const responseSchema = z.object({
-                    results: z.array(ActionResponseSchema),
-                })
-
-                const result = await this.fetchWithSchema(url, responseSchema)
-
-                if (result.success) {
-                    return { success: true, data: result.data.results }
-                }
-
-                return result
-            },
-
-            /**
-             * Get a single action by ID
-             */
-            get: async ({ actionId }: { actionId: number }): Promise<Result<ActionResponse>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                    ActionResponseSchema
-                )
-            },
-
-            /**
-             * Create a new action
-             */
-            create: async ({ data }: { data: CreateActionInput }): Promise<Result<ActionResponse>> => {
-                const body = {
-                    name: data.name,
-                    description: data.description,
-                    steps: data.steps,
-                    tags: data.tags,
-                    post_to_slack: data.post_to_slack ?? false,
-                    slack_message_format: data.slack_message_format,
-                }
-
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/`,
-                    ActionResponseSchema,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify(body),
-                    }
-                )
-            },
-
-            /**
-             * Update an existing action
-             */
-            update: async ({
-                actionId,
-                data,
-            }: {
-                actionId: number
-                data: UpdateActionInput
-            }): Promise<Result<ActionResponse>> => {
-                return this.fetchWithSchema(
-                    `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                    ActionResponseSchema,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify(data),
-                    }
-                )
-            },
-
-            /**
-             * Soft delete an action (sets deleted=true)
-             */
-            delete: async ({
-                actionId,
-            }: {
-                actionId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    // First fetch the action to get its name (required by backend validation)
-                    const getResponse = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
-                        method: 'GET',
-                        headers: this.buildHeaders(),
-                    })
-
-                    if (!getResponse.ok) {
-                        throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
-                    }
-
-                    const action = (await getResponse.json()) as { name: string }
-
-                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
-                        method: 'PATCH',
-                        headers: this.buildHeaders(),
-                        body: JSON.stringify({ name: action.name, deleted: true }),
-                    })
-
-                    if (!response.ok) {
-                        throw new Error(`Failed to delete action: ${response.statusText}`)
-                    }
-
-                    return {
-                        success: true,
-                        data: {
-                            success: true,
-                            message: 'Action deleted successfully',
-                        },
-                    }
-                } catch (error) {
-                    return { success: false, error: error as Error }
                 }
             },
         }
@@ -1704,8 +1258,16 @@ export class ApiClient {
 
                 const url = `${this.baseUrl}/api/projects/${projectId}/search/${searchParams.toString() ? `?${searchParams}` : ''}`
 
-                return this.fetchWithSchema(url, SearchResponseSchema)
+                return this.fetchJson<SearchResponse>(url)
             },
         }
+    }
+
+    async getGroupTypes(projectId: string): Promise<GroupType[]> {
+        const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data
     }
 }

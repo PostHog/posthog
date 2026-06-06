@@ -99,7 +99,36 @@ COST_BY_TEAM_USD = TopKCounter(
 RATE_LIMIT_EXCEEDED = Counter(
     "llm_gateway_rate_limit_exceeded_total",
     "Rate limit exceeded events",
-    labelnames=["scope"],
+    labelnames=["scope", "product"],
+)
+
+PRODUCT_COST_WINDOW_USD = Gauge(
+    "llm_gateway_product_cost_window_usd",
+    (
+        "Current accumulated cost (USD) for a product within its configured window. "
+        "Reflects only the shared pool — spend from teams with a team_rate_limit_multipliers "
+        "override lives in a separate per-multiplier Redis bucket and is not included here."
+    ),
+    labelnames=["product"],
+)
+
+PRODUCT_COST_LIMIT_USD = Gauge(
+    "llm_gateway_product_cost_limit_usd",
+    (
+        "Configured cost cap (USD) for a product within its configured window. "
+        "This is the base (team_mult=1) cap that pairs with llm_gateway_product_cost_window_usd; "
+        "teams with a team_rate_limit_multipliers override get a multiplied cap not reflected here."
+    ),
+    labelnames=["product"],
+)
+
+PRODUCT_COST_WINDOW_SECONDS = Gauge(
+    "llm_gateway_product_cost_window_seconds",
+    (
+        "Remaining seconds until the shared-pool cost window resets for a product (Redis TTL of the "
+        "shared-pool counter; falls back to the configured window length when no spend has been recorded)."
+    ),
+    labelnames=["product"],
 )
 
 PROVIDER_ERRORS = Counter(
@@ -194,6 +223,51 @@ COST_FALLBACK_DEFAULT = Counter(
     "llm_gateway_cost_fallback_default_total",
     "Requests where default fallback cost was used",
     labelnames=["provider", "model", "product"],
+)
+
+BEDROCK_FALLBACK_TRIGGERED = Counter(
+    "llm_gateway_bedrock_fallback_triggered_total",
+    "Times Bedrock fallback was triggered after Anthropic failure",
+    labelnames=["model", "product", "original_error_type"],
+)
+
+BEDROCK_FALLBACK_SUCCESS = Counter(
+    "llm_gateway_bedrock_fallback_success_total",
+    "Times Bedrock fallback succeeded",
+    labelnames=["model", "product"],
+)
+
+BEDROCK_FALLBACK_FAILURE = Counter(
+    "llm_gateway_bedrock_fallback_failure_total",
+    "Times Bedrock fallback also failed",
+    labelnames=["model", "product"],
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_BYPASSED = Counter(
+    "llm_gateway_anthropic_circuit_breaker_bypassed_total",
+    "Anthropic requests routed straight to Bedrock because the breaker was open",
+    labelnames=["model", "product"],
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_OPEN = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_open",
+    "1 if the Anthropic->Bedrock circuit breaker is currently open, 0 otherwise",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_FAILURE_RATE = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_failure_rate",
+    "Trailing-window Anthropic failure rate observed by the circuit breaker",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_WINDOW_REQUESTS = Gauge(
+    "llm_gateway_anthropic_circuit_breaker_window_requests",
+    "Total Anthropic requests observed in the breaker's trailing window",
+)
+
+ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS = Counter(
+    "llm_gateway_anthropic_circuit_breaker_redis_errors_total",
+    "Redis errors encountered by the Anthropic circuit breaker (non-zero rate means breaker is blind)",
+    labelnames=["op"],
 )
 
 

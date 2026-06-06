@@ -5,9 +5,12 @@ from unittest.mock import patch
 
 from django.db import transaction
 
+from parameterized import parameterized
+
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import Channel
 
 
 # Patch on_commit to execute immediately in tests
@@ -55,6 +58,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 1
         assert self.ticket.last_message_at == comment.created_at
         assert self.ticket.last_message_text == "Hello from customer"
+        assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
@@ -64,6 +68,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 1
         assert self.ticket.last_message_at == comment.created_at
         assert self.ticket.last_message_text == "Response from team"
+        assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 1  # Team messages increment this
 
     def test_multiple_messages_accumulate(self, mock_on_commit):
@@ -74,6 +79,7 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.message_count == 3
         assert self.ticket.last_message_at == last.created_at
+        assert self.ticket.updated_at == last.created_at
         assert self.ticket.last_message_text == "Third"
         assert self.ticket.unread_customer_count == 1  # Only 1 team message
 
@@ -191,14 +197,16 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.message_count == 1
         assert self.ticket.last_message_text == "Public message"
         assert self.ticket.last_message_at == public_msg.created_at
+        assert self.ticket.updated_at == public_msg.created_at
 
-        # Now send a private message - should not change last_message_*
+        # Now send a private message - should not change last_message_* or updated_at
         self._create_team_message("Private note for team only", is_private=True)
 
         self.ticket.refresh_from_db()
         assert self.ticket.message_count == 1  # Still 1
         assert self.ticket.last_message_text == "Public message"  # Unchanged
         assert self.ticket.last_message_at == public_msg.created_at  # Unchanged
+        assert self.ticket.updated_at == public_msg.created_at  # Unchanged
 
     def test_soft_delete_private_message_does_not_decrement_count(self, mock_on_commit):
         """Deleting a private message should not decrement message_count (since it wasn't counted)."""
@@ -233,3 +241,179 @@ class TestTicketMessageSignals(BaseTest):
         # Should fall back to first_public, not the private message
         assert self.ticket.last_message_text == "First public"
         assert self.ticket.last_message_at == first_public.created_at
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-1",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Support reply",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": False},
+        )
+
+        mock_delay.assert_called_once()
+        call_kwargs = mock_delay.call_args[1]
+        assert call_kwargs["author_email"] == self.user.email
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-2",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000200",
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Private support note",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": True},
+        )
+
+        mock_delay.assert_not_called()
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-3",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000300",
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Customer message",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+        mock_delay.assert_not_called()
+
+    @patch("products.conversations.backend.signals.invalidate_tickets_cache")
+    def test_message_invalidates_tickets_cache(self, mock_invalidate, mock_on_commit):
+        """Sending a message should invalidate the widget tickets cache."""
+        self._create_customer_message("Hello")
+
+        mock_invalidate.assert_called_once_with(self.team.id, self.widget_session_id)
+
+    @patch("products.conversations.backend.signals.invalidate_messages_cache")
+    def test_message_invalidates_messages_cache(self, mock_invalidate, mock_on_commit):
+        """Sending a message should invalidate the widget messages cache."""
+        self._create_customer_message("Hello")
+
+        mock_invalidate.assert_called_once_with(self.team.id, str(self.ticket.id))
+
+    @patch("products.conversations.backend.signals.invalidate_messages_cache")
+    def test_private_message_does_not_invalidate_messages_cache(self, mock_invalidate, mock_on_commit):
+        """Private messages should not invalidate the messages cache."""
+        self._create_team_message("Private note", is_private=True)
+
+        mock_invalidate.assert_not_called()
+
+    @patch("products.conversations.backend.signals.invalidate_tickets_cache")
+    def test_private_message_does_not_invalidate_cache(self, mock_invalidate, mock_on_commit):
+        """Private messages should not invalidate the cache (they don't affect widget display)."""
+        self._create_team_message("Private note", is_private=True)
+
+        mock_invalidate.assert_not_called()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketCreatedEventSignal(BaseTest):
+    """Tests for the post_save signal that emits `$conversation_ticket_created`."""
+
+    def _make_ticket(self, **overrides) -> Ticket:
+        defaults = {
+            "team": self.team,
+            "widget_session_id": str(uuid.uuid4()),
+            "distinct_id": "user-123",
+            "channel_source": Channel.WIDGET,
+            "status": "new",
+        }
+        defaults.update(overrides)
+        return Ticket.objects.create_with_number(**defaults)
+
+    @parameterized.expand(
+        [
+            ("widget", Channel.WIDGET, {}),
+            (
+                "email",
+                Channel.EMAIL,
+                {
+                    "distinct_id": "customer@example.com",
+                    "anonymous_traits": {"name": "Customer", "email": "customer@example.com"},
+                    "email_from": "customer@example.com",
+                    "email_subject": "Help",
+                },
+            ),
+            (
+                "slack",
+                Channel.SLACK,
+                {"slack_channel_id": "C123", "slack_thread_ts": "1700000000.000100"},
+            ),
+            (
+                "teams",
+                Channel.TEAMS,
+                {"teams_channel_id": "19:abc@thread.tacv2", "teams_conversation_id": "19:def@thread.tacv2"},
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_ticket_creation_emits_event_for_channel(self, _name, channel_source, extra, mock_capture, mock_on_commit):
+        ticket = self._make_ticket(channel_source=channel_source, **extra)
+
+        mock_capture.assert_called_once()
+        emitted = mock_capture.call_args.args[0]
+        assert emitted.id == ticket.id
+        assert emitted.channel_source == channel_source
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_ticket_update_does_not_emit_event(self, mock_capture, mock_on_commit):
+        ticket = self._make_ticket()
+        mock_capture.reset_mock()
+
+        ticket.status = "open"
+        ticket.save()
+
+        mock_capture.assert_not_called()
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_emit_swallows_capture_exceptions(self, mock_capture, mock_on_commit):
+        """Analytics failures must not break ticket creation.
+
+        With `transaction.on_commit` mocked to fire synchronously, the RuntimeError
+        would propagate out of `_make_ticket` if the signal handler didn't swallow
+        it — so the assertion that `_make_ticket` returns is the swallow check.
+        """
+        mock_capture.side_effect = RuntimeError("capture is down")
+
+        ticket = self._make_ticket()
+
+        assert ticket.id is not None
+        mock_capture.assert_called_once()

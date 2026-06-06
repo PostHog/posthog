@@ -2,12 +2,21 @@ use axum::{extract::State, http::HeaderMap};
 use bytes::Bytes;
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    net::IpAddr,
+    sync::{Arc, OnceLock},
+};
 use uuid::Uuid;
 
 use crate::{
-    api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
-    flags::flag_models::FeatureFlagList, router, utils::user_agent::UserAgentInfo,
+    api::types::FlagsQueryParams,
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
+    rayon_dispatcher::RayonDispatcher,
+    router,
+    utils::user_agent::UserAgentInfo,
 };
 
 pub struct RequestContext {
@@ -28,6 +37,16 @@ pub struct RequestContext {
 
     /// Request ID
     pub request_id: Uuid,
+
+    /// Side channel for body logging: when at least one team is opted into
+    /// `BodyLogger`, the endpoint installs an `Arc<OnceLock<Bytes>>` here and
+    /// keeps a clone. The decode step in `parse_and_authenticate` fills it
+    /// with the decoded body (post gzip + post base64). After the handler
+    /// completes, the endpoint reads from its clone and hands the bytes to
+    /// `BodyLogger::log_response`. This avoids decoding the body twice and
+    /// also ensures base64-wrapped bodies are logged as the JSON they
+    /// actually parsed as, not as the base64 string.
+    pub decoded_body_for_logging: Option<Arc<OnceLock<Bytes>>>,
 }
 
 /// Represents the various property overrides that can be passed around
@@ -51,6 +70,7 @@ pub struct FeatureFlagEvaluationContext {
     pub non_persons_reader: Arc<dyn common_database::Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn common_database::Client + Send + Sync>,
     pub cohort_cache: Arc<CohortCacheManager>,
+    pub group_type_cache: Arc<GroupTypeCacheManager>,
     pub person_property_overrides: Option<HashMap<String, Value>>,
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
@@ -60,6 +80,20 @@ pub struct FeatureFlagEvaluationContext {
     /// When true, skip hash key override lookups for flags that don't need them
     /// (e.g., 100% rollout with no multivariate variants).
     pub optimize_experience_continuity_lookups: bool,
+    /// Flag count threshold for switching from sequential to parallel evaluation.
+    pub parallel_eval_threshold: usize,
+    /// Dispatcher for bounded-concurrency Rayon batch evaluation.
+    pub rayon_dispatcher: RayonDispatcher,
+    /// When true, skip all writes to PostgreSQL and Redis.
+    pub skip_writes: bool,
+    /// Provider for realtime/behavioral cohort membership lookups.
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Whether to enable realtime cohort evaluation.
+    pub enable_realtime_cohort_evaluation: bool,
+    /// Whether to include detailed condition analysis in flag evaluation results.
+    pub detailed_analysis: bool,
+    /// Whether to only use person properties from request payload, ignoring database properties.
+    pub only_use_override_person_properties: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

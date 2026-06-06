@@ -45,11 +45,12 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -57,13 +58,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -114,11 +115,12 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -126,13 +128,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -183,11 +185,12 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -195,13 +198,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -259,11 +262,13 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -272,13 +277,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -336,11 +341,13 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -349,11 +356,10 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
+                    enable_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
@@ -420,11 +426,13 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -433,13 +441,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -492,7 +500,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
@@ -505,13 +513,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -564,7 +572,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
@@ -577,13 +585,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -636,7 +644,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
@@ -649,13 +657,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -708,7 +716,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
@@ -721,13 +729,13 @@
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''

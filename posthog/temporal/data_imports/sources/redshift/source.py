@@ -13,19 +13,17 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
-from posthog.temporal.data_imports.sources.redshift.redshift import (
-    filter_redshift_incremental_fields,
-    get_redshift_row_count,
-    get_schemas as get_redshift_schemas,
-    redshift_source,
-)
+from posthog.temporal.data_imports.sources.redshift.redshift import RedshiftImplementation
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+_REDSHIFT_IMPLEMENTATION = RedshiftImplementation()
 
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -39,10 +37,14 @@ RedshiftErrors = {
 
 
 @SourceRegistry.register
-class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     def __init__(self, source_name: str = "Redshift"):
         super().__init__()
         self.source_name = source_name
+
+    @property
+    def get_implementation(self) -> RedshiftImplementation:
+        return _REDSHIFT_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -55,6 +57,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
             iconPath="/static/services/redshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/redshift",
+            releaseStatus="beta",
             fields=cast(
                 list[FieldType],
                 [
@@ -64,6 +67,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="redshift://user:password@my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com:5439/dev",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="host",
@@ -71,6 +75,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -78,6 +83,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="5439",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -85,6 +91,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="dev",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -92,6 +99,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="awsuser",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -99,6 +107,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -106,6 +115,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
@@ -114,6 +124,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **self.default_non_retryable_errors(),
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "could not translate host name": None,
@@ -128,72 +139,21 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "Name or service not known": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
-            "OperationalError: connection failed: connection to server at": None,
+            "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
             "Connection refused": None,
         }
 
-    def get_schemas(self, config: RedshiftSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        schemas = []
-
-        with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_redshift_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-            )
-
-            if with_counts:
-                row_counts = get_redshift_row_count(
-                    host=host,
-                    port=port,
-                    user=config.user,
-                    password=config.password,
-                    database=config.database,
-                    schema=config.schema,
-                )
-            else:
-                row_counts = {}
-
-        for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_redshift_incremental_fields(column_info)
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                }
-                for field_name, field_type in incremental_field_tuples
-            ]
-
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                    row_count=row_counts.get(table_name, None),
-                )
-            )
-
-        return schemas
-
     def validate_credentials(
         self, config: RedshiftSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
+        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
         if not valid_host:
             return valid_host, host_errors
@@ -221,24 +181,11 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
         return True, None
 
     def source_for_pipeline(self, config: RedshiftSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
-
-        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
-
-        return redshift_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            schema=config.schema,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-            chunk_size_override=schema.chunk_size_override,
-            team_id=inputs.team_id,
+        # Resolve `chunk_size_override` (stored on
+        # `ExternalDataSchema.sync_type_config`) here so the driver
+        # implementation in `redshift.py` stays free of Django ORM
+        # imports.
+        schema_row = ExternalDataSchema.objects.get(id=inputs.schema_id)
+        return self.get_implementation.build_pipeline(
+            config, inputs, chunk_size_override=schema_row.chunk_size_override
         )

@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,7 +8,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppendSegmentsApi,
     CreateRecordingRequestApi,
@@ -35,11 +35,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
- */
 export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopRecordingsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -52,10 +47,15 @@ export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopR
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/desktop_recordings/?${stringifiedParams}`
-        : `/api/environments/${projectId}/desktop_recordings/`
+        ? `/api/projects/${projectId}/desktop_recordings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/desktop_recordings/`
 }
 
+/**
+ * RESTful API for managing desktop meeting recordings.
+
+Standard CRUD operations plus transcript management as a subresource.
+ */
 export const desktopRecordingsList = async (
     projectId: string,
     params?: DesktopRecordingsListParams,
@@ -67,16 +67,16 @@ export const desktopRecordingsList = async (
     })
 }
 
+export const getDesktopRecordingsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_recordings/`
+}
+
 /**
  * Create a new recording and get Recall.ai upload token for the desktop SDK
  */
-export const getDesktopRecordingsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/`
-}
-
 export const desktopRecordingsCreate = async (
     projectId: string,
-    createRecordingRequestApi: CreateRecordingRequestApi,
+    createRecordingRequestApi?: CreateRecordingRequestApi,
     options?: RequestInit
 ): Promise<CreateRecordingResponseApi> => {
     return apiMutator<CreateRecordingResponseApi>(getDesktopRecordingsCreateUrl(projectId), {
@@ -87,15 +87,15 @@ export const desktopRecordingsCreate = async (
     })
 }
 
+export const getDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
+}
+
 /**
  * RESTful API for managing desktop meeting recordings.
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
-}
-
 export const desktopRecordingsRetrieve = async (
     projectId: string,
     id: string,
@@ -107,15 +107,15 @@ export const desktopRecordingsRetrieve = async (
     })
 }
 
+export const getDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
+}
+
 /**
  * RESTful API for managing desktop meeting recordings.
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
-}
-
 export const desktopRecordingsUpdate = async (
     projectId: string,
     id: string,
@@ -130,19 +130,19 @@ export const desktopRecordingsUpdate = async (
     })
 }
 
+export const getDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
+}
+
 /**
  * RESTful API for managing desktop meeting recordings.
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
-}
-
 export const desktopRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDesktopRecordingApi: NonReadonly<PatchedDesktopRecordingApi>,
+    patchedDesktopRecordingApi?: NonReadonly<PatchedDesktopRecordingApi>,
     options?: RequestInit
 ): Promise<DesktopRecordingApi> => {
     return apiMutator<DesktopRecordingApi>(getDesktopRecordingsPartialUpdateUrl(projectId, id), {
@@ -153,15 +153,15 @@ export const desktopRecordingsPartialUpdate = async (
     })
 }
 
+export const getDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
+}
+
 /**
  * RESTful API for managing desktop meeting recordings.
 
 Standard CRUD operations plus transcript management as a subresource.
  */
-export const getDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
-}
-
 export const desktopRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopRecordingsDestroyUrl(projectId, id), {
         ...options,
@@ -169,13 +169,13 @@ export const desktopRecordingsDestroy = async (projectId: string, id: string, op
     })
 }
 
+export const getDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_recordings/${id}/append_segments/`
+}
+
 /**
  * Append transcript segments (supports batched real-time streaming)
  */
-export const getDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/append_segments/`
-}
-
 export const desktopRecordingsAppendSegmentsCreate = async (
     projectId: string,
     id: string,

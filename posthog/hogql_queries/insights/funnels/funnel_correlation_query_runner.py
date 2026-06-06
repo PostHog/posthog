@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -36,11 +36,13 @@ from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
+
+from products.actions.backend.models.action import Action
 
 
 class EventOddsRatio(TypedDict):
@@ -101,8 +103,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
@@ -116,6 +119,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
+            user=user,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
             # i.e. successful
@@ -228,6 +232,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -346,15 +351,16 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
             # Filtering on persons / groups properties can be pushed down to funnel events query
+            additional_properties = None
             if (
                 self.correlation_actors_query.funnelCorrelationPropertyValues
                 and len(self.correlation_actors_query.funnelCorrelationPropertyValues) > 0
             ):
-                self.context.query.properties = [
+                additional_properties = [
                     *(self.context.query.properties or []),
                     *self.correlation_actors_query.funnelCorrelationPropertyValues,
                 ]
-            return self.properties_actor_query()
+            return self.properties_actor_query(additional_properties=additional_properties)
         else:
             return self.events_actor_query()
 
@@ -393,7 +399,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         query = parse_select(
             f"""
             WITH
-                funnel_actors as (
+                funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
                 {{date_from}} AS date_from,
@@ -415,6 +421,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "date_from": date_from,
                 "date_to": date_to,
                 "target_event": ast.Constant(value=target_event),
+                **self._aggregation_join_placeholders(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -427,6 +434,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
     def properties_actor_query(
         self,
+        additional_properties: list[Any] | None = None,
     ) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
@@ -434,7 +442,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
         target_step = self.context.max_steps
-        funnel_persons_query = self.get_funnel_actors_cte()
+        funnel_persons_query = self.get_funnel_actors_cte(additional_properties=additional_properties)
 
         conversion_filter = (
             f"funnel_actors.steps {'=' if self.correlation_actors_query.funnelCorrelationPersonConverted else '<>'} target_step"
@@ -449,7 +457,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         query = parse_select(
             f"""
             WITH
-                funnel_actors as (
+                funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
                 {target_step} AS target_step
@@ -545,6 +553,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "date_to": date_to,
                 "exclude_event_names": exclude_event_names_ast,
                 "total_identifier": ast.Constant(value=self.TOTAL_IDENTIFIER),
+                **self._aggregation_join_placeholders(),
             },
         )
 
@@ -652,6 +661,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                     if exclude_property_names
                     else {}
                 ),
+                **self._aggregation_join_placeholders(),
             },
         )
 
@@ -746,13 +756,32 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         return query
 
-    def get_funnel_actors_cte(self) -> ast.SelectQuery:
+    def get_funnel_actors_cte(self, additional_properties: list[Any] | None = None) -> ast.SelectQuery:
         extra_fields = ["steps", "final_timestamp", "first_timestamp"]
 
         for prop in self.properties_to_include:
             extra_fields.append(prop)
 
-        return self._funnel_actors_generator.actor_query(extra_fields=extra_fields)
+        if additional_properties is None:
+            return self._funnel_actors_generator.actor_query(extra_fields=extra_fields)
+
+        temp_funnels_query = self.funnels_query.model_copy(update={"properties": additional_properties}, deep=True)
+        temp_context = FunnelQueryContext(
+            query=temp_funnels_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+            include_timestamp=self.context.includeTimestamp,
+            include_preceding_timestamp=self.context.includePrecedingTimestamp,
+            include_properties=self.properties_to_include,
+            include_final_matching_events=self.context.includeFinalMatchingEvents,
+        )
+        temp_context.actorsQuery = self.actors_query
+        temp_funnel_actors_generator = FunnelUDF(context=temp_context)
+
+        return temp_funnel_actors_generator.actor_query(extra_fields=extra_fields)
 
     def _get_events_join_query(self) -> str:
         """
@@ -804,11 +833,37 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 ON funnel_actors.actor_id = event.$group_{self.funnels_query.aggregation_group_type_index}
             """
 
-        return (
-            aggregation_group_join
-            if self.funnels_query.aggregation_group_type_index is not None
-            else aggregation_person_join
-        )
+        if self.funnels_query.aggregation_group_type_index is not None:
+            return aggregation_group_join
+
+        # When the funnel aggregates by a custom HogQL expression, funnel_actors.actor_id
+        # holds that value — joining on event.person_id would mismatch types (UUID vs the
+        # expression's type). Join on the same expression instead, emitted as a placeholder
+        # parsed by _aggregation_join_placeholders so the user-controlled string can't
+        # inject query structure.
+        if self._hogql_aggregation_expr() is not None:
+            return """
+            JOIN funnel_actors
+                ON funnel_actors.actor_id = {aggregation_join_target}
+            """
+
+        return aggregation_person_join
+
+    def _hogql_aggregation_expr(self) -> ast.Expr | None:
+        """Parsed AST for funnelAggregateByHogQL when set and non-trivial, else None for
+        person/group aggregation. Parsing the user-controlled string into an AST keeps it a
+        single bounded expression — it cannot add joins or clauses to the query."""
+        if self.funnels_query.aggregation_group_type_index is not None:
+            return None
+        funnels_filter = self.funnels_query.funnelsFilter
+        aggregate_by_hogql = funnels_filter.funnelAggregateByHogQL if funnels_filter else None
+        if aggregate_by_hogql and aggregate_by_hogql != "person_id":
+            return parse_expr(aggregate_by_hogql)
+        return None
+
+    def _aggregation_join_placeholders(self) -> dict[str, ast.Expr]:
+        expr = self._hogql_aggregation_expr()
+        return {"aggregation_join_target": expr} if expr is not None else {}
 
     def _get_aggregation_join_query(self):
         if self.funnels_query.aggregation_group_type_index is None:

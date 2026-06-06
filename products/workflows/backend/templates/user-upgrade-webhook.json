@@ -1,0 +1,116 @@
+{
+    "id": "019ce206-1ef1-0000-f1c1-3f9c433294c6",
+    "name": "Send a webhook when a user upgrades",
+    "description": "Send a webhook when a user upgrades so other systems like your CRM, billing tool, or internal backend can react to the change. You can connect this to your internal system, HubSpot, Zapier, etc. ",
+    "version": 1,
+    "created_at": "2026-03-12T12:29:37.905693Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2026-03-12T12:30:28.413218Z",
+    "trigger": {
+        "type": "event",
+        "filters": {}
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_function_d2b8b68d-88b9-46a4-b776-a88063b561a7",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_d2b8b68d-88b9-46a4-b776-a88063b561a7",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Upgrade event",
+            "description": "Choose your event that detects the user has upgraded.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {}
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_d2b8b68d-88b9-46a4-b776-a88063b561a7",
+            "name": "Webhook",
+            "description": "Send a Webhook to the user.",
+            "on_error": null,
+            "created_at": 1773318623116,
+            "updated_at": 1773318623116,
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": {
+                        "templating": "hog",
+                        "value": "https://your-system.com/webhook"
+                    },
+                    "method": {
+                        "value": "POST",
+                        "templating": "hog"
+                    },
+                    "body": {
+                        "value": "{\n  \"user_id\": \"{person.id}\",\n  \"email\": \"{person.email}\",\n  \"event\": \"user_upgraded\",\n  \"timestamp\": \"{event.timestamp}\"\n}",
+                        "templating": "hog"
+                    },
+                    "headers": {
+                        "value": {
+                            "Content-Type": "application/json"
+                        },
+                        "templating": "hog"
+                    },
+                    "debug": {
+                        "value": false,
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_12_c520e0adf4.jpg",
+    "tags": ["webhook", "upgrade"],
+    "scope": "global"
+}

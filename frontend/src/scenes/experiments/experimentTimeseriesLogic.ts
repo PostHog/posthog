@@ -1,12 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
+import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentMetric,
@@ -17,9 +18,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentIdType } from '~/types'
 
-import { COLORS } from './MetricsView/shared/colors'
-import { getVariantInterval } from './MetricsView/shared/utils'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
+import { COLORS } from './MetricsView/shared/colors'
+import { getMetricColors, getVariantInterval } from './MetricsView/shared/utils'
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -51,7 +52,7 @@ export interface ProcessedChartData {
 
 export interface ExperimentTimeseriesLogicProps {
     experiment: Experiment
-    metric?: ExperimentMetric
+    metric: ExperimentMetric | undefined
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
@@ -59,6 +60,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
+        values: [teamLogic, ['currentProjectId']],
     })),
 
     actions(() => ({
@@ -66,7 +68,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
-    loaders(({ actions, props }) => ({
+    loaders(({ actions, props, values }) => ({
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
@@ -79,7 +81,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     const response = await api.get(
-                        `api/projects/@current/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
+                        `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
@@ -91,7 +93,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     try {
                         const response = await api.createResponse(
-                            `api/projects/@current/experiments/${props.experiment.id}/recalculate_timeseries/`,
+                            `api/projects/${values.currentProjectId}/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {
                                 metric: metric,
                                 fingerprint: metric.fingerprint,
@@ -247,11 +249,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s, props) => [s.processedVariantData, props.experiment],
+            (s, props) => [s.processedVariantData, props.experiment, props.metric],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
-                experiment: Experiment
+                experiment: Experiment,
+                metric: ExperimentMetric | undefined
             ): ((variantKey: string) => ProcessedChartData | null) => {
+                // Swap positive/negative colors when the metric goal is "decrease"
+                const goalColors = getMetricColors(COLORS, metric?.goal)
                 return (variantKey: string) => {
                     const processedData = processedVariantData(variantKey)
                     if (processedData.length === 0) {
@@ -321,11 +326,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const index = context.dataIndex
                                 const dataPoint = trimmedData[index]
                                 if (dataPoint?.significant) {
-                                    // Check if delta is positive or negative
                                     const isPositive = dataPoint.value !== null && dataPoint.value > 0
                                     return isPositive
-                                        ? hexToRGBA(COLORS.BAR_POSITIVE, 0.15)
-                                        : hexToRGBA(COLORS.BAR_NEGATIVE, 0.15)
+                                        ? hexToRGBA(goalColors.positive, 0.15)
+                                        : hexToRGBA(goalColors.negative, 0.15)
                                 }
                                 return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                             }
@@ -336,11 +340,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const index = ctx.p0DataIndex
                                 const dataPoint = trimmedData[index]
                                 if (dataPoint?.significant) {
-                                    // Check if delta is positive or negative
                                     const isPositive = dataPoint.value !== null && dataPoint.value > 0
                                     return isPositive
-                                        ? hexToRGBA(COLORS.BAR_POSITIVE, 0.15)
-                                        : hexToRGBA(COLORS.BAR_NEGATIVE, 0.15)
+                                        ? hexToRGBA(goalColors.positive, 0.15)
+                                        : hexToRGBA(goalColors.negative, 0.15)
                                 }
                                 return hexToRGBA(COLORS.BAR_DEFAULT, 0.1)
                             },

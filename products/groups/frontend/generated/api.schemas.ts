@@ -19,14 +19,6 @@ export interface GroupApi {
     readonly created_at: string
 }
 
-export interface PaginatedGroupListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: GroupApi[]
-}
-
 export interface CreateGroupApi {
     /**
      * @minimum -2147483648
@@ -35,14 +27,18 @@ export interface CreateGroupApi {
     group_type_index: number
     /** @maxLength 400 */
     group_key: string
-    group_properties?: unknown | null
+    group_properties?: unknown
 }
 
 export type GroupsListParams = {
     /**
-     * The pagination cursor value.
+     * Pagination cursor returned in the `next` URL of a previous response
      */
     cursor?: string
+    /**
+     * Filter groups whose key contains this string (case-insensitive)
+     */
+    group_key?: string
     /**
      * Specify the group type to list
      */
@@ -50,7 +46,7 @@ export type GroupsListParams = {
     /**
      * Search the group name
      */
-    search: string
+    search?: string
 }
 
 export type GroupsActivityRetrieveParams = {
@@ -98,76 +94,6 @@ export type GroupsRelatedRetrieveParams = {
 }
 
 export type GroupsUpdatePropertyCreateParams = {
-    /**
-     * Specify the key of the group to find
-     */
-    group_key: string
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number
-}
-
-export type GroupsList2Params = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Specify the group type to list
-     */
-    group_type_index: number
-    /**
-     * Search the group name
-     */
-    search: string
-}
-
-export type GroupsActivityRetrieve2Params = {
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number
-    /**
-     * Specify the id of the user to find groups for
-     */
-    id: string
-}
-
-export type GroupsDeletePropertyCreate2Params = {
-    /**
-     * Specify the key of the group to find
-     */
-    group_key: string
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number
-}
-
-export type GroupsFindRetrieve2Params = {
-    /**
-     * Specify the key of the group to find
-     */
-    group_key: string
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number
-}
-
-export type GroupsRelatedRetrieve2Params = {
-    /**
-     * Specify the group type to find
-     */
-    group_type_index: number
-    /**
-     * Specify the id of the user to find groups for
-     */
-    id: string
-}
-
-export type GroupsUpdatePropertyCreate2Params = {
     /**
      * Specify the key of the group to find
      */

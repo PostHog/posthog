@@ -1,6 +1,4 @@
-// sort-imports-ignore
-
-// KLUDGE: Do NOT remove the `sort-imports-ignore` comment. It's used to sort the imports.
+// KLUDGE: This file is NOT formatted by oxfmt to avoid problems with import resolutions.
 // Our KNOWN_NODES resolution will NOT work if the imports here are sorted in a different way.
 import {
     Node,
@@ -22,10 +20,17 @@ import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import {
+    posthogNodeInputRule,
+    posthogNodePasteRule,
+    shouldOmitFromClipboardHTML,
+    useSyncedAttributes,
+} from './utils'
 import { KNOWN_NODES } from '../utils'
+import { SharedNodeErrorBoundary, UnsupportedNodePlaceholder, isNodeSupportedInSharedNotebook } from './sharedNodeSupport'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
+import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
@@ -67,7 +72,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeIds, containerSize, notebook, mode } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeIds, containerSize, notebook, mode, isShared } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
@@ -86,10 +91,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         pythonRunLoading,
         duckSqlRunLoading,
         duckSqlRunQueued,
+        hogqlSqlRunLoading,
+        hogqlSqlRunQueued,
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
         duckSqlReturnVariable,
+        hogqlSqlReturnVariable,
         customMenuItems,
         kernelInfo,
     } = useValues(nodeLogic)
@@ -104,6 +112,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         convertToBacklink,
         runPythonNodeWithMode,
         runDuckSqlNodeWithMode,
+        runHogqlSqlNodeWithMode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -162,6 +171,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
     const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
+    const isHogqlSqlNode = nodeType === NotebookNodeType.HogQLSQL
     const runDisabledReason = !notebook ? 'Notebook not loaded' : undefined
     const pythonAttributes = attributes as {
         code?: string
@@ -196,9 +206,31 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const duckSqlIsFresh =
         duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches && kernelIsRunning
     const duckSqlIsStale = duckSqlHasExecution && !duckSqlIsFresh
+    const hogqlSqlAttributes = attributes as {
+        code?: string
+        hogqlExecutionCodeHash?: number | null
+        hogqlExecutionSandboxId?: string | null
+        returnVariable?: string
+    }
+    const hogqlSqlExecutionCodeHash = hogqlSqlAttributes.hogqlExecutionCodeHash ?? null
+    const hogqlSqlCodeHash = hashCodeForString(`${hogqlSqlAttributes.code ?? ''}\n${hogqlSqlReturnVariable}`)
+    const hogqlSqlExecutionSandboxId = hogqlSqlAttributes.hogqlExecutionSandboxId ?? null
+    const hogqlSqlHasExecution = hogqlSqlExecutionCodeHash !== null
+    const hogqlSqlSandboxMatches =
+        hogqlSqlExecutionSandboxId !== null &&
+        kernelSandboxId !== null &&
+        hogqlSqlExecutionSandboxId === kernelSandboxId
+    const hogqlSqlIsFresh =
+        hogqlSqlHasExecution &&
+        hogqlSqlExecutionCodeHash === hogqlSqlCodeHash &&
+        hogqlSqlSandboxMatches &&
+        kernelIsRunning
+    const hogqlSqlIsStale = hogqlSqlHasExecution && !hogqlSqlIsFresh
 
     const defaultMenuItems: LemonMenuItems = [
-        !NON_COPYABLE_NODES.includes(nodeType)
+        // Copy round-trips the node attrs through HTML for paste into another notebook — doesn't
+        // make sense for an anonymous shared viewer who has no editor to paste into.
+        !NON_COPYABLE_NODES.includes(nodeType) && !isShared
             ? {
                   label: 'Copy',
                   onClick: () => copyToClipboard(),
@@ -274,8 +306,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
 
                                             <div className="flex deprecated-space-x-1">
-                                                {parsedHref && (
-                                                    <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
+                                                {parsedHref && !isShared && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconLink />}
+                                                        to={parsedHref}
+                                                        tooltip="Open linked resource"
+                                                    />
                                                 )}
 
                                                 {isPythonNode ? (
@@ -299,6 +336,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         onRun={(mode) => void runDuckSqlNodeWithMode({ mode })}
                                                     />
                                                 ) : null}
+                                                {isHogqlSqlNode ? (
+                                                    <HogqlSqlRunMenu
+                                                        isFresh={hogqlSqlIsFresh}
+                                                        isStale={hogqlSqlIsStale}
+                                                        loading={hogqlSqlRunLoading}
+                                                        queued={hogqlSqlRunQueued}
+                                                        disabledReason={runDisabledReason}
+                                                        onRun={(mode) => void runHogqlSqlNodeWithMode({ mode })}
+                                                    />
+                                                ) : null}
 
                                                 {(isEditable || isInCanvas) && Settings ? (
                                                     <LemonButton
@@ -306,6 +353,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         size="small"
                                                         icon={<IconPencil />}
                                                         active={editingNodeIds[nodeId]}
+                                                        tooltip={
+                                                            editingNodeIds[nodeId]
+                                                                ? 'Hide editor'
+                                                                : 'Show editor and settings'
+                                                        }
+                                                        data-attr="notebook-node-edit-settings"
                                                     />
                                                 ) : null}
 
@@ -314,18 +367,24 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         onClick={() => setExpanded(!expanded)}
                                                         size="small"
                                                         icon={expanded ? <IconCollapse /> : <IconExpand />}
+                                                        tooltip={expanded ? 'Hide output' : 'Show output'}
                                                     />
                                                 )}
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
-                                                        <LemonButton icon={<IconEllipsis />} size="small" />
+                                                        <LemonButton
+                                                            icon={<IconEllipsis />}
+                                                            size="small"
+                                                            tooltip="More actions"
+                                                        />
                                                     </LemonMenu>
                                                 ) : null}
                                             </div>
                                         </div>
 
                                         {Settings &&
+                                        !isShared &&
                                         editingNodeIds[nodeId] &&
                                         (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
@@ -378,6 +437,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             icon={<IconPlus />}
+                                            tooltip="Add block"
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setSlashCommandsPopoverVisible(true)
@@ -390,6 +450,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             icon={x.icon ?? <IconPlus />}
+                                            tooltip={x.text}
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 x.onClick()
@@ -419,6 +480,9 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        // Hooks must run unconditionally on every render — keep all hook calls above any early
+        // return so the shared-notebook placeholder fast-path doesn't violate the rules of hooks.
+        const { isShared } = useValues(notebookLogic)
         const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {
@@ -437,10 +501,24 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             // oxlint-disable-next-line exhaustive-deps
         }, [props.node.attrs.nodeId])
 
+        // when in shared mode, do not render any nodes that we know are unsupported
+        if (isShared && !isNodeSupportedInSharedNotebook(wrapperProps.nodeType)) {
+            return <UnsupportedNodePlaceholder />
+        }
+
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
             ...props,
             attributes,
             updateAttributes,
+        }
+
+        if (isShared) {
+            // the error boundary renders the placeholder when there is an error instead of showing a bunch of random errors to the user
+            return (
+                <SharedNodeErrorBoundary>
+                    <MemoizedNodeWrapper Component={Component} {...nodeProps} {...wrapperProps} />
+                </SharedNodeErrorBoundary>
+            )
         }
 
         return <MemoizedNodeWrapper Component={Component} {...nodeProps} {...wrapperProps} />
@@ -466,29 +544,43 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            // All exposed attributes round-trip through HTML as JSON.
+            // `parseHTML` on the way in and `renderHTML` on the way out are symmetric
+            // so default Cmd+C and the explicit `copyToClipboard` action produce the same encoding and parse cleanly
+            const jsonAttr = (name: string): Record<string, any> => ({
+                parseHTML: (element: HTMLElement) => {
+                    const raw = element.getAttribute(name)
+                    return raw ? JSON.parse(raw) : null
+                },
+                renderHTML: (attrs: Record<string, any>) => {
+                    const value = attrs[name]
+                    if (value === null || value === undefined) {
+                        return {}
+                    }
+                    return { [name]: JSON.stringify(value) }
+                },
+            })
+
             const nodeAttributes = Object.fromEntries(
                 Object.entries(attributes as Record<string, any>).map(([name, config]) => {
                     return [
                         name,
                         {
                             ...config,
-                            parseHTML: (element: HTMLElement) => {
-                                const attribute = element.getAttribute(name)
-                                return attribute ? JSON.parse(atob(attribute)) : null
-                            },
+                            ...jsonAttr(name),
                         },
                     ]
                 })
             )
 
             return {
-                height: {},
-                title: {},
+                height: jsonAttr('height'),
+                title: jsonAttr('title'),
                 nodeId: {
                     default: null,
                 },
                 __init: { default: null },
-                children: {},
+                children: jsonAttr('children'),
                 ...nodeAttributes,
             }
         },
@@ -502,20 +594,12 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         renderHTML({ HTMLAttributes }) {
-            // We want to stringify all object attributes so that we can use them in the serializedText
-            const sanitizedAttributes = Object.fromEntries(
-                Object.entries(HTMLAttributes).map(([key, value]) => {
-                    if (Array.isArray(value) || typeof value === 'object') {
-                        return [key, JSON.stringify(value)]
-                    }
-                    return [key, value]
-                })
+            // Per-attribute renderHTML callbacks already JSON-stringified each value;
+            // here we just apply the same omit rule the explicit Copy action uses
+            const sanitized = Object.fromEntries(
+                Object.entries(HTMLAttributes).filter(([key, value]) => !shouldOmitFromClipboardHTML(key, value))
             )
-
-            // This method is primarily used by copy and paste so we can remove the nodeID, assuming we don't want duplicates
-            delete sanitizedAttributes['nodeId']
-
-            return [wrapperProps.nodeType, mergeAttributes(sanitizedAttributes)]
+            return [wrapperProps.nodeType, mergeAttributes(sanitized)]
         },
 
         addNodeView() {

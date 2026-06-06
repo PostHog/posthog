@@ -1,12 +1,12 @@
 from posthog.models import Team
-from posthog.models.feature_flag import FeatureFlag
 from posthog.sync import database_sync_to_async
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .prompts import (
     FEATURE_FLAG_CONTEXT_TEMPLATE,
     FEATURE_FLAG_NOT_FOUND_TEMPLATE,
     FEATURE_FLAG_RELEASE_CONDITIONS_TEMPLATE,
-    FEATURE_FLAG_ROLLOUT_PERCENTAGE_TEMPLATE,
     FEATURE_FLAG_VARIANTS_TEMPLATE,
 )
 
@@ -32,9 +32,9 @@ class FeatureFlagContext:
         """Fetch the feature flag from the database."""
         try:
             if self._flag_id is not None:
-                return await FeatureFlag.objects.aget(id=self._flag_id, team=self._team, deleted=False)
+                return await FeatureFlag.objects.aget(id=self._flag_id, team=self._team)
             elif self._flag_key is not None:
-                return await FeatureFlag.objects.aget(key=self._flag_key, team=self._team, deleted=False)
+                return await FeatureFlag.objects.aget(key=self._flag_key, team=self._team)
             return None
         except FeatureFlag.DoesNotExist:
             return None
@@ -47,12 +47,6 @@ class FeatureFlagContext:
     @database_sync_to_async
     def format_feature_flag(self, flag: FeatureFlag) -> str:
         """Format feature flag data for AI consumption."""
-        rollout_percentage_section = ""
-        if flag.rollout_percentage is not None:
-            rollout_percentage_section = FEATURE_FLAG_ROLLOUT_PERCENTAGE_TEMPLATE.format(
-                rollout_percentage=flag.rollout_percentage
-            )
-
         variants_section = ""
         release_conditions_section = ""
 
@@ -89,7 +83,6 @@ class FeatureFlagContext:
             flag_name=flag.name or "No description",
             flag_active=flag.active,
             flag_created_at=flag.created_at.isoformat() if flag.created_at else "Unknown",
-            rollout_percentage_section=rollout_percentage_section,
             variants_section=variants_section,
             release_conditions_section=release_conditions_section,
         ).strip()

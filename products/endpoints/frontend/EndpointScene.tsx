@@ -1,30 +1,61 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPause, IconPlay, IconTrash } from '@posthog/icons'
+import {
+    IconCheck,
+    IconClock,
+    IconCode2,
+    IconDatabase,
+    IconEndpoints,
+    IconGraph,
+    IconPause,
+    IconPlay,
+    IconPlayFilled,
+    IconPlusSmall,
+    IconPulse,
+    IconRewind,
+    IconServer,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
+import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarPopover,
+    SceneMenuBarSeparator,
+    SceneMenuBarSubMenu,
+} from '~/layout/scenes/components/SceneMenuBar'
+import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope } from '~/types'
+import { ActivityScope, EndpointVersionType } from '~/types'
 
-import { EndpointSceneHeader } from './EndpointHeader'
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
 import { EndpointVersions } from './endpoint-tabs/EndpointVersions'
 import { VersionBanner } from './endpoint-tabs/VersionBanner'
+import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
+import { endpointsLogic } from './endpointsLogic'
+import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
 interface EndpointProps {
     tabId?: string
@@ -40,10 +71,18 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     if (!tabId) {
         throw new Error('<EndpointScene /> must receive a tabId prop')
     }
-    const { endpoint, endpointLoading, activeTab, viewingVersion } = useValues(endpointSceneLogic({ tabId }))
-    const { setViewingVersion } = useActions(endpointSceneLogic({ tabId }))
-    const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
+    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(
+        endpointSceneLogic({ tabId })
+    )
+    const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic({ tabId }))
+    const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic({ tabId }))
+    const { versions } = useValues(endpointLogic({ tabId }))
+    const { allEndpoints } = useValues(endpointsLogic({ tabId }))
+    const { openModal } = useActions(insightPickerEndpointModalLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -133,9 +172,134 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         confirmToggleActive(endpoint)
     }
 
+    const renderTabContent = (): JSX.Element => {
+        if (!endpoint) {
+            return <></>
+        }
+        switch (activeTab) {
+            case EndpointTab.CONFIGURATION:
+                return <EndpointConfiguration tabId={tabId} />
+            case EndpointTab.VERSIONS:
+                return <EndpointVersions tabId={tabId} />
+            case EndpointTab.PLAYGROUND:
+                return <EndpointPlayground tabId={tabId} />
+            case EndpointTab.HISTORY:
+                return <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
+            case EndpointTab.QUERY:
+            default:
+                return <EndpointQuery tabId={tabId} />
+        }
+    }
+
     return (
         <BindLogic logic={endpointSceneLogic} props={{ tabId }}>
             <SceneContent className="Endpoint">
+                {sceneMenuBarEnabled && endpoint && (
+                    <SceneMenuBar>
+                        <SceneMenuBarMenu label="File" dataAttr="endpoint-menubar-file">
+                            <SceneMenuBarSubMenu label="New endpoint">
+                                <SceneMenuBarItem
+                                    onClick={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
+                                    data-attr="endpoint-menubar-new-sql"
+                                >
+                                    <IconServer />
+                                    From SQL editor
+                                </SceneMenuBarItem>
+                                <SceneMenuBarItem
+                                    opensFloatingUi
+                                    onClick={openModal}
+                                    data-attr="endpoint-menubar-new-insight"
+                                >
+                                    <IconGraph />
+                                    From insight
+                                </SceneMenuBarItem>
+                            </SceneMenuBarSubMenu>
+                            <OpenEndpointSubMenu allEndpoints={allEndpoints} currentEndpointName={endpoint.name} />
+                            <OpenVersionSubMenu
+                                versions={versions}
+                                endpointName={endpoint.name}
+                                currentVersion={endpoint.current_version}
+                                viewingVersion={viewingVersion}
+                                setViewingVersion={setViewingVersion}
+                            />
+                            <SceneMenuBarSeparator />
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.PLAYGROUND }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-open-playground"
+                            >
+                                <IconPlayFilled />
+                                Open playground
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.HISTORY }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-view-history"
+                            >
+                                <IconClock />
+                                View history
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(urls.endpointsUsage({ endpointFilter: [endpoint.name] }))
+                                }
+                                data-attr="endpoint-menubar-view-usage"
+                            >
+                                <IconPulse />
+                                View usage
+                            </SceneMenuBarItem>
+                            <SceneMenuBarSeparator />
+                            <SceneMenuBarFileItems dataAttrKey="endpoint" />
+                        </SceneMenuBarMenu>
+                        <SceneMenuBarMenu label="Edit" dataAttr="endpoint-menubar-edit">
+                            <SceneMenuBarItem onClick={handleToggleActive} data-attr="endpoint-menubar-active-toggle">
+                                {endpoint.is_active ? <IconPause /> : <IconPlay />}
+                                {endpoint.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
+                            </SceneMenuBarItem>
+                            {(() => {
+                                const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
+                                const hasUnsavedToggle =
+                                    isMaterialized !== null && isMaterialized !== baseIsMaterialized
+                                const effective = isMaterialized ?? baseIsMaterialized
+                                return (
+                                    <SceneMenuBarItem
+                                        onClick={toggleMaterializationFromMenu}
+                                        disabled={hasUnsavedToggle}
+                                        data-attr="endpoint-menubar-materialize-toggle"
+                                    >
+                                        <IconDatabase />
+                                        {effective ? 'Disable materialization' : 'Materialize endpoint'}
+                                    </SceneMenuBarItem>
+                                )
+                            })()}
+                            <SceneMenuBarSeparator />
+                            <SceneMenuBarItem
+                                variant="destructive"
+                                opensFloatingUi
+                                onClick={handleDelete}
+                                data-attr="endpoint-menubar-delete"
+                            >
+                                <IconTrash />
+                                Delete endpoint
+                            </SceneMenuBarItem>
+                        </SceneMenuBarMenu>
+                        <SceneMenuBarPopover label="Metadata" dataAttr="endpoint-menubar-metadata">
+                            <SceneTagsCombobox
+                                onSave={(tags) => saveTagsInline(tags)}
+                                canEdit
+                                tags={endpoint.tags}
+                                tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
+                                dataAttrKey="endpoint"
+                            />
+                        </SceneMenuBarPopover>
+                    </SceneMenuBar>
+                )}
                 <EndpointSceneHeader tabId={tabId} />
                 {endpoint && !endpoint.is_active && (
                     <LemonBanner type="error">
@@ -151,10 +315,19 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                     />
                 )}
                 {!endpointLoading && <EndpointOverview tabId={tabId} />}
-                <LemonTabs activeKey={activeTab} tabs={tabs} />
+                {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={activeTab} tabs={tabs} />}
             </SceneContent>
             {endpoint && (
                 <ScenePanel>
+                    <ScenePanelInfoSection>
+                        <SceneTags
+                            tags={endpoint.tags}
+                            tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
+                            onSave={(tags) => saveTagsInline(tags)}
+                            canEdit
+                            dataAttrKey="endpoint"
+                        />
+                    </ScenePanelInfoSection>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={handleToggleActive}>
                             {endpoint.is_active ? <IconPause /> : <IconPlay />}
@@ -169,5 +342,98 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 </ScenePanel>
             )}
         </BindLogic>
+    )
+}
+
+function OpenEndpointSubMenu({
+    allEndpoints,
+    currentEndpointName,
+}: {
+    allEndpoints: { name: string }[]
+    currentEndpointName: string
+}): JSX.Element {
+    const others = allEndpoints
+        .filter((e) => e.name !== currentEndpointName)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    return (
+        <SceneMenuBarSubMenu label="Open endpoint">
+            {others.length === 0 ? (
+                <SceneMenuBarItem disabled>
+                    <IconEndpoints />
+                    No other endpoints
+                </SceneMenuBarItem>
+            ) : (
+                others.map((e) => (
+                    <SceneMenuBarItem
+                        key={e.name}
+                        onClick={() => router.actions.push(urls.endpoint(e.name))}
+                        data-attr={`endpoint-menubar-open-${e.name}`}
+                    >
+                        <IconEndpoints />
+                        {e.name}
+                    </SceneMenuBarItem>
+                ))
+            )}
+            <SceneMenuBarSeparator />
+            <SceneMenuBarItem
+                onClick={() => router.actions.push(urls.endpoints())}
+                data-attr="endpoint-menubar-browse-endpoints"
+            >
+                <IconPlusSmall />
+                Browse all endpoints
+            </SceneMenuBarItem>
+        </SceneMenuBarSubMenu>
+    )
+}
+
+function OpenVersionSubMenu({
+    versions,
+    endpointName,
+    currentVersion,
+    viewingVersion,
+    setViewingVersion,
+}: {
+    versions: EndpointVersionType[]
+    endpointName: string
+    currentVersion: number
+    viewingVersion: EndpointVersionType | null
+    setViewingVersion: (version: EndpointVersionType | null) => void
+}): JSX.Element {
+    const effectiveVersion = viewingVersion?.version ?? currentVersion
+    const sorted = [...versions].sort((a, b) => b.version - a.version)
+    return (
+        <SceneMenuBarSubMenu label="Open version">
+            {sorted.length === 0 ? (
+                <SceneMenuBarItem disabled>
+                    <IconRewind />
+                    No versions yet
+                </SceneMenuBarItem>
+            ) : (
+                sorted.map((v) => {
+                    const isCurrent = v.version === currentVersion
+                    const isSelected = v.version === effectiveVersion
+                    return (
+                        <SceneMenuBarItem
+                            key={v.version}
+                            onClick={() => setViewingVersion(isCurrent ? null : v)}
+                            data-attr={`endpoint-menubar-open-version-${v.version}`}
+                        >
+                            {isSelected ? <IconCheck /> : <IconRewind />}v{v.version}
+                            {isCurrent ? ' (latest)' : ''}
+                        </SceneMenuBarItem>
+                    )
+                })
+            )}
+            <SceneMenuBarSeparator />
+            <SceneMenuBarItem
+                onClick={() =>
+                    router.actions.push(combineUrl(urls.endpoint(endpointName), { tab: EndpointTab.VERSIONS }).url)
+                }
+                data-attr="endpoint-menubar-view-all-versions"
+            >
+                <IconCode2 />
+                Manage versions
+            </SceneMenuBarItem>
+        </SceneMenuBarSubMenu>
     )
 }

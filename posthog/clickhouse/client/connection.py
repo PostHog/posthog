@@ -15,28 +15,15 @@ from clickhouse_connect.driver import (
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
+from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
-
-
-class Workload(StrEnum):
-    # Default workload
-    DEFAULT = "DEFAULT"
-    # Analytics queries, other 'lively' queries
-    ONLINE = "ONLINE"
-    # Historical exports, other long-running processes where latency is less critical
-    OFFLINE = "OFFLINE"
-    # Logs queries
-    LOGS = "LOGS"
-    # Endpoints (the product) queries
-    ENDPOINTS = "ENDPOINTS"
 
 
 class NodeRole(StrEnum):
     # Roles of nodes for a particular NodeType. These are meant to
     # match the CH macro hostClusterRole
     ALL = "all"
-    COORDINATOR = "coordinator"
     DATA = "data"
     INGESTION_EVENTS = "events"
     INGESTION_SMALL = "small"
@@ -44,6 +31,22 @@ class NodeRole(StrEnum):
     SHUFFLEHOG = "shufflehog"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
+
+    # Below nodes are part of separate clusters.
+    AI_EVENTS = "ai_events"
+    AUX = "aux"
+    OPS = "ops"
+    SESSIONS = "sessions"
+
+
+# Roles that host replicated MergeTree data; valid ALTER TABLE targets.
+DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
+    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+)
+# Single-shard data clusters: ALTER runs on one host, replication propagates.
+SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+)
 
 
 _default_workload = Workload.ONLINE
@@ -68,7 +71,12 @@ class ClickHouseUser(StrEnum):
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
+    BILLING = "billing"
 
+    # Backups - used by Dagster backup jobs
+    BACKUPS = "backups"
+    # Part breaker - used by Dagster part breaking jobs
+    PART_BREAKER = "part_breaker"
     # Dev Operations - do not normally use
     OPS = "ops"
     # Only for migrations - do not normally use
@@ -136,6 +144,8 @@ class ProxyClient:
         columnar=False,
     ):
         if query_id:
+            if settings is None:
+                settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 

@@ -1,6 +1,8 @@
 import re
 from typing import Literal, NotRequired, TypedDict
 
+STALE_EVENT_DAYS = 30
+
 
 class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
@@ -15,6 +17,7 @@ class CoreFilterDefinition(TypedDict):
     ignored_in_assistant: NotRequired[bool]
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
+    primary_property: NotRequired[str]
 
 
 """
@@ -103,6 +106,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     "$host",
     "$pathname",
     "$referrer",
+    "$search_engine",
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
@@ -117,11 +121,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$pageview": {
             "label": "Pageview",
             "description": "When a user loads (or reloads) a page.",
+            "primary_property": "$pathname",
         },
         "$pageleave": {
             "label": "Pageleave",
             "description": "When a user leaves a page.",
             "ignored_in_assistant": True,  # Pageleave confuses the LLM, it just can't use this event in a sensible way
+            "primary_property": "$pathname",
         },
         "$autocapture": {
             "label": "Autocapture",
@@ -142,6 +148,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$screen": {
             "label": "Screen",
             "description": "When a user loads a screen in a mobile app.",
+            "primary_property": "$screen_name",
         },
         "$set": {
             "label": "Set person properties",
@@ -160,6 +167,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "primary_property": "$feature_flag",
         },
         "$feature_view": {
             "label": "Feature view",
@@ -169,6 +177,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_interaction": {
             "label": "Feature interaction",
             "description": "When a user interacts with a feature.",
+            "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
+        },
+        "$element_viewed": {
+            "label": "Element viewed",
+            "description": "When an element wrapped in `<PostHogCaptureOnViewed>` becomes visible in the viewport.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$feature_enrollment_update": {
@@ -225,6 +238,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI evaluation (LLM)",
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
         },
+        "$ai_tag": {
+            "label": "AI tag (LLM)",
+            "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
+        },
         "$ai_metric": {
             "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
@@ -273,6 +290,89 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "Deep link opened": {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
+        },
+        # Events emitted by the @posthog/mcp analytics SDK. @posthog/mcp is rolled out behind a
+        # feature flag (currently enabled only for some PostHog staff for internal testing). For
+        # traffic where it's enabled, these events fire *alongside* the older events further down;
+        # for traffic where it's not, only the older events fire. Once @posthog/mcp reaches general
+        # availability the older events will be retired.
+        "mcp_tool_call": {
+            "label": "MCP tool call",
+            "description": "Fires every time an MCP server tool is invoked. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent.",
+        },
+        "mcp_tools_list": {
+            "label": "MCP tools listed",
+            "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery — i.e. whether new clients are finding the server.",
+        },
+        "mcp_initialize": {
+            "label": "MCP initialize",
+            "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client.",
+        },
+        "mcp_resources_list": {
+            "label": "MCP resources listed",
+            "description": "Fires when an MCP client requests the list of available resources.",
+        },
+        "mcp_resource_read": {
+            "label": "MCP resource read",
+            "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+        },
+        "mcp_prompts_list": {
+            "label": "MCP prompts listed",
+            "description": "Fires when an MCP client requests the list of available prompts.",
+        },
+        "mcp_prompt_get": {
+            "label": "MCP prompt fetched",
+            "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+        },
+        "mcp_custom": {
+            "label": "MCP custom event",
+            "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
+        },
+        "posthog_identify": {
+            "label": "MCP identify",
+            "description": "Fires when an MCP session becomes associated with an identified user, or when the identity changes for an existing session. Used to attribute subsequent events to a real user instead of an anonymous session.",
+        },
+        # Older MCP events. Today these are the only events that fire for traffic where @posthog/mcp
+        # isn't enabled yet, and they fire alongside the @posthog/mcp events for traffic where it is.
+        # Not deprecated today — @posthog/mcp is still in internal testing — but slated for removal
+        # once @posthog/mcp reaches general availability. They come from two sources:
+        #   - the mcpcat library PostHog used before @posthog/mcp existed
+        #   - PostHog's in-tree trackEvent path inside the MCP server
+        "mcp init": {
+            "label": "MCP init",
+            "description": "MCP initialization event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_initialize where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_initialize if you only want the @posthog/mcp-enabled slice.",
+        },
+        "mcp_mcpcat:identify": {
+            "label": "MCP identify (mcpcat)",
+            "description": "Identify event emitted by the mcpcat library. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+        },
+        "mcp_posthog:identify": {
+            "label": "MCP identify (in-tree)",
+            "description": "Identify event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+        },
+        "mcp_tool_called": {
+            "label": "MCP tool called (in-tree)",
+            "description": "Tool-call event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_tool_call if you only want the @posthog/mcp-enabled slice.",
+        },
+        "mcp tool call": {
+            "label": "MCP tool call (mcpcat)",
+            "description": "Tool-call event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+        },
+        "mcp tool response": {
+            "label": "MCP tool response (mcpcat)",
+            "description": "Tool-response event emitted by the mcpcat library. Tool responses are also carried inline on mcp_tool_call (under $mcp_response) for @posthog/mcp-enabled traffic. Will be retired once @posthog/mcp reaches general availability.",
+        },
+        "mcp project switched": {
+            "label": "MCP project switched",
+            "description": "Fires when a user switches the active project in their MCP session.",
+        },
+        "mcp organization switched": {
+            "label": "MCP organization switched",
+            "description": "Fires when a user switches the active organization in their MCP session.",
+        },
+        "mcp feedback submitted": {
+            "label": "MCP feedback submitted",
+            "description": "Fires when a user submits feedback through the MCP server's feedback tool.",
         },
     },
     "elements": {
@@ -381,6 +481,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Debug information about full snapshots in the replay session.",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_rrweb_error": {
+            "label": "Replay rrweb error",
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_recording_script_not_loaded": {
+            "label": "Recording script not loaded",
+            "description": "Recording script not loaded. This can be caused by ad blockers.",
+            "used_for_debug": True,
+        },
         "$debug_first_full_snapshot_timestamp": {
             "label": "First full snapshot timestamp",
             "description": "The timestamp of the first full snapshot in the replay session.",
@@ -443,6 +553,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Python version",
             "description": "The Python version that was used to capture the event.",
             "examples": ["3.11.5"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$go_version": {
+            "label": "Go version",
+            "description": "The Go version that was used to capture the event.",
+            "examples": ["go1.23.0"],
             "system": True,
             "ignored_in_assistant": True,
         },
@@ -686,6 +803,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Session entry wbraid",
             "ignored_in_assistant": True,
         },
+        "$session_entry_ph_keyword": {
+            "description": "PostHog keyword tracking parameter. Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry ph_keyword",
+            "ignored_in_assistant": True,
+        },
         "$session_recording_recorder_version_server_side": {
             "label": "Session recording recorder version server-side",
             "description": "The version of the session recording recorder that is enabled server-side.",
@@ -759,6 +881,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception fingerprint",
             "description": "A fingerprint used to group issues, can be set clientside.",
         },
+        "$exception_fingerprint_record": {
+            "label": "Exception fingerprint record",
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+        },
         "$exception_proposed_fingerprint": {
             "label": "Exception proposed fingerprint",
             "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
@@ -830,6 +956,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Event type",
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": ["click", "submit", "change"],
+        },
+        "$external_click_url": {
+            "label": "External click URL",
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": ["https://example.com/some-article"],
         },
         "$insert_id": {
             "label": "Insert ID",
@@ -1097,6 +1228,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The Operating System version.",
             "examples": ["15.5"],
         },
+        "$os_distro": {
+            "label": "OS distro",
+            "description": "The distribution name in case of Linux.",
+            "examples": ["Ubuntu", "Debian", "Fedora"],
+        },
         "$timezone": {
             "label": "Timezone",
             "description": "The timezone as reported by the device",
@@ -1247,6 +1383,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
             "examples": ["2023-05-20T15:31:00Z"],
         },
+        "$event_time_override_provided": {
+            "label": "Event time was overridden",
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "system": True,
+            "used_for_debug": True,
+        },
+        "$event_time_override_system_time": {
+            "label": "Event time override system time",
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "system": True,
+            "used_for_debug": True,
+        },
         "$browser": {
             "label": "Browser",
             "description": "Name of the browser the user has used.",
@@ -1269,6 +1417,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "en",
                 "ja",
             ],
+        },
+        "$conversations_ticket_id": {
+            "label": "Conversations ticket ID",
+            "description": "The ticket ID from the conversations widget associated with this event.",
+        },
+        "$conversations_widget_session_id": {
+            "label": "Conversations widget session ID",
+            "description": "The session ID from the conversations widget.",
         },
         "$current_url": {
             "label": "Current URL",
@@ -1363,6 +1519,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "IP address for this user when the event was sent.",
             "examples": ["203.0.113.0"],
         },
+        "$ip_address": {
+            "label": "IP address",
+            "description": "The IP address of the client that sent this event. Used by server-side SDKs.",
+            "examples": ["203.0.113.0"],
+        },
         "$host": {
             "label": "Host",
             "description": "The hostname of the Current URL.",
@@ -1422,6 +1583,33 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
             "examples": ["3"],
+        },
+        "$feature_flag_id": {
+            "label": "Feature flag ID",
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": ["1234"],
+        },
+        "$feature_flag_bootstrapped_response": {
+            "label": "Feature flag bootstrapped response",
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+        },
+        "$feature_flag_bootstrapped_payload": {
+            "label": "Feature flag bootstrapped payload",
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+        },
+        "$feature_flag_original_response": {
+            "label": "Feature flag original response",
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+        },
+        "$feature_flag_error": {
+            "label": "Feature flag error",
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "system": True,
+        },
+        "$override_feature_flags": {
+            "label": "Override feature flags",
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "system": True,
         },
         "$survey_response": {
             "label": "Survey response",
@@ -1661,6 +1849,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "posthog-js initial person information. used in the $set_once flow",
             "system": True,
         },
+        "$initial_host": {
+            "label": "Initial host",
+            "description": "Hostname of the URL the user first visited.",
+            "examples": ["example.com", "localhost:8000"],
+        },
+        "$initial_search_engine": {
+            "label": "Initial search engine",
+            "description": "Search engine the user came from on their first visit, if any.",
+            "examples": ["Google", "DuckDuckGo"],
+        },
         "revenue": {
             "label": "Revenue",
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
@@ -1765,9 +1963,19 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Surveys activated",
             "description": "The surveys that were activated for this event.",
         },
+        "$process_person": {
+            "label": "Person processing flag",
+            "description": "Controls whether person data should be processed for this event.",
+            "system": True,
+        },
         "$process_person_profile": {
             "label": "Person profile processing flag",
             "description": "The setting from an SDK to control whether an event has person processing enabled",
+            "system": True,
+        },
+        "$update_person_last_seen_at": {
+            "label": "Update last seen at",
+            "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "system": True,
         },
         "$dead_clicks_enabled_server_side": {
@@ -1824,6 +2032,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "whether the dead click autocapture passed the threshold for waiting for a text selection change event",
             "system": True,
         },
+        "$dead_click_visibility_changed_delay_ms": {
+            "label": "Dead click visibility changed delay in milliseconds",
+            "description": "the delay between a click and the next visibility change event",
+            "system": True,
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "label": "Dead click visibility changed timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
+            "system": True,
+        },
         # AI
         "$ai_base_url": {
             "label": "AI base URL (LLM)",
@@ -1867,6 +2085,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
+        "$ai_cache_reporting_exclusive": {
+            "label": "AI cache reporting exclusive (LLM)",
+            "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
+            "examples": [True],
+        },
         "$ai_reasoning_tokens": {
             "label": "AI reasoning tokens (LLM)",
             "description": "The number of tokens in the reasoning output from the LLM API.",
@@ -1886,6 +2109,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI total cost USD (LLM)",
             "description": "The total cost in USD of the request made to the LLM API (input + output costs).",
             "examples": [0.0041],
+        },
+        "$ai_request_cost_usd": {
+            "label": "AI request cost USD (LLM)",
+            "description": "The per-request cost in USD charged by the LLM API, independent of token usage.",
+            "examples": [0.005],
+        },
+        "$ai_web_search_cost_usd": {
+            "label": "AI web search cost USD (LLM)",
+            "description": "The cost in USD of web searches performed during the LLM API request.",
+            "examples": [0.005],
+        },
+        "$ai_model_cost_used": {
+            "label": "AI model cost used (LLM)",
+            "description": "The model identifier used for cost calculation. May differ from the requested model when a variant or alias is resolved.",
+            "examples": ["openai/gpt-4o-mini"],
+        },
+        "$ai_cost_model_source": {
+            "label": "AI cost model source (LLM)",
+            "description": "Where the cost data for this model was sourced from.",
+            "examples": ["openrouter", "manual", "custom", "passthrough"],
+        },
+        "$ai_cost_model_provider": {
+            "label": "AI cost model provider (LLM)",
+            "description": "The provider used to look up the cost for this model.",
+            "examples": ["openai", "anthropic", "custom"],
         },
         "$ai_latency": {
             "label": "AI latency (LLM)",
@@ -2007,15 +2255,70 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
             "examples": [True, False],
         },
+        "$ai_evaluation_runtime": {
+            "label": "AI Evaluation Runtime (LLM)",
+            "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
+            "examples": ["llm_judge", "hog"],
+        },
+        "$ai_tagger_id": {
+            "label": "AI Tagger ID (LLM)",
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_tagger_name": {
+            "label": "AI Tagger Name (LLM)",
+            "description": "The name of the tagger configuration used.",
+            "examples": ["Product feature tagger", "Intent classifier"],
+        },
+        "$ai_tags": {
+            "label": "AI Tags (LLM)",
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": ["billing", "feature-flags", "onboarding"],
+        },
+        "$ai_tag_count": {
+            "label": "AI Tag Count (LLM)",
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [1, 3],
+        },
+        "$ai_tag_reasoning": {
+            "label": "AI Tag Reasoning (LLM)",
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": ["The generation discussed billing and feature flag configuration"],
+        },
+        "$ai_tagger_start_time": {
+            "label": "AI Tagger Start Time (LLM)",
+            "description": "The timestamp when the tagger started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+        },
+        "$ai_tagger_key_type": {
+            "label": "AI Tagger Key Type (LLM)",
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_tagger_key_id": {
+            "label": "AI Tagger Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
-            "description": "The unique identifier of the event being evaluated.",
+            "description": "Deprecated — use $ai_target_id with $ai_target_type instead. The unique identifier of the event being evaluated.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
         "$ai_target_event_type": {
             "label": "AI Target Event Type (LLM)",
-            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "description": "Deprecated — use $ai_target_type instead. The type of event being evaluated (e.g., $ai_generation).",
             "examples": ["$ai_generation", "$ai_span"],
+        },
+        "$ai_target_id": {
+            "label": "AI Target ID (LLM)",
+            "description": "Identifier of the entity this evaluation targets. Pair with $ai_target_type to know which ID space it belongs to (event UUID, trace ID, etc.).",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_target_type": {
+            "label": "AI Target Type (LLM)",
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "examples": ["generation_uuid", "trace_id"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -2046,6 +2349,400 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Span Name (LLM)",
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
+        },
+        "$ai_tools_called": {
+            "label": "AI Tools Called (LLM)",
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": ["get_weather,search_docs"],
+        },
+        "$ai_tool_call_count": {
+            "label": "AI Tool Call Count (LLM)",
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": ["2"],
+        },
+        "$ai_is_error": {
+            "label": "AI Is Error (LLM)",
+            "description": "Whether this AI event resulted in an error.",
+            "examples": ["true", "false"],
+        },
+        "$ai_error": {
+            "label": "AI Error (LLM)",
+            "description": "The error message from a failed AI event.",
+            "examples": ["Rate limit exceeded", "Invalid API key"],
+        },
+        "$ai_error_type": {
+            "label": "AI Error Type (LLM)",
+            "description": "The type or class of the error from a failed AI event.",
+            "examples": ["RateLimitError", "AuthenticationError"],
+        },
+        "$ai_error_normalized": {
+            "label": "AI Error Normalized (LLM)",
+            "description": "A normalized version of the AI error message for grouping similar errors.",
+            "examples": ["rate_limit_exceeded", "invalid_api_key"],
+        },
+        "$ai_trace_name": {
+            "label": "AI Trace Name (LLM)",
+            "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
+            "examples": ["summarize_text", "chat_completion"],
+        },
+        "$ai_agent_name": {
+            "label": "AI agent name (LLM)",
+            "description": "The name of the AI agent that produced this event.",
+            "examples": ["research_agent", "support_bot"],
+        },
+        "$ai_billable": {
+            "label": "AI billable (LLM)",
+            "description": "Whether this generation counts towards billable usage.",
+            "system": True,
+        },
+        "$ai_eval_source": {
+            "label": "AI eval source (LLM)",
+            "description": "The source that triggered this evaluation.",
+            "examples": ["signals-grouping", "sandboxed-agent"],
+        },
+        "$ai_evaluation_type": {
+            "label": "AI evaluation type (LLM)",
+            "description": "The type of evaluation that was run.",
+            "examples": ["llm_judge", "hog"],
+        },
+        "$ai_expected": {
+            "label": "AI expected output (LLM)",
+            "description": "The expected output for comparison in this evaluation.",
+        },
+        "$ai_experiment_id": {
+            "label": "AI experiment ID (LLM)",
+            "description": "The unique identifier of the experiment this event belongs to.",
+        },
+        "$ai_experiment_item_id": {
+            "label": "AI experiment item ID (LLM)",
+            "description": "The unique identifier of the individual item being evaluated in an experiment.",
+        },
+        "$ai_experiment_item_name": {
+            "label": "AI experiment item name (LLM)",
+            "description": "The name of the individual item being evaluated in an experiment.",
+        },
+        "$ai_experiment_name": {
+            "label": "AI experiment name (LLM)",
+            "description": "The name of the experiment this event belongs to.",
+        },
+        "$ai_framework": {
+            "label": "AI framework (LLM)",
+            "description": "The AI framework used to produce this event.",
+            "examples": ["langchain", "llamaindex", "openai"],
+        },
+        "$ai_lib": {
+            "label": "AI library (LLM)",
+            "description": "The name of the SDK or library that sent this AI event.",
+            "examples": ["posthog-python"],
+            "system": True,
+        },
+        "$ai_lib_version": {
+            "label": "AI library version (LLM)",
+            "description": "The version of the SDK or library that sent this AI event.",
+            "system": True,
+        },
+        "$ai_max_tokens": {
+            "label": "AI max tokens (LLM)",
+            "description": "The maximum number of tokens the model was allowed to generate.",
+            "examples": [1024, 4096],
+            "type": "Numeric",
+        },
+        "$ai_metric_version": {
+            "label": "AI metric version (LLM)",
+            "description": "The version of the metric used for evaluation.",
+        },
+        "$ai_output": {
+            "label": "AI output (LLM)",
+            "description": "The output text from a generation or the text being evaluated.",
+        },
+        "$ai_project_name": {
+            "label": "AI project name (LLM)",
+            "description": "The project name associated with this AI event.",
+        },
+        "$ai_result_type": {
+            "label": "AI result type (LLM)",
+            "description": "The type of result for this evaluation metric.",
+            "examples": ["binary", "numeric", "categorical"],
+        },
+        "$ai_score": {
+            "label": "AI score (LLM)",
+            "description": "The numeric score assigned by this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_score_max": {
+            "label": "AI score max (LLM)",
+            "description": "The maximum possible score for this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_score_min": {
+            "label": "AI score min (LLM)",
+            "description": "The minimum possible score for this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_span_type": {
+            "label": "AI span type (LLM)",
+            "description": "The type of this span in the AI trace tree.",
+            "examples": ["agent", "tool", "chain", "retriever"],
+        },
+        "$ai_status": {
+            "label": "AI status (LLM)",
+            "description": "The status of this evaluation.",
+            "examples": ["ok", "error"],
+        },
+        "$ai_stop_reason": {
+            "label": "AI stop reason (LLM)",
+            "description": "The reason the LLM stopped generating tokens.",
+            "examples": ["end_turn", "max_tokens", "stop_sequence"],
+        },
+        "$ai_tokens_source": {
+            "label": "AI tokens source (LLM)",
+            "description": "The source of the token count data for this generation.",
+            "examples": ["api_response", "estimated"],
+            "system": True,
+        },
+        "$ai_total_input_tokens": {
+            "label": "AI total input tokens (LLM)",
+            "description": "The aggregate number of input tokens across all generations in this trace.",
+            "type": "Numeric",
+        },
+        "$ai_total_output_tokens": {
+            "label": "AI total output tokens (LLM)",
+            "description": "The aggregate number of output tokens across all generations in this trace.",
+            "type": "Numeric",
+        },
+        "$ai_total_tokens": {
+            "label": "AI total tokens (LLM)",
+            "description": "The total number of tokens used (input + output) in this generation.",
+            "type": "Numeric",
+        },
+        "$ai_user_prompt": {
+            "label": "AI user prompt (LLM)",
+            "description": "The user prompt text sent to the LLM.",
+        },
+        # Core MCP properties emitted by the @posthog/mcp analytics SDK. All wire keys are
+        # $mcp_*-prefixed so they don't collide with autocapture or other product properties.
+        "$mcp_source": {
+            "label": "MCP source",
+            "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
+            "examples": ["posthog_mcp_analytics"],
+        },
+        "$mcp_tool_name": {
+            "label": "MCP tool name",
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
+        },
+        "$mcp_tool_description": {
+            "label": "MCP tool description",
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an AI observability URL.",
+            ],
+        },
+        "$mcp_resource_name": {
+            "label": "MCP resource name",
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+        },
+        "$mcp_duration_ms": {
+            "label": "MCP duration (ms)",
+            "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
+            "type": "Numeric",
+            "examples": [42, 1280],
+        },
+        "$mcp_is_error": {
+            "label": "MCP is error",
+            "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
+        },
+        "$mcp_server_name": {
+            "label": "MCP server name",
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": ["PostHog"],
+        },
+        "$mcp_server_version": {
+            "label": "MCP server version",
+            "description": "The advertised version of the MCP server that handled the request.",
+        },
+        "$mcp_client_name": {
+            "label": "MCP client name",
+            "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
+            "examples": ["claude-code", "codex-mcp-client", "Anthropic/ClaudeAI"],
+        },
+        "$mcp_client_version": {
+            "label": "MCP client version",
+            "description": "The version of the MCP client that initiated the connection.",
+        },
+        "$mcp_client_user_agent": {
+            "label": "MCP client user agent",
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
+        },
+        "$mcp_intent": {
+            "label": "MCP intent",
+            "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message.",
+            ],
+        },
+        "$mcp_intent_source": {
+            "label": "MCP intent source",
+            "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
+            "examples": ["context_parameter", "inferred"],
+        },
+        "$mcp_parameters": {
+            "label": "MCP parameters",
+            "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
+        },
+        "$mcp_response": {
+            "label": "MCP response",
+            "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
+        },
+        "$mcp_session_id": {
+            "label": "MCP session ID",
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary — use $mcp_conversation_id when you need a stable identifier across reconnects.",
+        },
+        "$mcp_conversation_id": {
+            "label": "MCP conversation ID",
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+        },
+        # PostHog-specific MCP properties added by the PostHog MCP server on top of the SDK's core
+        # set. They identify which deployment, transport, and consumer produced the event. The
+        # @posthog/mcp SDK will continue to carry these — they're not on a deprecation path.
+        "$mcp_exec_tool_call_name": {
+            "label": "MCP exec inner tool name",
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name — derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
+        },
+        "$mcp_exec_tool_call_description": {
+            "label": "MCP exec inner tool description",
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' — derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project.",
+            ],
+        },
+        "$mcp_exec_inner_tool_names": {
+            "label": "MCP exec inner tool catalog",
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array — filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
+        },
+        "$mcp_protocol_version": {
+            "label": "MCP protocol version",
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": ["2025-11-25", "2025-06-18"],
+        },
+        "$mcp_transport": {
+            "label": "MCP transport",
+            "description": "The transport the MCP client used to connect to the server.",
+            "examples": ["stdio", "sse", "streamable-http"],
+        },
+        "$mcp_consumer": {
+            "label": "MCP consumer",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "examples": ["posthog-code", "slack"],
+        },
+        "$mcp_mode": {
+            "label": "MCP mode",
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": ["cli", "tools"],
+        },
+        "$mcp_region": {
+            "label": "MCP region",
+            "description": "The PostHog cloud region the MCP server routed the request to.",
+            "examples": ["us", "eu"],
+        },
+        "$mcp_oauth_client_name": {
+            "label": "MCP OAuth client name",
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
+        },
+        "$mcp_version": {
+            "label": "MCP server version (internal)",
+            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "type": "Numeric",
+            "examples": [1, 2],
+        },
+        "$mcp_organization_id": {
+            "label": "MCP organization ID",
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+        },
+        "$mcp_project_id": {
+            "label": "MCP project ID",
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+        },
+        "$mcp_project_name": {
+            "label": "MCP project name",
+            "description": "Display name of the active PostHog project on the MCP session.",
+        },
+        "$mcp_project_uuid": {
+            "label": "MCP project UUID",
+            "description": "PostHog project UUID for the active project on the MCP session.",
+        },
+        "$mcp_read_only": {
+            "label": "MCP read-only",
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
+        },
+        # Unprefixed MCP properties from the older code paths (the mcpcat library and PostHog's
+        # in-tree trackEvent path). They overlap with the $mcp_*-prefixed core properties above
+        # and will be retired once @posthog/mcp reaches general availability — they are not yet
+        # deprecated, because @posthog/mcp is still in internal testing.
+        "mcp_client_name": {
+            "label": "MCP client name (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_name for new dashboards.",
+            "examples": ["claude-code", "codex-mcp-client"],
+        },
+        "mcp_client_version": {
+            "label": "MCP client version (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_client_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_version for new dashboards.",
+        },
+        "mcp_oauth_client_name": {
+            "label": "MCP OAuth client name (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
+        },
+        "mcp_protocol_version": {
+            "label": "MCP protocol version (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
+        },
+        "mcp_consumer": {
+            "label": "MCP consumer (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_consumer. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_consumer for new dashboards.",
+        },
+        "mcp_transport": {
+            "label": "MCP transport (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
+        },
+        "mcp_session_id": {
+            "label": "MCP session ID (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
+        },
+        "mcp_conversation_id": {
+            "label": "MCP conversation ID (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
+        },
+        "mcp_mode": {
+            "label": "MCP mode (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
+        },
+        "mcp_version": {
+            "label": "MCP server version (unprefixed, internal)",
+            "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
+            "type": "Numeric",
+        },
+        "tool_name": {
+            "label": "Tool name (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
+        },
+        "resource_name": {
+            "label": "Resource name (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_resource_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_resource_name for new dashboards.",
+        },
+        "duration_ms": {
+            "label": "Duration (ms, unprefixed)",
+            "description": "Older unprefixed variant of $mcp_duration_ms. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_duration_ms for new dashboards.",
+            "type": "Numeric",
+        },
+        "is_error": {
+            "label": "Is error (unprefixed)",
+            "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -2119,6 +2816,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "CSP Policy version",
             "description": "The version of the CSP policy. Must be provided in the report URL.",
             "examples": ["1.0"],
+        },
+        "$virt_is_bot": {
+            "label": "Is bot",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool.",
+            "type": "Boolean",
+            "virtual": True,
+        },
+        "$virt_traffic_type": {
+            "label": "Traffic type",
+            "description": "Classification of traffic: Regular, Bot, AI Agent, or Automation.",
+            "examples": ["Regular", "Bot", "AI Agent", "Automation"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_traffic_category": {
+            "label": "Traffic category",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_bot_name": {
+            "label": "Bot name",
+            "description": "Name of the detected bot or crawler.",
+            "examples": ["Googlebot", "ChatGPT", "Claude", "curl"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_bot_operator": {
+            "label": "Bot operator",
+            "description": "Company or organization operating the bot.",
+            "examples": ["Google", "OpenAI", "Anthropic", "Microsoft"],
+            "type": "String",
+            "virtual": True,
         },
     },
     "numerical_event_properties": {},
@@ -2197,6 +2928,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "End pathname",
             "description": "The last pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
+            "type": "String",
+        },
+        "$entry_hostname": {
+            "label": "Entry hostname",
+            "description": "The hostname of the first URL visited in this session.",
+            "examples": ["example.com"],
+            "type": "String",
+        },
+        "$end_hostname": {
+            "label": "End hostname",
+            "description": "The hostname of the last URL visited in this session.",
+            "examples": ["example.com"],
             "type": "String",
         },
         "$exit_current_url": {
@@ -2463,6 +3206,11 @@ def decapitalize_first_word(text: str) -> str:
 
 
 for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
+    # Virtual event properties (e.g. $virt_is_bot) are computed from event-level
+    # data and don't exist on the persons table — skip them entirely.
+    if value.get("virtual", False):
+        continue
+
     if key in PERSON_PROPERTIES_ADAPTED_FROM_EVENT or key.startswith("$geoip_"):
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = {
             **value,
@@ -2515,3 +3263,35 @@ PROPERTY_NAME_ALIASES = {
     for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
     if "label" in value and "deprecated" not in value["label"]
 }
+
+_PROP_TYPE_TO_TAXONOMY_GROUP = {
+    "event": "event_properties",
+    "person": "person_properties",
+    "group": "groups",
+    "session": "session_properties",
+}
+
+PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
+    prop_type: {
+        key: value["label"]
+        for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if "label" in value and "deprecated" not in value["label"]
+    }
+    for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
+}
+
+IGNORED_EVENT_NAMES: list[str] = [
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if defn.get("system") or defn.get("ignored_in_assistant")
+]
+
+# Core PostHog events, derived from the taxonomy. Used to determine which events
+# are treated as verified in the Data Management UI and included in typed code generation.
+CORE_EVENTS: list[str] = [name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}) if name != "All events"]
+
+WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
+    name
+    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
+    if name not in IGNORED_EVENT_NAMES and name != "All events"
+)

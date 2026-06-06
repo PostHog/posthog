@@ -14,7 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.dags.common import JobOwners
 
-from products.llm_analytics.backend.models import Dataset, DatasetItem
+from products.ai_observability.backend.models import Dataset, DatasetItem
 from products.posthog_ai.dags.snapshot_team_data import (
     ClickhouseTeamDataSnapshot,
     PostgresTeamDataSnapshot,

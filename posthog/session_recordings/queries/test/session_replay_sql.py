@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from django.conf import settings
@@ -36,6 +36,7 @@ INSERT INTO sharded_session_replay_events (
     block_first_timestamps,
     block_last_timestamps,
     retention_period_days,
+    is_deleted,
     _timestamp
 )
 SELECT
@@ -60,6 +61,7 @@ SELECT
     %(block_first_timestamps)s,
     %(block_last_timestamps)s,
     %(retention_period_days)s,
+    %(is_deleted)s,
     %(_timestamp)s
 """
 
@@ -140,6 +142,7 @@ def produce_replay_summary(
     block_first_timestamps: list[datetime] | None = None,
     block_last_timestamps: list[datetime] | None = None,
     retention_period_days: int | None = None,
+    is_deleted: bool = False,
 ):
     """
     Creates a session replay event in ClickHouse for testing purposes.
@@ -152,7 +155,7 @@ def produce_replay_summary(
     last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
 
     timestamp = format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))
-    data = {
+    data: dict[str, Any] = {
         "session_id": session_id or "1",
         "team_id": team_id,
         "distinct_id": distinct_id or "user",
@@ -174,6 +177,7 @@ def produce_replay_summary(
         "block_first_timestamps": block_first_timestamps or [],
         "block_last_timestamps": block_last_timestamps or [],
         "retention_period_days": retention_period_days or 30,
+        "is_deleted": 1 if is_deleted else 0,
     }
 
     if settings.TEST:

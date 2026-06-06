@@ -10,7 +10,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -27,8 +28,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         # Enable access control features
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -56,7 +57,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             created_by=created_by or self.user,
             prefix="test",
             job_inputs={
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
             },
         )
 

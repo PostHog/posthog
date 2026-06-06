@@ -1,7 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import {
+    canonicalizeApiHost,
+    canonicalizeUiHost,
+    toolbarConfigLogic,
+    toolbarFetch,
+    toolbarUploadMedia,
+} from '~/toolbar/toolbarConfigLogic'
+import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -11,16 +18,1479 @@ global.fetch = jest.fn(() =>
     } as any as Response)
 )
 
-describe('toolbar toolbarLogic', () => {
-    let logic: ReturnType<typeof toolbarConfigLogic.build>
+/** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
+function mockTokenExchangeSuccess(): void {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+        if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+            return Promise.resolve({ ok: true, status: 200 })
+        }
+        return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }),
+        })
+    })
+}
+
+describe('toolbar toolbarConfigLogic', () => {
+    let mockOpen: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        logic = toolbarConfigLogic({ apiURL: 'http://localhost' })
-        logic.mount()
+        localStorage.clear()
+        sessionStorage.clear()
+        ;(global.fetch as jest.Mock).mockClear()
+        mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
 
-    it('is not authenticated', () => {
+    afterEach(() => {
+        mockOpen.mockRestore()
+    })
+
+    it('is not authenticated without any token', () => {
+        const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+        logic.mount()
         expectLogic(logic).toMatchValues({ isAuthenticated: false })
+    })
+
+    it('is authenticated with accessToken', () => {
+        const logic = toolbarConfigLogic.build({
+            apiURL: 'http://localhost',
+            accessToken: 'pha_oauth_token',
+            refreshToken: 'phr_refresh',
+            clientId: 'client-id',
+        })
+        logic.mount()
+        expectLogic(logic).toMatchValues({ isAuthenticated: true })
+    })
+
+    it('setOAuthTokens updates tokens', () => {
+        const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+        logic.mount()
+
+        expectLogic(logic, () => {
+            logic.actions.setOAuthTokens('pha_new', 'phr_new', 'client-123')
+        }).toMatchValues({
+            accessToken: 'pha_new',
+            refreshToken: 'phr_new',
+            clientId: 'client-123',
+            isAuthenticated: true,
+        })
+    })
+
+    it('logout clears all tokens', () => {
+        const logic = toolbarConfigLogic.build({
+            apiURL: 'http://localhost',
+            accessToken: 'access',
+            refreshToken: 'refresh',
+            clientId: 'client',
+        })
+        logic.mount()
+
+        expectLogic(logic, () => {
+            logic.actions.logout()
+        }).toMatchValues({
+            accessToken: null,
+            refreshToken: null,
+            clientId: null,
+            isAuthenticated: false,
+        })
+    })
+
+    it('tokenExpired clears OAuth tokens', () => {
+        const logic = toolbarConfigLogic.build({
+            apiURL: 'http://localhost',
+            accessToken: 'access',
+            refreshToken: 'refresh',
+            clientId: 'client',
+        })
+        logic.mount()
+
+        expectLogic(logic, () => {
+            logic.actions.tokenExpired()
+        }).toMatchValues({
+            accessToken: null,
+            refreshToken: null,
+            clientId: null,
+            isAuthenticated: false,
+        })
+    })
+
+    it('normalizes uiHost to not end with a slash', () => {
+        const logic = toolbarConfigLogic.build({
+            posthog: { config: { ui_host: 'https://selfhosted.example.com/' } } as any,
+        } as any)
+        logic.mount()
+        expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+    })
+
+    describe('uiHost resolution', () => {
+        it('prefers explicit uiHost prop over everything else', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                posthog: { requestRouter: { uiHost: 'https://should-not-be-used.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it.each([
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.posthog.com', 'https://eu.posthog.com'],
+        ])('uses requestRouter.uiHost when no explicit uiHost prop', (requestRouterUiHost, expected) => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://should-not-be-used',
+                posthog: { requestRouter: { uiHost: requestRouterUiHost }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe(expected)
+        })
+
+        it('uses requestRouter.uiHost even when apiURL is a reverse proxy', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://myproxy.example.com/ingest',
+                posthog: { requestRouter: { uiHost: 'https://us.posthog.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to ui_host config when no requestRouter', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: {
+                    config: { ui_host: 'https://my-posthog.example.com' },
+                } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://my-posthog.example.com')
+        })
+
+        it('falls back to apiURL when no requestRouter and no ui_host', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://selfhosted.example.com',
+                posthog: { config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://selfhosted.example.com')
+        })
+
+        it.each(['javascript:alert(1)//', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+            'rejects uiHost with dangerous scheme: %s',
+            (maliciousHost) => {
+                const logic = toolbarConfigLogic.build({
+                    uiHost: maliciousHost,
+                    apiURL: 'https://fallback.example.com',
+                    posthog: { config: {} } as any,
+                } as any)
+                logic.mount()
+                // Should fall through to apiURL instead of using the malicious value
+                expect(logic.values.uiHost).toBe('https://fallback.example.com')
+            }
+        )
+
+        it('accepts valid https uiHost', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://app.posthog.com',
+                apiURL: 'https://fallback.example.com',
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://app.posthog.com')
+        })
+
+        it('accepts valid http uiHost', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'http://localhost:8000',
+                apiURL: 'https://fallback.example.com',
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('http://localhost:8000')
+        })
+    })
+
+    describe('authenticate confirm modal gating', () => {
+        it.each([
+            ['https://us.posthog.com', true],
+            ['https://eu.posthog.com', true],
+            ['https://app.posthog.com', true], // legacy canonical
+            ['https://selfhosted.example.com', false],
+            ['http://us.posthog.com', false], // http scheme is not trusted
+            ['https://us.posthog.com.evil.com', false],
+        ])('isTrustedUiHost("%s") === %s', (uiHost, expected) => {
+            const logic = toolbarConfigLogic.build({ uiHost } as any)
+            logic.mount()
+            expect(logic.values.isTrustedUiHost).toBe(expected)
+        })
+
+        it('skips the confirm modal and authenticates directly for PostHog Cloud hosts', async () => {
+            mockTokenExchangeSuccess()
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            // Trusted hosts skip the HEAD check so authStatus stays idle
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+            await expectLogic(logic, () => {
+                logic.actions.authenticate()
+            }).toMatchValues({ authConfirmModalVisible: false })
+        })
+
+        it('opens the confirm modal for non-PostHog hosts', async () => {
+            mockTokenExchangeSuccess()
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+            await expectLogic(logic, () => {
+                logic.actions.authenticate()
+            }).toMatchValues({ authConfirmModalVisible: true })
+        })
+
+        it('confirmAuthenticate opens the config modal when authStatus flipped to error after modal was shown', async () => {
+            // Simulate: user opened the modal, then the in-flight reachability check failed
+            // before they clicked Continue.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('network')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmAuthenticate()
+            }).toMatchValues({
+                authStatus: 'error',
+                uiHostConfigModalVisible: true,
+            })
+            // Should not have progressed to authenticating or set PKCE.
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('confirmAuthenticate is a no-op while authStatus is checking', async () => {
+            // Never-resolving fetch keeps status stuck in 'checking'.
+            ;(global.fetch as jest.Mock).mockImplementation(() => new Promise(() => {}))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('checking')
+
+            await expectLogic(logic, () => {
+                logic.actions.confirmAuthenticate()
+            }).toMatchValues({
+                authStatus: 'checking',
+                uiHostConfigModalVisible: false,
+            })
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('confirmAuthenticate ignores re-entrant calls while already authenticating', async () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+            // Synthesize the race: set status to 'authenticating' (as the first
+            // confirmAuthenticate would) and verify a second click bails out
+            // without capturing the toolbar-authenticate event or touching PKCE.
+            logic.actions.setAuthStatus('authenticating')
+            logic.actions.confirmAuthenticate()
+
+            await expectLogic(logic).delay(0)
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+    })
+
+    describe('reachability check gating', () => {
+        it('skips the HEAD check entirely for trusted PostHog Cloud hosts', () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('idle')
+            // No HEAD request was fired.
+            const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+            )
+            expect(headCalls).toHaveLength(0)
+        })
+
+        it('skips the HEAD check when already authenticated and no pending code exchange', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://selfhosted.example.com',
+                accessToken: 'pha_existing',
+                refreshToken: 'phr_existing',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('idle')
+            const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+            )
+            expect(headCalls).toHaveLength(0)
+        })
+
+        it('runs the HEAD check for untrusted hosts that are not authenticated yet', () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('checking')
+            const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+            )
+            expect(headCalls).toHaveLength(1)
+        })
+
+        it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://selfhosted.example.com',
+                accessToken: 'pha_existing',
+                refreshToken: 'phr_existing',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            expect(logic.values.authStatus).toBe('checking')
+            window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('canonicalizeUiHost', () => {
+        it.each([
+            // valid
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://us.posthog.com/', 'https://us.posthog.com'],
+            ['HTTPS://US.POSTHOG.COM', 'https://us.posthog.com'], // lowercased
+            ['https://us.posthog.com:443', 'https://us.posthog.com'], // default port stripped
+            ['https://us.posthog.com/some/path?q=1#hash', 'https://us.posthog.com'], // origin only
+            ['http://localhost:8000', 'http://localhost:8000'],
+            // rejected (returns null)
+            ['', null],
+            [undefined, null],
+            ['javascript:alert(1)', null],
+            ['data:text/html,<script>alert(1)</script>', null],
+            ['blob:https://us.posthog.com/abc', null],
+            ['https://us.posthog.com@evil.com', null], // userinfo rejected
+            ['https://user:pass@us.posthog.com', null], // userinfo rejected
+            ['not a url', null],
+            ['//protocol-relative.example.com', null],
+        ])('canonicalizeUiHost(%p) === %p', (input, expected) => {
+            expect(canonicalizeUiHost(input as any)).toBe(expected)
+        })
+    })
+
+    describe('OAuth localStorage restoration', () => {
+        it('restores OAuth from localStorage when no tokens in props (trusted host)', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'https://us.posthog.com',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                refreshToken: 'stored-refresh',
+                clientId: 'stored-client',
+                isAuthenticated: true,
+            })
+        })
+
+        it('restores OAuth tokens when stored uiHost matches current uiHost', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                isAuthenticated: true,
+            })
+        })
+
+        it('discards stored OAuth tokens when uiHost does not match', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'https://us.posthog.com',
+                })
+            )
+            // apiURL resolves to http://localhost — different from stored uiHost
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: null,
+                isAuthenticated: false,
+            })
+        })
+
+        it('restores legacy tokens (no stored uiHost) on trusted PostHog Cloud hosts', () => {
+            // Tokens stored before the uiHost binding was added
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'legacy-access',
+                    refreshToken: 'legacy-refresh',
+                    clientId: 'legacy-client',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'legacy-access',
+                isAuthenticated: true,
+            })
+        })
+
+        it('discards legacy tokens (no stored uiHost) on untrusted hosts', () => {
+            // Prevents an attacker from loading a victim's legacy token into a
+            // maliciously-injected uiHost and exfiltrating it via subsequent API calls.
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'legacy-access',
+                    refreshToken: 'legacy-refresh',
+                    clientId: 'legacy-client',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://evil.example.com' } as any)
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: null,
+                isAuthenticated: false,
+            })
+            // Stale entry is cleaned up so we don't re-warn on every subsequent mount.
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+            warnSpy.mockRestore()
+        })
+
+        it('clears localStorage when the stored uiHost does not match the current uiHost', () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'https://us.posthog.com',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+            expect(logic.values.accessToken).toBeNull()
+            // Stale mismatched entry is purged — prevents log-noise on every mount
+            // and prevents tokens from being accepted again if the user returns to
+            // the originally-stored uiHost without re-authenticating in between.
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+            warnSpy.mockRestore()
+        })
+
+        it('tolerates trailing-slash / case differences between stored and current uiHost', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    // Old toolbar wrote trailing slash + mixed case; the selector and
+                    // canonicalizer should make this a no-op equivalence.
+                    uiHost: 'HTTPS://US.POSTHOG.COM/',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                isAuthenticated: true,
+            })
+        })
+
+        it('discards tokens whose stored fields are not strings', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({ accessToken: 123, refreshToken: {}, clientId: null, uiHost: 'https://us.posthog.com' })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: null, isAuthenticated: false })
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+        })
+
+        it('discards tokens when localStorage contains malformed JSON', () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(OAUTH_LOCALSTORAGE_KEY, '{not valid json')
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: null })
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+            warnSpy.mockRestore()
+        })
+
+        it('does not overwrite when accessToken already exists in props', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                })
+            )
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'existing-access',
+                refreshToken: 'existing-refresh',
+                clientId: 'existing-client',
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({ accessToken: 'existing-access', isAuthenticated: true })
+        })
+    })
+
+    describe('toolbar re-launch and token persistence', () => {
+        afterEach(() => {
+            window.history.pushState({}, '', '/')
+        })
+
+        it('restores tokens from OAuth localStorage when posthog-js re-launches without tokens', () => {
+            // posthog-js overwrites _postHogToolbarParams on re-launch, losing tokens.
+            // OAuth tokens are persisted separately in _postHogToolbarOAuth.
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                token: 'phc_test',
+                // No accessToken — simulates posthog-js overwrite
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                refreshToken: 'stored-refresh',
+                clientId: 'stored-client',
+                isAuthenticated: true,
+            })
+        })
+
+        it('does not restore stored tokens when props already include tokens', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'old-stored',
+                    refreshToken: 'old-stored-refresh',
+                    clientId: 'old-stored-client',
+                })
+            )
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'props-access',
+                refreshToken: 'props-refresh',
+                clientId: 'props-client',
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({ accessToken: 'props-access' })
+        })
+
+        it('code exchange takes priority over stored tokens', async () => {
+            // If a fresh code is in the hash, exchange it instead of restoring old tokens
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'old-stored',
+                    refreshToken: 'old-refresh',
+                    clientId: 'old-client',
+                })
+            )
+            localStorage.setItem(PKCE_STORAGE_KEY, JSON.stringify({ verifier: 'test-verifier', ts: Date.now() }))
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:fresh,client_id:new-client')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                refreshToken: 'new-refresh',
+                isAuthenticated: true,
+            })
+        })
+
+        it('falls back to stored tokens when code exchange fails due to expired PKCE', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            // PKCE verifier expired
+            localStorage.setItem(
+                PKCE_STORAGE_KEY,
+                JSON.stringify({ verifier: 'expired-verifier', ts: Date.now() - 11 * 60 * 1000 })
+            )
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:stale,client_id:some-client')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'stored-access',
+                refreshToken: 'stored-refresh',
+                clientId: 'stored-client',
+                isAuthenticated: true,
+            })
+            warnSpy.mockRestore()
+        })
+
+        it('falls back to stored tokens when no PKCE verifier exists', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:stale,client_id:some-client')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'stored-access',
+                isAuthenticated: true,
+            })
+            warnSpy.mockRestore()
+        })
+
+        it('resets authStatus to idle after failed code exchange with fallback', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:stale,client_id:some-client')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                authStatus: 'idle',
+                isAuthenticated: true,
+            })
+            warnSpy.mockRestore()
+        })
+
+        it('remains unauthenticated when code exchange fails and no stored tokens exist', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            localStorage.setItem(
+                PKCE_STORAGE_KEY,
+                JSON.stringify({ verifier: 'expired-verifier', ts: Date.now() - 11 * 60 * 1000 })
+            )
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:stale,client_id:some-client')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                isAuthenticated: false,
+                accessToken: null,
+            })
+            warnSpy.mockRestore()
+        })
+
+        it('setOAuthTokens persists to separate OAuth localStorage key with uiHost', () => {
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            logic.actions.setOAuthTokens('new-access', 'new-refresh', 'new-client')
+
+            const stored = JSON.parse(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY) || '{}')
+            expect(stored).toEqual({
+                accessToken: 'new-access',
+                refreshToken: 'new-refresh',
+                clientId: 'new-client',
+                uiHost: 'http://localhost',
+            })
+        })
+
+        it('logout clears both localStorage keys', () => {
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            // Authenticate first so tokens are persisted
+            logic.actions.setOAuthTokens('access', 'refresh', 'client')
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).not.toBeNull()
+
+            logic.actions.logout()
+
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+            expect(localStorage.getItem('_postHogToolbarParams')).toBeNull()
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('tokenExpired clears OAuth localStorage key', () => {
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            logic.actions.setOAuthTokens('access', 'refresh', 'client')
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).not.toBeNull()
+
+            logic.actions.tokenExpired()
+
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toBeNull()
+        })
+
+        it('survives mount/unmount/remount cycle with tokens intact', () => {
+            // First mount: set tokens
+            const logic1 = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic1.mount()
+            logic1.actions.setOAuthTokens('persisted-access', 'persisted-refresh', 'persisted-client')
+            logic1.unmount()
+
+            // Second mount: tokens should be restored from OAuth localStorage
+            const logic2 = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic2.mount()
+
+            expectLogic(logic2).toMatchValues({
+                accessToken: 'persisted-access',
+                refreshToken: 'persisted-refresh',
+                clientId: 'persisted-client',
+                isAuthenticated: true,
+            })
+        })
+
+        it('handles corrupted OAuth localStorage gracefully', () => {
+            localStorage.setItem(OAUTH_LOCALSTORAGE_KEY, 'not-valid-json{{{')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({ isAuthenticated: false, accessToken: null })
+        })
+
+        it('handles partial OAuth localStorage data gracefully', () => {
+            localStorage.setItem(OAUTH_LOCALSTORAGE_KEY, JSON.stringify({ accessToken: 'only-access' }))
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            // Missing refreshToken and clientId — should not restore
+            expectLogic(logic).toMatchValues({ isAuthenticated: false, accessToken: null })
+        })
+    })
+
+    describe('token refresh on 401', () => {
+        it('retries request with new token after successful refresh', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                clientId: 'client-id',
+            })
+            logic.mount()
+
+            let apiCallCount = 0
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () =>
+                            Promise.resolve({
+                                access_token: 'new-access',
+                                refresh_token: 'new-refresh',
+                                expires_in: 3600,
+                            }),
+                    })
+                }
+                apiCallCount++
+                if (apiCallCount === 1) {
+                    return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ results: ['data'] }),
+                })
+            })
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(response.status).toBe(200)
+            expect(logic.values.accessToken).toBe('new-access')
+            expect(logic.values.refreshToken).toBe('new-refresh')
+        })
+
+        it('calls tokenExpired when refresh fails', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) })
+                }
+                return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+            })
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(logic.values.accessToken).toBeNull()
+            expect(logic.values.isAuthenticated).toBe(false)
+        })
+
+        it('does not retry when response is not 401', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear() // clear the uiHost check call from afterMount
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ results: [] }),
+                })
+            )
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(response.status).toBe(200)
+            // Only one fetch call (no refresh)
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect(logic.values.accessToken).toBe('access-token')
+        })
+    })
+
+    describe('authorization code extraction and hash cleanup', () => {
+        let replaceStateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+            const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
+        })
+
+        afterEach(() => {
+            replaceStateSpy.mockRestore()
+            window.history.pushState({}, '', '/')
+        })
+
+        it.each([
+            ['toolbar-only hash is fully removed', '#__posthog_toolbar=code:abc,client_id:xyz', '/'],
+            [
+                'preserves original fragment before toolbar param',
+                '#section1&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#section1',
+            ],
+            [
+                'preserves multi-part original fragment',
+                '#/dashboard&tab=1&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/dashboard&tab=1',
+            ],
+            ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'restores ? when toolbar param was the first hash query on a SPA route',
+                '#/login?__posthog_toolbar=code:abc,client_id:xyz&foo=bar',
+                '/#/login?foo=bar',
+            ],
+            [
+                'preserves trailing hash query when toolbar param was last',
+                '#/login?foo=bar&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/login?foo=bar',
+            ],
+        ])('%s', (_label, hash, expectedUrl) => {
+            jest.useFakeTimers()
+            window.history.pushState({}, '', `/${hash}`)
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            // Hash cleanup is deferred to avoid triggering SPA router re-renders
+            expect(replaceStateSpy).not.toHaveBeenCalled()
+            jest.advanceTimersByTime(500)
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+            jest.useRealTimers()
+        })
+
+        it('uses uiHost-derived URLs for token exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { ui_host: 'https://us.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({
+                accessToken: 'new-access',
+                isAuthenticated: true,
+            })
+
+            // Trusted Cloud hosts skip the HEAD reachability check, so the first
+            // fetch is the token exchange.
+            const tokenExchangeCall = (global.fetch as jest.Mock).mock.calls[0]
+            expect(tokenExchangeCall[0]).toBe('https://us.posthog.com/oauth/token/')
+            const body = new URLSearchParams(tokenExchangeCall[1].body)
+            expect(body.get('redirect_uri')).toBe('https://us.posthog.com/toolbar_oauth/callback')
+        })
+
+        it('does not trigger temporaryToken migration during code exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                temporaryToken: 'old-temp-token',
+            })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toNotHaveDispatchedActions(['tokenExpired'])
+        })
+
+        it('cleans up localStorage PKCE key after exchange', async () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            // Wait for HEAD check + token exchange to complete
+            await expectLogic(logic).delay(0)
+
+            expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+        })
+
+        it('aborts token exchange when PKCE verifier has expired', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            const expiredPayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() - 11 * 60 * 1000 })
+            localStorage.setItem(PKCE_STORAGE_KEY, expiredPayload)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            warnSpy.mockRestore()
+        })
+
+        it('aborts token exchange when PKCE data is corrupted', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(PKCE_STORAGE_KEY, 'not-valid-json{{{')
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            warnSpy.mockRestore()
+        })
+
+        it('aborts token exchange when no PKCE data exists', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            mockTokenExchangeSuccess()
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0)
+
+            // HEAD check fires but token exchange does not
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+            expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('/toolbar_oauth/check')
+            warnSpy.mockRestore()
+        })
+    })
+
+    describe('readToolbarAuthHash', () => {
+        afterEach(() => {
+            window.history.pushState({}, '', '/')
+        })
+
+        it('returns code and clientId from hash without modifying the URL', () => {
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            const replaceStateSpy = jest.spyOn(window.history, 'replaceState')
+            const result = readToolbarAuthHash()
+            expect(result).toEqual({ code: 'abc', clientId: 'xyz' })
+            expect(replaceStateSpy).not.toHaveBeenCalled()
+            replaceStateSpy.mockRestore()
+        })
+
+        it.each([
+            ['empty hash', '/#', null],
+            ['no hash at all', '/', null],
+            ['unrelated hash', '/#some-other-hash', null],
+            ['__posthog= without _toolbar', '/#__posthog=%7B%22action%22%3A%22ph_authorize%22%7D', null],
+            ['missing code field', '/#__posthog_toolbar=client_id:xyz', null],
+            ['missing client_id field', '/#__posthog_toolbar=code:abc', null],
+            ['empty code value', '/#__posthog_toolbar=code:,client_id:xyz', null],
+            ['similar-looking param that is not toolbar', '/#__posthog_toolbar_v2=code:abc,client_id:xyz', null],
+        ])('returns null for: %s', (_label, url, expected) => {
+            window.history.pushState({}, '', url)
+            expect(readToolbarAuthHash()).toEqual(expected)
+        })
+
+        it.each([
+            ['standard params', '/#__posthog_toolbar=code:abc,client_id:xyz', { code: 'abc', clientId: 'xyz' }],
+            [
+                'base64url-safe code with dashes and underscores',
+                '/#__posthog_toolbar=code:a2gGQw68uN8fzaKelhTZZY-cuSDnP7H_x,client_id:QUKsGDyHrQqrbBwdMYaL2rmp2rPDfHJICOM5EZzY',
+                {
+                    code: 'a2gGQw68uN8fzaKelhTZZY-cuSDnP7H_x',
+                    clientId: 'QUKsGDyHrQqrbBwdMYaL2rmp2rPDfHJICOM5EZzY',
+                },
+            ],
+            [
+                'preceded by hash-based SPA route',
+                '/#/login&__posthog_toolbar=code:abc,client_id:xyz',
+                { code: 'abc', clientId: 'xyz' },
+            ],
+            [
+                'preceded by multiple hash params',
+                '/#section1&tab=2&__posthog_toolbar=code:abc,client_id:xyz',
+                { code: 'abc', clientId: 'xyz' },
+            ],
+            [
+                'coexists with __posthog= param',
+                '/#__posthog=%7B%7D&__posthog_toolbar=code:abc,client_id:xyz',
+                { code: 'abc', clientId: 'xyz' },
+            ],
+            [
+                'percent-encoded delimiters',
+                '/#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz',
+                { code: 'abc', clientId: 'xyz' },
+            ],
+        ])('extracts params for: %s', (_label, url, expected) => {
+            window.history.pushState({}, '', url)
+            expect(readToolbarAuthHash()).toEqual(expected)
+        })
+    })
+
+    describe('cleanToolbarAuthHash', () => {
+        let replaceStateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            replaceStateSpy.mockRestore()
+            window.history.pushState({}, '', '/')
+        })
+
+        it.each([
+            ['toolbar-only hash', '/#__posthog_toolbar=code:abc,client_id:xyz', '/'],
+            [
+                'preserves fragment before toolbar param',
+                '/#section1&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#section1',
+            ],
+            ['hash-based SPA route (Angular-style)', '/#/login&__posthog_toolbar=code:abc,client_id:xyz', '/#/login'],
+            [
+                'hash-based SPA route with nested path',
+                '/#/dashboard/settings&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/dashboard/settings',
+            ],
+            [
+                'multi-part fragment with toolbar at end',
+                '/#/dashboard&tab=1&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/dashboard&tab=1',
+            ],
+            [
+                'toolbar param in the middle of other params',
+                '/#section1&__posthog_toolbar=code:abc,client_id:xyz&other=value',
+                '/#section1&other=value',
+            ],
+            [
+                'duplicate toolbar params from re-authentication',
+                '/#__posthog_toolbar=code:old,client_id:old&__posthog_toolbar=code:new,client_id:new',
+                '/',
+            ],
+            [
+                'duplicate toolbar with SPA route preserved',
+                '/#/app&__posthog_toolbar=code:old,client_id:old&__posthog_toolbar=code:new,client_id:new',
+                '/#/app',
+            ],
+            [
+                'preserves __posthog= param (owned by posthog-js)',
+                '/#__posthog=%7B%7D&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#__posthog={}',
+            ],
+            ['percent-encoded toolbar param', '/#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            ['page has query string and hash', '/#__posthog_toolbar=code:abc,client_id:xyz', '/'],
+        ])('cleanup: %s', (_label, hash, expectedUrl) => {
+            window.history.pushState({}, '', hash)
+            cleanToolbarAuthHash()
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+        })
+
+        it.each([
+            ['no hash at all', '/'],
+            ['unrelated hash', '/#some-other-hash'],
+            ['__posthog= without toolbar', '/#__posthog=%7B%7D'],
+            ['empty hash', '/#'],
+        ])('does nothing for: %s', (_label, url) => {
+            window.history.pushState({}, '', url)
+            cleanToolbarAuthHash()
+            expect(replaceStateSpy).not.toHaveBeenCalled()
+        })
+
+        it('cleans hash on unmount even if deferred timeout has not fired', () => {
+            jest.useFakeTimers()
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expect(replaceStateSpy).not.toHaveBeenCalled()
+            logic.unmount()
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+            jest.useRealTimers()
+        })
+
+        it('double unmount is safe (idempotent cleanup)', () => {
+            jest.useFakeTimers()
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+
+            const pkcePayload = JSON.stringify({ verifier: 'test-verifier', ts: Date.now() })
+            localStorage.setItem(PKCE_STORAGE_KEY, pkcePayload)
+
+            // Use a real replaceState so the URL actually changes after unmount
+            replaceStateSpy.mockRestore()
+            replaceStateSpy = jest.spyOn(window.history, 'replaceState')
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+            logic.unmount()
+
+            expect(replaceStateSpy).toHaveBeenCalledTimes(1)
+
+            // After first unmount the hash is gone. Second call is a no-op.
+            replaceStateSpy.mockClear()
+            cleanToolbarAuthHash()
+            expect(replaceStateSpy).not.toHaveBeenCalled()
+            jest.useRealTimers()
+        })
+
+        it('preserves page query string when cleaning hash', () => {
+            // Simulate: https://example.com/page?q=search#__posthog_toolbar=code:abc,client_id:xyz
+            window.history.pushState({}, '', '/page?q=search#__posthog_toolbar=code:abc,client_id:xyz')
+            cleanToolbarAuthHash()
+            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/page?q=search')
+        })
+    })
+
+    describe('apiHost validation', () => {
+        it('prefers posthog.config.api_host over apiURL', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://should-not-be-used.example.com',
+                posthog: { config: { api_host: 'https://us.i.posthog.com' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
+        })
+
+        it('falls back to apiURL when no posthog config', () => {
+            const logic = toolbarConfigLogic.build({ apiURL: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://selfhosted.example.com')
+        })
+
+        it('normalizes apiHost to not end with a slash', () => {
+            const logic = toolbarConfigLogic.build({
+                posthog: { config: { api_host: 'https://us.i.posthog.com/' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://us.i.posthog.com')
+        })
+
+        it('preserves the URL path for reverse-proxy deployments', () => {
+            // Self-hosted customers routing PostHog through a reverse proxy at a
+            // sub-path like /ingest rely on apiHost keeping that prefix — it gets
+            // concatenated with /static/toolbar.css and /i/v1/logs.
+            const logic = toolbarConfigLogic.build({ apiURL: 'https://proxy.example.com/ingest/' } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe('https://proxy.example.com/ingest')
+        })
+
+        it.each([
+            ['apiURL', { apiURL: '' }],
+            ['api_host', { apiURL: '', posthog: { config: { api_host: '' } } as any }],
+        ])('rejects dangerous schemes supplied via %s and falls back', (field, baseProps) => {
+            const malicious = 'javascript:alert(1)//'
+            const logic = toolbarConfigLogic.build({
+                ...(baseProps as any),
+                ...(field === 'apiURL'
+                    ? { apiURL: malicious }
+                    : { posthog: { config: { api_host: malicious } } as any }),
+            })
+            logic.mount()
+            expect(logic.values.apiHost).toBe(window.location.origin)
+            expect(logic.values.apiHostResolution.source).toBe('fallback_rejected')
+        })
+
+        it.each(['data:text/html,<script>alert(1)</script>', 'vbscript:msgbox'])(
+            'rejects apiHost with dangerous scheme: %s',
+            (maliciousHost) => {
+                const logic = toolbarConfigLogic.build({
+                    apiURL: maliciousHost,
+                    posthog: { config: { api_host: maliciousHost } } as any,
+                } as any)
+                logic.mount()
+                expect(logic.values.apiHost).toBe(window.location.origin)
+            }
+        )
+
+        it('rejects apiHost with userinfo on either branch (visual spoof protection)', () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'https://us.posthog.com@evil.com',
+                posthog: { config: { api_host: 'https://app.posthog.com@attacker.com' } } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.apiHost).toBe(window.location.origin)
+            expect(logic.values.apiHostResolution.source).toBe('fallback_rejected')
+        })
+
+        it('labels the fallback as "absent" when no candidate was supplied', () => {
+            const logic = toolbarConfigLogic.build({} as any)
+            logic.mount()
+            expect(logic.values.apiHostResolution.source).toBe('fallback_absent')
+        })
+    })
+
+    describe('canonicalizeApiHost', () => {
+        it.each([
+            // preserves path
+            ['https://proxy.example.com/ingest', 'https://proxy.example.com/ingest'],
+            ['https://proxy.example.com/ingest/', 'https://proxy.example.com/ingest'],
+            ['https://us.i.posthog.com', 'https://us.i.posthog.com'],
+            ['https://us.i.posthog.com/', 'https://us.i.posthog.com'],
+            // rejected
+            ['javascript:alert(1)', null],
+            ['https://user:pass@host/path', null],
+            ['https://host@evil.com/path', null],
+            ['', null],
+            [undefined, null],
+            ['not a url', null],
+        ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
+            expect(canonicalizeApiHost(input as any)).toBe(expected)
+        })
+    })
+
+    describe('toolbarUploadMedia uses uiHost, not apiHost', () => {
+        // Regression: an attacker-crafted link with a legitimate uiHost but an
+        // attacker-controlled apiURL must not receive the bearer token.
+        it('POSTs to uiHost and never sends the bearer to the attacker host', async () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://evil.example.com',
+                accessToken: 'pha_secret',
+                refreshToken: 'phr_secret',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve({ ok: true, status: 200 })
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ id: 'm1', image_location: 'https://cdn/x.png', name: 'x.png' }),
+                } as any)
+            })
+            ;(global.fetch as jest.Mock).mockClear()
+
+            const file = new File(['data'], 'x.png', { type: 'image/png' })
+            await toolbarUploadMedia(file)
+
+            const uploadCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
+            )
+            expect(uploadCalls).toHaveLength(1)
+            expect(uploadCalls[0][0]).toBe('https://us.posthog.com/api/projects/@current/uploaded_media/')
+
+            // Strong regression guard: no fetch (auth or otherwise) may target attacker host.
+            const callsToAttacker = (global.fetch as jest.Mock).mock.calls.filter(
+                ([url]) => typeof url === 'string' && url.includes('evil.example.com')
+            )
+            expect(callsToAttacker).toHaveLength(0)
+        })
+
+        it('throws "Toolbar not authenticated" when no session exists, without firing tokenExpired', async () => {
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+
+            const file = new File(['data'], 'x.png', { type: 'image/png' })
+            await expect(toolbarUploadMedia(file)).rejects.toThrow('Toolbar not authenticated')
+
+            // Should not have attempted any fetch (we bailed before toolbarFetch).
+            const uploadAttempts = (global.fetch as jest.Mock).mock.calls.filter(
+                (c) => typeof c[0] === 'string' && c[0].includes('/uploaded_media/')
+            )
+            expect(uploadAttempts).toHaveLength(0)
+        })
+    })
+
+    describe('hash-supplied prop type validation', () => {
+        it.each([
+            ['boolean true', true],
+            ['number 1', 1],
+            ['object', { foo: 'bar' }],
+            ['array', ['a']],
+            ['empty string', ''],
+            ['null', null],
+            ['undefined', undefined],
+        ])('rejects non-string accessToken: %s', (_label, badToken) => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                accessToken: badToken as any,
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: null, isAuthenticated: false })
+        })
+
+        it('accepts string accessToken', () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                accessToken: 'pha_real',
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ accessToken: 'pha_real', isAuthenticated: true })
+        })
+
+        it.each([
+            ['edit-experiment', 'edit-experiment'],
+            ['add-action', 'add-action'],
+            ['heatmaps', 'heatmaps'],
+        ])('accepts valid userIntent: %s', (_label, intent) => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                userIntent: intent as any,
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ userIntent: intent })
+        })
+
+        it.each([
+            ['unknown string', 'totally-not-a-real-intent'],
+            ['boolean', true],
+            ['number', 1],
+            ['empty', ''],
+        ])('rejects invalid userIntent: %s', (_label, intent) => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                userIntent: intent as any,
+            } as any)
+            logic.mount()
+            expectLogic(logic).toMatchValues({ userIntent: null })
+        })
+    })
+
+    describe('toolbarFetch use-as-provided origin pin', () => {
+        beforeEach(() => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://us.posthog.com',
+                accessToken: 'pha_token',
+                refreshToken: 'phr_token',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+        })
+
+        it('allows URLs whose origin matches uiHost', async () => {
+            ;(global.fetch as jest.Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({ results: [{ id: 1 }] }),
+            } as any)
+            const res = await toolbarFetch(
+                'https://us.posthog.com/api/element/stats/?page=2',
+                'GET',
+                undefined,
+                'use-as-provided'
+            )
+            expect(res.status).toBe(200)
+            const sentUrl = (global.fetch as jest.Mock).mock.calls[0][0]
+            expect(sentUrl).toBe('https://us.posthog.com/api/element/stats/?page=2')
+        })
+
+        it('rejects cross-origin URLs with status 400 and results: []', async () => {
+            const res = await toolbarFetch('https://evil.example.com/leak', 'GET', undefined, 'use-as-provided')
+            expect(res.status).toBe(400)
+            const body = await res.json()
+            expect(body.detail).toBe('origin_mismatch')
+            expect(body.results).toEqual([])
+            // No outgoing fetch happened
+            expect((global.fetch as jest.Mock).mock.calls).toHaveLength(0)
+        })
+
+        it('rejects malformed URLs with status 400', async () => {
+            const res = await toolbarFetch('not a url', 'GET', undefined, 'use-as-provided')
+            expect(res.status).toBe(400)
+            const body = await res.json()
+            expect(body.detail).toBe('invalid_url')
+            expect(body.results).toEqual([])
+        })
     })
 })

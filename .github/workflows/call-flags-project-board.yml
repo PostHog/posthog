@@ -7,10 +7,12 @@ on:
     pull_request:
         types: [opened, ready_for_review, review_requested, synchronize, converted_to_draft, reopened]
 
+permissions:
+    contents: read
+
 jobs:
     call-flags-project:
-        uses: PostHog/.github/.github/workflows/flags-project-board.yml@main
-        # Only on PostHog/posthog, as there's no GitHub token on forks
+        uses: PostHog/.github/.github/workflows/flags-project-board.yml@69336b569d22687f8982eea6ff7d450a885cda05
         if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         with:
             pr_number: ${{ github.event.pull_request.number }}

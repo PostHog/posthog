@@ -1,10 +1,10 @@
 {
     "compilerOptions": {
         "target": "es2021",
-        "lib": ["es2021"],
+        "lib": ["es2021", "dom", "dom.iterable"],
         "jsx": "react-jsx",
         "module": "es2022",
-        "moduleResolution": "Bundler",
+        "moduleResolution": "bundler",
         "resolveJsonModule": true,
         "allowJs": true,
         "checkJs": false,
@@ -16,14 +16,20 @@
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
         "noUncheckedIndexedAccess": true,
-        "exactOptionalPropertyTypes": true,
         "skipLibCheck": true,
-        "types": ["node", "./worker-configuration.d.ts"],
-        "baseUrl": ".",
+        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
         "paths": {
-            "@/*": ["src/*", "tests/*"]
+            "products/*": ["../../products/*"],
+            "@/*": ["./src/*", "./tests/*"],
+            "@shared/*": ["./shared/*"],
+            "@posthog/mcp-ui": ["./src/ui-apps/lib/index.ts"],
+            "@posthog/mcp-ui/*": ["./src/ui-apps/lib/*"],
+            "@posthog/quill": ["../../packages/quill/packages/quill/dist/index.d.ts"],
+            "@posthog/quill-charts": ["../../packages/quill/packages/charts/dist/index.d.ts"],
+            "lucide-react": ["./node_modules/lucide-react"],
+            "@common/*": ["../../common/*"]
         }
     },
-    "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
-    "exclude": ["node_modules", "dist"]
+    "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
+    "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**"]
 }

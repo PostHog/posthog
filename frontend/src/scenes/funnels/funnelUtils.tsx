@@ -12,8 +12,16 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { AnyEntityNode, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
+import {
+    AnyEntityNode,
+    BreakdownFilter,
+    FunnelExclusionSteps,
+    FunnelsDataWarehouseNode,
+    FunnelsFilter,
+    FunnelsQuery,
+} from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
+import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     Breakdown,
@@ -173,7 +181,7 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
 }
 
 /** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */
-export function isValidBreakdownParameter(
+export function hasBreakdownFilterParameter(
     breakdown: BreakdownKeyType | undefined,
     breakdowns: Breakdown[] | undefined
 ): boolean {
@@ -181,6 +189,19 @@ export function isValidBreakdownParameter(
         (Array.isArray(breakdowns) && breakdowns.length > 0) ||
         ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) ||
         Array.isArray(breakdown)
+    )
+}
+
+/**
+ * Whether a series's `breakdown_value` represents an actual user-picked breakdown.
+ * The funnel backend uses the literal "Baseline" (or `['Baseline', ...]` for
+ * multi-breakdowns) to mark the overall, non-broken-down series.
+ */
+export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): boolean {
+    return (
+        breakdownValue !== undefined &&
+        breakdownValue !== 'Baseline' &&
+        !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
     )
 }
 
@@ -213,8 +234,8 @@ export const getBreakdownStepValues = (
     }
     if (
         isBaseline ||
-        breakdownStep?.breakdown_value === 'Baseline' ||
-        breakdownStep?.breakdown_value?.[0] === 'Baseline'
+        breakdownStep.breakdown_value === 'Baseline' ||
+        (Array.isArray(breakdownStep.breakdown_value) && breakdownStep.breakdown_value[0] === 'Baseline')
     ) {
         return {
             rowKey: 'baseline_0',
@@ -244,7 +265,7 @@ export const getBreakdownStepValues = (
 
 export const getClampedFunnelStepRange = (
     stepRange: FunnelExclusionSteps | FunnelsFilter,
-    series: AnyEntityNode[] | null | undefined
+    series: AnyEntityNode<FunnelsDataWarehouseNode>[] | null | undefined
 ): { funnelFromStep?: integer; funnelToStep?: integer } => {
     const maxStepIndex = Math.max((series?.length || 0) - 1, 1)
     const { funnelFromStep, funnelToStep } = stepRange
@@ -652,5 +673,40 @@ export function getTooltipTitleForDroppedOff(
             with drop-off rate relative to the{' '}
             {funnelsFilter?.funnelStepReference === FunnelStepReference.previous ? 'previous' : 'first'} step
         </>
+    )
+}
+
+// Returns the single visible breakdown series on a funnel step, when the step is rendered
+// with the non-breakdown layout but a breakdown filter is set. Lets callers route clicks
+// through `openPersonsModalForSeries` so the persons modal is scoped to that value.
+export function getStepBreakdownSeries(
+    step: Pick<FunnelStepWithConversionMetrics, 'nested_breakdown'>,
+    breakdownFilter: BreakdownFilter | null | undefined
+): FunnelStepWithConversionMetrics | null {
+    if (!breakdownFilter?.breakdown) {
+        return null
+    }
+
+    if (!Array.isArray(step.nested_breakdown) || step.nested_breakdown.length !== 1) {
+        return null
+    }
+
+    const single = step.nested_breakdown[0]
+    if (!single || single.breakdown_value == null) {
+        return null
+    }
+
+    return single
+}
+
+export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series?.length || 0) > 1
+}
+
+export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series || []).some(
+        (step) =>
+            isFunnelsDataWarehouseNode(step) &&
+            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
     )
 }

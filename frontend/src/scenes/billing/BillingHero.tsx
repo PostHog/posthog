@@ -15,10 +15,10 @@ import planStartup from 'public/plan_startup.svg'
 import planTeams from 'public/plan_teams.png'
 import planYc from 'public/plan_yc.svg'
 
-import { PlanComparisonModal } from './PlanComparison'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
+import { PlanComparisonModal } from './PlanComparison'
 
 const PLAN_BADGES: Record<BillingPlan, string> = {
     [BillingPlan.Free]: planFree,
@@ -63,10 +63,10 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                 If you're growing like crazy, you might want to check out our{' '}
                 {scrollToProduct ? (
                     <>
-                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform add-ons</Link>
+                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
                     </>
                 ) : (
-                    'Platform add-ons'
+                    'Platform packages'
                 )}
                 .
             </p>
@@ -122,9 +122,9 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
             <p>
                 If you're growing like crazy, you might want to check out our{' '}
                 {scrollToProduct ? (
-                    <Link onClick={() => scrollToProduct('platform_and_support')}>Platform add-ons</Link>
+                    <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
                 ) : (
-                    'Platform add-ons'
+                    'Platform packages'
                 )}
                 .
             </p>
@@ -140,9 +140,9 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                 <p>
                     If you're growing like crazy, you might want to check out our{' '}
                     {scrollToProduct ? (
-                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform add-ons</Link>
+                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
                     ) : (
-                        'Platform add-ons'
+                        'Platform packages'
                     )}
                     .
                 </p>

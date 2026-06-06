@@ -8,7 +8,7 @@ use tracing::warn;
 
 use crate::{
     error::{FrameError, ProguardError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::{utils::add_raw_to_junk, CommonFrameMetadata},
     symbol_store::{
         chunk_id::OrChunkId,
@@ -66,8 +66,10 @@ impl RawJavaFrame {
                 vec![self.handle_resolution_error(ProguardError::MissingMap(chunk_id))],
             ),
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                warn!("Unexpected Proguard symbol resolution error: {:?}", e);
+                Ok(vec![
+                    self.handle_resolution_error(ProguardError::InvalidMapping)
+                ])
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -79,7 +81,7 @@ impl RawJavaFrame {
     {
         let r = self.get_ref()?;
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
-        let mapper = map.get_mapper();
+        let cache = map.get_cache()?;
 
         let frame = match self.filename.as_ref() {
             Some(file) => StackFrame::with_file(
@@ -95,7 +97,7 @@ impl RawJavaFrame {
             ),
         };
 
-        let res: Vec<Frame> = mapper
+        let res: Vec<Frame> = cache
             .remap_frame(&frame)
             .map(|re| (self, re).into())
             .collect();
@@ -120,7 +122,7 @@ impl RawJavaFrame {
         self.get_ref().ok().map(|r| r.to_string())
     }
 
-    fn get_ref(&self) -> Result<OrChunkId<ProguardRef>, ProguardError> {
+    pub fn get_ref(&self) -> Result<OrChunkId<ProguardRef>, ProguardError> {
         self.map_id
             .as_ref()
             .map(|id| OrChunkId::chunk_id(id.clone()))
@@ -138,9 +140,7 @@ impl RawJavaFrame {
     {
         let r = self.get_ref()?;
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
-        let mapper = map.get_mapper();
-        let result = mapper.remap_class(class).map(|s| s.to_string());
-        Ok(result)
+        Ok(map.remap_class(class)?)
     }
 }
 
@@ -157,6 +157,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             lang: "java".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             release: None,
@@ -174,6 +175,10 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 
 impl From<(&RawJavaFrame, ProguardError)> for Frame {
     fn from((raw, error): (&RawJavaFrame, ProguardError)) -> Self {
+        record_frame_resolution_failure("java", error.metric_reason(), &error);
+
+        let resolve_failure = Some(error.to_string());
+
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
@@ -184,7 +189,7 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolved_name: None,
             lang: "java".to_string(),
             resolved: false,
-            resolve_failure: Some(error.to_string()),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             release: None,

@@ -1,16 +1,34 @@
 from rest_framework import status
 
-from posthog.models import Dashboard, OrganizationMembership, User
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):
+    CONFIG_FORCE_ACCESS_CONTROL_ON_SETUP = True
     test_dashboard: Dashboard
 
     def setUp(self):
         super().setUp()
+
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            self.skipTest("Dashboard collaborators tests require access control")
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
+
         self.test_dashboard = Dashboard.objects.create(team=self.team, name="Test Insights 9001", created_by=self.user)
 
     def test_list_collaborators_as_person_without_edit_access(self):
@@ -105,6 +123,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
         self.assertEqual(
             response_data,
             self.validation_error_response(
@@ -152,6 +171,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
         self.assertEqual(
             response_data,
             self.validation_error_response("Cannot add collaborators that have no access to the project."),
@@ -266,3 +286,52 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             response_data,
             self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
+
+    def test_cannot_add_collaborator_to_dashboard_in_another_project(self):
+        # Admin of their own project must not be able to manage collaborators on a dashboard
+        # that belongs to a different organization, by passing their own project_id in the URL.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        org_a_collaborator = User.objects.create_and_join(self.organization, "collab@x.com", None)
+
+        _, victim_team, _ = User.objects.bootstrap("VictimOrg", "victim@x.com", None)
+        victim_dashboard = Dashboard.objects.create(
+            team=victim_team,
+            name="Victim Dashboard",
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{victim_dashboard.id}/collaborators/",
+            {
+                "user_uuid": str(org_a_collaborator.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=victim_dashboard).exists())
+
+    def test_cannot_remove_collaborator_from_dashboard_in_another_project(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        _, victim_team, _ = User.objects.bootstrap("VictimOrg", "victim@x.com", None)
+        victim_dashboard = Dashboard.objects.create(
+            team=victim_team,
+            name="Victim Dashboard",
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+        collaborator = User.objects.create_and_join(victim_team.organization, "vcollab@x.com", None)
+        privilege = DashboardPrivilege.objects.create(
+            user=collaborator,
+            dashboard=victim_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
+        )
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/dashboards/{victim_dashboard.id}/collaborators/{collaborator.uuid}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(DashboardPrivilege.objects.filter(id=privilege.id).exists())

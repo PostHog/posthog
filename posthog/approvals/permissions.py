@@ -46,35 +46,24 @@ class CanApprove(permissions.BasePermission):
             except ImportError:
                 return False
 
-            user_roles = set(
-                RoleMembership.objects.filter(
+            user_roles = {
+                str(rid)
+                for rid in RoleMembership.objects.filter(
                     user=user,
                     role__organization=change_request.organization,
                 ).values_list("role_id", flat=True)
-            )
+            }
 
-            if user_roles & set(approver_roles):
+            if user_roles & {str(r) for r in approver_roles}:
                 return True
 
         return False
 
 
 class CanCancel(permissions.BasePermission):
-    """
-    Only the requester can cancel their own pending change request.
-    """
+    """Only the requester can cancel their own pending change request."""
 
-    message = "You can only cancel your own change requests"
+    message = "You cannot cancel this change request"
 
     def has_object_permission(self, request, view, obj):
-        from posthog.approvals.models import ChangeRequestState
-
-        if obj.state != ChangeRequestState.PENDING:
-            self.message = "Only pending change requests can be canceled"
-            return False
-
-        if obj.created_by != request.user:
-            self.message = "You can only cancel your own change requests"
-            return False
-
-        return True
+        return obj.can_be_canceled_by(request.user.id)

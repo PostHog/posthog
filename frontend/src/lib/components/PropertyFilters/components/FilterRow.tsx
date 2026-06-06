@@ -24,6 +24,7 @@ interface FilterRowProps {
     disablePopover?: boolean
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
+    labelClassName?: string
     openOnInsert?: boolean
     onRemove: (index: number) => void
     orFiltering?: boolean
@@ -44,6 +45,7 @@ export const FilterRow = React.memo(function FilterRow({
     openOnInsert = false,
     filterComponent,
     label,
+    labelClassName = '',
     onRemove,
     orFiltering,
     errorMessage,
@@ -67,13 +69,11 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx(
-                    'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
-                    {
-                        'sm:grow-0': isValid,
-                        'wrap-filters': !disablePopover,
-                    }
-                )}
+                className={clsx('property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full', {
+                    'grow sm:grow-0': isValid,
+                    'grow-0': !isValid,
+                    'wrap-filters': !disablePopover,
+                })}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
@@ -106,7 +106,7 @@ export const FilterRow = React.memo(function FilterRow({
                         ) : !disabledReason ? (
                             <LemonButton
                                 onClick={() => setOpen(!open)}
-                                className="new-prop-filter grow"
+                                className={clsx('new-prop-filter', labelClassName)}
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
                                 size={size}

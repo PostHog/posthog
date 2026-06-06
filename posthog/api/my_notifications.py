@@ -12,10 +12,13 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ServerTimingsGathered, action
-from posthog.models import ActivityLog, Cohort, FeatureFlag, HogFunction, Insight, NotificationViewed, User
+from posthog.models import ActivityLog, Cohort, NotificationViewed, User
 from posthog.models.comment import Comment
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 
 class MyNotificationsSerializer(serializers.ModelSerializer):
@@ -69,9 +72,9 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
             my_feature_flags = list(
-                FeatureFlag.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "id", flat=True
-                )
+                FeatureFlag.objects_including_soft_deleted.filter(
+                    created_by=user, team__project_id=self.team.project_id
+                ).values_list("id", flat=True)
             )
             my_notebooks = list(
                 Notebook.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(

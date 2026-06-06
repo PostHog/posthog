@@ -19,11 +19,12 @@ from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore
 from ee.hogai.stream.redis_stream import ConversationRedisStream, get_conversation_stream_key
 from ee.hogai.utils.types import AssistantMode, AssistantOutput
-from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
 
@@ -121,6 +122,7 @@ class ChatAgentWorkflowInputs:
     billing_context: Optional[MaxBillingContext] = None
     agent_mode: AgentMode | None = None
     is_agent_billable: bool = True
+    is_impersonated: bool = False
     resume_payload: Optional[dict[str, Any]] = None
 
 
@@ -198,6 +200,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
             use_checkpointer=inputs.use_checkpointer,
             contextual_tools=inputs.contextual_tools,
             is_agent_billable=inputs.is_agent_billable,
+            is_impersonated=inputs.is_impersonated,
             resume_payload=inputs.resume_payload,
         )
 
@@ -268,6 +271,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
                 billing_context=billing_context,
                 agent_mode=agent_mode,
                 is_agent_billable=inputs.is_agent_billable,
+                is_impersonated=inputs.is_impersonated,
                 resume_payload=None,
             )
 

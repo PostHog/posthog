@@ -2,16 +2,19 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from posthog.schema import HogQLNotice, HogQLQueryModifiers
+from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.workload import Workload
+
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+    from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 @dataclass
@@ -30,8 +33,14 @@ class HogQLContext:
     team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
+
+    # User making the queries - used for access control on system tables
+    user: Optional["User"] = None
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
+    # Metadata discovered for a direct Postgres connection, if one is selected
+    direct_postgres_connection_metadata: dict[str, Any] | None = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
@@ -46,6 +55,9 @@ class HogQLContext:
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
+    # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
+    # merged into a table via UNION ALL in error tracking).
+    data_to_ingest: dict[str, Any] = field(default_factory=dict)
 
     # Warnings returned with the metadata query
     warnings: list["HogQLNotice"] = field(default_factory=list)
@@ -54,6 +66,10 @@ class HogQLContext:
     # Errors returned with the metadata query
     errors: list["HogQLNotice"] = field(default_factory=list)
 
+    # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
+    # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
+    data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
@@ -61,7 +77,18 @@ class HogQLContext:
     # Enables more verbose output for debugging
     debug: bool = False
 
+    # Optional per-query HogQL type-system observability accumulator.
+    type_observability: Optional["HogQLTypeObservability"] = None
+    # Bounded source/surface label for type-system observability metrics.
+    observability_source: str = "unknown"
+
     property_swapper: Optional["PropertySwapper"] = None
+    # Workload detected during AST resolution (set by prepare_ast_for_printing)
+    workload: Optional[Workload] = None
+    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # that the current user is denied access to. Populated before type resolution so that
+    # FieldType.get_child() can raise QueryError for restricted properties.
+    restricted_properties: Optional[set[tuple[str, int]]] = None
 
     def __post_init__(self):
         if self.team:
@@ -106,6 +133,9 @@ class HogQLContext:
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
+        self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning
 
     @cached_property
     def project_id(self) -> int:

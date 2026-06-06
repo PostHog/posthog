@@ -24,7 +24,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { ProductAnalyticsInsightNodeKind, nodeKindToDefaultQuery } from '../InsightQuery/defaults'
+import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
@@ -102,7 +102,10 @@ export function getQueryFromInsightLike(insight: {
     if (insight.query) {
         query = insight.query
     } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
-        query = { kind: NodeKind.InsightVizNode, source: filtersToQueryNode(insight.filters) } as InsightVizNode
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
+        } as InsightVizNode
     } else {
         query = null
     }
@@ -110,18 +113,16 @@ export function getQueryFromInsightLike(insight: {
     return query
 }
 
-export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: filtersToQueryNode(filters),
-})
-
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
     filterTestAccountsDefault: boolean
 ): InsightVizNode =>
     setLatestVersionsOnQuery({
         kind: NodeKind.InsightVizNode,
-        source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+        source: {
+            ...getNodeKindToDefaultQuery()[kind],
+            ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}),
+        },
     })
 
 export const getDefaultQuery = (
@@ -163,7 +164,7 @@ export const getDefaultQuery = (
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
 export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | null
+    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
 ): DashboardType<QueryBasedInsightModel> | null => {
     if (dashboard == null) {
         return null
@@ -188,6 +189,16 @@ export const extractValidationError = (error: Error | Record<string, any> | null
         return error?.status === 400 || error?.status === 512
             ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
             : null
+    }
+
+    return null
+}
+
+export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        if (error?.status === 400 || error?.status === 512) {
+            return error.code ?? error.data?.code ?? null
+        }
     }
 
     return null

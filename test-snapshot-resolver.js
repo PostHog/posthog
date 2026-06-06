@@ -13,7 +13,7 @@ module.exports = {
         return path.join(testDirectory, '__snapshots__', testName + snapshotExtension)
     },
 
-    resolveTestPath: (snapshotFilePath, snapshotExtension) => {
+    resolveTestPath: (snapshotFilePath) => {
         const testPath = snapshotFilePath.replace('__snapshots__/', '').replace(/\.snap$/, '')
         return testPath
     },

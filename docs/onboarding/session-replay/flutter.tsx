@@ -19,7 +19,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'yaml',
                                 file: 'pubspec.yaml',
                                 code: dedent`
-                                    posthog_flutter: ^5.0.0
+                                    posthog_flutter: ^5.24.0
                                 `,
                             },
                         ]}
@@ -66,7 +66,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'android/app/build.gradle',
                                 code: dedent`
                                     defaultConfig {
-                                        minSdkVersion 21
+                                        minSdkVersion 23
                                         // rest of your config
                                     }
                                 `,
@@ -151,7 +151,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     Future<void> main() async {
                                       WidgetsFlutterBinding.ensureInitialized();
 
-                                      final config = PostHogConfig('<ph_project_api_key>');
+                                      final config = PostHogConfig('<ph_project_token>');
                                       config.host = '<ph_client_api_host>';
                                       config.debug = true;
                                       config.captureApplicationLifecycleEvents = true;

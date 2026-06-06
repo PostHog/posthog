@@ -2,15 +2,18 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/ingestion/analytics/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
-import { TopicMessage } from '../../../src/kafka/producer'
 import {
     ClickHousePerson,
     ClickHousePersonDistinctId2,
@@ -27,6 +30,7 @@ import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
+import { PersonOutputs } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
@@ -35,6 +39,7 @@ import {
     TargetPersonNotFoundError,
     createDefaultSyncMergeMode,
 } from '../../../src/worker/ingestion/persons/person-merge-types'
+import { PersonMessage } from '../../../src/worker/ingestion/persons/person-message'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
@@ -48,6 +53,39 @@ import {
 } from '../../helpers/sql'
 
 jest.setTimeout(30000)
+
+// Shared real Kafka producer used by every helper below — created in `beforeAll`
+// once the hub config is loaded, disconnected in `afterAll`.
+let kafkaProducer: KafkaProducerWrapper = undefined as unknown as KafkaProducerWrapper
+
+function createPersonOutputs(kafkaProducer: KafkaProducerWrapper): PersonOutputs {
+    return new IngestionOutputs({
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, kafkaProducer, 'test'),
+        [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+            INGESTION_WARNINGS_OUTPUT,
+            KAFKA_PERSON_DISTINCT_ID,
+            kafkaProducer,
+            'test'
+        ),
+        [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+            INGESTION_WARNINGS_OUTPUT,
+            KAFKA_INGESTION_WARNINGS,
+            kafkaProducer,
+            'test'
+        ),
+    })
+}
+
+function createIngestionWarningsOutputs(kafkaProducer: KafkaProducerWrapper) {
+    return new IngestionOutputs({
+        [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+            INGESTION_WARNINGS_OUTPUT,
+            KAFKA_INGESTION_WARNINGS,
+            kafkaProducer,
+            'test'
+        ),
+    })
+}
 
 async function createPerson(
     hub: Hub,
@@ -78,14 +116,24 @@ async function createPerson(
     if (!result.success) {
         throw new Error('Failed to create person')
     }
-    await hub.kafkaProducer.queueMessages(result.messages)
+    const personOutputs = createPersonOutputs(kafkaProducer)
+    await Promise.all(result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null })))
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<void>) {
+async function flushPersonStoreToKafka(
+    kafkaProducer: KafkaProducerWrapper,
+    personStore: PersonsStore,
+    kafkaAcks: Promise<void>
+) {
     const kafkaMessages = await personStore.flush()
-    await hub.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
-    await hub.kafkaProducer.flush()
+    const personOutputs = createPersonOutputs(kafkaProducer)
+    await Promise.all(
+        kafkaMessages
+            .flatMap((message) => message.messages)
+            .map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
+    )
+    await kafkaProducer.flush()
     await kafkaAcks
     return kafkaMessages
 }
@@ -116,7 +164,8 @@ describe('PersonState.processEvent()', () => {
 
     beforeAll(async () => {
         hub = await createHub({})
-        mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
+        kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
         mockProducerObserver.resetKafkaProducer()
 
         clickhouse = Clickhouse.create()
@@ -127,7 +176,7 @@ describe('PersonState.processEvent()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.postgres, organizationId)
-        mainTeam = (await getTeam(hub, teamId))!
+        mainTeam = (await getTeam(hub.postgres, teamId))!
         timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
         timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
         timestampch = '2020-01-01 12:00:05.000'
@@ -153,6 +202,7 @@ describe('PersonState.processEvent()', () => {
     })
 
     afterAll(async () => {
+        await kafkaProducer.disconnect()
         await closeHub(hub)
         await clickhouse.exec('SYSTEM START MERGES')
         clickhouse.close()
@@ -162,7 +212,7 @@ describe('PersonState.processEvent()', () => {
         event: Partial<PluginEvent>,
         propertyService?: PersonPropertyService,
         mergeService?: PersonMergeService,
-        customHub?: Hub,
+        _customHub?: Hub,
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam
@@ -175,7 +225,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             personRepository,
-            customHub ? customHub.kafkaProducer : hub.kafkaProducer
+            createIngestionWarningsOutputs(kafkaProducer)
         )
 
         const context = new PersonContext(
@@ -184,7 +234,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
+            createPersonOutputs(kafkaProducer),
             personsStore,
             0,
             createDefaultSyncMergeMode()
@@ -199,7 +249,7 @@ describe('PersonState.processEvent()', () => {
 
     function personPropertyService(
         event: Partial<PluginEvent>,
-        customHub?: Hub,
+        _customHub?: Hub,
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam,
@@ -213,7 +263,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             personRepository,
-            customHub ? customHub.kafkaProducer : hub.kafkaProducer
+            createIngestionWarningsOutputs(kafkaProducer)
         )
 
         const context = new PersonContext(
@@ -222,7 +272,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
+            createPersonOutputs(kafkaProducer),
             personsStore,
             0,
             createDefaultSyncMergeMode()
@@ -248,7 +298,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             customPersonRepository ?? (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
-            customHub ? customHub.kafkaProducer : hub.kafkaProducer
+            createIngestionWarningsOutputs(kafkaProducer)
         )
 
         const context = new PersonContext(
@@ -257,7 +307,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
+            createPersonOutputs(kafkaProducer),
             personsStore,
             0,
             mergeMode
@@ -318,7 +368,7 @@ describe('PersonState.processEvent()', () => {
             }).updateProperties()
 
             const otherTeamId = await createTeam(hub.postgres, organizationId)
-            const otherTeam = (await getTeam(hub, otherTeamId))!
+            const otherTeam = (await getTeam(hub.postgres, otherTeamId))!
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personPropertyService(
                 {
@@ -332,7 +382,7 @@ describe('PersonState.processEvent()', () => {
                 otherTeam
             ).updateProperties()
 
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
             await kafkaAcksOther
 
@@ -357,7 +407,7 @@ describe('PersonState.processEvent()', () => {
 
             const hubParam = undefined
             const processPerson = true
-            const [_person, kafkaAcks] = await personProcessor(
+            const result1 = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: oldUserDistinctId,
@@ -371,7 +421,7 @@ describe('PersonState.processEvent()', () => {
                 processPerson
             ).processEvent()
 
-            const [_person2, kafkaAcks2] = await personProcessor(
+            const result2 = await personProcessor(
                 {
                     event: '$identify',
                     distinct_id: newUserDistinctId,
@@ -385,9 +435,9 @@ describe('PersonState.processEvent()', () => {
                 processPerson
             ).processEvent()
 
-            await hub.kafkaProducer.flush()
-            await kafkaAcks
-            await kafkaAcks2
+            await kafkaProducer.flush()
+            await Promise.all(result1.sideEffects)
+            await Promise.all(result2.sideEffects)
 
             // new2 has an override, because it was in posthog_personlessdistinctid
             await clickhouse.delayUntilEventIngested(() => fetchOverridesForDistinctId('new2'))
@@ -417,7 +467,7 @@ describe('PersonState.processEvent()', () => {
                 // `null_byte` validates that `sanitizeJsonbValue` is working as expected
                 properties: { $set: { null_byte: '\u0000' } },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -457,7 +507,7 @@ describe('PersonState.processEvent()', () => {
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
             }).handleUpdate()
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             // if creation fails we should return the person that another thread already created
@@ -515,7 +565,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.handleUpdate()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             // Explicitly restore the spy to prevent Jest state corruption
             fetchPersonSpy.mockRestore()
@@ -557,7 +607,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 3, c: 4 },
                 },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -598,7 +648,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -638,7 +688,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 4, toString: 1, null_byte: '\u0000' },
                 },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -669,7 +719,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { $current_url: 4 },
                 },
             }).updateProperties()
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -713,7 +763,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -755,7 +805,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -797,7 +847,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -849,7 +899,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -912,9 +962,13 @@ describe('PersonState.processEvent()', () => {
             )
 
             const personS = personProcessor(event, undefined, mergeService)
-            const [result, kafkaAcks] = await personS.processEvent()
+            const result = await personS.processEvent()
             const context = personS.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(
+                kafkaProducer,
+                context.personStore,
+                Promise.all(result.sideEffects).then(() => undefined)
+            )
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (isOkResult(result)) {
@@ -960,7 +1014,7 @@ describe('PersonState.processEvent()', () => {
             })
             const [person, kafkaAcks] = await propertyService.updateProperties()
             const context = propertyService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -1002,7 +1056,7 @@ describe('PersonState.processEvent()', () => {
 
             const [person, kafkaAcks] = await personS.updateProperties()
             const context = personS.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
             expect(person).toEqual(
                 expect.objectContaining({
                     id: expect.any(String),
@@ -1050,6 +1104,7 @@ describe('PersonState.processEvent()', () => {
                 uuid: uuidFromDistinctId(teamId, 'deleted-user'),
                 properties_last_updated_at: {},
                 properties_last_operation: null,
+                last_seen_at: null,
             }
             await createPerson(
                 hub,
@@ -1084,8 +1139,12 @@ describe('PersonState.processEvent()', () => {
             const personS = personProcessor(event, undefined, mergeService)
             const context = personS.getContext()
 
-            const [result, kafkaAcks] = await personS.processEvent()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            const result = await personS.processEvent()
+            await flushPersonStoreToKafka(
+                kafkaProducer,
+                context.personStore,
+                Promise.all(result.sideEffects).then(() => undefined)
+            )
 
             // Return logic is still unaware that merge happened
             expect(result.type).toBe(PipelineResultType.OK)
@@ -1135,7 +1194,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -1159,7 +1218,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -1221,7 +1280,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -1264,7 +1323,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             const persons = await fetchPostgresPersonsH()
             expect(person).toMatchObject({
@@ -1298,7 +1357,10 @@ describe('PersonState.processEvent()', () => {
             // $identify events with different $set properties are processed in the same batch,
             // all $set properties from all events should be applied to the merged person.
 
-            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(
+                personRepository,
+                createIngestionWarningsOutputs(kafkaProducer)
+            )
 
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
                 const fullEvent = {
@@ -1312,7 +1374,7 @@ describe('PersonState.processEvent()', () => {
                     distinctId,
                     timestamp,
                     true,
-                    hub.kafkaProducer,
+                    createPersonOutputs(kafkaProducer),
                     sharedPersonsStore,
                     0,
                     createDefaultSyncMergeMode()
@@ -1395,7 +1457,7 @@ describe('PersonState.processEvent()', () => {
                 },
                 newUserDistinctId
             )
-            const [identify2Result] = await identify2Processor.processEvent()
+            const identify2Result = await identify2Processor.processEvent()
             expect(identify2Result.type).toBe(PipelineResultType.OK)
 
             // More events after identify
@@ -1418,8 +1480,13 @@ describe('PersonState.processEvent()', () => {
 
             // Flush all at once
             const kafkaMessages = await sharedPersonsStore.flush()
-            await hub.kafkaProducer.queueMessages(kafkaMessages.map((m) => m.topicMessage))
-            await hub.kafkaProducer.flush()
+            const personOutputs = createPersonOutputs(kafkaProducer)
+            await Promise.all(
+                kafkaMessages
+                    .flatMap((m) => m.messages)
+                    .map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
+            )
+            await kafkaProducer.flush()
 
             // Verify Postgres person
             const persons = await fetchPostgresPersonsH()
@@ -1461,7 +1528,10 @@ describe('PersonState.processEvent()', () => {
             // person updates for that distinctId, causing pending property updates to be lost
             // when the batch is flushed.
 
-            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(
+                personRepository,
+                createIngestionWarningsOutputs(kafkaProducer)
+            )
 
             // Helper to create processor with shared store
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1476,7 +1546,7 @@ describe('PersonState.processEvent()', () => {
                     distinctId,
                     timestamp,
                     true,
-                    hub.kafkaProducer,
+                    createPersonOutputs(kafkaProducer),
                     sharedPersonsStore,
                     0,
                     createDefaultSyncMergeMode()
@@ -1569,7 +1639,10 @@ describe('PersonState.processEvent()', () => {
             // by another concurrent operation before caching null. If the cache now has data,
             // it returns the cached person instead of overwriting with null.
 
-            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(
+                personRepository,
+                createIngestionWarningsOutputs(kafkaProducer)
+            )
 
             // Helper to create processor with shared store
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1584,7 +1657,7 @@ describe('PersonState.processEvent()', () => {
                     distinctId,
                     timestamp,
                     true,
-                    hub.kafkaProducer,
+                    createPersonOutputs(kafkaProducer),
                     sharedPersonsStore,
                     0,
                     createDefaultSyncMergeMode()
@@ -1701,7 +1774,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             const persons = await fetchPostgresPersonsH()
 
@@ -1755,7 +1828,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -1836,7 +1909,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -1916,7 +1989,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(personS.getUpdateIsIdentified()).toBeTruthy()
@@ -1973,7 +2046,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -2039,7 +2112,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toMatchObject({
                 id: expect.any(String),
@@ -2101,7 +2174,7 @@ describe('PersonState.processEvent()', () => {
 
             // Fake the race by assuming createPerson was called before the addDistinctId creation above
             jest.spyOn(personRepository, 'addDistinctId').mockImplementation(
-                async (person, distinctId): Promise<TopicMessage[]> => {
+                async (person, distinctId): Promise<PersonMessage[]> => {
                     await createPerson(
                         hub,
                         timestamp,
@@ -2134,7 +2207,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
             jest.spyOn(personRepository, 'addDistinctId').mockRestore()
 
             // if creation fails we should return the person that another thread already created
@@ -2261,7 +2334,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -2338,7 +2411,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2361,7 +2434,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2384,7 +2457,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2407,7 +2480,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toEqual(undefined)
             const persons = await fetchPostgresPersonsH()
@@ -2474,7 +2547,7 @@ describe('PersonState.processEvent()', () => {
             }
             const kafkaAcks = mergeResult.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
@@ -2569,7 +2642,7 @@ describe('PersonState.processEvent()', () => {
             }
             const kafkaAcks = mergeResult.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
@@ -2651,7 +2724,7 @@ describe('PersonState.processEvent()', () => {
             }
             const kafkaAcks = mergeResult.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
@@ -2717,7 +2790,8 @@ describe('PersonState.processEvent()', () => {
             )
 
             const state: PersonMergeService = personMergeService({}, hub)
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+            jest.spyOn(kafkaProducer, 'produce')
+
             const result = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
@@ -2725,7 +2799,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -2737,7 +2811,7 @@ describe('PersonState.processEvent()', () => {
                 is_identified: true,
             })
             expect(personRepository.updatePerson).not.toHaveBeenCalled()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(kafkaProducer.produce).not.toHaveBeenCalled()
         })
 
         it(`postgres and clickhouse get updated`, async () => {
@@ -2750,7 +2824,8 @@ describe('PersonState.processEvent()', () => {
             })
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+            jest.spyOn(kafkaProducer, 'produce')
+
             const result = await mergeService.mergePeople({
                 mergeInto: first,
                 mergeIntoDistinctId: firstUserDistinctId,
@@ -2765,7 +2840,7 @@ describe('PersonState.processEvent()', () => {
             const person = result.person
             const kafkaAcks = result.kafkaAck
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             expect(person).toMatchObject({
                 id: first.id,
@@ -2778,7 +2853,8 @@ describe('PersonState.processEvent()', () => {
 
             // Batch mode uses updatePersonsBatch instead of updatePerson
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
-            expect(hub.kafkaProducer.queueMessages).toHaveBeenCalledTimes(2)
+            // 3 produce calls: move distinct ID + delete source person (from merge) + update target person (from flush)
+            expect(kafkaProducer.produce).toHaveBeenCalledTimes(3)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -2906,7 +2982,7 @@ describe('PersonState.processEvent()', () => {
             const kafkaAcks = result.kafkaAck
 
             const context = mergeService.getContext()
-            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+            await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
             // Source should be deleted since we moved exactly the limit and none remain
             const persons = sortPersons(await fetchPostgresPersonsH())
@@ -2932,12 +3008,13 @@ describe('PersonState.processEvent()', () => {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
+            jest.spyOn(kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(hub.postgres, 'transaction').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             await expect(
                 state.mergePeople({
                     mergeInto: first,
@@ -2946,11 +3023,11 @@ describe('PersonState.processEvent()', () => {
                     otherPersonDistinctId: secondUserDistinctId,
                 })
             ).rejects.toThrow(error)
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
 
             expect(hub.postgres.transaction).toHaveBeenCalledTimes(1)
             jest.spyOn(hub.postgres, 'transaction').mockRestore()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -2983,21 +3060,22 @@ describe('PersonState.processEvent()', () => {
                 distinctId: secondUserDistinctId,
             })
             const state: PersonMergeService = personMergeService({}, hub)
+            jest.spyOn(kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
                 error
             )
 
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3039,18 +3117,19 @@ describe('PersonState.processEvent()', () => {
                 },
                 hub
             )
+            jest.spyOn(kafkaProducer, 'produce')
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
+
             await state.handleIdentifyOrAlias()
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(kafkaProducer.produce).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3096,7 +3175,6 @@ describe('PersonState.processEvent()', () => {
                 return originalMoveDistinctIds.call(personRepository, ...args)
             })
 
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             jest.spyOn(personRepository, 'fetchPerson')
 
             // Should succeed after retry
@@ -3107,7 +3185,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
@@ -3119,10 +3197,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
@@ -3154,7 +3234,6 @@ describe('PersonState.processEvent()', () => {
             })
 
             jest.spyOn(personRepository, 'fetchPerson')
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
             // Should succeed after retry
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3164,7 +3243,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
@@ -3176,10 +3255,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
@@ -3228,8 +3309,6 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Should not retry when person no longer exists')
             })
 
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
-
             // Should return target person without error
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
@@ -3238,7 +3317,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
@@ -3291,8 +3370,6 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Should not retry when person no longer exists')
             })
 
-            jest.spyOn(hub.kafkaProducer, 'queueMessages')
-
             // Should return target person without error
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
@@ -3301,7 +3378,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.kafkaProducer.flush()
+            await kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
@@ -3528,7 +3605,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 5,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3546,7 +3622,7 @@ describe('PersonState.processEvent()', () => {
                 const person = result.person
                 const kafkaAcks = result.kafkaAck
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                 // Should have called moveDistinctIds only once since batch size > total distinct IDs
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3580,7 +3656,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 2,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3598,7 +3673,7 @@ describe('PersonState.processEvent()', () => {
                 const person = result.person
                 const kafkaAcks = result.kafkaAck
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                 // Should have called moveDistinctIds multiple times due to batching
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3) // 5 distinct IDs / 2 batch size = 3 calls (2+2+1)
@@ -3636,7 +3711,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 1,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3653,7 +3727,7 @@ describe('PersonState.processEvent()', () => {
                 const person = result.person
                 const kafkaAcks = result.kafkaAck
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                 // Once all for each distinct ID moved, then one more to make sure all distinct IDs were moved
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
@@ -3686,7 +3760,6 @@ describe('PersonState.processEvent()', () => {
                     batchSize: undefined,
                 })
 
-                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3704,7 +3777,7 @@ describe('PersonState.processEvent()', () => {
                 const person = result.person
                 const kafkaAcks = result.kafkaAck
                 const context = mergeService.getContext()
-                await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                 // Should have called moveDistinctIds only once (unlimited batch size)
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3784,7 +3857,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Should have called moveDistinctIds only once (unlimited batch size)
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -3841,7 +3914,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Should have called moveDistinctIds 3 times: 3+3+2 = 8 distinct IDs
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
@@ -3897,7 +3970,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Should have called moveDistinctIds first for the 3 distinct IDs, then to check if anything remains
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(2)
@@ -3953,7 +4026,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4057,7 +4130,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved (exactly at limit)
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4109,7 +4182,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved (same as SYNC when under limit)
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4212,7 +4285,7 @@ describe('PersonState.processEvent()', () => {
                     const person = result.person
                     const kafkaAcks = result.kafkaAck
                     const context = mergeService.getContext()
-                    await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+                    await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved (exactly at limit, same as SYNC when under limit)
                     const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
@@ -4232,7 +4305,10 @@ describe('PersonState.processEvent()', () => {
                         ...event,
                     }
 
-                    const personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+                    const personsStore = new BatchWritingPersonsStore(
+                        personRepository,
+                        createIngestionWarningsOutputs(kafkaProducer)
+                    )
 
                     const context = new PersonContext(
                         fullEvent as any,
@@ -4240,7 +4316,7 @@ describe('PersonState.processEvent()', () => {
                         event.distinct_id!,
                         timestamp,
                         true, // processPerson
-                        hub.kafkaProducer,
+                        createPersonOutputs(kafkaProducer),
                         personsStore,
                         0,
                         mergeMode
@@ -4266,7 +4342,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types'
+                        '../../../src/worker/ingestion/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4290,14 +4366,14 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types'
+                        '../../../src/worker/ingestion/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
                         error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
                     })
 
-                    const [result] = await processor.processEvent()
+                    const result = await processor.processEvent()
 
                     expect(result.type).toBe(PipelineResultType.DLQ)
                     if (isDlqResult(result)) {
@@ -4319,19 +4395,19 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types'
+                        '../../../src/worker/ingestion/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
                         error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
                     })
 
-                    const [result] = await processor.processEvent()
+                    const result = await processor.processEvent()
 
                     expect(result.type).toBe(PipelineResultType.REDIRECT)
                     if (isRedirectResult(result)) {
                         expect(result.reason).toBe('Event redirected to async merge topic')
-                        expect(result.topic).toBe('async-merge-topic')
+                        expect(result.output).toBe(ASYNC_OUTPUT)
                     }
                 })
 
@@ -4364,6 +4440,7 @@ describe('PersonState.processEvent()', () => {
                             is_user_id: null,
                             properties_last_updated_at: {},
                             properties_last_operation: {},
+                            last_seen_at: timestamp.startOf('hour'),
                         }
                         jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                             success: true,
@@ -4372,7 +4449,7 @@ describe('PersonState.processEvent()', () => {
                             needsPersonUpdate: true,
                         })
 
-                        const [result] = await processor.processEvent()
+                        const result = await processor.processEvent()
 
                         expect(result.type).toBe(PipelineResultType.OK)
                         if (isOkResult(result)) {

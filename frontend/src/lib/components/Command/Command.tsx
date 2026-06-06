@@ -15,6 +15,10 @@ export function Command(): JSX.Element {
     const handleItemSelect = useCallback(
         (item: SearchItem) => {
             closeCommand()
+            if (item.onSelect) {
+                item.onSelect()
+                return
+            }
             if (item.href) {
                 router.actions.push(item.href)
             }
@@ -39,7 +43,7 @@ export function Command(): JSX.Element {
                 <Search.Input autoFocus />
                 <Search.Status />
                 <Search.Separator />
-                <Search.Results groupLabelClassName="bg-surface-secondary" />
+                <Search.Results listClassName="pt-0 bg-surface-primary" groupLabelClassName="bg-surface-secondary" />
                 <Search.Footer />
             </Search.Root>
         </DialogPrimitive>

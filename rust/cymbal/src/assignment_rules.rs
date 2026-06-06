@@ -221,7 +221,7 @@ pub async fn try_assignment_rules(
     con: &mut PgConnection,
     team_manager: &TeamManager,
     issue: Issue,
-    exception_properties: OutputErrProps,
+    exception_properties: &OutputErrProps,
 ) -> Result<Option<NewAssignment>, UnhandledError> {
     let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,6 +254,21 @@ pub async fn try_assignment_rules(
                 timing.label("outcome", "match").fin();
                 metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
                 return Ok(Some(new_assignment));
+            }
+            // The HogVM ran out of its per-event step budget on this event. The rule
+            // itself isn't necessarily broken — a single oversized event can blow the
+            // budget for an otherwise-fine rule (e.g. a long `$exception_sources` array
+            // pushing an `arrayExists` chain past max_steps). Skip the rule for this
+            // event rather than disabling it permanently for every future event.
+            // Other `OutOfResource` variants (heap memory, (de)serialization depth)
+            // fall through to the catch-all and still disable the rule.
+            Err(VmError::OutOfResource(resource)) if resource == "steps" => {
+                tracing::warn!(
+                    rule_id = %rule.id,
+                    team_id = %rule.team_id,
+                    "assignment rule exceeded HogVM step budget for this event, skipping"
+                );
+                continue;
             }
             Err(err) => {
                 rule.disable(

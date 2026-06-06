@@ -8,15 +8,44 @@ import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.subscription import Subscription
+from posthog.utils import absolute_uri
 
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
+
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
-UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
+
+# Shown in place of the AI summary when generation was skipped because the org is
+# over its AI credit budget. Wording kept in sync with the email template's notice.
+def summary_skipped_over_budget_message(billing_url: str) -> str:
+    return (
+        "_AI summary skipped — your organization has reached its AI credit usage limit. "
+        f"Increase the limit in <{billing_url}|Billing settings> to resume summaries._"
+    )
+
+
+# Slack API error codes that indicate transient server-side issues — safe to retry.
+# These are 5xx-equivalents in Slack's string-coded error model. Permanent errors
+# (channel_not_found, invalid_auth, etc.) are NOT in this set and should fail fast.
+_RETRYABLE_SLACK_ERRORS = frozenset(
+    {
+        "internal_error",
+        "service_unavailable",
+        "fatal_error",
+        "request_timeout",
+        "ratelimited",
+        "rate_limited",
+    }
+)
+
+
+def _next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 @dataclass
@@ -25,6 +54,9 @@ class SlackMessageData:
     blocks: list[dict[str, Any]]
     title: str
     thread_messages: list[dict[str, Any]] = field(default_factory=list)
+    # When False, Slack won't auto-unfurl links in the message — set by callers delivering
+    # untrusted (e.g. LLM-generated) content to close the server-side link-fetch exfil channel.
+    unfurl: bool = True
 
 
 @dataclass
@@ -42,7 +74,7 @@ class SlackDeliveryResult:
         return self.main_message_sent and len(self.failed_thread_message_indices) == 0
 
 
-def _block_for_asset(asset: ExportedAsset) -> dict:
+def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
     if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
 
@@ -57,16 +89,17 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
         else:
             exception_text = ASSET_GENERATION_FAILED_MESSAGE
 
+        support_url = f"{resource_url}#panel=support:bug:analytics_platform:high:true"
         error_text = (
             f"*{insight_name}*\n"
             f"There was an error generating your asset: {exception_text}\n"
-            f"_If this issue persists, please contact support._"
+            f"_If this issue persists, please <{support_url}|contact support>._"
         )
 
         return {"type": "section", "text": {"type": "mrkdwn", "text": error_text}}
 
     # Normal image block for successful assets
-    image_url = asset.get_public_content_url()
+    image_url = asset.get_subscription_delivery_content_url()
     alt_text = None
     if asset.insight:
         alt_text = asset.insight.name or asset.insight.derived_name
@@ -104,6 +137,8 @@ def _prepare_slack_message(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
+    summary_skipped_over_budget: bool = False,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -115,16 +150,39 @@ def _prepare_slack_message(
     channel = subscription.target_value.split("|")[0]
     first_asset, *other_assets = assets
 
-    if is_new_subscription:
-        title = f"This channel has been subscribed to the {resource_info.kind} *{resource_info.name}* on PostHog! 🎉"
-        title += f"\nThis subscription is {subscription.summary}. The next one will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+    if subscription.title:
+        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
     else:
-        title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready! 🎉"
+        display_name = f"the {resource_info.kind} *{resource_info.name}*"
 
-    blocks = [
+    if is_new_subscription:
+        title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
+        title += (
+            f"\nThis subscription is {subscription.summary}. "
+            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
+        )
+    else:
+        title = f"Your subscription to {display_name} is ready! 🎉"
+
+    blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        _block_for_asset(first_asset),
     ]
+
+    if change_summary:
+        summary_text = f"*AI summary:*\n{change_summary}"
+        if len(summary_text) > 3000:
+            summary_text = summary_text[:2997] + "..."
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+    elif summary_skipped_over_budget:
+        billing_url = f"{absolute_uri('/organization/billing')}?{utm_tags}"
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": summary_skipped_over_budget_message(billing_url)}],
+            }
+        )
+
+    blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 
     if other_assets:
         blocks.append(
@@ -158,7 +216,7 @@ def _prepare_slack_message(
     # Prepare additional messages for thread
     thread_messages = []
     for asset in other_assets:
-        thread_messages.append({"blocks": [_block_for_asset(asset)]})
+        thread_messages.append({"blocks": [_block_for_asset(asset, resource_url=resource_info.url)]})
 
     if total_asset_count > len(assets):
         thread_messages.append(
@@ -196,14 +254,24 @@ def send_slack_message_with_integration(
 
     # Send main message
     message_res = slack_integration.client.chat_postMessage(
-        channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
+        channel=message_data.channel,
+        blocks=message_data.blocks,
+        text=message_data.title,
+        unfurl_links=message_data.unfurl,
+        unfurl_media=message_data.unfurl,
     )
 
     thread_ts = message_res.get("ts")
     if thread_ts:
         # Send thread messages
         for thread_msg in message_data.thread_messages:
-            slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
+            slack_integration.client.chat_postMessage(
+                channel=message_data.channel,
+                thread_ts=thread_ts,
+                unfurl_links=message_data.unfurl,
+                unfurl_media=message_data.unfurl,
+                **thread_msg,
+            )
 
 
 async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs):
@@ -213,9 +281,12 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
         except (TimeoutError, SlackApiError) as e:
             if isinstance(e, SlackApiError):
                 slack_error = e.response.get("error", "")
-                if slack_error != "invalid_blocks":
+                if slack_error == "invalid_blocks":
+                    log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
+                elif slack_error in _RETRYABLE_SLACK_ERRORS:
+                    log_event = "_send_slack_message_with_retry.transient_error_retrying"
+                else:
                     raise
-                log_event = "_send_slack_message_with_retry.invalid_blocks_retrying"
             else:
                 log_event = "_send_slack_message_with_retry.timeout_retrying"
 
@@ -235,17 +306,15 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
             await asyncio.sleep(wait_time)
 
 
-async def send_slack_message_with_integration_async(
+async def deliver_slack_message_data(
     integration: Integration,
     subscription: Subscription,
-    assets: list[ExportedAsset],
-    total_asset_count: int,
-    is_new_subscription: bool = False,
+    message_data: SlackMessageData,
 ) -> SlackDeliveryResult:
-    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    # shared send path: callers build the SlackMessageData; retry + partial-failure handling are shared
     slack_integration = SlackIntegration(integration)
 
-    async with aiohttp.ClientSession() as slack_session:
+    async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
 
         message_res = await _send_slack_message_with_retry(
@@ -253,8 +322,10 @@ async def send_slack_message_with_integration_async(
             channel=message_data.channel,
             blocks=message_data.blocks,
             text=message_data.title,
+            unfurl_links=message_data.unfurl,
+            unfurl_media=message_data.unfurl,
         )
-        logger.info("send_slack_message_with_integration_async.main_message_sent", subscription_id=subscription.id)
+        logger.info("deliver_slack_message_data.main_message_sent", subscription_id=subscription.id)
 
         thread_ts = message_res.get("ts")
         failed_thread_messages = []
@@ -266,12 +337,14 @@ async def send_slack_message_with_integration_async(
                         async_client,
                         channel=message_data.channel,
                         thread_ts=thread_ts,
+                        unfurl_links=message_data.unfurl,
+                        unfurl_media=message_data.unfurl,
                         **thread_msg,
                     )
                 except Exception as e:
                     # Thread message failed, continue with others
                     logger.error(
-                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
+                        "deliver_slack_message_data.slack_thread_message_failed_after_retries",
                         subscription_id=subscription.id,
                         channel=message_data.channel,
                         thread_index=idx,
@@ -287,3 +360,23 @@ async def send_slack_message_with_integration_async(
         total_thread_messages=len(message_data.thread_messages),
         failed_thread_message_indices=failed_thread_messages,
     )
+
+
+async def send_slack_message_with_integration_async(
+    integration: Integration,
+    subscription: Subscription,
+    assets: list[ExportedAsset],
+    total_asset_count: int,
+    is_new_subscription: bool = False,
+    change_summary: str | None = None,
+    summary_skipped_over_budget: bool = False,
+) -> SlackDeliveryResult:
+    message_data = _prepare_slack_message(
+        subscription,
+        assets,
+        total_asset_count,
+        is_new_subscription,
+        change_summary=change_summary,
+        summary_skipped_over_budget=summary_skipped_over_budget,
+    )
+    return await deliver_slack_message_data(integration, subscription, message_data)

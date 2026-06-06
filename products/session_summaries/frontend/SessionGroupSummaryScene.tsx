@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
+import { IconCheck, IconSearch, IconShare, IconSort, IconSparkles } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -13,12 +13,12 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { debounce } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -30,10 +30,105 @@ import { SessionGroupSummarySceneLogicProps, sessionGroupSummarySceneLogic } fro
 import {
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternsList,
+    FailedSessionCategory,
+    FailedSessionInfo,
     PatternAssignedEventSegmentContext,
     SeverityLevel,
 } from './types'
 import { getIssueTags } from './utils'
+
+const FAILED_SESSION_CATEGORY_LABELS: Record<FailedSessionCategory, string> = {
+    skipped: 'Skipped',
+    summarization_failed: "Couldn't summarize",
+    patterns_failed: "Couldn't extract patterns",
+}
+
+function PartialResultBanner({
+    failedSessions,
+    analyzedSessionCount,
+}: {
+    failedSessions: FailedSessionInfo[]
+    analyzedSessionCount: number
+}): JSX.Element | null {
+    if (failedSessions.length === 0) {
+        return null
+    }
+    const totalSessions = analyzedSessionCount + failedSessions.length
+    const grouped = failedSessions.reduce<Record<FailedSessionCategory, FailedSessionInfo[]>>(
+        (acc, fs) => {
+            acc[fs.category] = acc[fs.category] ?? []
+            acc[fs.category].push(fs)
+            return acc
+        },
+        { skipped: [], summarization_failed: [], patterns_failed: [] }
+    )
+    return (
+        <div className="border border-ai bg-ai/08 dark:bg-ai/20 rounded-lg overflow-hidden mb-2">
+            <LemonCollapse
+                size="small"
+                embedded
+                panels={[
+                    {
+                        key: 'failed-sessions',
+                        header: (
+                            <div className="flex items-center gap-2">
+                                <IconSparkles className="text-ai shrink-0" />
+                                <span className="text-sm font-medium">
+                                    Analyzed {analyzedSessionCount} of {totalSessions} sessions
+                                </span>
+                                <span className="text-xs text-secondary">· {failedSessions.length} not included</span>
+                            </div>
+                        ),
+                        content: (
+                            <div className="flex flex-col gap-3 pt-1">
+                                <p className="text-xs text-secondary mb-0">
+                                    The patterns below are based on the {analyzedSessionCount} sessions that succeeded.
+                                </p>
+                                {(Object.keys(grouped) as FailedSessionCategory[])
+                                    .filter((category) => grouped[category].length > 0)
+                                    .map((category) => {
+                                        const items = grouped[category]
+                                        const isClickable = category !== 'skipped'
+                                        return (
+                                            <div key={category} className="flex flex-col gap-1.5">
+                                                <p className="text-xs text-secondary mb-0">
+                                                    <span className="font-medium">
+                                                        {FAILED_SESSION_CATEGORY_LABELS[category]} ({items.length})
+                                                    </span>{' '}
+                                                    · {items[0].reason}
+                                                </p>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {items.map((fs) =>
+                                                        isClickable ? (
+                                                            <Tooltip key={fs.session_id} title="Open in player">
+                                                                <LemonButton
+                                                                    size="xsmall"
+                                                                    type="secondary"
+                                                                    icon={<IconPlayCircle />}
+                                                                    to={urls.replaySingle(fs.session_id)}
+                                                                    targetBlank
+                                                                >
+                                                                    {fs.session_id}
+                                                                </LemonButton>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            <LemonTag key={fs.session_id} size="small" type="muted">
+                                                                {fs.session_id}
+                                                            </LemonTag>
+                                                        )
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
 
 export const scene: SceneExport<SessionGroupSummarySceneLogicProps> = {
     component: SessionGroupSummary,
@@ -440,7 +535,10 @@ export function SessionGroupSummary(): JSX.Element {
             </SceneContent>
         )
     }
-    const totalSessions = sessionGroupSummary.session_ids.length
+    // `session_ids` is the analyzed subset; the original request is analyzed + failed.
+    const analyzedSessionsCount = sessionGroupSummary.session_ids.length
+    const failedSessions = sessionGroupSummary.run_metadata?.failed_sessions ?? []
+    const requestedSessionsCount = analyzedSessionsCount + failedSessions.length
     return (
         <SceneContent>
             <SceneTitleSection
@@ -468,7 +566,11 @@ export function SessionGroupSummary(): JSX.Element {
             <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
                 <div className="flex items-center gap-3">
                     <LemonTag type="warning">BETA</LemonTag>
-                    <span>{totalSessions} sessions analyzed</span>
+                    <span>
+                        {failedSessions.length > 0
+                            ? `${analyzedSessionsCount} of ${requestedSessionsCount} sessions analyzed`
+                            : `${analyzedSessionsCount} sessions analyzed`}
+                    </span>
                     <span className="hidden sm:inline">·</span>
                     <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
                 </div>
@@ -492,6 +594,7 @@ export function SessionGroupSummary(): JSX.Element {
                 </LemonMenu>
             </div>
             <div className="space-y-4">
+                <PartialResultBanner failedSessions={failedSessions} analyzedSessionCount={analyzedSessionsCount} />
                 <FilterBar
                     searchValue={searchValue}
                     onSearchChange={setSearchValue}

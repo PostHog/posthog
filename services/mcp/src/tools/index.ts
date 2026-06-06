@@ -1,180 +1,122 @@
 import { hasScopes } from '@/lib/api'
 
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
-// Dashboards
-import addInsightToDashboard from './dashboards/addInsight'
-import createDashboard from './dashboards/create'
-import deleteDashboard from './dashboards/delete'
-import getDashboard from './dashboards/get'
-import getAllDashboards from './dashboards/getAll'
-import reorderDashboardTiles from './dashboards/reorderTiles'
-import updateDashboard from './dashboards/update'
-// Demo
-import demoMcpUiApps from './demo/demoMcpUiApps'
-// Documentation
-import searchDocs from './documentation/searchDocs'
-// Error Tracking
-import errorDetails from './errorTracking/errorDetails'
-import listErrors from './errorTracking/listErrors'
-// Experiments
-import createExperiment from './experiments/create'
-import deleteExperiment from './experiments/delete'
-import getExperiment from './experiments/get'
-import getAllExperiments from './experiments/getAll'
+// AI observability
+import getLLMCosts from './aiObservability/getLLMCosts'
+// Debug
+import debugMcpUiApps from './debug/debugMcpUiApps'
+// Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
-import updateExperiment from './experiments/update'
-// Feature Flags
-import createFeatureFlag from './featureFlags/create'
-import deleteFeatureFlag from './featureFlags/delete'
-import getAllFeatureFlags from './featureFlags/getAll'
-import getFeatureFlagDefinition from './featureFlags/getDefinition'
-import updateFeatureFlag from './featureFlags/update'
+import experimentListDeprecated from './experiments/listDeprecated'
+// Feedback
+import submitFeedback from './feedback/submit'
+// Generated tools (from definitions/*.yaml)
+import { GENERATED_TOOL_MAP } from './generated'
 // Insights
-import createInsight from './insights/create'
-import deleteInsight from './insights/delete'
-import getInsight from './insights/get'
-import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
-import updateInsight from './insights/update'
-// LLM Observability
-import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributeValues from './logs/listAttributeValues'
-import logsListAttributes from './logs/listAttributes'
-// Logs
-import logsQuery from './logs/query'
+// Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebookEdit from './notebooks/edit'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
+// PostHog AI tools
+import {
+    executeSql,
+    externalDataSourcesDbSchema,
+    externalDataSourcesJobs,
+    externalDataSyncLogs,
+    readDataSchema,
+    readDataWarehouseSchema,
+} from './posthogAiTools'
 // Projects
-import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
-import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
-// Query
-import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
-import queryRun from './query/run'
-// Search
-import entitySearch from './search/entitySearch'
-// Surveys
-import createSurvey from './surveys/create'
-import deleteSurvey from './surveys/delete'
-import getSurvey from './surveys/get'
-import getAllSurveys from './surveys/getAll'
-import surveysGlobalStats from './surveys/global-stats'
-import surveyStats from './surveys/stats'
-import updateSurvey from './surveys/update'
+// Replay
+import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Misc
-import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
+import {
+    type ToolFilterOptions,
+    getToolsForFeatures as getFilteredToolNames,
+    getToolDefinition,
+} from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
+// Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
+import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
+// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally
+// not registered: editing active workflows is blocked, and exposing disable invited a
+// disable→edit→enable workaround. The factory stays in lifecycle.ts for easy re-enable.
+import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
-const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
-    // Feature Flags
-    'feature-flag-get-definition': getFeatureFlagDefinition,
-    'feature-flag-get-all': getAllFeatureFlags,
-    'create-feature-flag': createFeatureFlag,
-    'update-feature-flag': updateFeatureFlag,
-    'delete-feature-flag': deleteFeatureFlag,
-
+export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,
     'switch-project': setActiveProject,
-    'event-definitions-list': eventDefinitions,
     'event-definition-update': updateEventDefinition,
-    'properties-list': getProperties,
 
-    // Documentation - handled separately due to env check
-    // "docs-search": searchDocs,
-
-    // Error Tracking
-    'list-errors': listErrors,
-    'error-details': errorDetails,
-
-    // Logs
-    'logs-query': logsQuery,
-    'logs-list-attributes': logsListAttributes,
-    'logs-list-attribute-values': logsListAttributeValues,
-
-    // Experiments
-    'experiment-get-all': getAllExperiments,
-    'experiment-get': getExperiment,
+    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    'experiment-create': createExperiment,
-    'experiment-delete': deleteExperiment,
-    'experiment-update': updateExperiment,
+    // Deprecated alias for experiment-list — forwards and annotates the response.
+    'experiment-get-all': experimentListDeprecated,
 
     // Insights
-    'insights-get-all': getAllInsights,
-    'insight-get': getInsight,
-    'insight-create-from-query': createInsight,
-    'insight-update': updateInsight,
-    'insight-delete': deleteInsight,
     'insight-query': queryInsight,
 
-    // Queries
-    'query-generate-hogql-from-question': generateHogQLFromQuestion,
-    'query-run': queryRun,
-
-    // Dashboards
-    'dashboards-get-all': getAllDashboards,
-    'dashboard-get': getDashboard,
-    'dashboard-create': createDashboard,
-    'dashboard-update': updateDashboard,
-    'dashboard-delete': deleteDashboard,
-    'dashboard-reorder-tiles': reorderDashboardTiles,
-    'add-insight-to-dashboard': addInsightToDashboard,
-
-    // LLM Observability
+    // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
 
-    // Surveys
-    'surveys-get-all': getAllSurveys,
-    'survey-get': getSurvey,
-    'survey-create': createSurvey,
-    'survey-update': updateSurvey,
-    'survey-delete': deleteSurvey,
-    'surveys-global-stats': surveysGlobalStats,
-    'survey-stats': surveyStats,
+    // Notebooks
+    'notebook-edit': notebookEdit,
 
-    // Actions
-    'actions-get-all': getAllActions,
-    'action-get': getAction,
-    'action-create': createAction,
-    'action-update': updateAction,
-    'action-delete': deleteAction,
+    // Debug
+    'debug-mcp-ui-apps': debugMcpUiApps,
 
-    // Search
-    'entity-search': entitySearch,
+    // Feedback
+    'agent-feedback': submitFeedback,
 
-    // Demo
-    'demo-mcp-ui-apps': demoMcpUiApps,
+    // PostHog AI tools
+    'execute-sql': executeSql,
+    'read-data-schema': readDataSchema,
+    'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Replay
+    'session-recording-summarize': sessionRecordingSummarize,
+
+    // Data warehouse (custom handlers for non-standard request shapes)
+    'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-jobs': externalDataSourcesJobs,
+    'external-data-sync-logs': externalDataSyncLogs,
+
+    // Workflows lifecycle (thin wrappers over hog_flows_partial_update so MCP gets
+    // an idiomatic enable/disable/archive surface without three new REST endpoints).
+    'workflows-enable': workflowsEnable,
+    'workflows-archive': workflowsArchive,
+
+    // Workflows batch (hand-rolled: blast-radius sizing + echo-back guard before fan-out,
+    // composing the existing user_blast_radius / batch_jobs / schedules endpoints).
+    'workflows-blast-radius': workflowsBlastRadius,
+    'workflows-run-batch': workflowsRunBatch,
+    'workflows-schedule-create': workflowsScheduleCreate,
 }
 
-export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
-    const allowedToolNames = getFilteredToolNames(features)
+export const getToolsFromContext = async (
+    context: Context,
+    options?: ToolFilterOptions
+): Promise<Tool<ZodObjectAny>[]> => {
+    // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
+    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+    const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
+    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    const excludeTools = options?.excludeTools ?? []
+    const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
-        // Special handling for docs-search which requires API key
-        if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
-            toolBases.push(searchDocs())
-        } else {
-            const toolFactory = TOOL_MAP[toolName]
-            if (toolFactory) {
-                toolBases.push(toolFactory())
-            }
+        const toolFactory = effectiveMap[toolName]
+        if (toolFactory) {
+            toolBases.push(toolFactory())
         }
     }
 

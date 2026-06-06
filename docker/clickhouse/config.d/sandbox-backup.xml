@@ -1,0 +1,17 @@
+<!--
+    Backup disk for sandbox database caching.
+    Only mounted in docker-compose.sandbox.yml — ignored in other environments.
+-->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <sandbox_cache>
+                <type>local</type>
+                <path>/cache/chbackup/</path>
+            </sandbox_cache>
+        </disks>
+    </storage_configuration>
+    <backups>
+        <allowed_disk>sandbox_cache</allowed_disk>
+    </backups>
+</clickhouse>

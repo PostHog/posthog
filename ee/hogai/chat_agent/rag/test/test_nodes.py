@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.utils import timezone
 
@@ -10,8 +10,9 @@ from azure.core.credentials import AzureKeyCredential
 from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent.rag.nodes import InsightRagContextNode
 from ee.hogai.utils.types import AssistantState
@@ -67,7 +68,9 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         assert args[1] == team
 
         # Check run was called with the correct execution mode
-        mock_runner_instance.run.assert_called_once_with(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+        mock_runner_instance.run.assert_called_once_with(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, analytics_props=ANY
+        )
 
     def test_injects_action(self, cohere_mock, embed_mock):
         retriever = InsightRagContextNode(team=self.team, user=self.user)

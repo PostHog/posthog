@@ -1,9 +1,11 @@
+import re
 import time
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -12,24 +14,30 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
+
+from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class CohortKind(StrEnum):
+    INTERNAL_TEST_USERS = "internal_test_users"
 
 
 class CohortType(StrEnum):
@@ -49,16 +57,6 @@ CohortOrEmpty = Union["Cohort", Literal[""], None]
 REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
 
 logger = structlog.get_logger(__name__)
-
-DELETE_QUERY = """
-DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
-"""
-
-UPDATE_QUERY = """
-INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id", "version")
-{values_query}
-ON CONFLICT DO NOTHING
-"""
 
 DEFAULT_COHORT_INSERT_BATCH_SIZE = 1000
 
@@ -103,6 +101,20 @@ class CohortManager(RootTeamManager):
         return cohort
 
 
+# Fields that are updated during cohort recalculation. The save_fields lists
+# in _safe_save_cohort_state must remain subsets of this set, otherwise the
+# is_cohort_recalculation_only_save guard will incorrectly allow signal handlers to fire.
+COHORT_RECALCULATION_FIELDS = frozenset(
+    {"is_calculating", "last_calculation", "errors_calculating", "last_error_at", "count"}
+)
+
+
+def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
+    """Return True when a post_save signal was triggered only by recalculation bookkeeping fields."""
+    update_fields = kwargs.get("update_fields")
+    return update_fields is not None and COHORT_RECALCULATION_FIELDS.issuperset(update_fields)
+
+
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
@@ -111,7 +123,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     filters = models.JSONField(
         null=True,
         blank=True,
-        help_text="""Filters for the cohort. Examples:
+        help_text="""Filters for the cohort. The `negation` field shown below is specific to
+        cohort definitions (the inner sub-filters that build a cohort). Property filters used
+        *outside* cohort definitions — e.g. on `team.test_account_filters`, insight filters, or
+        feature flag conditions — must use `operator: "in"`/`"not_in"` for cohort exclusion and
+        do NOT accept `negation`.
+
+        Examples:
 
         # Behavioral filter (performed event)
         {
@@ -149,7 +167,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             }
         }
 
-        # Cohort filter
+        # Cohort filter (inner — within a cohort definition)
         {
             "properties": {
                 "type": "OR",
@@ -166,7 +184,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         }""",
     )
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("Person", through="CohortPeople")
+    people = models.ManyToManyField("Person", through="CohortPeople")  # type: models.ManyToManyField
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
@@ -176,10 +194,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_calculating = models.BooleanField(default=False)
     last_calculation = models.DateTimeField(blank=True, null=True)
+    last_calculation_duration_ms = models.IntegerField(blank=True, null=True)
     errors_calculating = models.IntegerField(default=0)
     last_error_at = models.DateTimeField(blank=True, null=True)
+    last_backfill_person_properties_at = models.DateTimeField(blank=True, null=True)
+    last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
+    kind = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[(kind.value, kind.value) for kind in CohortKind],
+        help_text="System-defined cohort kind. Null for user-created cohorts.",
+    )
 
     cohort_type = models.CharField(
         max_length=50,
@@ -194,13 +222,28 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     objects = CohortManager()  # type: ignore
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "kind"],
+                condition=models.Q(kind__isnull=False, deleted=False),
+                name="unique_cohort_kind_per_team",
+            ),
+        ]
+        indexes = [
+            # Backs the default list ordering (filter by team, order by -created_at).
+            models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
+            # Backs `name__icontains` search (the cohort picker's server-side search).
+            GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+        ]
+
     def __str__(self):
         return self.name or "Untitled cohort"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -215,6 +258,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             },
             should_delete=self.deleted,
         )
+
+    @property
+    def is_flag_compatible(self) -> bool:
+        """Whether this cohort can be used in feature flag targeting via cohort_membership lookups."""
+        return self.cohort_type == CohortType.REALTIME and self.last_backfill_person_properties_at is not None
 
     @property
     def properties(self) -> PropertyGroup:
@@ -288,6 +336,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "deleted": self.deleted,
         }
 
+    def _safe_reset_calculating_state(self, completed_version: int) -> None:
+        """
+        Safely reset is_calculating flag only when it's appropriate.
+        This prevents the flag from being reset while higher-version calculations are still running.
+
+        Args:
+            completed_version: The version that just completed calculating
+        """
+        # Use atomic update to safely check and reset is_calculating flag
+        # Only reset if the completed version is >= the current pending_version
+        Cohort.objects.filter(pk=self.pk, pending_version__lte=completed_version, is_calculating=True).update(
+            is_calculating=False
+        )
+
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
@@ -309,6 +371,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.cohort_type = None
                 cohort_type_cleared = True
 
+            # Update version inside the try block so it can't be skipped by finally exceptions.
+            # Conditional filter preserves concurrency safety: lower versions don't overwrite higher ones.
+            version_update_fields: dict[str, Any] = {"version": pending_version, "count": count}
+            if cohort_type_cleared:
+                version_update_fields["cohort_type"] = None
+            Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+                **version_update_fields
+            )
+
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
@@ -326,16 +397,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
-            self.is_calculating = False
-            self.save()
+            # Save fields modified during calculation, but exclude is_calculating to prevent race condition
+            self.save(
+                update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"]
+            )
+            # Only set is_calculating = False if this is the highest pending version
+            # This prevents the flag from being reset while other higher-version calculations are still running
+            self._safe_reset_calculating_state(completed_version=pending_version)
 
-        # Update filter to match pending version if still valid
-        update_fields = {"version": pending_version, "count": count}
-        if cohort_type_cleared:
-            update_fields["cohort_type"] = None
-        Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
-            **update_fields
-        )
         self.refresh_from_db()
 
         logger.info(
@@ -344,46 +413,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
-
-    def _get_uuids_for_distinct_ids_batch(self, distinct_ids: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for a batch of distinct IDs, excluding those already in this cohort.
-
-        Args:
-            distinct_ids: List of distinct IDs to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Remarks:
-            This used to be a single query with a complex JOIN, but that query was timing out.
-            So we split it into two queries that are much simpler and should hopefully not time out.
-
-        Returns:
-            List of UUIDs for persons with the given distinct IDs who are not already in this cohort
-        """
-        if not distinct_ids:
-            return []
-
-        # Get person_ids for this batch of distinct IDs
-        # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
-        person_ids_qs = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id, distinct_id__in=distinct_ids)
-            .values_list("person_id", flat=True)
-            .distinct()
-        )
-
-        # Grab uuids for this batch of distinct IDs
-        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
-        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
-        # don't insert people that are already in the cohort efficiently.
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id, id__in=person_ids_qs)
-            .values_list("uuid", flat=True)
-        ]
-
-        return uuids
 
     def insert_users_by_list(
         self,
@@ -409,19 +438,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Process distinct IDs in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from distinct IDs, excluding those already in cohort."""
+            from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            batch_distinct_ids = items[start_idx:end_idx]
+            return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
-            return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
-
-        # Use FunctionBatchIterator to process distinct IDs in batches
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
@@ -452,6 +476,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        email_property_key: str | None = None,
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.
@@ -459,6 +484,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of email addresses of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
+            email_property_key: Accepted for backwards compatibility but ignored — all lookups
+                                use the ClickHouse pmat_email materialized column.
         """
         if team_id is None:
             team_id = self.team_id
@@ -469,117 +496,31 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Check feature flag once for the entire import process
-        use_clickhouse = posthoganalytics.feature_enabled(
-            "cohort-email-lookup-clickhouse",
-            str(team_id),
-            groups={"project": str(team_id)},
-            group_properties={
-                "project": {
-                    "id": str(team_id),
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-        # Process emails in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            batch_emails = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id, use_clickhouse=use_clickhouse)
-            return uuids
+            return self._get_uuids_for_emails_batch_ch(items[start_idx:end_idx], team_id)
 
-        # Use FunctionBatchIterator to process emails in batches
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
-    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int, use_clickhouse: bool = False) -> list[str]:
-        """
-        Get UUIDs for a batch of email addresses, excluding those already in this cohort.
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-            use_clickhouse: Whether to use ClickHouse instead of PostgreSQL
-
-        Returns:
-            List of UUIDs for persons with the given email addresses who are not already in this cohort
-        """
-        if not emails:
-            return []
-
-        if use_clickhouse:
-            return self._get_uuids_for_emails_batch_ch(emails, team_id)
-
-        # Default to PostgreSQL method
-        return self._get_uuids_for_emails_batch_pg(emails, team_id)
-
-    def _get_uuids_for_emails_batch_pg(self, emails: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for email addresses using PostgreSQL (fallback path).
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Returns:
-            List of UUIDs for persons with the given email addresses
-        """
-        if not emails:
-            return []
-
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id)
-            .filter(properties__email__in=emails)
-            .values_list("uuid", flat=True)
-        ]
-        return uuids
-
     def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for email addresses using ClickHouse (fast path).
-        Uses direct ClickHouse SQL for optimal performance.
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Returns:
-            List of UUIDs for persons with the given email addresses
-        """
         if not emails:
             return []
 
-        try:
-            # Use optimized ClickHouse query with GROUP BY HAVING
-            query = """
-            SELECT person.id
-            FROM person
-            WHERE person.team_id = %(team_id)s
-              AND person.pmat_email IN %(emails)s
-            GROUP BY person.id
-            HAVING argMax(person.is_deleted, person.version) = 0
-            SETTINGS optimize_aggregation_in_order = 1
-            """
+        query = """
+        SELECT person.id
+        FROM person
+        WHERE person.team_id = %(team_id)s
+          AND person.pmat_email IN %(emails)s
+        GROUP BY person.id
+        HAVING argMax(person.is_deleted, person.version) = 0
+        SETTINGS optimize_aggregation_in_order = 1
+        """
 
-            result = sync_execute(query, {"team_id": team_id, "emails": emails})
-            return [str(row[0]) for row in result]
-
-        except Exception:
-            # Log error before falling back to PostgreSQL
-            logger.exception(
-                "ClickHouse email lookup failed, falling back to PostgreSQL",
-                team_id=team_id,
-                email_count=len(emails),
-            )
-            # Fallback to PostgreSQL method
-            return self._get_uuids_for_emails_batch_pg(emails, team_id)
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        result = sync_execute(query, {"team_id": team_id, "emails": emails})
+        return [str(row[0]) for row in result]
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
@@ -610,61 +551,79 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Args:
             batch_iterator: BatchIterator of user UUIDs to be inserted into the cohort.
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
-            batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
 
         Returns:
             Number of batches processed.
         """
-        from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
+        from posthog.models.cohort.util import count_cohort_members, insert_static_cohort
+        from posthog.personhog_client.gate import use_personhog
 
         current_batch_index = -1
         processing_error = None
+        personhog = use_personhog()
         try:
             from django.db import connections, router
 
-            db_write = router.db_for_write(Person) or "default"
-            db_read = router.db_for_read(Person) or "default"
-            persons_connection = connections[db_write]
-            cursor = persons_connection.cursor()
-            for batch_index, batch in batch_iterator:
-                current_batch_index = batch_index
-                # Get persons already in this cohort to exclude them
-                # Can't use .exclude(cohort__id=self.id) because Cohort is in default DB
-                # and Person/CohortPeople are in persons DB - cross-DB joins don't work
-                existing_person_ids = set(
-                    CohortPeople.objects.using(db_write).filter(cohort_id=self.id).values_list("person_id", flat=True)
-                )
+            if personhog:
+                for batch_index, batch in batch_iterator:
+                    current_batch_index = batch_index
+                    self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
+            else:
+                db_write = router.db_for_write(Person) or "default"
+                db_read = router.db_for_read(Person) or "default"
+                persons_connection = connections[db_write]
+                cursor = persons_connection.cursor()
+                cohort_people_table = CohortPeople._meta.db_table
+                for batch_index, batch in batch_iterator:
+                    current_batch_index = batch_index
 
-                persons_query = (
-                    Person.objects.db_manager(db_read)
-                    .filter(team_id=team_id)
-                    .filter(uuid__in=batch)
-                    .exclude(id__in=existing_person_ids)
-                )
-                if insert_in_clickhouse:
-                    insert_static_cohort(
-                        list(persons_query.values_list("uuid", flat=True)),
-                        self.pk,
-                        team_id=team_id,
+                    persons_query = (
+                        Person.objects.db_manager(db_read)  # nosemgrep: no-direct-persons-db-orm
+                        .filter(team_id=team_id)
+                        .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
                     )
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-                person_table = Person._meta.db_table
-                query = UPDATE_QUERY.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace(
-                        f'FROM "{person_table}"',
-                        f', {self.pk}, {self.version or "NULL"} FROM "{person_table}"',
-                        1,
-                    ),
-                )
-                cursor.execute(query, params)
+                    if insert_in_clickhouse:
+                        # Both querysets must use db_write so Django can merge the
+                        # .exclude() into a single NOT IN subquery. Using db_read
+                        # for Person + db_write for CohortPeople causes a
+                        # "Subqueries aren't allowed across different databases"
+                        # ValueError when the aliases differ (production config).
+                        insert_uuids_query = (
+                            Person.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
+                            .filter(team_id=team_id, uuid__in=batch)
+                            .exclude(
+                                id__in=CohortPeople.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
+                                .filter(cohort_id=self.id)
+                                .values_list("person_id", flat=True)
+                            )
+                        )
+                        insert_static_cohort(
+                            list(insert_uuids_query.values_list("uuid", flat=True)),
+                            self.pk,
+                            team_id=team_id,
+                        )
+
+                    # Dedup via LEFT JOIN so the exclusion stays entirely in SQL,
+                    # avoiding the O(cohort_size) memory cost of loading all
+                    # existing member IDs into Python. Both tables live on the
+                    # persons DB so the join works on the db_write cursor.
+                    sql, params = persons_query.only("pk").query.sql_with_params()
+                    query = f"""
+                        INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
+                        SELECT p."id", {self.pk}, {self.version or "NULL"}
+                        FROM ({sql}) AS p
+                        LEFT JOIN "{cohort_people_table}" AS cp
+                            ON cp."person_id" = p."id" AND cp."cohort_id" = {self.pk}
+                        WHERE cp."person_id" IS NULL
+                        ON CONFLICT DO NOTHING
+                    """
+                    cursor.execute(query, params)
 
         except Exception as err:
             processing_error = err
             if settings.DEBUG:
                 raise
-            # Add batch index context to the exception
             capture_exception(
                 err,
                 additional_properties={
@@ -676,11 +635,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         finally:
             # Always update the count and cohort state, even if processing failed
             try:
-                # Use the write database to avoid replication lag from under-representing the count after inserting
-                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id, using_database=db_write)
+                count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
                 self.count = count
             except Exception as count_err:
-                # If count calculation fails, log the error but don't override the processing error
+                # If count calculation fails, log the error but don't override the processing error.
+                # Leave existing count unchanged - it's better than None.
                 logger.exception(
                     "Failed to calculate static cohort size",
                     cohort_id=self.id,
@@ -690,11 +649,68 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     count_err,
                     additional_properties={"cohort_id": self.id, "team_id": team_id},
                 )
-                # Leave existing count unchanged - it's better than None
 
             self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
+
+    def _insert_batch_via_personhog(
+        self,
+        batch: list[str],
+        insert_in_clickhouse: bool,
+        *,
+        team_id: int,
+    ) -> None:
+        """Personhog path for inserting a single batch of cohort members.
+
+        Resolves UUIDs → person IDs via personhog, then calls the
+        InsertCohortMembers RPC. ClickHouse inserts (if requested)
+        exclude persons already in the cohort because the
+        person_static_cohort table's ORDER BY includes a per-row UUID,
+        preventing ReplacingMergeTree from deduplicating repeated inserts.
+        """
+        from posthog.models.cohort.util import insert_static_cohort
+        from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+        from posthog.models.person.util import get_persons_by_uuids
+
+        persons = get_persons_by_uuids(team_id, batch)
+        if not persons:
+            return
+
+        person_ids = [p.id for p in persons]
+        person_uuids = [p.uuid for p in persons]
+
+        if insert_in_clickhouse:
+            uuid_strs = [str(u) for u in person_uuids]
+            existing_uuids = self._get_existing_ch_member_uuids(uuid_strs, team_id, PERSON_STATIC_COHORT_TABLE)
+            new_uuids = [u for u in person_uuids if str(u) not in existing_uuids]
+            if new_uuids:
+                insert_static_cohort(new_uuids, self.pk, team_id=team_id)
+
+        from posthog.models.cohort.util import insert_cohort_members
+
+        insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
+
+    def _get_existing_ch_member_uuids(
+        self,
+        person_uuids: list[str],
+        team_id: int,
+        table: str,
+    ) -> set[str]:
+        """Return the subset of person_uuids that already exist in the CH static cohort table."""
+        if not person_uuids:
+            return set()
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        rows = sync_execute(
+            f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
+            {
+                "team_id": team_id,
+                "cohort_id": self.pk,
+                "person_uuids": person_uuids,
+            },
+        )
+        return {str(row[0]) for row in rows}
 
     def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
         """
@@ -711,22 +727,27 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Raises:
             Exception: If removal fails due to database errors.
         """
-        from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
+        from posthog.models.cohort.util import (
+            delete_cohort_member,
+            get_static_cohort_size,
+            is_person_in_cohort,
+            remove_person_from_static_cohort,
+        )
 
         try:
             # Get person by UUID
-            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+            person = get_person_by_uuid(team_id, str(user_uuid))
+            if person is None:
+                raise Person.DoesNotExist
 
-            # Check if person is in the cohort in PostgreSQL
-            cohort_person = CohortPeople.objects.filter(
-                cohort_id=self.id,
-                person_id=person.id,
-            ).first()
+            # Check if person is in the cohort — routed through personhog when enabled,
+            # falling back to the persons-DB ORM query otherwise.
+            is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.
             # This order ensures if PG delete fails, we don't create inverse inconsistency.
-            if cohort_person:
-                cohort_person.delete()
+            if is_member:
+                delete_cohort_member(team_id=team_id, cohort_id=self.id, person_id=person.id)
             else:
                 # Person not in PG - this is expected when handling CH/PG sync issues
                 logger.info(
@@ -740,12 +761,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # data exists in CH but not PG due to past sync issues
             remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
 
-            # Update count - use write database to avoid replication lag after delete
             try:
                 count = get_static_cohort_size(
                     cohort_id=self.id,
                     team_id=team_id,
-                    using_database=PERSONS_DB_FOR_WRITE,
+                    consistency="strong",
                 )
                 self.count = count
                 self.save(update_fields=["count"])
@@ -804,10 +824,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """
-        Safely save cohort state with fallback to save only critical fields.
+        Save only the cohort's calculation-state fields with a single retry on failure.
 
-        This prevents cohorts from getting stuck in calculating state when
-        database issues occur during cleanup operations.
+        Only updates `is_calculating`, `count`, and either success fields
+        (`last_calculation`, `errors_calculating`) or error fields
+        (`errors_calculating`, `last_error_at`) — never the full model — so
+        concurrent edits to other cohort fields are not overwritten.
 
         Args:
             team_id: Team ID for logging context
@@ -818,11 +840,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if processing_error is None:
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
+            save_fields = ["is_calculating", "last_calculation", "errors_calculating", "count"]
         else:
             self.errors_calculating = F("errors_calculating") + 1
             self.last_error_at = timezone.now()
+            save_fields = ["is_calculating", "errors_calculating", "last_error_at", "count"]
         try:
-            self.save()
+            self.save(update_fields=save_fields)
         except Exception as save_err:
             logger.exception("Failed to save cohort state", cohort_id=self.id, team_id=team_id)
             capture_exception(
@@ -832,7 +856,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             # Single retry for transient issues
             try:
-                self.save()
+                self.save(update_fields=save_fields)
             except Exception:
                 logger.exception(
                     "Failed to save cohort state on retry",
@@ -859,6 +883,76 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
+INTERNAL_TEST_USERS_COHORT_NAME = "Internal / Test users"
+
+
+def get_or_create_internal_test_users_cohort(
+    team: "Team",
+    initiating_user_email: str | None = None,
+) -> "Cohort":
+    """
+    Get or create an 'Internal / Test users' cohort for the team.
+
+    Contains users with $internal_or_test_user set to true, and optionally
+    users whose email matches the creating user's domain (if not a generic provider).
+    """
+    from posthog.utils import GenericEmails
+
+    existing = Cohort.objects.filter(team=team, kind=CohortKind.INTERNAL_TEST_USERS).first()
+    if existing is not None:
+        return existing
+
+    # Always include the $internal_or_test_user property filter
+    filter_groups: list[dict] = [
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "key": "$internal_or_test_user",
+                    "type": "person",
+                    "value": [True],
+                    "operator": "exact",
+                }
+            ],
+        }
+    ]
+
+    # Add email domain filter if the creating user has a non-generic domain
+    if initiating_user_email:
+        generic_emails = GenericEmails()
+        if not generic_emails.is_generic(initiating_user_email):
+            match = re.search(r"@([\w.]+)", initiating_user_email)
+            if match:
+                domain = match.group(1).lower()
+                filter_groups.append(
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": f"@{domain}",
+                                "operator": "icontains",
+                            }
+                        ],
+                    }
+                )
+
+    return Cohort.objects.create(
+        team=team,
+        name=INTERNAL_TEST_USERS_COHORT_NAME,
+        description="People who are internal team members or test users. Used for filtering out internal traffic from analytics.",
+        is_static=False,
+        kind=CohortKind.INTERNAL_TEST_USERS,
+        filters={
+            "properties": {
+                "type": "OR",
+                "values": filter_groups,
+            }
+        },
+    )
+
+
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
@@ -880,11 +974,10 @@ def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
         person_uuid = instance.person_id
 
         cohort = Cohort.objects.get(id=cohort_id)
-        # Use write database to avoid replication lag after delete
         cohort.count = get_static_cohort_size(
             cohort_id=cohort.id,
             team_id=cohort.team_id,
-            using_database=PERSONS_DB_FOR_WRITE,
+            consistency="strong",
         )
 
         # Clear cohort_type if count exceeds the realtime threshold

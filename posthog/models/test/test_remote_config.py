@@ -5,22 +5,19 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.core.cache import cache
-from django.test import RequestFactory, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import mock_transpile
-from posthog.models.action.action import Action
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
-from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
-from posthog.models.surveys.survey import Survey
+from posthog.models.remote_config import RemoteConfig
 
-CONFIG_REFRESH_QUERY_COUNT = 5
+from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
+
+CONFIG_REFRESH_QUERY_COUNT = 6
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -204,20 +201,26 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["conversations"] is False
 
-    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
+    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.5"], ["0.00", "0"], [None, None]])
     def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
         self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = Decimal(value) if value else None
         self.team.save()
         self.sync_remote_config()
-        assert self.remote_config.config["sessionRecording"]["sampleRate"] == expected
+        config = self.remote_config.config
+        assert config is not None
+        session_recording = config["sessionRecording"]
+        assert session_recording["sampleRate"] == expected
 
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True
         self.team.recording_domains = ["https://posthog.com", "https://*.posthog.com"]
         self.team.save()
         self.sync_remote_config()
-        assert self.remote_config.config["sessionRecording"]["domains"] == self.team.recording_domains
+        config = self.remote_config.config
+        assert config is not None
+        session_recording = config["sessionRecording"]
+        assert session_recording["domains"] == self.team.recording_domains
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
@@ -239,6 +242,45 @@ class TestRemoteConfig(_RemoteConfigBase):
             self.team.save()
             self.sync_remote_config()
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
+
+    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self):
+        """Pairs the bypass-True / bypass-False paths against a stale in-process cache so a
+        regression that drops the kwarg (and reverts to cache-on-by-default in prod) fails
+        the bypass-True case."""
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+            replace_limited_team_tokens,
+        )
+
+        list_limited_team_attributes.clear_cache()
+
+        replace_limited_team_tokens(QuotaResource.RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        # Force-prime the cache: `cache_for` defaults `use_cache=not TEST`, so without an
+        # explicit `use_cache=True` the call would bypass caching in tests and the assertion
+        # below would lose its meaning.
+        primed = list_limited_team_attributes(
+            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=True
+        )
+        assert primed == []
+
+        future_ts = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: future_ts},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        cached_config = self.remote_config.build_config(bypass_recordings_quota_cache=False)
+        assert cached_config.get("quotaLimited") is None
+        assert cached_config["sessionRecording"] is not False
+
+        fresh_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
+        assert fresh_config["quotaLimited"] == ["recordings"]
+        assert fresh_config["sessionRecording"] is False
+
+        list_limited_team_attributes.clear_cache()
 
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
@@ -323,6 +365,12 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         assert self.remote_config.config["surveys"]
 
         actual_surveys = sorted(self.remote_config.config["surveys"], key=lambda s: str(s["id"]))
+        basic_questions = survey_basic.questions
+        assert basic_questions is not None
+        flags_questions = survey_with_flags.questions
+        assert flags_questions is not None
+        actions_questions = survey_with_actions.questions
+        assert actions_questions is not None
         expected_surveys = sorted(
             [
                 {
@@ -331,7 +379,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "type": "popover",
                     "end_date": None,
                     "questions": [
-                        {"id": str(survey_basic.questions[0]["id"]), "type": "open", "question": "What's a survey?"}
+                        {"id": str(basic_questions[0]["id"]), "type": "open", "question": "What's a survey?"}
                     ],
                     "appearance": None,
                     "conditions": None,
@@ -342,6 +390,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -350,7 +399,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "end_date": None,
                     "questions": [
                         {
-                            "id": str(survey_with_flags.questions[0]["id"]),
+                            "id": str(flags_questions[0]["id"]),
                             "type": "open",
                             "question": "What's a hedgehog?",
                         }
@@ -369,6 +418,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -377,7 +427,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "end_date": None,
                     "questions": [
                         {
-                            "id": str(survey_with_actions.questions[0]["id"]),
+                            "id": str(actions_questions[0]["id"]),
                             "type": "open",
                             "question": "Why's a hedgehog?",
                         }
@@ -417,6 +467,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore
@@ -425,12 +476,14 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         assert actual_surveys == expected_surveys
 
 
+@override_settings(POSTHOG_JS_S3_BUCKET="")
+@override_settings(POSTHOG_JS_S3_BUCKET="")
 class TestRemoteConfigCaching(_RemoteConfigBase):
     def setUp(self):
         super().setUp()
         self.remote_config.refresh_from_db()
-        # Clear the cache so we are properly testing each flow
-        assert cache.delete(cache_key_for_team_token(self.team.api_token))
+        # Clear the HyperCache so we are properly testing each flow
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
 
     def _assert_matches_config(self, data):
         assert data == self.snapshot
@@ -455,110 +508,41 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
     def test_persists_data_to_redis_on_sync(self):
         self.remote_config.config["surveys"] = True
         self.remote_config.sync()
-        assert cache.get(cache_key_for_team_token(self.team.api_token))
+        assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
-    def test_gets_via_redis_cache(self):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            data = RemoteConfig.get_config_via_token(self.team.api_token)
-            self._assert_matches_config(data)
+    def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
+        from django.core.cache import caches
 
-        with self.assertNumQueries(0):
-            data = RemoteConfig.get_config_via_token(self.team.api_token)
-            self._assert_matches_config(data)
+        from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 
-    def test_gets_js_via_redis_cache(self):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
-            self._assert_matches_config_js(data)
+        # When cache_alias is set, HyperCache.__init__ calls get_cache_writer_url which
+        # reads CACHES[alias]["LOCATION"]. Provide a stub URL to satisfy that lookup;
+        # the in-memory backend ignores it.
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    "LOCATION": "redis://stub:6379/",
+                },
+            }
+        ):
+            hypercache = RemoteConfig.get_hypercache()
+            assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
 
-        with self.assertNumQueries(0):
-            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
-            self._assert_matches_config_js(data)
+            # Roundtrip: a value written via the hypercache must land in the
+            # dedicated backend (not just be reachable through cache_client) and
+            # be readable through both direct access and the hypercache reader.
+            hypercache.set_cache_value_redis_only(self.team.api_token, {"token": self.team.api_token, "v": 1})
+            direct_value = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(hypercache.get_cache_key(self.team.api_token))
+            assert direct_value is not None
+            assert hypercache.get_from_cache(self.team.api_token) == {"token": self.team.api_token, "v": 1}
 
-    def test_gets_js_reuses_config_cache(self):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            RemoteConfig.get_config_via_token(self.team.api_token)
+    def test_hypercache_falls_back_to_default_cache_when_alias_absent(self):
+        from django.core.cache import cache
 
-        with self.assertNumQueries(0):
-            data = RemoteConfig.get_config_js_via_token(self.team.api_token)
-            self._assert_matches_config_js(data)
-
-    @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
-    def test_gets_array_js_via_redis_cache(self, mock_get_array_js_content):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            data = RemoteConfig.get_array_js_via_token(self.team.api_token)
-            self._assert_matches_config_array_js(data)
-
-        with self.assertNumQueries(0):
-            data = RemoteConfig.get_array_js_via_token(self.team.api_token)
-            self._assert_matches_config_array_js(data)
-
-    def test_caches_missing_response(self):
-        with self.assertNumQueries(2):  # RemoteConfig lookup + Team lookup for on-demand creation
-            with pytest.raises(RemoteConfig.DoesNotExist):
-                RemoteConfig.get_array_js_via_token("missing-token")
-
-        with self.assertNumQueries(0):
-            with pytest.raises(RemoteConfig.DoesNotExist):
-                RemoteConfig.get_array_js_via_token("missing-token")
-
-    def test_sanitizes_config_for_public_cdn(self):
-        config = self.remote_config.get_config_via_token(self.team.api_token)
-
-        # Ensure the domain and siteAppsJS are removed
-        assert config == {
-            "token": "phc_12345",
-            "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": False,
-            "captureDeadClicks": False,
-            "capturePerformance": {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-            "autocapture_opt_out": False,
-            "autocaptureExceptions": False,
-            "analytics": {"endpoint": "/i/v0/e/"},
-            "elementsChainAsString": True,
-            "sessionRecording": {
-                "endpoint": "/s/",
-                "consoleLogRecordingEnabled": True,
-                "recorderVersion": "v2",
-                "sampleRate": None,
-                "minimumDurationMilliseconds": None,
-                "linkedFlag": None,
-                "networkPayloadCapture": None,
-                "masking": None,
-                "urlTriggers": [],
-                "urlBlocklist": [],
-                "eventTriggers": [],
-                "triggerMatchType": None,
-                "scriptConfig": {"script": "posthog-recorder"},
-            },
-            "errorTracking": {
-                "autocaptureExceptions": False,
-                "suppressionRules": [],
-            },
-            "heatmaps": False,
-            "logs": {
-                "captureConsoleLogs": False,
-            },
-            "conversations": False,
-            "surveys": False,
-            "productTours": False,
-            "defaultIdentifiedOnly": True,
-            "siteApps": [],
-        }
-
-    def test_only_includes_recording_for_approved_domains(self):
-        with self.assertNumQueries(CONFIG_REFRESH_QUERY_COUNT):
-            mock_request = RequestFactory().get("/")
-            mock_request.META["HTTP_ORIGIN"] = "https://my.example.com"
-            config = self.remote_config.get_config_via_token(self.team.api_token, request=mock_request)
-            assert config["sessionRecording"]
-
-        # No additional queries should be needed to check the other domain
-        with self.assertNumQueries(0):
-            mock_request = RequestFactory().get("/")
-            mock_request.META["HTTP_ORIGIN"] = "https://other.com"
-            config = self.remote_config.get_config_via_token(self.team.api_token, request=mock_request)
-            assert not config["sessionRecording"]
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            assert RemoteConfig.get_hypercache().cache_client is cache
 
     @patch("posthog.models.remote_config.requests.post")
     def test_purges_cdn_cache_on_sync(self, mock_post):
@@ -577,137 +561,11 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                     "files": [
                         {"url": "https://cdn.posthog.com/array/phc_12345/config"},
                         {"url": "https://cdn.posthog.com/array/phc_12345/config.js"},
-                        {"url": "https://cdn.posthog.com/array/phc_12345/array.js"},
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config"},
                         {"url": "https://cdn2.posthog.com/array/phc_12345/config.js"},
-                        {"url": "https://cdn2.posthog.com/array/phc_12345/array.js"},
                     ]
                 },
             )
-
-
-class TestRemoteConfigJS(_RemoteConfigBase):
-    def test_renders_js_including_config(self):
-        # NOTE: This is a very basic test to check that the JS is rendered correctly
-        # It doesn't check the actual contents of the JS, as that changes often but checks some general things
-        # We can easily see if it changed because the snapshot will be regenerated
-        js = self.remote_config.get_config_js_via_token(self.team.api_token)
-
-        # TODO: Come up with a good way of solidly testing this...
-        assert js == self.snapshot
-
-    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
-    def test_renders_js_including_site_apps(self, mock_transpile_fn):
-        files = [
-            "(function () { return { inject: (data) => console.log('injected!', data)}; })",
-            "(function () { return { inject: (data) => console.log('injected 2!', data)}; })",
-            "(function () { return { inject: (data) => console.log('injected but disabled!', data)}; })",
-        ]
-
-        plugin_configs = []
-
-        for transpiled in files:
-            plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
-            PluginSourceFile.objects.create(
-                plugin=plugin,
-                filename="site.ts",
-                source="IGNORED FOR TESTING",
-                transpiled=transpiled,
-                status=PluginSourceFile.Status.TRANSPILED,
-            )
-            plugin_configs.append(
-                PluginConfig.objects.create(
-                    plugin=plugin,
-                    enabled=True,
-                    order=1,
-                    team=self.team,
-                    config={},
-                    web_token="tokentoken",
-                )
-            )
-
-        plugin_configs[2].enabled = False
-
-        js = self.remote_config.get_config_js_via_token(self.team.api_token)
-
-        # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
-        assert js == self.snapshot
-
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
-    def test_renders_js_including_site_functions(self, mock_transpile_fn):
-        non_site_app = HogFunction.objects.create(
-            name="Non site app",
-            type=HogFunctionType.DESTINATION,
-            team=self.team,
-            enabled=True,
-            filters={
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "filter_test_accounts": True,
-            },
-        )
-
-        site_destination = HogFunction.objects.create(
-            name="Site destination",
-            type=HogFunctionType.SITE_DESTINATION,
-            team=self.team,
-            enabled=True,
-            filters={
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "filter_test_accounts": True,
-            },
-        )
-
-        site_app = HogFunction.objects.create(
-            name="Site app",
-            type=HogFunctionType.SITE_APP,
-            team=self.team,
-            enabled=True,
-        )
-
-        # Force RemoteConfig sync after creating HogFunctions
-        self.sync_remote_config()
-
-        js = self.remote_config.get_config_js_via_token(self.team.api_token)
-        assert str(non_site_app.id) not in js
-        assert str(site_destination.id) in js
-        assert str(site_app.id) in js
-
-        # Normalize text to be able to match against snapshot
-        js = js.replace(str(non_site_app.id), "NON_SITE_APP_ID")
-        js = js.replace(str(site_destination.id), "SITE_DESTINATION_ID")
-        js = js.replace(str(site_app.id), "SITE_APP_ID")
-
-        # TODO: Come up with a good way of solidly testing this, ideally by running it in an actual browser environment
-        assert js == self.snapshot
-
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
-    def test_removes_deleted_site_functions(self, mock_transpile_fn):
-        site_destination = HogFunction.objects.create(
-            name="Site destination",
-            type=HogFunctionType.SITE_DESTINATION,
-            team=self.team,
-            enabled=True,
-            filters={
-                "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "filter_test_accounts": True,
-            },
-        )
-
-        # Force RemoteConfig sync after creating HogFunction
-        self.sync_remote_config()
-
-        js = self.remote_config.get_config_js_via_token(self.team.api_token)
-
-        assert str(site_destination.id) in js
-
-        site_destination.deleted = True
-        site_destination.save()
-
-        # Force RemoteConfig sync after deleting HogFunction
-        self.sync_remote_config()
-
-        js = self.remote_config.get_config_js_via_token(self.team.api_token)
-        assert str(site_destination.id) not in js
 
 
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):

@@ -32,14 +32,15 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
-import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
 import { PipelineBuilder, StartPipelineBuilder } from '../builders/pipeline-builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineConfig } from '../result-handling-pipeline'
 import { dlq, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
@@ -71,7 +72,7 @@ describe('Factory Functions', () => {
 
         const pipeline = newPipelineBuilder<Input>().pipe(createProcessStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ value: 'hello' })))
+        const result = await pipeline.process(createOkContext({ value: 'hello' }, {}))
 
         expect(isOkResult(result.result) && result.result.value).toEqual({
             value: 'HELLO',
@@ -114,8 +115,8 @@ describe('Factory Functions', () => {
         expect(pipeline1).not.toBe(pipeline2)
 
         // Each can be used independently
-        const result1 = await pipeline1.process(createContext(ok({ id: 1 })))
-        const result2 = await pipeline2.process(createContext(ok({ id: 2 })))
+        const result1 = await pipeline1.process(createOkContext({ id: 1 }, {}))
+        const result2 = await pipeline2.process(createOkContext({ id: 2 }, {}))
 
         expect(isOkResult(result1.result) && result1.result.value.id).toBe(1)
         expect(isOkResult(result2.result) && result2.result.value.id).toBe(2)
@@ -157,7 +158,7 @@ describe('Configuration Injection', () => {
             .pipe(createMultiplyStep({ multiplier: 3 }))
             .build()
 
-        const result = await pipeline.process(createContext(ok({ value: 10 })))
+        const result = await pipeline.process(createOkContext({ value: 10 }, {}))
 
         expect(isOkResult(result.result) && result.result.value.multiplied).toBe(30)
     })
@@ -201,7 +202,7 @@ describe('Configuration Injection', () => {
             .pipe(createEnrichStep({ userService: mockUserService, auditService: mockAuditService }))
             .build()
 
-        const result = await pipeline.process(createContext(ok({ userId: '123' })))
+        const result = await pipeline.process(createOkContext({ userId: '123' }, {}))
 
         expect(isOkResult(result.result) && result.result.value.userData.name).toBe('User 123')
     })
@@ -250,7 +251,7 @@ describe('Type Extension', () => {
             .pipe(createEnrichStep())
             .build()
 
-        const result = await pipeline.process(createContext(ok({ raw: 'test data' })))
+        const result = await pipeline.process(createOkContext({ raw: 'test data' }, {}))
 
         // Final result has all accumulated properties
         expect(isOkResult(result.result)).toBe(true)
@@ -289,7 +290,7 @@ describe('Type Extension', () => {
 
         const pipeline = newPipelineBuilder<ProcessedEvent>().pipe(createSummarizeStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ eventId: 'evt-1', isValid: true, timestamp: 1000 })))
+        const result = await pipeline.process(createOkContext({ eventId: 'evt-1', isValid: true, timestamp: 1000 }, {}))
 
         expect(isOkResult(result.result) && result.result.value.summary).toBe('Event evt-1: valid=true at 1000')
     })
@@ -322,7 +323,7 @@ describe('Void Returns', () => {
 
         const pipeline = newPipelineBuilder<EventToEmit>().pipe(createEmitStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ eventId: 'evt-1', data: 'test' })))
+        const result = await pipeline.process(createOkContext({ eventId: 'evt-1', data: 'test' }, {}))
 
         // Result is OK with undefined value
         expect(isOkResult(result.result)).toBe(true)
@@ -352,7 +353,7 @@ describe('Void Returns', () => {
 
         const pipeline = newPipelineBuilder<Input>().pipe(createSkipStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ shouldSkip: true })))
+        const result = await pipeline.process(createOkContext({ shouldSkip: true }, {}))
 
         expect(isOkResult(result.result)).toBe(true)
     })
@@ -374,10 +375,6 @@ describe('Pipeline Phases', () => {
     it('pipelines are organized into preprocessing and processing phases', async () => {
         const phaseLog: string[] = []
         const promiseScheduler = new PromiseScheduler()
-        const mockKafkaProducer = {
-            producer: {},
-            queueMessages: jest.fn().mockResolvedValue(undefined),
-        } as unknown as KafkaProducerWrapper
 
         interface RawInput {
             message: Message
@@ -448,49 +445,52 @@ describe('Pipeline Phases', () => {
         }
 
         const pipelineConfig: PipelineConfig = {
-            kafkaProducer: mockKafkaProducer,
-            dlqTopic: 'test-dlq',
+            outputs: createMockIngestionOutputs<
+                typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT
+            >(),
             promiseScheduler,
         }
 
-        // Compose subpipelines like joined-ingestion-pipeline
+        // Compose subpipelines like joined-ingestion-pipeline:
+        // messageAware → concurrently(preTeam) → filterMap(addTeam,
+        //     teamAware(concurrently(postTeam) → groupBy → concurrently(sequentially(processing)))
+        //     → handleIngestionWarnings)
+        // → handleResults → handleSideEffects
         function createPipeline() {
-            return (
-                newBatchPipelineBuilder<RawInput, { message: Message }>()
-                    // Pre-team preprocessing: parse and resolve team (concurrent)
-                    .messageAware((b) => b.concurrently((b) => createPreTeamPreprocessingSubpipeline(b)))
-                    .handleResults(pipelineConfig)
-                    .handleSideEffects(promiseScheduler, { await: false })
-                    .gather()
-                    .filterOk()
-                    // Add team to context
-                    .map((element) => ({
-                        result: element.result,
-                        context: { ...element.context, team: element.result.value.team },
-                    }))
-                    .messageAware((b) =>
-                        b
-                            .teamAware((b) =>
+            return newBatchPipelineBuilder<RawInput, { message: Message }>()
+                .messageAware((b) =>
+                    b
+                        // Pre-team preprocessing: parse and resolve team (concurrent)
+                        .concurrently((b) => createPreTeamPreprocessingSubpipeline(b))
+                        // Add team to context, then process team-aware steps
+                        .filterMap(
+                            (element) => ({
+                                result: element.result,
+                                context: { ...element.context, team: element.result.value.team },
+                            }),
+                            (b) =>
                                 b
-                                    // Post-team preprocessing: validate (concurrent)
-                                    .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
-                                    // Processing: group by team and process sequentially within each group
-                                    .groupBy((item) => item.teamId)
-                                    .concurrently((group) => group.sequentially((b) => createProcessingSubpipeline(b)))
-                                    .gather()
-                            )
-                            .handleIngestionWarnings(mockKafkaProducer)
-                    )
-                    .handleResults(pipelineConfig)
-                    .handleSideEffects(promiseScheduler, { await: true })
-                    .gather()
-                    .build()
-            )
+                                    .teamAware((b) =>
+                                        b
+                                            // Post-team preprocessing: validate (concurrent)
+                                            .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
+                                            // Processing: group by team and process sequentially within each group
+                                            .groupBy((item) => item.teamId)
+                                            .concurrently((group) =>
+                                                group.sequentially((b) => createProcessingSubpipeline(b))
+                                            )
+                                    )
+                                    .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
+                        )
+                )
+                .handleResults(pipelineConfig)
+                .handleSideEffects(promiseScheduler, { await: true })
+                .build()
         }
 
         const pipeline = createPipeline()
         const message = createTestMessage({ value: Buffer.from(JSON.stringify({ teamId: 42, eventName: 'pageview' })) })
-        const batch = [createContext(ok<RawInput>({ message }), { message })]
+        const batch = [createOkContext({ message } as RawInput, { message })]
         pipeline.feed(batch)
         const results = await pipeline.next()
 

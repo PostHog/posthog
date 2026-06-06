@@ -3,12 +3,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, cast
 
-from posthoganalytics import capture_exception
 from pydantic import ValidationError
 
 from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArtifactContent, VisualizationMessage
 
-from posthog.models import Insight, Team
+from posthog.models import Team
+
+from products.posthog_ai.backend.models.assistant import AgentArtifact
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.handlers.base import ArtifactHandler, EnrichmentContext, register_handler
 from ee.hogai.artifacts.types import (
@@ -19,7 +21,6 @@ from ee.hogai.artifacts.types import (
 )
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.utils.types.base import AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 
 @register_handler
@@ -112,12 +113,14 @@ class VisualizationHandler(ArtifactHandler[VisualizationArtifactContent, Visuali
         """
         for msg in messages:
             if isinstance(msg, VisualizationMessage) and msg.id == artifact_id:
-                try:
-                    return VisualizationArtifactContent(query=msg.answer, name="Insight", plan=msg.plan)
-                except ValidationError as e:
-                    capture_exception(e)
-                    # Old unsupported visualization messages schemas
-                    return None
+                # msg.answer is already validated by VisualizationMessage, so use
+                # model_construct to avoid redundant re-validation against the large
+                # VisualizationArtifactContent.query union (which fails for older schemas).
+                return VisualizationArtifactContent.model_construct(
+                    query=msg.answer,
+                    name="Insight",
+                    plan=msg.plan,
+                )
         return None
 
     async def _from_db(self, artifact_ids: list[str], team: Team) -> dict[str, VisualizationArtifactContent]:

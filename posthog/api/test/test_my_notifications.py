@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any, Optional
 
 from freezegun import freeze_time
-from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
+from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
 from rest_framework import status
@@ -129,7 +129,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         notebook_short_id: str,
         notebook_version: int,
         the_user: User,
-        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory,
+        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory | TickingDateTimeFactory,
     ) -> int:
         self.client.force_login(the_user)
         for created_insight_id in created_insights[:7]:

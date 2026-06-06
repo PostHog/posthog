@@ -99,6 +99,14 @@ export function GenericDisplayWithLongFrames(): JSX.Element {
     )
 }
 
+export function GenericDisplayWithNestedExceptions(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="python_multierror">
+            <StackTraceGenericDisplay />
+        </ExceptionLogicWrapper>
+    )
+}
+
 ///////////////////// Text stacktraces
 
 export function TextDisplayEmpty(): JSX.Element {
@@ -125,6 +133,14 @@ export function TextDisplayWithStacktrace(): JSX.Element {
     )
 }
 
+export function TextDisplayWithNestedExceptions(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="python_multierror">
+            <StackTraceRawDisplay />
+        </ExceptionLogicWrapper>
+    )
+}
+
 //////////////////// Utils
 
 function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {
@@ -145,12 +161,14 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
 }
 
 function StackTraceGenericDisplay({ className }: { className?: string }): JSX.Element {
-    const { showAllFrames } = useValues(exceptionCardLogic)
-    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { showAllFrames, expandedFrameRawIds } = useValues(exceptionCardLogic)
+    const { setShowAllFrames, setFrameExpanded } = useActions(exceptionCardLogic)
     return (
         <CollapsibleExceptionList
             showAllFrames={showAllFrames}
             setShowAllFrames={setShowAllFrames}
+            expandedFrameRawIds={expandedFrameRawIds}
+            onFrameExpandedChange={setFrameExpanded}
             className={className}
         />
     )

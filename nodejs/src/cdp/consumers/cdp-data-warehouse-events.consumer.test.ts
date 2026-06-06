@@ -1,12 +1,13 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createKafkaMessage } from '../_tests/fixtures'
 import { CdpDataWarehouseEvent } from '../schema'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpDatawarehouseEventsConsumer } from './cdp-data-warehouse-events.consumer'
@@ -18,7 +19,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     let hub: Hub
     let team: Team
     let team2: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const createDataWarehouseEvent = (teamId: number, properties: Record<string, any> = {}): CdpDataWarehouseEvent => {
         return {
@@ -45,17 +46,19 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub) // This team has data_pipelines feature by default (legacy addon)
+        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))! // This team does NOT have data_pipelines
+        team2 = (await getTeam(hub.postgres, team2Id))! // This team does NOT have data_pipelines
 
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new CdpDatawarehouseEventsConsumer(hub)
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new CdpDatawarehouseEventsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -64,13 +67,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             isHealthy: jest.fn(() => ({ status: 'healthy' })),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })
@@ -284,7 +281,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject(
                 [
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -298,7 +295,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                     },
                     // Billing is per-event, not per-destination
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',

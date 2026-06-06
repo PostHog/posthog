@@ -1,1 +1,1 @@
-0002_customer_profile_config
+0006_migrate_product_analytics_models

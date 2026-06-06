@@ -11,6 +11,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -18,6 +19,7 @@ import { userLogic } from 'scenes/userLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     getDefaultTreeData,
+    getDefaultTreeDataAndPeople,
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
@@ -37,7 +39,7 @@ import {
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType, UserShortcutPosition } from '~/types'
+import { UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
@@ -46,6 +48,19 @@ import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
+const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
+    'LLM analytics': ['MCP analytics'],
+}
+
+// Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
+// `orderedIds` is appended at the end so a partial input never silently drops items.
+function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSystemEntry[] {
+    const byId = new Map(shortcuts.map((s) => [s.id, s]))
+    const reordered = orderedIds.map((id) => byId.get(id)).filter((s): s is FileSystemEntry => !!s)
+    const referenced = new Set(orderedIds)
+    const trailing = shortcuts.filter((s) => s.id && !referenced.has(s.id))
+    return [...reordered, ...trailing]
+}
 
 type DeleteFolderDialogContentProps = {
     folderName: string
@@ -198,6 +213,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
+        reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
+        // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
+        // dispatches `reorderShortcuts`. Lives here so the component stays free of business logic.
+        reorderShortcutByDrag: (activeTreeId: string, overTreeId: string, position: 'before' | 'after') => ({
+            activeTreeId,
+            overTreeId,
+            position,
+        }),
 
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
@@ -210,7 +233,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return false
                     }
                     const response = await api.fileSystem.unfiled()
-                    if (response.results?.length > 0) {
+                    if ((response?.count ?? 0) > 0) {
                         actions.loadFolder('Unfiled')
                         for (const folder of Object.keys(values.folders)) {
                             if (folder.startsWith('Unfiled/')) {
@@ -462,7 +485,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    lemonToast.success('Shortcut created successfully', {
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
+                    lemonToast.success('Added to starred', {
                         button: {
                             label: 'View',
                             dataAttr: 'project-tree-view-shortcuts',
@@ -471,12 +495,28 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             },
                         },
                     })
-                    return [...values.shortcutData, response].sort((a, b) =>
-                        a.path.toLowerCase().localeCompare(b.path.toLowerCase())
-                    )
+                    return [...values.shortcutData, response]
+                },
+                reorderShortcuts: async ({ orderedIds }) => {
+                    try {
+                        await api.fileSystemShortcuts.reorder(orderedIds)
+                    } catch (error) {
+                        lemonToast.error('Could not save starred order')
+                        throw error
+                    }
+                    // Optimistic reducer below already applied the new order; return the live
+                    // current state so concurrent mutations during the request aren't clobbered
+                    // when kea-loaders' success handler sets `shortcutData` to the resolved value.
+                    return values.shortcutData
                 },
                 deleteShortcut: async ({ id }) => {
+                    const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
+                    eventUsageLogic.actions.reportNavbarStarredItemRemoved(
+                        shortcut?.type ?? 'unknown',
+                        shortcut?.path ?? 'unknown'
+                    )
+                    lemonToast.success('Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
@@ -665,6 +705,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return item
                     })
                 },
+                // Apply reorder optimistically so the UI updates immediately while the API call is in flight.
+                reorderShortcuts: (state, { orderedIds }) => applyOrder(state, orderedIds),
+            },
+        ],
+        shortcutDataHasLoaded: [
+            false,
+            {
+                loadShortcutsSuccess: () => true,
+                loadShortcutsFailure: () => true,
             },
         ],
     }),
@@ -673,6 +722,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.folders],
             (folders): FileSystemEntry[] =>
                 Object.entries(folders).reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[]),
+        ],
+        // Maps each top-level Starred row's tree id to the underlying FileSystemEntry id, so the
+        // drag handler can resolve sibling drops without rebuilding the lookup on every render.
+        // Children inside an expanded folder-shortcut use the `project://` protocol and are
+        // intentionally excluded.
+        shortcutEntryIdMap: [
+            (s) => [s.shortcutData],
+            (shortcutData): Map<string, string> => {
+                const map = new Map<string, string>()
+                for (const shortcut of shortcutData) {
+                    if (!shortcut.id) {
+                        continue
+                    }
+                    const treeId =
+                        shortcut.type === 'folder' ? `shortcuts://${shortcut.path}` : `shortcuts/${shortcut.id}`
+                    map.set(treeId, shortcut.id)
+                }
+                return map
+            },
         ],
         savedItemsLoading: [
             (s) => [s.folderStates],
@@ -866,7 +934,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'group',
+                          iconType: `group_${groupType.group_type_index}` as FileSystemIconType,
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -999,6 +1067,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         ['products://', getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
+                        ['data-and-people://', [...getDefaultTreeDataAndPeople(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
                     ]
                     const staticItems = data.map(([protocol, files]) => ({
@@ -1029,27 +1098,35 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
         getCustomProductTreeItems: [
-            (s) => [s.customProducts, s.featureFlags, s.getShortcutTreeItems, s.folderStates, s.users, s.user],
-            (
-                customProducts,
-                featureFlags,
-                getShortcutTreeItems,
-                folderStates,
-                users,
-                user
-            ): ((searchTerm: string) => TreeDataItem[]) => {
+            (s) => [s.customProducts, s.featureFlags, s.folderStates, s.users],
+            (customProducts, featureFlags, folderStates, users): ((searchTerm: string) => TreeDataItem[]) => {
                 return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
                     const allProducts = getDefaultTreeProducts()
                     const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
                     const customProductMap = new Map(customProducts.map((item) => [item.product_path, item]))
+                    const selectedProductPaths = new Set<string>()
+                    const orderedSelectedProductPaths: string[] = []
 
-                    const selectedProducts = customProducts
-                        .map((item) => {
-                            const product = productMap.get(item.product_path)
+                    for (const item of customProducts) {
+                        for (const productPath of [
+                            item.product_path,
+                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path] ?? []),
+                        ]) {
+                            if (selectedProductPaths.has(productPath)) {
+                                continue
+                            }
+                            selectedProductPaths.add(productPath)
+                            orderedSelectedProductPaths.push(productPath)
+                        }
+                    }
+
+                    const selectedProducts = orderedSelectedProductPaths
+                        .map((productPath) => {
+                            const product = productMap.get(productPath)
                             if (!product) {
                                 return null
                             }
-                            const customProduct = customProductMap.get(item.product_path)
+                            const customProduct = customProductMap.get(productPath)
                             return {
                                 ...product,
                                 reason: customProduct?.reason,
@@ -1059,52 +1136,52 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         })
                         .filter((p): p is FileSystemImport => p !== null)
 
-                    const convert = (imports: FileSystemImport[], protocol: string): TreeDataItem[] =>
-                        convertFileSystemEntryToTreeDataItem({
-                            root: protocol,
-                            imports: imports
-                                .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
-                                .map((i) => ({
-                                    ...i,
-                                    protocol,
-                                })),
-                            checkedItems: {},
-                            folderStates,
-                            users,
-                            foldersFirst: false,
-                            searchTerm,
-                        })
-
-                    const shortcutPosition = (user?.shortcut_position ?? 'above') as UserShortcutPosition
-                    const generateShortcutItemsCategory = (): TreeDataItem[] => {
-                        const shortcutItems = getShortcutTreeItems(searchTerm, false)
-                        if (shortcutItems.length === 0) {
-                            return []
-                        }
-
-                        return [
-                            {
-                                id: 'custom-products://-shortcuts-category',
-                                name: 'Shortcuts',
-                                displayName: <>Shortcuts</>,
-                                type: 'category',
-                            },
-                            ...shortcutItems,
-                        ]
-                    }
-
-                    const result: TreeDataItem[] = [
-                        ...(shortcutPosition === 'above' ? generateShortcutItemsCategory() : []),
-                        ...convert(selectedProducts, 'custom-products://'),
-                        ...(shortcutPosition === 'below' ? generateShortcutItemsCategory() : []),
-                    ]
-
-                    return result
+                    return convertFileSystemEntryToTreeDataItem({
+                        root: 'custom-products://',
+                        imports: selectedProducts
+                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .map((i) => ({
+                                ...i,
+                                protocol: 'custom-products://',
+                            })),
+                        checkedItems: {},
+                        folderStates,
+                        users,
+                        foldersFirst: false,
+                        searchTerm,
+                    })
                 }
             },
         ],
     }),
     listeners(({ actions, values }) => ({
+        reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
+            const map = values.shortcutEntryIdMap
+            const activeEntryId = map.get(activeTreeId)
+            const overEntryId = map.get(overTreeId)
+            if (!activeEntryId || !overEntryId || activeEntryId === overEntryId) {
+                return
+            }
+            const currentIds = values.shortcutData.map((s) => s.id).filter((id): id is string => !!id)
+            const fromIndex = currentIds.indexOf(activeEntryId)
+            const targetIndex = currentIds.indexOf(overEntryId)
+            if (fromIndex < 0 || targetIndex < 0) {
+                return
+            }
+            // Insert above (`before`) or below (`after`) the target, then compensate for the
+            // index shift caused by removing the moved entry from its old position.
+            const insertAt = position === 'after' ? targetIndex + 1 : targetIndex
+            const next = [...currentIds]
+            next.splice(fromIndex, 1)
+            next.splice(fromIndex < insertAt ? insertAt - 1 : insertAt, 0, activeEntryId)
+            actions.reorderShortcuts(next)
+        },
+        reorderShortcutsSuccess: ({ shortcutData }) => {
+            eventUsageLogic.actions.reportNavbarStarredItemsReordered(shortcutData.length, true)
+        },
+        reorderShortcutsFailure: () => {
+            actions.loadShortcuts()
+        },
         loadFolder: async ({ folder, forceReload }) => {
             const currentState = values.folderStates[folder]
             if (!forceReload && (currentState === 'loading' || currentState === 'loaded')) {

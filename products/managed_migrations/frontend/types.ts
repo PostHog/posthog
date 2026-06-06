@@ -30,6 +30,15 @@ export interface S3ManagedMigration extends BaseManagedMigration {
     s3_region: string
     s3_bucket: string
     s3_prefix: string
+    endpoint_url?: string
+}
+
+export interface S3GzipManagedMigration extends BaseManagedMigration {
+    source_type: 's3_gzip'
+    s3_region: string
+    s3_bucket: string
+    s3_prefix: string
+    endpoint_url?: string
 }
 
 export interface DateRangeManagedMigration extends BaseManagedMigration {
@@ -38,4 +47,4 @@ export interface DateRangeManagedMigration extends BaseManagedMigration {
     end_date: string
 }
 
-export type ManagedMigration = S3ManagedMigration | DateRangeManagedMigration
+export type ManagedMigration = S3ManagedMigration | S3GzipManagedMigration | DateRangeManagedMigration

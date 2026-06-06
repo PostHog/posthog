@@ -4,17 +4,18 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count() AS total
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
   ORDER BY 1 DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -39,7 +40,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -47,12 +48,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -74,7 +76,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
            FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start)
         GROUP BY day_start
         ORDER BY day_start ASC)
@@ -83,12 +85,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -117,7 +120,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id))
         GROUP BY day_start
         ORDER BY day_start ASC)
@@ -126,12 +129,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -152,7 +156,7 @@
        (SELECT day_start AS day_start,
                sum(count) OVER (PARTITION BY breakdown_value
                                 ORDER BY day_start ASC) AS count,
-                               breakdown_value AS breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT sum(total) AS count,
                   day_start AS day_start,
@@ -160,14 +164,15 @@
            FROM
              (SELECT count() AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
               GROUP BY day_start,
                        breakdown_value)
            GROUP BY day_start,
                     breakdown_value
-           ORDER BY day_start ASC, breakdown_value ASC)
+           ORDER BY day_start ASC,
+                    breakdown_value ASC)
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
@@ -177,12 +182,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -203,7 +209,7 @@
        (SELECT day_start AS day_start,
                sum(count) OVER (PARTITION BY breakdown_value
                                 ORDER BY day_start ASC) AS count,
-                               breakdown_value AS breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT sum(total) AS count,
                   day_start AS day_start,
@@ -219,7 +225,7 @@
                  FROM
                    (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
-                           ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                           ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                     FROM events AS e
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -251,7 +257,8 @@
               WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), 0)))
            GROUP BY day_start,
                     breakdown_value
-           ORDER BY day_start ASC, breakdown_value ASC)
+           ORDER BY day_start ASC,
+                    breakdown_value ASC)
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
@@ -261,12 +268,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -287,7 +295,7 @@
        (SELECT day_start AS day_start,
                sum(count) OVER (PARTITION BY breakdown_value
                                 ORDER BY day_start ASC) AS count,
-                               breakdown_value AS breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT sum(total) AS count,
                   day_start AS day_start,
@@ -295,7 +303,7 @@
            FROM
              (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
                      min(toStartOfDay(toTimeZone(e.timestamp, 'UTC'))) AS day_start,
-                     ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -304,12 +312,13 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
               GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
                        breakdown_value)
            GROUP BY day_start,
                     breakdown_value
-           ORDER BY day_start ASC, breakdown_value ASC)
+           ORDER BY day_start ASC,
+                    breakdown_value ASC)
         ORDER BY day_start ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
@@ -319,12 +328,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -349,7 +359,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -357,12 +367,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -387,7 +398,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -395,12 +406,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -425,7 +437,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-14 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2011-12-31 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-14 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -433,12 +445,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -463,7 +476,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-16 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2012-01-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2012-01-16 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -471,12 +484,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -494,7 +508,7 @@
        (SELECT count(DISTINCT e.`$group_0`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -502,12 +516,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -525,7 +540,7 @@
        (SELECT count(DISTINCT e.`$session_id`) AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -533,12 +548,13 @@
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''

@@ -1,15 +1,18 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 
 from posthog.schema import HumanMessage
+
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.title_generator.prompts import TITLE_GENERATION_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import Conversation
+from ee.hogai.utils.types.base import ConversationTitleAction
 
 
 class TitleGeneratorNode(AssistantNode):
@@ -32,6 +35,14 @@ class TitleGeneratorNode(AssistantNode):
 
         conversation.title = title[: Conversation.TITLE_MAX_LENGTH].strip()
         conversation.save()
+
+        # Emit the title to the stream so the frontend can display it immediately
+        try:
+            writer = get_stream_writer()
+        except RuntimeError:
+            pass  # Not in a streaming context (e.g. testing)
+        else:
+            writer(ConversationTitleAction(title=conversation.title))
 
         return None
 

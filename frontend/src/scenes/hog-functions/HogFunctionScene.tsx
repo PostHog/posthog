@@ -1,13 +1,12 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -35,17 +34,18 @@ import {
     HogFunctionTypeType,
 } from '~/types'
 
-import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
-import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import {
     HogFunctionConfigurationClearChangesButton,
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
+import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'runs', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
@@ -60,10 +60,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => id ?? templateId ?? 'new'),
     path((key) => ['scenes', 'hog-functions', 'hogFunctionSceneLogic', key]),
     connect((props: HogFunctionConfigurationLogicProps) => ({
-        values: [
-            hogFunctionConfigurationLogic(props),
-            ['configuration', 'type', 'loading', 'loaded', 'teamHasCohortFilters', 'currentProjectId'],
-        ],
+        values: [hogFunctionConfigurationLogic(props), ['configuration', 'type', 'loading', 'loaded']],
     })),
     actions({
         setCurrentTab: (tab: HogFunctionSceneTab) => ({ tab }),
@@ -78,6 +75,16 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
+        supportsBackfills: [
+            (s) => [s.type, s.configuration],
+            (type: HogFunctionTypeType, configuration: HogFunctionType | null): boolean => {
+                if (type !== 'destination') {
+                    return false
+                }
+                const source = configuration?.filters?.source ?? 'events'
+                return source === 'events'
+            },
+        ],
         alertId: [
             (s) => [s.configuration],
             (configuration: HogFunctionType | null): string | undefined => {
@@ -91,13 +98,47 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 return value ? String(value) : undefined
             },
         ],
+        surveyId: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): string | undefined => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const surveyIdProp = event.properties?.find((p) => p.key === '$survey_id')
+                    if (surveyIdProp?.value) {
+                        return String(surveyIdProp.value)
+                    }
+                }
+                return undefined
+            },
+        ],
+        isSurveyNotification: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): boolean => {
+                return (configuration?.filters?.events ?? []).some((e) => e.id === 'survey sent')
+            },
+        ],
+        returnTo: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): string | undefined => searchParams?.returnTo,
+        ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration, s.alertId, (_, props) => props.id ?? null],
+            (s) => [
+                s.type,
+                s.loading,
+                s.configuration,
+                s.alertId,
+                s.surveyId,
+                s.isSurveyNotification,
+                s.returnTo,
+                (_, props) => props.id ?? null,
+            ],
             (
                 type: HogFunctionTypeType,
                 loading: boolean,
                 configuration: HogFunctionType | null,
                 alertId: string | undefined,
+                surveyId: string | undefined,
+                isSurveyNotification: boolean,
+                returnTo: string | undefined,
                 id: string | null
             ): Breadcrumb[] => {
                 if (loading) {
@@ -116,30 +157,75 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     iconType: 'data_pipeline',
                 }
 
+                const firstEventId = configuration?.filters?.events?.[0]?.id
+                const isLogsAlert = typeof firstEventId === 'string' && firstEventId.startsWith('$logs_alert_')
+
+                if (type === 'internal_destination' && isLogsAlert && alertId) {
+                    return [
+                        {
+                            key: Scene.Logs,
+                            name: 'Logs',
+                            path: `${urls.logs()}?activeTab=alerts`,
+                            iconType: 'logs',
+                        },
+                        {
+                            key: Scene.LogsAlertDetail,
+                            name: 'Alert',
+                            path: returnTo ?? urls.logsAlertDetail(alertId, 'notifications'),
+                            iconType: 'logs',
+                        },
+                        finalCrumb,
+                    ]
+                }
+
                 if (type === 'internal_destination' && alertId) {
+                    // returnTo contains the full path back to the alert edit view
+                    // Strip the alert_id param for the insight breadcrumb
+                    const alertPath = returnTo ?? urls.alert(alertId!)
+                    const insightPath = returnTo ? returnTo.split('?')[0] : urls.alerts()
+
                     return [
                         {
                             key: Scene.Insight,
                             name: 'Insight',
-                            path: urls.alerts(),
+                            path: insightPath,
                             iconType: 'data_pipeline',
                         },
                         {
                             key: 'alert',
                             name: 'Alert',
-                            path: urls.alert(alertId),
+                            path: alertPath,
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]
                 }
 
+                if (isSurveyNotification) {
+                    const crumbs: Breadcrumb[] = [
+                        {
+                            key: Scene.Surveys,
+                            name: 'surveys',
+                            path: urls.surveys(),
+                        },
+                    ]
+                    if (surveyId) {
+                        crumbs.push({
+                            key: Scene.Survey,
+                            name: 'survey',
+                            path: urls.survey(surveyId),
+                        })
+                    }
+                    crumbs.push(finalCrumb)
+                    return crumbs
+                }
+
                 if (type === 'site_app') {
                     return [
                         {
-                            key: Scene.Apps,
-                            name: 'Apps',
-                            path: urls.apps(),
+                            key: Scene.WebScripts,
+                            name: 'Web scripts',
+                            path: urls.webScripts(),
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
@@ -184,6 +270,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Notifications',
+                            path: returnTo,
                         },
                         finalCrumb,
                     ]
@@ -297,8 +384,7 @@ function HogFunctionHeader(): JSX.Element {
 }
 
 export function HogFunctionScene(): JSX.Element {
-    const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId } =
-        useValues(hogFunctionSceneLogic)
+    const { currentTab, loading, loaded, logicProps, type, supportsBackfills } = useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -308,7 +394,6 @@ export function HogFunctionScene(): JSX.Element {
         type: `hog_function/${type ?? ''}`,
         ref: id ?? null,
         enabled: Boolean(id && type && loaded),
-        deps: [id, type, loaded],
     })
 
     if (loading && !loaded) {
@@ -357,11 +442,19 @@ export function HogFunctionScene(): JSX.Element {
                   content: <HogFunctionTesting />,
               },
 
-        type === 'destination' && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+        supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
             ? {
                   label: 'Backfills',
                   key: 'backfills',
                   content: <HogFunctionBackfills id={id} />,
+              }
+            : null,
+
+        supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+            ? {
+                  label: 'Backfill Runs',
+                  key: 'runs',
+                  content: <HogFunctionRuns id={id} />,
               }
             : null,
 
@@ -376,17 +469,6 @@ export function HogFunctionScene(): JSX.Element {
         <SceneContent>
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <HogFunctionHeader />
-                {teamHasCohortFilters && (
-                    <LemonBanner type="warning" className="mb-4">
-                        <strong>Warning:</strong> This function has "Filter out internal and test users" enabled, but
-                        your team's test account filters include cohorts. Cohorts cannot be used in real-time filters
-                        and may cause this function to fail. Please update your{' '}
-                        <Link to={`/project/${currentProjectId}/settings/project#internal-user-filtering`}>
-                            test account filters
-                        </Link>{' '}
-                        to use inline expressions instead of cohorts.
-                    </LemonBanner>
-                )}
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} subTemplateId={subTemplateId} />
                 ) : (

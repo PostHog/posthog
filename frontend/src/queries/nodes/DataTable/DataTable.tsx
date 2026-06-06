@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -10,6 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -19,30 +20,32 @@ import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyState
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
+import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
-import { eventRowActionsContent } from '~/queries/nodes/DataTable/EventRowActions'
+import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { DATETIME_KEYS, getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
-import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
-import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
+    orderByForSelectKey,
+    removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -122,6 +125,8 @@ interface DataTableProps {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
+    tabId?: string
 }
 
 const eventGroupTypes = [
@@ -143,6 +148,7 @@ export function DataTable({
     readOnly,
     dataAttr,
     attachTo,
+    tabId,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -166,6 +172,7 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        limitContext: context?.limitContext,
     }
     const {
         response,
@@ -186,17 +193,30 @@ export function DataTable({
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables &&
         response?.hogql
+    // Lazy precompute can be on without the v2 pre-agg flag, so check it
+    // independently of `canUseWebAnalyticsPreAggregatedTables`.
+    const usedWebAnalyticsLazyPrecompute = Boolean(
+        response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
+    )
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
-        vizKey,
+        vizKey: uniqueKey ? String(uniqueKey) : vizKey,
         dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
+        tabId,
     }
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const {
+        dataTableRows,
+        columnsInQuery,
+        columnsInResponse,
+        queryWithDefaults,
+        canSort,
+        sourceFeatures,
+        expandedRows,
+    } = useValues(dataTableLogic(dataTableLogicProps))
+    const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
@@ -242,6 +262,12 @@ export function DataTable({
         const col = getContextColumn(colName, context?.columns)
         return !col?.queryContextColumn?.hidden
     })
+    const orderByForKey = (key: string): string => {
+        const rawSelect = sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+            ? ((query.source as EventsQuery).select ?? [])
+            : []
+        return orderByForSelectKey(key, rawSelect)
+    }
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -327,6 +353,24 @@ export function DataTable({
                                     <div className="font-mono truncate">{removeExpressionComment(key)}</div>
                                 )}
                             </div>
+                            {(isEventsQuery(query.source) || isActorsQuery(query.source)) &&
+                            DATETIME_KEYS.includes(removeExpressionComment(key)) ? (
+                                <>
+                                    <LemonDivider />
+                                    <LemonButton
+                                        fullWidth
+                                        data-attr="datatable-toggle-absolute-time"
+                                        onClick={() => {
+                                            setQuery?.({
+                                                ...query,
+                                                showAbsoluteTime: !query.showAbsoluteTime,
+                                            })
+                                        }}
+                                    >
+                                        {query.showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
+                                    </LemonButton>
+                                </>
+                            ) : null}
                             {columnFeatures.includes(ColumnFeature.canEdit) && (
                                 <>
                                     <LemonDivider />
@@ -338,6 +382,7 @@ export function DataTable({
                                         renderValue={() => <>Edit column</>}
                                         type="tertiary"
                                         fullWidth
+                                        selectingKeyOnly
                                         onChange={(v, g) => {
                                             const hogQl = isActorsQuery(query.source)
                                                 ? taxonomicPersonFilterToHogQL(g, v)
@@ -352,8 +397,11 @@ export function DataTable({
                                                 const source = query.source as EventsQuery
                                                 const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                                 const isAggregation = isHogQLAggregation(hogQl)
-                                                const isOrderBy = source.orderBy?.[0] === key
-                                                const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
+                                                const orderKey = orderByForKey(key)
+                                                const isOrderBy = source.orderBy?.[0] === orderKey
+                                                const isDescOrderBy =
+                                                    source.orderBy?.[0] === `${orderKey} DESC` ||
+                                                    source.orderBy?.[0] === `${orderKey}\n DESC`
                                                 setQuery({
                                                     ...query,
                                                     source: {
@@ -367,7 +415,11 @@ export function DataTable({
                                                             ),
                                                         orderBy:
                                                             isOrderBy || isDescOrderBy
-                                                                ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
+                                                                ? [
+                                                                      isDescOrderBy
+                                                                          ? `${removeAsAlias(hogQl)}\n DESC`
+                                                                          : removeAsAlias(hogQl),
+                                                                  ]
                                                                 : source.orderBy,
                                                     },
                                                 })
@@ -390,7 +442,7 @@ export function DataTable({
                                                 query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
                                                 query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'ASC')
-                                                    : [key]
+                                                    : [orderByForKey(key)]
                                             setQuery?.({
                                                 ...query,
                                                 source: {
@@ -410,7 +462,7 @@ export function DataTable({
                                                 query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
                                                 query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                    : [`${key}\n DESC`]
+                                                    : [`${orderByForKey(key)}\n DESC`]
                                             setQuery?.({
                                                 ...query,
                                                 source: {
@@ -771,8 +823,13 @@ export function DataTable({
 
     const secondRowRight = [
         sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
-            <ViewLinkButton tableName="groups" />
+            <ViewLinkButton key="view-link-button" tableName="groups" />
         ) : null,
+        ...(context?.customActions
+            ? Array.isArray(context.customActions)
+                ? context.customActions
+                : [context.customActions]
+            : []),
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={queryWithDefaults} setQuery={setQuery} />
@@ -839,7 +896,11 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <div className="relative">
-                            {usedWebAnalyticsPreAggregatedTables && <PreAggregatedBadge />}
+                            {usedWebAnalyticsLazyPrecompute ? (
+                                <PreAggregatedBadge variant="precomputed" />
+                            ) : usedWebAnalyticsPreAggregatedTables ? (
+                                <PreAggregatedBadge variant="preagg" />
+                            ) : null}
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
@@ -887,6 +948,14 @@ export function DataTable({
                                         ? context.expandable
                                         : expandable && columnsInResponse?.includes('*')
                                           ? {
+                                                ...(tabId !== undefined
+                                                    ? {
+                                                          isRowExpanded: (_, rowIndex) =>
+                                                              expandedRows.includes(rowIndex),
+                                                          onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                          onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                      }
+                                                    : {}),
                                                 expandedRowRender: function renderExpand({ result }) {
                                                     if (
                                                         (isEventsQuery(query.source) ||
@@ -935,8 +1004,11 @@ export function DataTable({
                                                   return null
                                               }
                                               if (result && columnsInResponse?.includes('*')) {
-                                                  return eventRowActionsContent(
-                                                      (result as any[])[columnsInResponse.indexOf('*')]
+                                                  return (
+                                                      <EventRowActions
+                                                          event={(result as any[])[columnsInResponse.indexOf('*')]}
+                                                          hideRecordingButton={recordingColumnShown}
+                                                      />
                                                   )
                                               }
                                               return null
@@ -947,9 +1019,13 @@ export function DataTable({
                                                     return null
                                                 }
                                                 return (
-                                                    <NonIntegratedConversionsRowActions
-                                                        result={row.result}
-                                                        columnsInResponse={columnsInResponse}
+                                                    <More
+                                                        overlay={
+                                                            <NonIntegratedConversionsRowActions
+                                                                result={row.result}
+                                                                columnsInResponse={columnsInResponse}
+                                                            />
+                                                        }
                                                     />
                                                 )
                                             }

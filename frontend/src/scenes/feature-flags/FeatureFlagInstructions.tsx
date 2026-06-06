@@ -11,7 +11,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
+import { FeatureFlagEvaluationRuntime, FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
 
 import {
     BOOTSTRAPPING_OPTIONS,
@@ -23,8 +23,10 @@ import {
     OPTIONS,
     PAYLOADS_ANCHOR,
     PAYLOAD_LIBRARIES,
+    REMOTE_CONFIG_DOC_URL,
     REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
+import { featureFlagConditionWarningLogic } from './featureFlagConditionWarningLogic'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
@@ -86,8 +88,22 @@ export function CodeInstructions({
             ? groupTypes.get(featureFlag.filters.aggregation_group_type_index as GroupTypeIndex)
             : undefined
 
+    // Get properties from all filter groups for the local evaluation warning
+    const allProperties = featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
+    const { warning: localEvalWarning } = useValues(
+        featureFlagConditionWarningLogic({
+            properties: allProperties,
+            evaluationRuntime: featureFlag?.evaluation_runtime ?? FeatureFlagEvaluationRuntime.ALL,
+        })
+    )
+    const hasUnsupportedFeatures = !!localEvalWarning
+
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
+        if (remoteConfiguration) {
+            return REMOTE_CONFIG_DOC_URL
+        }
+
         const documentationLink = selectedOption.documentationLink
 
         if (showBootstrapCode) {
@@ -168,7 +184,7 @@ export function CodeInstructions({
     const allFlagLibraries = [
         {
             title: 'Client libraries',
-            options: OPTIONS.filter((option) => option.type == LibraryType.Client).map((option) => ({
+            options: OPTIONS.filter((option) => option.type === LibraryType.Client).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
@@ -182,7 +198,7 @@ export function CodeInstructions({
         },
         {
             title: 'Server libraries',
-            options: OPTIONS.filter((option) => option.type == LibraryType.Server).map((option) => ({
+            options: OPTIONS.filter((option) => option.type === LibraryType.Server).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
@@ -197,8 +213,26 @@ export function CodeInstructions({
     ]
     const remoteConfigurationLibraries = [
         {
+            title: 'Client libraries',
+            options: OPTIONS.filter(
+                (option) => option.type === LibraryType.Client && REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)
+            ).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center deprecated-space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+        {
             title: 'Server libraries',
-            options: OPTIONS.filter((option) => REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)).map((option) => ({
+            options: OPTIONS.filter(
+                (option) => option.type === LibraryType.Server && REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)
+            ).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
@@ -271,7 +305,17 @@ export function CodeInstructions({
                                 <IconInfo className="text-xl text-secondary shrink-0" />
                             </div>
                         </Tooltip>
-                        <Tooltip title="Local evaluation is only available in server side libraries and only works for flags that don't persist across authentication steps">
+                        <Tooltip
+                            title={
+                                !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key)
+                                    ? 'Local evaluation is only available in server-side libraries'
+                                    : featureFlag?.ensure_experience_continuity
+                                      ? "Local evaluation doesn't work for flags that persist across authentication steps"
+                                      : hasUnsupportedFeatures
+                                        ? `Local evaluation is unavailable for this flag due to unsupported features: ${localEvalWarning}`
+                                        : 'Show code for local evaluation'
+                            }
+                        >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
                                     label="Show local evaluation option"
@@ -284,7 +328,8 @@ export function CodeInstructions({
                                     disabled={
                                         remoteConfiguration ||
                                         !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
-                                        !!featureFlag?.ensure_experience_continuity
+                                        !!featureFlag?.ensure_experience_continuity ||
+                                        hasUnsupportedFeatures
                                     }
                                 />
                                 <IconInfo className="text-xl text-secondary shrink-0" />
@@ -310,8 +355,13 @@ export function CodeInstructions({
                 />
             )}
             {showPayloadCode && (
-                <>
-                    <h4 className="l4">Payload</h4>
+                <div className="flex flex-col gap-4">
+                    <div>
+                        <h3 className="text-sm font-medium my-0 mb-1">Accessing the payload</h3>
+                        <p className="text-xs text-secondary my-0">
+                            Use the following code to access the payload when this flag returns <code>true</code>.
+                        </p>
+                    </div>
                     <selectedOption.Snippet
                         data-attr="feature-flag-instructions-payload-snippet"
                         flagKey={featureFlagKey}
@@ -322,7 +372,7 @@ export function CodeInstructions({
                         remoteConfiguration={remoteConfiguration}
                         encryptedPayload={encryptedPayload}
                     />
-                </>
+                </div>
             )}
             {showBootstrapCode && (
                 <>

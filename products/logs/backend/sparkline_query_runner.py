@@ -40,6 +40,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                     "time": result[0],
                     result_key: breakdown_value,
                     "count": result[2],
+                    "bytes_uncompressed": result[3],
                 }
             )
 
@@ -51,7 +52,8 @@ class SparklineQueryRunner(LogsQueryRunner):
                 SELECT
                     am.time_bucket AS time,
                     {breakdown_field},
-                    ifNull(ac.event_count, 0) AS count
+                    ifNull(ac.event_count, 0) AS count,
+                    ifNull(ac.bytes_uncompressed, 0) AS bytes_uncompressed
                 FROM (
                     SELECT
                         dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
@@ -73,7 +75,8 @@ class SparklineQueryRunner(LogsQueryRunner):
                     SELECT
                         toStartOfInterval({time_field}, {one_interval_period}) AS time,
                         {breakdown_field},
-                        count() AS event_count
+                        count() AS event_count,
+                        sum(_bytes_uncompressed) AS bytes_uncompressed
                     FROM logs
                     WHERE {where} AND time >= {date_from_start_of_interval} AND time <= {date_to}
                     GROUP BY {breakdown_field}, time
@@ -83,7 +86,10 @@ class SparklineQueryRunner(LogsQueryRunner):
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                "time_field": ast.Field(chain=["time_minute"])
+                # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
+                # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
+                # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval
+                "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),

@@ -16,6 +16,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StreamMode
+from opentelemetry import trace
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.schema import (
@@ -39,16 +40,21 @@ from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest
 from ee.hogai.utils.exceptions import (
+    HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
     LLM_CLIENT_ERROR_COUNTER,
     LLM_CLIENT_EXCEPTIONS,
     LLM_PROVIDER_ERROR_COUNTER,
     LLM_TRANSIENT_EXCEPTIONS,
+    LLM_TRANSPORT_ERROR_COUNTER,
     GenerationCanceled,
+    resolve_llm_provider,
 )
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 from ee.hogai.utils.helpers import extract_stream_update
@@ -59,12 +65,13 @@ from ee.hogai.utils.types.base import (
     AssistantOutput,
     AssistantResultUnion,
     AssistantStreamedMessageUnion,
+    ConversationTitleAction,
     LangGraphUpdateEvent,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
-from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 
 class SubagentCallbackHandler(CallbackHandler):
@@ -135,6 +142,7 @@ class BaseAgentRunner(ABC):
         stream_processor: AssistantStreamProcessorProtocol,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
     ):
         self._team = team
@@ -144,6 +152,7 @@ class BaseAgentRunner(ABC):
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
+        self._pending_conversation_update = False
         self._state = None
         self._state_type = state_type
         self._partial_state_type = partial_state_type
@@ -165,7 +174,7 @@ class BaseAgentRunner(ABC):
                     "$session_id": self._session_id,
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
-                    "ai_support_impersonated": not is_agent_billable,
+                    "ai_support_impersonated": is_impersonated,
                     "ai_product": "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else "posthog_ai",
                     "conversation_type": self._conversation.type,
                 }
@@ -260,6 +269,7 @@ class BaseAgentRunner(ABC):
                 # Send the latest received human message with the initialized id.
                 yield AssistantEventType.MESSAGE, self._latest_message
 
+            self._pending_conversation_update = False
             try:
                 async for update in generator:
                     if messages := await self._process_update(update):
@@ -275,6 +285,13 @@ class BaseAgentRunner(ABC):
                                 yield AssistantEventType.STATUS, message
                             elif isinstance(message, AssistantUpdateEvent | SubagentUpdateEvent):
                                 yield AssistantEventType.UPDATE, message
+
+                    # Re-yield the conversation when the title generator has
+                    # produced a title. Checked after _process_update so the
+                    # flag set by ConversationTitleAction is picked up.
+                    if self._pending_conversation_update:
+                        self._pending_conversation_update = False
+                        yield AssistantEventType.CONVERSATION, self._conversation
             except GraphInterrupt:
                 # GraphInterrupt is raised when interrupt() is called in a tool.
                 # TRICKY: don't reset state. The interrupt handling code
@@ -297,7 +314,7 @@ class BaseAgentRunner(ABC):
                 # Client/validation errors (400, 422) - these won't resolve on retry
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                provider = resolve_llm_provider(e)
                 LLM_CLIENT_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_client_error", error=str(e), provider=provider)
                 posthoganalytics.capture_exception(
@@ -317,11 +334,35 @@ class BaseAgentRunner(ABC):
                     ),
                 )
                 return  # Don't run interrupt handling after client errors
+            except HTTPX_TRANSPORT_EXCEPTIONS as e:
+                # Network-level transport errors (not LLM provider errors).
+                # Tracked on a separate counter to avoid false provider alerts.
+                if self._use_checkpointer:
+                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                error_type = type(e).__name__
+                LLM_TRANSPORT_ERROR_COUNTER.labels(error_type=error_type).inc()
+                logger.exception("llm_transport_error", error=str(e), error_type=error_type)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_transport_error",
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
+                        id=str(uuid4()),
+                    ),
+                )
+                return  # Don't run interrupt handling after transport errors
             except LLM_TRANSIENT_EXCEPTIONS as e:
                 # Transient errors (5xx, rate limits, timeouts) - may resolve on retry
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                provider = resolve_llm_provider(e)
                 LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_provider_error", error=str(e), provider=provider)
                 posthoganalytics.capture_exception(
@@ -345,7 +386,7 @@ class BaseAgentRunner(ABC):
                 # Catch-all for other API errors (auth errors, etc.)
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                provider = resolve_llm_provider(e)
                 LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_api_error", error=str(e), provider=provider)
                 posthoganalytics.capture_exception(
@@ -550,6 +591,11 @@ class BaseAgentRunner(ABC):
     async def _process_update(self, update: Any) -> list[AssistantResultUnion] | None:
         update = extract_stream_update(update)
 
+        if isinstance(update, ConversationTitleAction):
+            self._conversation.title = update.title
+            self._pending_conversation_update = True
+            return None
+
         if not isinstance(update, AssistantDispatcherEvent):
             if updates := await self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
                 return updates
@@ -580,11 +626,16 @@ class BaseAgentRunner(ABC):
     ):
         if not self._user:
             return
-        await database_sync_to_async(report_user_action)(
-            self._user,
-            event_name,
-            properties,
-        )
+        with _tracer.start_as_current_span(
+            "posthog_ai.runner.report_conversation_state",
+            attributes={"posthog_ai.event_name": event_name},
+        ):
+            await database_sync_to_async(report_user_action)(
+                self._user,
+                event_name,
+                properties,
+                send_feature_flags=True,
+            )
 
     @asynccontextmanager
     async def _lock_conversation(self):
@@ -596,12 +647,14 @@ class BaseAgentRunner(ABC):
             return
 
         try:
-            self._conversation.status = Conversation.Status.IN_PROGRESS
-            await self._conversation.asave(update_fields=["status"])
+            with _tracer.start_as_current_span("posthog_ai.runner.lock_conversation"):
+                self._conversation.status = Conversation.Status.IN_PROGRESS
+                await self._conversation.asave(update_fields=["status"])
             yield
         finally:
-            self._conversation.status = Conversation.Status.IDLE
-            await self._conversation.asave(update_fields=["status", "updated_at"])
+            with _tracer.start_as_current_span("posthog_ai.runner.unlock_conversation"):
+                self._conversation.status = Conversation.Status.IDLE
+                await self._conversation.asave(update_fields=["status", "updated_at"])
 
     def _capture_exception(self, e: Exception):
         posthoganalytics.capture_exception(

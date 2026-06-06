@@ -23,12 +23,13 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, Ch
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
 
-from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
     SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -463,7 +464,7 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
     return results
 
 
-# NOTE: Keep the AD IDs in sync with `posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner.py`
+# NOTE: Keep the AD IDs in sync with `products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner.py`
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
     "$entry_utm_source": "finalizeAggregation(initial_utm_source)",

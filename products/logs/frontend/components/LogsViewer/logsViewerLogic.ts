@@ -1,13 +1,15 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -25,31 +27,68 @@ export interface VisibleLogsTimeRange {
     date_to: string
 }
 
+export interface VisibleRowRange {
+    startIndex: number
+    stopIndex: number
+}
+
 export type LogCursor = number | null
 
 export interface LogsViewerLogicProps {
-    tabId: string
-    logs: ParsedLogMessage[]
-    orderBy: LogsOrderBy
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
+    id: string
+}
+
+function tryOpenLinkedLog(
+    logs: ParsedLogMessage[],
+    linkToLogId: string | null,
+    logsLoading: boolean,
+    actions: {
+        setCursor: (index: number) => void
+        openLogDetails: (log: ParsedLogMessage) => void
+        requestScrollToCursor: () => void
+        setLinkToLogId: (id: string | null) => void
+        clearLinkToLogId: () => void
+    }
+): void {
+    if (!linkToLogId || logsLoading) {
+        return
+    }
+    const index = logs.findIndex((log) => log.uuid === linkToLogId)
+    if (index !== -1) {
+        actions.setCursor(index)
+        actions.openLogDetails(logs[index])
+        actions.requestScrollToCursor()
+        actions.setLinkToLogId(null)
+    } else {
+        lemonToast.warning('Log not found')
+        actions.clearLinkToLogId()
+    }
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+    path((id) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', id]),
     props({} as LogsViewerLogicProps),
-    key((props) => props.tabId),
-    connect(() => ({
+    key((props) => props.id),
+    connect(({ id }: LogsViewerLogicProps) => ({
         values: [
             logsViewerSettingsLogic,
             ['timezone', 'wrapBody', 'prettifyJson'],
-            logDetailsModalLogic,
+            logDetailsModalLogic({ id }),
             ['isLogDetailsOpen'],
+            logsViewerDataLogic({ id }),
+            ['parsedLogs as logs', 'logsLoading'],
+            logsViewerConfigLogic({ id }),
+            ['orderBy'],
         ],
         actions: [
             logsViewerSettingsLogic,
             ['setTimezone', 'setWrapBody', 'setPrettifyJson'],
-            logDetailsModalLogic,
+            logDetailsModalLogic({ id }),
             ['openLogDetails', 'closeLogDetails'],
+            logsViewerFiltersLogic({ id }),
+            ['addFilter'],
+            logsViewerDataLogic({ id }),
+            ['setLogs', 'clearLogs'],
         ],
     })),
 
@@ -74,21 +113,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Deep linking - position cursor at a specific log by ID
         setLinkToLogId: (linkToLogId: string | null) => ({ linkToLogId }),
-        setCursorToLogId: (logId: string) => ({ logId }),
+        clearLinkToLogId: true,
 
         // Copy link to log
         copyLinkToLog: (logId: string) => ({ logId }),
-
-        // Sync logs from props
-        setLogs: (logs: ParsedLogMessage[]) => ({ logs }),
-
-        // Filter actions (emits to parent via props callback)
-        addFilter: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => ({
-            key,
-            value,
-            operator,
-            type,
-        }),
 
         // Attribute breakdowns (per-log)
         toggleAttributeBreakdown: (logId: string, attributeKey: string) => ({ logId, attributeKey }),
@@ -111,12 +139,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Per-row prettify
         togglePrettifyLog: (logId: string) => ({ logId }),
+
+        // Scroll position in the virtualized list (the range of rows currently in
+        // the viewport). Drives the brush overlay on the sparkline.
+        setVisibleRowRange: (startIndex: number, stopIndex: number) => ({ startIndex, stopIndex }),
     }),
 
-    reducers(({ props }) => ({
-        // Synced from props via propsChanged
-        logs: [props.logs, { setLogs: (_, { logs }) => logs }],
-
+    reducers(() => ({
         pinnedLogs: [
             {} as Record<string, ParsedLogMessage>,
             { persist: true },
@@ -146,6 +175,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setCursorIndex: (_, { index }) => index,
                 userSetCursorIndex: (_, { index }) => index,
                 resetCursor: () => null,
+                clearLogs: () => null,
             },
         ],
 
@@ -168,7 +198,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             null as string | null,
             {
                 setLinkToLogId: (_, { linkToLogId }) => linkToLogId,
-                // Clear when user actively navigates
+                clearLinkToLogId: () => null,
                 moveCursorDown: () => null,
                 moveCursorUp: () => null,
                 userSetCursorIndex: () => null,
@@ -266,7 +296,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 },
                 setSelectedLogIds: (_, { selectedLogIds }) => selectedLogIds,
                 clearSelection: () => ({}),
-                setLogs: () => ({}), // Clear selection when logs change
+                clearLogs: () => ({}),
+                setLogs: () => ({}),
             },
         ],
 
@@ -282,20 +313,23 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     return next
                 },
+                clearLogs: () => new Set<string>(),
                 setLogs: () => new Set<string>(),
+            },
+        ],
+
+        visibleRowRange: [
+            null as VisibleRowRange | null,
+            {
+                setVisibleRowRange: (_, { startIndex, stopIndex }) => ({ startIndex, stopIndex }),
+                clearLogs: () => null,
+                setLogs: () => null,
             },
         ],
     })),
 
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.logs !== oldProps.logs) {
-            actions.setLogs(props.logs)
-            actions.recomputeRowHeights()
-        }
-    }),
-
     selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string): string => tabId],
+        id: [(_, p) => [p.id], (id: string): string => id],
 
         pinnedLogsArray: [(s) => [s.pinnedLogs], (pinnedLogs): ParsedLogMessage[] => Object.values(pinnedLogs)],
 
@@ -315,7 +349,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
 
         visibleLogsTimeRange: [
-            (s, p) => [s.logs, p.orderBy],
+            (state) => [state.logs, state.orderBy],
             (logs: ParsedLogMessage[], orderBy: LogsOrderBy): VisibleLogsTimeRange | null => {
                 if (logs.length === 0) {
                     return null
@@ -332,6 +366,33 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 return {
                     date_from: dayjs(firstTimestamp).toISOString(),
                     date_to: dayjs(lastTimestamp).add(1, 'millisecond').toISOString(),
+                }
+            },
+        ],
+
+        // Date range covered by the currently-visible (scrolled-into-view) rows.
+        // Returns null when no rows are rendered or the indices don't line up with
+        // loaded logs. The values are always ordered date_from <= date_to regardless
+        // of `orderBy`.
+        visibleRowDateRange: [
+            (state) => [state.visibleRowRange, state.logs],
+            (visibleRowRange: VisibleRowRange | null, logs: ParsedLogMessage[]): VisibleLogsTimeRange | null => {
+                if (!visibleRowRange || logs.length === 0) {
+                    return null
+                }
+                const startIndex = Math.max(0, Math.min(visibleRowRange.startIndex, logs.length - 1))
+                const stopIndex = Math.max(0, Math.min(visibleRowRange.stopIndex, logs.length - 1))
+                const a = logs[startIndex]?.timestamp
+                const b = logs[stopIndex]?.timestamp
+                if (!a || !b) {
+                    return null
+                }
+                const ta = dayjs(a)
+                const tb = dayjs(b)
+                const [earlier, later] = ta.isBefore(tb) ? [ta, tb] : [tb, ta]
+                return {
+                    date_from: earlier.toISOString(),
+                    date_to: later.toISOString(),
                 }
             },
         ],
@@ -377,15 +438,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
-        setLogs: ({ logs }) => {
-            if (logs.length === 0) {
-                actions.resetCursor()
-            }
-        },
-        addFilter: ({ key, value, operator, type }) => {
-            props.onAddFilter?.(key, value, operator, type)
-        },
+    listeners(({ actions, values }) => ({
         togglePinLog: ({ log }) => {
             if (values.pinnedLogs[log.uuid]) {
                 posthog.capture('logs log pinned')
@@ -461,19 +514,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 }
             }
         },
-        setCursorToLogId: ({ logId }) => {
-            const index = values.logs.findIndex((log) => log.uuid === logId)
-            if (index !== -1) {
-                actions.setCursor(index)
-                // If navigating via link, also open the details modal
-                if (values.linkToLogId === logId) {
-                    actions.openLogDetails(values.logs[index])
-                }
-            }
-        },
         copyLinkToLog: ({ logId }) => {
             posthog.capture('logs link copied')
             const url = new URL(window.location.href)
+            // Linked logs only open in the Viewer tab, so always point the shared link there
+            // regardless of which tab the link was copied from.
+            url.searchParams.set('activeTab', 'viewer')
             url.searchParams.set('linkToLogId', logId)
             if (values.visibleLogsTimeRange) {
                 url.searchParams.set(
@@ -519,40 +565,19 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            // Support both new (linkToLogId) and legacy (highlightedLogId) URL params
-            const linkToLogId = (searchParams.linkToLogId ?? searchParams.highlightedLogId) as string | undefined
-            if (linkToLogId && linkToLogId !== values.linkToLogId) {
-                actions.setLinkToLogId(linkToLogId)
-            }
-        },
-    })),
-
-    tabAwareActionToUrl(() => {
-        const clearLinkToLogIdFromUrl = ():
-            | [string, Record<string, any>, Record<string, any>, { replace: boolean }]
-            | void => {
-            const url = new URL(window.location.href)
-            const hasLinkParam = url.searchParams.has('linkToLogId') || url.searchParams.has('highlightedLogId')
-            if (hasLinkParam) {
-                url.searchParams.delete('linkToLogId')
-                url.searchParams.delete('highlightedLogId')
-                return [url.pathname, Object.fromEntries(url.searchParams), {}, { replace: true }]
-            }
-        }
-        return {
-            // Clear URL param when user actively navigates
-            moveCursorDown: clearLinkToLogIdFromUrl,
-            moveCursorUp: clearLinkToLogIdFromUrl,
-            userSetCursorIndex: clearLinkToLogIdFromUrl,
-        }
-    }),
-
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         cursorIndex: (cursorIndex) => {
             if (cursorIndex !== null) {
                 actions.requestScrollToCursor()
+            }
+        },
+        logs: (logs: ParsedLogMessage[]) => {
+            actions.recomputeRowHeights()
+            tryOpenLinkedLog(logs, values.linkToLogId, values.logsLoading, actions)
+        },
+        linkToLogId: (linkToLogId: string | null) => {
+            if (linkToLogId) {
+                tryOpenLinkedLog(values.logs, linkToLogId, values.logsLoading, actions)
             }
         },
     })),

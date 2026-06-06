@@ -18,9 +18,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from types_aiobotocore_s3.client import S3Client
 
-from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
@@ -42,7 +42,9 @@ class RetryableTestException(Exception):
     pass
 
 
-async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(ateam, s3_batch_export, interval):
+async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(
+    ateam, s3_compatible_batch_export, interval
+):
     """Test S3BatchExport Workflow can handle unexpected errors from executing the insert into S3 activity.
 
     This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
@@ -57,10 +59,10 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(atea
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
-        batch_export_id=str(s3_batch_export.id),
+        batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        **s3_batch_export.destination.config,
+        **s3_compatible_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_internal_stage_activity")
@@ -93,7 +95,7 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(atea
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_compatible_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
@@ -103,7 +105,9 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(atea
     assert run.bytes_exported is None
 
 
-async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(ateam, s3_batch_export, interval):
+async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
+    ateam, s3_compatible_batch_export, interval
+):
     """Test S3BatchExport Workflow can handle non-retryable errors from executing the insert into S3 activity.
 
     This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we
@@ -118,10 +122,10 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
-        batch_export_id=str(s3_batch_export.id),
+        batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        **s3_batch_export.destination.config,
+        **s3_compatible_batch_export.destination.config,
     )
 
     class ParamValidationError(Exception):
@@ -156,7 +160,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_compatible_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
@@ -164,7 +168,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
     assert run.latest_error == "ParamValidationError: A useful error message"
 
 
-async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, interval):
+async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batch_export, interval):
     """Test that S3 Export Workflow can gracefully handle cancellations when inserting S3 data.
 
     Currently, this only means we do the right updates to the BatchExportRun model.
@@ -174,10 +178,10 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
-        batch_export_id=str(s3_batch_export.id),
+        batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        **s3_batch_export.destination.config,
+        **s3_compatible_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_internal_stage_activity")
@@ -216,7 +220,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
             with pytest.raises(WorkflowFailureError):
                 await handle.result()
 
-        runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+        runs = await afetch_batch_export_runs(batch_export_id=s3_compatible_batch_export.id)
         assert len(runs) == 1
 
         run = runs[0]
@@ -230,7 +234,7 @@ async def test_s3_export_workflow_with_request_timeouts(
     minio_client,
     bucket_name,
     interval,
-    s3_batch_export,
+    s3_compatible_batch_export,
     s3_key_prefix,
     data_interval_end,
     data_interval_start,
@@ -275,12 +279,12 @@ async def test_s3_export_workflow_with_request_timeouts(
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
-        batch_export_id=str(s3_batch_export.id),
+        batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         interval=interval,
-        **s3_batch_export.destination.config,
+        **s3_compatible_batch_export.destination.config,
     )
 
     async with (
@@ -314,7 +318,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 execution_timeout=dt.timedelta(minutes=2),
             )
 
-    runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=s3_compatible_batch_export.id)
     assert len(runs) == 2
     runs.sort(key=lambda r: r.last_updated_at)
 

@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
+
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -9,15 +11,18 @@ import {
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
+import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
+import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
-import { MAX_AXIS_RANGE } from './constants'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
+    metricIndexes: number[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
@@ -27,13 +32,26 @@ export function MetricsTable({
     metrics,
     results,
     errors,
+    metricIndexes,
     isSecondary,
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
-        useActions(experimentLogic)
+    const { experiment, exposuresLoading } = useValues(experimentLogic)
+    const { experimentsConfig } = useValues(experimentsConfigLogic)
+    const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
+    const sequentialTestingEnabled = resolveSequentialEnabled(
+        experiment.stats_config?.frequentist,
+        teamDefaultSequentialEnabled
+    )
+    const {
+        duplicateMetric,
+        updateExperimentMetrics,
+        updateMetricBreakdown,
+        removeMetricBreakdown,
+        removeMetric,
+        removeSharedMetricFromExperiment,
+    } = useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
@@ -90,13 +108,15 @@ export function MetricsTable({
                 <TableHeader
                     axisRange={axisRange}
                     statsMethod={experiment.stats_config?.method || ExperimentStatsMethod.Bayesian}
+                    sequentialTestingEnabled={sequentialTestingEnabled}
                 />
                 <tbody>
                     {metrics.map((metric, index) => {
                         const result = results[index]
                         const error = errors[index]
+                        const metricIndex = metricIndexes[index]
 
-                        const isLoading = !result && !error && !!experiment.start_date
+                        const isLoading = !result && !error && isLaunched(experiment)
 
                         return (
                             <MetricRowGroup
@@ -105,6 +125,7 @@ export function MetricsTable({
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
+                                metricIndex={metricIndex}
                                 displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
@@ -118,6 +139,16 @@ export function MetricsTable({
                                     const newUuid = crypto.randomUUID()
                                     duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
                                     updateExperimentMetrics()
+                                }}
+                                onDeleteMetric={() => {
+                                    if (metric.isSharedMetric && metric.sharedMetricId) {
+                                        removeSharedMetricFromExperiment(metric.sharedMetricId)
+                                        return
+                                    }
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+                                    removeMetric(metric.uuid, isSecondary ? 'secondary' : 'primary')
                                 }}
                                 onBreakdownChange={(breakdown) => {
                                     if (!metric.uuid) {
@@ -147,7 +178,6 @@ export function MetricsTable({
                                 }}
                                 error={error}
                                 isLoading={isLoading}
-                                hasMinimumExposureForResults={hasMinimumExposureForResults}
                                 exposuresLoading={exposuresLoading}
                                 showDetailsModal={showDetailsModal}
                             />

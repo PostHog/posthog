@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from django.conf import settings
 
@@ -10,19 +11,28 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.models import (
-    DataModelingJob,
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    acreate_datawarehousetable,
     aget_saved_query_by_id,
     aget_table_by_saved_query_id,
-    asave_datawarehousetable,
     asave_saved_query,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
+from products.warehouse_sources.backend.models.table import (
+    DataWarehouseTable,
+    acreate_datawarehousetable,
+    asave_datawarehousetable,
+)
 
 LOGGER = get_logger(__name__)
+
+
+@dataclasses.dataclass
+class CreateTableResult:
+    table: DataWarehouseTable
+    storage_delta_mib: float | None
+    total_storage_mib: float | None
 
 
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int, queryable_folder: str) -> float:
@@ -46,7 +56,7 @@ async def create_table_from_saved_query(
     saved_query_id: str,
     team_id: int,
     queryable_folder: str,
-) -> DataWarehouseTable:
+) -> CreateTableResult:
     """
     Create a table from a saved query if it doesn't exist.
     """
@@ -55,7 +65,10 @@ async def create_table_from_saved_query(
 
     saved_query_id_converted = str(uuid.UUID(saved_query_id))
     saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
+    if saved_query is None:
+        raise ValueError(f"Saved query {saved_query_id_converted} not found")
 
+    # nosemgrep: idor-lookup-without-team (internal Temporal activity, not API-exposed)
     job = await DataModelingJob.objects.aget(id=job_id)
 
     try:
@@ -89,15 +102,18 @@ async def create_table_from_saved_query(
         table_created.row_count = await database_sync_to_async(table_created.get_count)()
         await asave_datawarehousetable(table_created)
 
-        saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
+        refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
+
+        storage_delta_mib: float | None = None
+        total_storage_mib: float | None = None
 
         try:
-            if saved_query:
+            if refreshed_saved_query:
                 existing_size: float = table_created.size_in_s3_mib or 0
 
                 logger.debug(f"Existing size in MiB = {existing_size:.2f}")
 
-                table_size = await calculate_table_size(saved_query, team_id, queryable_folder)
+                table_size = await calculate_table_size(refreshed_saved_query, team_id, queryable_folder)
 
                 await logger.adebug(f"Total size in MiB = {table_size:.2f}")
 
@@ -110,14 +126,21 @@ async def create_table_from_saved_query(
                 table_created.size_in_s3_mib = table_size
                 await asave_datawarehousetable(table_created)
 
-                saved_query.table = table_created
-                await asave_saved_query(saved_query)
+                refreshed_saved_query.table = table_created
+                await asave_saved_query(refreshed_saved_query)
+
+                storage_delta_mib = job.storage_delta_mib
+                total_storage_mib = table_created.size_in_s3_mib
         except Exception as e:
             capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
 
-        return table_created
+        return CreateTableResult(
+            table=table_created,
+            storage_delta_mib=storage_delta_mib,
+            total_storage_mib=total_storage_mib,
+        )
     except ServerException as err:
         logger.exception(
             f"Data Warehouse: Unknown ServerException {saved_query.pk}",

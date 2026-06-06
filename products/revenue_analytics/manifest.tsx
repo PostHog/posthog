@@ -1,6 +1,7 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -10,7 +11,6 @@ export const manifest: ProductManifest = {
             name: 'Revenue Analytics',
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/revenue-analytics',
             iconType: 'revenue_analytics',
             description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
         },
@@ -34,10 +34,11 @@ export const manifest: ProductManifest = {
         {
             path: 'Revenue analytics',
             intents: [ProductKey.REVENUE_ANALYTICS],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             href: urls.revenueAnalytics(),
             type: 'revenue',
-            tags: ['beta'],
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+            tags: ['alpha'],
             sceneKey: 'RevenueAnalytics',
         },
     ],

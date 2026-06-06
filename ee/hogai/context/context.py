@@ -20,7 +20,7 @@ from posthog.schema import (
     ModeContext,
 )
 
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
@@ -41,6 +42,7 @@ from .prompts import (
     CONTEXT_MODE_PROMPT,
     CONTEXT_MODE_SWITCH_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
+    HOG_EVALUATION_REFERENCE,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
     ROOT_INSIGHT_CONTEXT_PROMPT,
@@ -92,7 +94,7 @@ class AssistantContextManager(AssistantContextMixin):
 
     def has_awaitable_context(self, state: BaseStateWithMessages) -> bool:
         ui_context = self.get_ui_context(state)
-        if ui_context and (ui_context.dashboards or ui_context.insights):
+        if ui_context and (ui_context.dashboards or ui_context.insights or ui_context.notebooks):
             return True
         return False
 
@@ -129,11 +131,20 @@ class AssistantContextManager(AssistantContextMixin):
             OrganizationMembership.Level.OWNER,
         )
 
-    def get_groups(self):
+    @database_sync_to_async
+    def check_has_audit_logs_access(self) -> bool:
         """
-        Returns the ORM chain of the team's groups.
+        Check if the user has access to the audit logs tool.
         """
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+        return self._team.organization.is_feature_available(AvailableFeature.AUDIT_LOGS)
+
+    def get_groups(self) -> list[dict]:
+        """
+        Returns the team's group type mappings as dicts, ordered by group_type_index.
+        """
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        return get_group_types_for_project(self._team.project_id)
 
     async def get_group_names(self) -> list[str]:
         """
@@ -142,7 +153,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         @database_sync_to_async(thread_sensitive=False)
         def _get_group_names_sync() -> list[str]:
-            return list(self.get_groups().values_list("group_type", flat=True))
+            return [m["group_type"] for m in self.get_groups()]
 
         return await _get_group_names_sync()
 
@@ -261,9 +272,65 @@ class AssistantContextManager(AssistantContextMixin):
             if issue_details:
                 error_tracking_context = f"<error_tracking_context>Error tracking issues the user is referring to:\n{chr(10).join(issue_details)}\n</error_tracking_context>"
 
-        if dashboard_context or insights_context or events_context or actions_context or error_tracking_context:
+        # Format notebooks context
+        notebooks_context = ""
+        if ui_context.notebooks:
+            from ee.hogai.context.notebook.context import NotebookContext
+
+            notebook_texts = []
+            for nb in ui_context.notebooks:
+                ctx = await NotebookContext.from_short_id(self._team, nb.id)
+                if ctx:
+                    notebook_texts.append(ctx.format())
+            if notebook_texts:
+                joined_notebooks = "\n\n".join(notebook_texts)
+                notebooks_context = (
+                    PromptTemplate.from_template(ROOT_NOTEBOOKS_CONTEXT_PROMPT, template_format="mustache")
+                    .format_prompt(notebooks=joined_notebooks)
+                    .to_string()
+                )
+
+        # Format evaluations context
+        evaluations_context = ""
+        if ui_context.evaluations:
+            eval_details = []
+            for evaluation in ui_context.evaluations:
+                name = evaluation.name or f"Evaluation {evaluation.id}"
+                lines = [f"- Name: {name}"]
+                if evaluation.description:
+                    lines.append(f"  Description: {evaluation.description}")
+                lines.append(f"  Type: {evaluation.evaluation_type}")
+                if evaluation.hog_source:
+                    lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
+                eval_details.append("\n".join(lines))
+
+            has_hog_eval = any(e.evaluation_type == "hog" for e in ui_context.evaluations)
+            hog_reference = f"\n{HOG_EVALUATION_REFERENCE}" if has_hog_eval else ""
+
+            evaluations_context = (
+                f"<evaluations_context>The user is editing the following LLM evaluation(s):\n"
+                f"{chr(10).join(eval_details)}"
+                f"{hog_reference}\n"
+                f"</evaluations_context>"
+            )
+
+        if (
+            dashboard_context
+            or insights_context
+            or notebooks_context
+            or events_context
+            or actions_context
+            or error_tracking_context
+            or evaluations_context
+        ):
             return self._render_user_context_template(
-                dashboard_context, insights_context, events_context, actions_context, error_tracking_context
+                dashboard_context,
+                insights_context,
+                events_context,
+                actions_context,
+                error_tracking_context,
+                notebooks_context,
+                evaluations_context,
             )
         return None
 
@@ -363,26 +430,67 @@ class AssistantContextManager(AssistantContextMixin):
         events_context: str,
         actions_context: str,
         error_tracking_context: str = "",
+        notebooks_context: str = "",
+        evaluations_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(
             ui_context_dashboard=dashboard_context,
             ui_context_insights=insights_context,
+            ui_context_notebooks=notebooks_context,
             ui_context_events=events_context,
             ui_context_actions=actions_context,
             ui_context_error_tracking=error_tracking_context,
+            ui_context_evaluations=evaluations_context,
         ).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
         prompts: list[ContextMessage] = []
+        ui_context = self.get_ui_context(state)
         if mode_prompt := self._get_mode_context_messages(state):
             prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
-        if ui_context := await self._format_ui_context(self.get_ui_context(state)):
-            prompts.append(ContextMessage(content=ui_context, id=str(uuid4())))
+        if voice_prompt := self._get_voice_mode_prompt(ui_context):
+            prompts.append(ContextMessage(content=voice_prompt, id=str(uuid4())))
+        if formatted_ui_context := await self._format_ui_context(ui_context):
+            prompts.append(ContextMessage(content=formatted_ui_context, id=str(uuid4())))
         return self._deduplicate_context_messages(state, prompts)
+
+    def _get_voice_mode_prompt(self, ui_context: MaxUIContext | None) -> str | None:
+        """Return a voice-mode instruction reflecting the current turn's modality.
+
+        Emits a tag whenever the frontend tells us explicitly whether voice mode is on
+        or off — both states need to survive in conversation history so a typed turn
+        that follows a spoken one cleanly overrides the earlier voice formatting rules
+        (otherwise the prior <voice_mode> instruction keeps steering the model toward
+        spelled-out numbers and no markdown).
+        """
+        if ui_context is None or ui_context.voice_mode is None:
+            return None
+        if ui_context.voice_mode:
+            return (
+                "<voice_mode>\n"
+                "The user is asking via hands-free voice mode. Your response will be read "
+                "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
+                "- Spell out all numbers and currencies in words "
+                '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
+                'not "$100 from 5,238 users").\n'
+                "- Spell out percentages as words "
+                '(e.g. "twelve point five percent", not "12.5%").\n'
+                "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
+                "- No emoji.\n"
+                "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
+                "</voice_mode>"
+            )
+        return (
+            "<voice_mode>\n"
+            "The user is no longer in hands-free voice mode for this turn. Ignore any "
+            "earlier voice-mode formatting instructions in this conversation: you may use "
+            "markdown, numerals, currency symbols, code blocks, and emoji as normal.\n"
+            "</voice_mode>"
+        )
 
     async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class

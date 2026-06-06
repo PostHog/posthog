@@ -2,16 +2,15 @@ name: 'Handle stale PRs'
 on:
     schedule:
         - cron: '30 7 * * 1-5'
+    workflow_dispatch:
 
 permissions:
     contents: read
-    actions: write
-    issues: write
-    pull-requests: write
 
 jobs:
     stale:
         runs-on: ubuntu-24.04
+        timeout-minutes: 60
         steps:
             - name: Check if holiday period
               id: holiday
@@ -26,20 +25,34 @@ jobs:
                     echo "skip=false" >> $GITHUB_OUTPUT
                   fi
 
-            - uses: actions/stale@997185467fa4f803885201cee163a9f38240193d # v10.1.1
+            # App token gives higher API rate limits (15k/hr vs 1k/hr for GITHUB_TOKEN)
+            # and lets a full cycle through every open issue + PR complete in one run,
+            # which is required for the action's state model to re-evaluate PRs that
+            # were unstaled mid-cycle.
+            - name: Get app token
+              id: app-token
+              if: steps.holiday.outputs.skip != 'true'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
+            - uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
               if: steps.holiday.outputs.skip != 'true'
               with:
+                  repo-token: ${{ steps.app-token.outputs.token }}
                   days-before-issue-stale: 730
                   days-before-issue-close: 14
-                  stale-issue-message: "This issue hasn't seen activity in two years! If you want to keep it open, post a comment or remove the `stale` label – otherwise this will be closed in two weeks."
+                  stale-issue-message: "This issue hasn't seen activity in two years! If you want to keep it open, please remove the `stale` label – otherwise this will be closed in two weeks."
                   close-issue-message: "This issue was closed due to lack of activity. Feel free to reopen if it's still relevant."
                   stale-issue-label: stale
                   remove-issue-stale-when-updated: true
                   days-before-pr-stale: 7
                   days-before-pr-close: 7
-                  stale-pr-message: "This PR hasn't seen activity in a week! Should it be merged, closed, or further worked on? If you want to keep it open, post a comment or remove the `stale` label – otherwise this will be closed in another week. If you want to permanentely keep it open, use the `waiting` label."
+                  stale-pr-message: "This PR hasn't seen activity in a week! Should it be merged, closed, or further worked on? If you want to keep it open, please remove the `stale` label – otherwise this will be closed in another week. If you want to permanently keep it open, use the `waiting` label."
                   close-pr-message: "This PR was closed due to lack of activity. Feel free to reopen if it's still relevant."
                   stale-pr-label: stale
                   remove-pr-stale-when-updated: true
                   exempt-pr-labels: 'waiting'
-                  operations-per-run: 250
+                  enable-statistics: true
+                  operations-per-run: 5000

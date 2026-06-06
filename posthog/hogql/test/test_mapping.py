@@ -3,9 +3,10 @@ from typing import Any, Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from posthog.hogql.ast import DateType, FloatType, IntegerType
+from posthog.hogql import ast
+from posthog.hogql.ast import DateType, FloatType, IntegerType, StringLiteralType, StringType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
@@ -22,7 +23,7 @@ from posthog.hogql.query import execute_hogql_query
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
-class TestMappings(BaseTest):
+class TestMappings(ClickhouseTestMixin, BaseTest):
     snapshot: Any
 
     def _return_present_function(self, function: Optional[HogQLFunctionMeta]) -> HogQLFunctionMeta:
@@ -74,6 +75,31 @@ class TestMappings(BaseTest):
     def test_compare_types_mismatch_differing_order(self):
         res = compare_types([IntegerType(), FloatType()], (FloatType(), IntegerType()))
         assert res is False
+
+    def test_compare_types_string_literal_matching_value(self):
+        sig = (StringLiteralType(values=frozenset({"month", "year"})),)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="month")])
+        assert res is True
+
+    def test_compare_types_string_literal_non_matching_value(self):
+        sig = (StringLiteralType(values=frozenset({"month", "year"})),)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="day")])
+        assert res is False
+
+    def test_compare_types_string_literal_non_constant_arg(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig, args=[ast.Field(chain=["unit"])])
+        assert res is False
+
+    def test_compare_types_string_literal_no_args_provided(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig)
+        assert res is False
+
+    def test_compare_types_string_literal_case_insensitive(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="MONTH")])
+        assert res is True
 
     def test_unknown_type_mapping(self):
         HOGQL_CLICKHOUSE_FUNCTIONS["overloadedFunction"] = HogQLFunctionMeta(
@@ -214,7 +240,7 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["date_part_month"], 1)
         self.assertEqual(result_dict["date_part_day"], 1)
         self.assertEqual(result_dict["date_part_hour"], 13)
-        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32))
+        self.assertEqual(result_dict["to_timestamp_result"], datetime(2023, 1, 1, 13, 25, 32, tzinfo=UTC))
         self.assertEqual(result_dict["to_char_result"], "2023-01-01")
         self.assertEqual(result_dict["make_date_result"], date(2023, 1, 1))
         self.assertEqual(result_dict["date_add_result"], datetime(2023, 1, 1, 14, 45, 32, tzinfo=UTC))
@@ -276,6 +302,28 @@ class TestMappings(BaseTest):
         )
         assert response.columns is not None
         assert response.results[0] == (3.14, None, 3.0, 3.14, 3.14, 3.14, 0.0, 7.0, 0.0, 7.0, None, 7.0)
+
+    def test_to_float_or_default_with_integer_default(self):
+        # ClickHouse's toFloat64OrDefault requires the default to be Float64;
+        # an integer default literal must still work. The wrapping coalesce
+        # also confirms the call resolves to a known (Float) type — an integer
+        # default that fell through to UnknownType would break nesting.
+        response = execute_hogql_query(
+            "SELECT toFloatOrDefault('bla', 0), toFloatOrDefault('2.5', 1), coalesce(toFloatOrDefault('bla', 0), 1)",
+            self.team,
+        )
+        assert response.results is not None
+        assert response.results[0] == (0.0, 2.5, 0.0)
+
+    def test_to_float_or_default_single_arg(self):
+        # Pre-#58714 single-arg form is degenerate (equivalent to toFloatOrZero);
+        # preserved so saved HogQL queries written before #58714 keep working.
+        response = execute_hogql_query(
+            "SELECT toFloatOrDefault('2.5'), toFloatOrDefault('bla'), toFloatOrDefault(NULL)",
+            self.team,
+        )
+        assert response.results is not None
+        assert response.results[0] == (2.5, 0.0, None)
 
     def test_map_function_with_multiple_key_value_pairs(self):
         """Test that the map function accepts multiple key-value pairs."""

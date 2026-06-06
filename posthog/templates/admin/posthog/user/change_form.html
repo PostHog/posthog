@@ -9,6 +9,10 @@
         opacity: 0.5;
         cursor: not-allowed;
     }
+    #loginas-confirm:hover {
+        background: var(--secondary, #205067);
+        color: #fff;
+    }
   </style>
 
   <script nonce="{{ request.csp_nonce }}">
@@ -87,6 +91,7 @@
         {% csrf_token %}
         <input type="hidden" name="send_2fa_reset" value="1" />
     </form>
+
 {% endblock %}
 
 {% block footer %}

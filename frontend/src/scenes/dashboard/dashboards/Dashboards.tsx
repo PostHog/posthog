@@ -5,16 +5,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { GraphsHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
+import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
+import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
-import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -22,7 +26,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
+import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
+
+const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -54,6 +60,8 @@ export function Dashboards(): JSX.Element {
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
+            <DashboardTemplateEditor />
+            <DashboardTemplateModal />
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Dashboards].name}
@@ -100,10 +108,20 @@ export function Dashboards(): JSX.Element {
                 ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
                     <DashboardsTableContainer />
                 ) : (
-                    <div className="mt-4">
-                        <p>Create your first dashboard:</p>
-                        <DashboardTemplateChooser />
-                    </div>
+                    <ProductIntroduction
+                        productName="Dashboards"
+                        thingName="dashboard"
+                        titleOverride="Your home for what you actually care about"
+                        description="Keep analytics, session replay, logs, and the rest of your PostHog stack in one place. Below are customer-favorite dashboards to get you started quickly. Or skip them and start blank, up to you."
+                        isEmpty={true}
+                        docsURL={DASHBOARD_DOCS_URL}
+                        customHog={GraphsHog}
+                        hogLayout="responsive"
+                        useMainContentContainerQueries={true}
+                        contentClassName="max-w-[1000px]"
+                        actionElementOverride={<FeaturedTemplatesChooser />}
+                        mcpSurfaceKey="dashboards.create"
+                    />
                 )}
             </div>
         </SceneContent>

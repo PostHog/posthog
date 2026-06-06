@@ -3,14 +3,28 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.main import http_exception_handler
+from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
+from llm_gateway.rate_limiting.cost_throttles import (
+    ProductCostThrottle,
+    UserCostBurstThrottle,
+    UserCostSustainedThrottle,
+)
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
+from llm_gateway.services.plan_resolver import PlanInfo
+from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+
+def _make_fake_quota_resolver() -> AsyncMock:
+    resolver = AsyncMock()
+    resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=False))
+    return resolver
 
 
 def create_test_app(
@@ -20,9 +34,12 @@ def create_test_app(
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
 
+    quota_resolver = _make_fake_quota_resolver()
     default_throttles: list[Throttle] = [
+        BillableCreditThrottle(),
         ProductCostThrottle(redis=None),
-        UserCostThrottle(redis=None),
+        UserCostBurstThrottle(redis=None),
+        UserCostSustainedThrottle(redis=None),
     ]
 
     @asynccontextmanager
@@ -30,9 +47,16 @@ def create_test_app(
         app.state.db_pool = mock_db_pool
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
+        app.state.http_client = MagicMock()
+        app.state.plan_resolver = AsyncMock()
+        app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        app.state.anthropic_circuit_breaker = None
+        app.state.quota_resolver = quota_resolver
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
+    app.exception_handler(HTTPException)(http_exception_handler)
+
     app.include_router(health_router)
     app.include_router(router)
     return app

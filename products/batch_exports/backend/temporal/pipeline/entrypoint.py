@@ -7,11 +7,16 @@ from django.conf import settings
 from temporalio import exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -37,6 +42,7 @@ class _BatchExportInputsProtocol(typing.Protocol):
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    on_demand: bool = False
 
 
 class _ComposedBatchExportInputsProtocol(typing.Protocol):
@@ -46,8 +52,9 @@ class _ComposedBatchExportInputsProtocol(typing.Protocol):
 InputsType = typing.TypeVar("InputsType", bound=_BatchExportInputsProtocol)
 ComposedInputsType = typing.TypeVar("ComposedInputsType", bound=_ComposedBatchExportInputsProtocol)
 
+BatchExportResultType = typing.TypeVar("BatchExportResultType", bound=BatchExportResult)
 BatchExportInsertActivity = collections.abc.Callable[
-    [InputsType | ComposedInputsType], collections.abc.Awaitable[BatchExportResult]
+    [InputsType | ComposedInputsType], collections.abc.Awaitable[BatchExportResultType]
 ]
 
 INITIAL_RETRY_INTERVAL_SECONDS = 1
@@ -67,7 +74,7 @@ async def execute_batch_export_using_internal_stage(
     override_start_to_close_timeout_seconds: int | None = None,
     num_partitions: int | None = None,
     is_workflows: bool = False,
-) -> None:
+) -> BatchExportResultType:
     """
     This is the entrypoint for a new version of the batch export insert activity.
 
@@ -95,12 +102,13 @@ async def execute_batch_export_using_internal_stage(
         num_partitions: Optionally, set a number of partitions for the internal stage
             activity.
     """
-    get_export_started_metric().add(1)
-
     if hasattr(inputs, "batch_export"):
-        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
+        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
     else:
         batch_export_inputs = inputs
+
+    model_name = batch_export_inputs.batch_export_model.name if batch_export_inputs.batch_export_model else "events"
+    get_export_started_metric(model=model_name).add(1)
 
     assert batch_export_inputs.batch_export_id is not None
     assert batch_export_inputs.run_id is not None
@@ -110,6 +118,7 @@ async def execute_batch_export_using_internal_stage(
         batch_export_id=batch_export_inputs.batch_export_id,
         status=BatchExportRun.Status.COMPLETED,
         team_id=batch_export_inputs.team_id,
+        on_demand=batch_export_inputs.on_demand,
     )
 
     if TEST:
@@ -122,7 +131,7 @@ async def execute_batch_export_using_internal_stage(
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
-        main_activity_start_to_close_timeout = max(dt.timedelta(hours=2), override_start_to_close_timeout_timedelta)
+        main_activity_start_to_close_timeout = max(dt.timedelta(hours=6), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)
@@ -166,7 +175,7 @@ async def execute_batch_export_using_internal_stage(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
                 maximum_interval=dt.timedelta(seconds=maximum_stage_retry_interval_seconds),
                 maximum_attempts=maximum_attempts,
-                non_retryable_error_types=["InvalidFilterError"],
+                non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
             ),
         )
         batch_export_inputs.stage_folder = stage_folder
@@ -183,6 +192,7 @@ async def execute_batch_export_using_internal_stage(
         )
         finish_inputs.records_completed = result.records_completed
         finish_inputs.bytes_exported = result.bytes_exported
+        finish_inputs.records_failed = result.records_failed
         if result.error_repr:
             finish_inputs.latest_error = result.error_repr
             finish_inputs.status = BatchExportRun.Status.FAILED
@@ -202,7 +212,7 @@ async def execute_batch_export_using_internal_stage(
         raise
 
     finally:
-        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
+        get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
 
         await workflow.execute_activity(
             finish_batch_export_run,
@@ -215,3 +225,5 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
+
+    return result

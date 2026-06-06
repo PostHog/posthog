@@ -1,5 +1,8 @@
 import type { ReactElement } from 'react'
 
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+
 import { type HorizontalBar, HorizontalBarChart } from './charts'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
@@ -9,15 +12,12 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
 
     if (steps.length === 0) {
         return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No funnel data available
-            </div>
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
+                    <EmptyDescription>No funnel data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
         )
     }
 
@@ -34,7 +34,7 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
             return 'var(--posthog-chart-1, #1d4ed8)'
         }
         // Fade color for subsequent steps
-        return `color-mix(in srgb, var(--posthog-chart-1, #1d4ed8) ${100 - index * 15}%, var(--color-background-secondary, #f9fafb))`
+        return `color-mix(in srgb, var(--posthog-chart-1, #1d4ed8) ${100 - index * 15}%, var(--card))`
     }
 
     const lastCount = steps[steps.length - 1]?.count ?? 0
@@ -44,18 +44,9 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
             <HorizontalBarChart bars={bars} color={funnelColor} />
 
             {steps.length >= 2 && (
-                <div
-                    style={{
-                        marginTop: '1rem',
-                        padding: '0.75rem',
-                        backgroundColor: 'var(--color-background-secondary, #f9fafb)',
-                        borderRadius: '4px',
-                        fontSize: '0.8125rem',
-                        color: 'var(--color-text-secondary, #6b7280)',
-                    }}
-                >
-                    <strong>Overall conversion:</strong> {formatPercent(lastCount / firstCount)} (
-                    {formatNumber(lastCount)} of {formatNumber(firstCount)})
+                <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+                    <strong className="text-foreground">Overall conversion:</strong>{' '}
+                    {formatPercent(lastCount / firstCount)} ({formatNumber(lastCount)} of {formatNumber(firstCount)})
                 </div>
             )}
         </div>

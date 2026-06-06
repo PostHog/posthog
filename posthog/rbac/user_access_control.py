@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -6,11 +7,13 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
+from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
@@ -43,17 +46,22 @@ AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
 AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manager"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
+InheritedAccessLevelReason = Literal["role_override", "project_default", "organization_admin"]
 
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
+# We need to restrict this for HogQL access control which uses `NOT IN (...)`
+ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
+
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "customer_analytics",
     "dashboard",
     "experiment",
-    "experiment_saved_metric",
     "external_data_source",
+    "warehouse_objects",
     "feature_flag",
     "insight",
     "llm_analytics",
@@ -65,17 +73,33 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "activity_log",
     "error_tracking",
     "logs",
+    "tracing",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "warehouse_table": "warehouse_objects",
+    "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
+    "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "llm_skill": "llm_analytics",
+    "account": "customer_analytics",
+    "customer_journey": "customer_analytics",
+    "experiment_saved_metric": "experiment",
+    "dashboard_template": "dashboard",
+    # Marketing analytics doesn't have its own RBAC resource yet — inherit from
+    # web_analytics so the existing per-team controls actually gate it (matches
+    # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
+    # AccessControlResourceType.WebAnalytics).
+    "marketing_analytics": "web_analytics",
 }
+
+tracer = trace.get_tracer(__name__)
 
 
 class UserAccessControlError(Exception):
@@ -115,6 +139,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "warehouse_objects":
+        # Umbrella label for both warehouse tables and views (both children inherit from this)
+        return "data warehouse tables & views"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -156,6 +183,91 @@ def access_level_satisfied_for_resource(
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
+@dataclass(frozen=True)
+class EffectiveAccessResult:
+    effective_access_level: AccessControlLevel | None
+    inherited_access_level: AccessControlLevel | None
+    inherited_access_level_reason: InheritedAccessLevelReason | None
+
+
+def get_effective_access_level_for_role(
+    resource: APIScopeObject,
+    default_level: AccessControlLevel | None,
+    role_level: AccessControlLevel | None,
+) -> EffectiveAccessResult:
+    """Compute effective access for a role from role override and default."""
+    effective: AccessControlLevel | None = None
+    inherited: AccessControlLevel | None = None
+    inherited_reason: InheritedAccessLevelReason | None = None
+
+    if default_level is None:
+        effective = role_level
+    elif role_level is None:
+        effective = default_level
+        inherited = default_level
+        inherited_reason = "project_default"
+    elif role_level and default_level:
+        inherited = default_level
+        inherited_reason = "project_default"
+
+        levels = ordered_access_levels(resource)
+        effective = role_level if levels.index(role_level) > levels.index(default_level) else default_level
+
+    return EffectiveAccessResult(
+        effective_access_level=effective,
+        inherited_access_level=inherited,
+        inherited_access_level_reason=inherited_reason,
+    )
+
+
+def get_effective_access_level_for_member(
+    resource: APIScopeObject,
+    default_level: AccessControlLevel | None,
+    role_levels: list[AccessControlLevel],
+    member_level: AccessControlLevel | None,
+    is_org_admin: bool,
+) -> EffectiveAccessResult:
+    """Compute effective access for a member from member override, default, and role levels."""
+    effective: AccessControlLevel | None = None
+    inherited: AccessControlLevel | None = None
+    inherited_reason: InheritedAccessLevelReason | None = None
+
+    if is_org_admin:
+        highest = highest_access_level(resource)
+        effective = highest
+        inherited = highest
+        inherited_reason = "organization_admin"
+    elif default_level and not role_levels and not member_level:
+        effective = default_level
+        inherited = default_level
+        inherited_reason = "project_default"
+    elif default_level is None and not role_levels and member_level:
+        effective = member_level
+    else:
+        levels = ordered_access_levels(resource)
+
+        inherited = default_level
+        inherited_reason = "project_default" if default_level else None
+
+        # checking if any role level is higher than the default level
+        for rl in role_levels:
+            if inherited is None or levels.index(rl) > levels.index(inherited):
+                inherited = rl
+                inherited_reason = "role_override"
+
+        # checking if the member level is higher than the default and role levels
+        if member_level and levels.index(member_level) > levels.index(cast(AccessControlLevel, inherited)):
+            effective = member_level
+        else:
+            effective = inherited
+
+    return EffectiveAccessResult(
+        effective_access_level=effective,
+        inherited_access_level=inherited,
+        inherited_access_level_reason=inherited_reason,
+    )
+
+
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents
@@ -170,6 +282,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "project"
     if name == "featureflag":
         return "feature_flag"
+    if name == "earlyaccessfeature":
+        return "early_access_feature"
     if name == "plugin_config":
         return "plugin"
     if name == "sessionrecording":
@@ -182,8 +296,18 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "external_data_source"
     if name == "externaldataschema":
         return "external_data_schema"
+    if name == "datawarehousesavedquery":
+        return "warehouse_view"
+    if name == "datawarehousesavedqueryfolder":
+        return "warehouse_view"
+    if name == "datawarehousetable":
+        return "warehouse_table"
+    if name == "customerjourney":
+        return "customer_journey"
+    if name in ("replayscanner", "replayobservation"):
+        return "replay_scanner"
 
-    if name not in API_SCOPE_OBJECTS:
+    if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
 
     return cast(APIScopeObject, name)
@@ -253,7 +377,7 @@ class UserAccessControl:
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
     # ------------------------------------------------------------
     # Access control helpers
@@ -276,9 +400,17 @@ class UserAccessControl:
         )
 
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
+        if not EE_AVAILABLE:
+            return []
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
-            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+            with tracer.start_as_current_span("rbac.access_controls.db") as span:
+                resource = filters.get("resource")
+                if isinstance(resource, str):
+                    span.set_attribute("rbac.resource", resource)
+                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+                span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
 
@@ -350,6 +482,8 @@ class UserAccessControl:
         """
         Preload access controls for a list of objects
         """
+        if not EE_AVAILABLE:
+            return
 
         filter_groups: list[dict] = []
 
@@ -372,6 +506,9 @@ class UserAccessControl:
         Checking permissions can involve multiple queries to AccessControl e.g. project level, global resource level, and object level
         As we can know this upfront, we can optimize this by loading all the controls we will need upfront.
         """
+        if not EE_AVAILABLE:
+            return
+
         # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
         # doing all additional filtering in memory?
 
@@ -619,6 +756,16 @@ class UserAccessControl:
             # If there is no team, then there can't be any access controls on this resource
             return False
 
+        # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
+        # bypass their own resource-level rows: only the parent (umbrella) is consulted.
+        # This keeps the AC picker simple — admins configure one umbrella scope instead
+        # of N child scopes — at the cost of ignoring any standalone resource-level row
+        # written against a child. Object-level rows on the child are still honored via
+        # specific_access_level_for_object, which queries the child resource directly.
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.has_access_levels_for_resource(parent_resource)
+
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
         return bool(access_controls)
@@ -696,26 +843,34 @@ class UserAccessControl:
         - "viewer" if user has specific object access (allows page access but not creation)
         - None or "none" if user has no access at all
         """
-        # First check resource-level access
-        resource_access = self.access_level_for_resource(resource)
+        with tracer.start_as_current_span("rbac.effective_access_level_for_resource") as span:
+            span.set_attribute("rbac.resource", str(resource))
+            # First check resource-level access
+            with tracer.start_as_current_span("rbac.resource_level_check"):
+                resource_access = self.access_level_for_resource(resource)
 
-        # If resource access is not "none", return it directly
-        if resource_access and resource_access != NO_ACCESS_LEVEL:
-            return resource_access
+            # If resource access is not "none", return it directly
+            if resource_access and resource_access != NO_ACCESS_LEVEL:
+                span.set_attribute("rbac.path", "resource_level")
+                return resource_access
 
-        # If resource access is "none" or None, check for specific object access
-        # For navigation purposes, if they have specific access to any objects,
-        # grant them "viewer" level to see the resource page but NOT create new items
-        if self.has_any_specific_access_for_resource(resource, required_level="viewer"):
-            return "viewer"
+            # If resource access is "none" or None, check for specific object access
+            # For navigation purposes, if they have specific access to any objects,
+            # grant them "viewer" level to see the resource page but NOT create new items
+            with tracer.start_as_current_span("rbac.specific_access_fallback"):
+                has_specific = self.has_any_specific_access_for_resource(resource, required_level="viewer")
+            if has_specific:
+                span.set_attribute("rbac.path", "specific_access")
+                return "viewer"
 
-        return resource_access  # This will be "none" or None
+            span.set_attribute("rbac.path", "no_access")
+            return resource_access  # This will be "none" or None
 
     # ------------------------------------------------------------
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
+    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 
@@ -798,6 +953,9 @@ class UserAccessControl:
 
         # 1) If the user is staff or org-admin, they can see everything
         if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+            return queryset
+
+        if not EE_AVAILABLE:
             return queryset
 
         # Subquery to check if user has "admin" on the FileSystem's team/project
@@ -961,8 +1119,16 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # Get the required resource and access level for this field
             resource, required_level = field_mappings[field_name]
 
-            # Check if user has the required access level
-            if not user_access_control.check_access_level_for_resource(resource, required_level):
+            # Check if user has the required access level.
+            # "project" access is object-level (checked against the Team instance), not resource-level.
+            # For models with a team FK (e.g. Team extensions), use the team for the project check.
+            if resource == "project":
+                obj_for_check = getattr(self.instance, "team", self.instance)
+                has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
+            else:
+                has_access = user_access_control.check_access_level_for_resource(resource, required_level)
+
+            if not has_access:
                 display_name = resource_to_display_name(resource)
                 raise serializers.ValidationError(
                     {field_name: f"You need {required_level} access to {display_name} to modify this field."}

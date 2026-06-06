@@ -1,7 +1,9 @@
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
+    SelectingKeyOnly,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -60,8 +62,10 @@ export interface PropertyFilterInternalProps {
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
-    exactMatchFeatureFlagCohortOperators?: boolean
+    excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
+    hogQLGlobals?: Record<string, any>
 }

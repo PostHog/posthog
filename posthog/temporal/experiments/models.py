@@ -53,3 +53,10 @@ class ExperimentSavedMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+
+
+@dataclasses.dataclass
+class ExperimentTimeseriesRecalculationWorkflowInputs:
+    """Input to the timeseries recalculation workflow."""
+
+    recalculation_id: str  # UUID as string

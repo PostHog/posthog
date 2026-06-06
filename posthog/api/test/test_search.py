@@ -3,15 +3,19 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
-from posthog.helpers.full_text_search import process_query
-from posthog.models import Dashboard, FeatureFlag, Insight, Team
-from posthog.models.event_definition import EventDefinition
-from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.helpers.full_text_search import build_search_vector, process_query
+from posthog.models import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class TestSearch(APIBaseTest):
@@ -48,6 +52,19 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["feature_flag"], 1)
         self.assertEqual(response.json()["counts"]["insight"], 1)
         self.assertEqual(response.json()["counts"]["notebook"], 1)
+
+    def test_search_without_counts(self):
+        response = self.client.get("/api/projects/@current/search?q=sec&include_counts=false")
+
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 4
+        assert "counts" not in response.json()
+
+    def test_search_results_identical_with_and_without_counts(self):
+        response_with = self.client.get("/api/projects/@current/search?q=sec&include_counts=true")
+        response_without = self.client.get("/api/projects/@current/search?q=sec&include_counts=false")
+
+        assert response_with.json()["results"] == response_without.json()["results"]
 
     def test_search_without_query(self):
         response = self.client.get("/api/projects/@current/search")
@@ -172,6 +189,10 @@ class TestSearch(APIBaseTest):
         self.assertEqual(results[0]["type"], "hog_flow")
         self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
 
+    def test_build_search_vector_requires_search_fields(self):
+        with pytest.raises(ValueError, match="search_fields cannot be empty"):
+            build_search_vector({})
+
     def test_filters(self):
         # Create feature flags with specific tags to identify them
         FeatureFlag.objects.create(
@@ -232,6 +253,33 @@ class TestSearch(APIBaseTest):
         )
         self.assertEqual(qs_key_filter.count(), 1)
         self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
+
+    def test_search_query_count_with_and_without_counts(self):
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        with CaptureQueriesContext(connection) as ctx_with:
+            search_entities(
+                entities=set(ENTITY_MAP.keys()),
+                query="sec",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                include_counts=True,
+            )
+
+        with CaptureQueriesContext(connection) as ctx_without:
+            search_entities(
+                entities=set(ENTITY_MAP.keys()),
+                query="sec",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                include_counts=False,
+            )
+
+        assert len(ctx_with) - len(ctx_without) >= 13
+        assert len(ctx_without) == 1
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

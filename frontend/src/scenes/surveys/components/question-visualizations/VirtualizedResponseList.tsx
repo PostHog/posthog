@@ -3,6 +3,8 @@ import { Grid } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
@@ -11,11 +13,12 @@ import { OpenQuestionResponseData } from '~/types'
 interface VirtualizedResponseListProps {
     responses: OpenQuestionResponseData[]
     maxHeight?: number
+    className?: string
 }
 
 const ROW_HEIGHT = 72
-const COLUMN_COUNT = 2
 const COLUMN_GAP = 8
+const MAX_STATIC_RESPONSES = 24
 
 function ResponseListItem({ response }: { response: OpenQuestionResponseData }): JSX.Element {
     const responseText = typeof response.response !== 'string' ? JSON.stringify(response.response) : response.response
@@ -24,20 +27,36 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
 
     const cardContent = (
         <div
-            className={`border rounded bg-surface-primary p-2 h-full flex flex-col ${isLongResponse ? 'cursor-pointer hover:border-primary' : ''}`}
+            className={`p-2 h-full flex flex-col transition-colors ${
+                isLongResponse ? 'cursor-pointer hover:bg-surface-primary' : ''
+            }`}
             onClick={isLongResponse ? () => setIsExpanded(!isExpanded) : undefined}
         >
             <div className="text-sm truncate mb-auto">{responseText}</div>
-            <div className="flex items-center justify-between text-xs text-secondary mt-1">
-                <PersonDisplay
-                    person={{ distinct_id: response.distinctId }}
-                    displayName={response.personDisplayName}
-                    withIcon="xs"
-                    noEllipsis={false}
-                    noLink={!response.distinctId}
-                    muted
-                />
-                {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
+            <div className="flex items-center justify-between text-xs text-secondary mt-1 gap-2 min-w-0">
+                <div className="min-w-0 flex-1">
+                    <PersonDisplay
+                        person={{ distinct_id: response.distinctId }}
+                        displayName={response.personDisplayName}
+                        withIcon="xs"
+                        noEllipsis={false}
+                        noLink={!response.distinctId}
+                        muted
+                    />
+                </div>
+                <div
+                    className="flex items-center gap-2 shrink-0 whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <ViewRecordingButton
+                        sessionId={response.sessionId}
+                        timestamp={response.timestamp}
+                        variant={ViewRecordingButtonVariant.Link}
+                        className="whitespace-nowrap"
+                        checkRecordingExists
+                    />
+                    {response.timestamp && <TZLabel time={response.timestamp} formatDate="MMM D" formatTime="HH:mm" />}
+                </div>
             </div>
         </div>
     )
@@ -63,7 +82,15 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                             noEllipsis={false}
                             noLink={!response.distinctId}
                         />
-                        {response.timestamp && <TZLabel time={response.timestamp} />}
+                        <div className="flex items-center gap-2">
+                            <ViewRecordingButton
+                                sessionId={response.sessionId}
+                                timestamp={response.timestamp}
+                                size="xsmall"
+                                checkRecordingExists
+                            />
+                            {response.timestamp && <TZLabel time={response.timestamp} />}
+                        </div>
                     </div>
                 </div>
             }
@@ -75,6 +102,7 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
 
 interface ResponseCellProps {
     responses: OpenQuestionResponseData[]
+    columnCount: number
 }
 
 function ResponseCell({
@@ -82,13 +110,14 @@ function ResponseCell({
     rowIndex,
     style,
     responses,
+    columnCount,
 }: {
     ariaAttributes: Record<string, unknown>
     columnIndex: number
     rowIndex: number
     style: CSSProperties
 } & ResponseCellProps): JSX.Element | null {
-    const index = rowIndex * COLUMN_COUNT + columnIndex
+    const index = rowIndex * columnCount + columnIndex
     if (index >= responses.length) {
         return null
     }
@@ -96,8 +125,9 @@ function ResponseCell({
 
     const adjustedStyle = {
         ...style,
-        left: Number(style.left) + (columnIndex === 1 ? COLUMN_GAP : 0),
+        paddingRight: columnIndex === columnCount - 1 ? 0 : COLUMN_GAP,
         paddingBottom: 8,
+        boxSizing: 'border-box' as const,
     }
 
     return (
@@ -107,8 +137,15 @@ function ResponseCell({
     )
 }
 
-export function VirtualizedResponseList({ responses, maxHeight = 400 }: VirtualizedResponseListProps): JSX.Element {
-    const rowCount = Math.ceil(responses.length / COLUMN_COUNT)
+export function VirtualizedResponseList({
+    responses,
+    maxHeight = 520,
+    className,
+}: VirtualizedResponseListProps): JSX.Element {
+    const { isWindowLessThan } = useWindowSize()
+    const isNarrow = isWindowLessThan('md')
+    const columnCount = isNarrow ? 1 : 2
+    const rowCount = Math.ceil(responses.length / columnCount)
     const [isAtBottom, setIsAtBottom] = useState(false)
 
     const containerHeight = Math.min(rowCount * ROW_HEIGHT, maxHeight)
@@ -124,9 +161,9 @@ export function VirtualizedResponseList({ responses, maxHeight = 400 }: Virtuali
         [setIsAtBottom]
     )
 
-    if (responses.length <= 8) {
+    if (responses.length <= MAX_STATIC_RESPONSES) {
         return (
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${className ?? ''}`}>
                 {responses.map((response, index) => (
                     <ResponseListItem key={`${response.distinctId}-${index}`} response={response} />
                 ))}
@@ -137,19 +174,24 @@ export function VirtualizedResponseList({ responses, maxHeight = 400 }: Virtuali
     const showScrollIndicator = isScrollable && !isAtBottom
 
     return (
-        <div className="relative">
+        <div className={`relative ${className ?? ''}`}>
             <div style={{ height: containerHeight }}>
                 <AutoSizer
                     renderProp={({ height, width }) =>
                         height && width ? (
                             <Grid<ResponseCellProps>
-                                style={{ width, height }}
-                                columnCount={COLUMN_COUNT}
-                                columnWidth={(width - COLUMN_GAP) / COLUMN_COUNT}
+                                style={{
+                                    width,
+                                    height,
+                                    overflowX: 'hidden',
+                                    overflowY: 'auto',
+                                }}
+                                columnCount={columnCount}
+                                columnWidth={width / columnCount}
                                 rowCount={rowCount}
                                 rowHeight={ROW_HEIGHT}
                                 cellComponent={ResponseCell}
-                                cellProps={{ responses }}
+                                cellProps={{ responses, columnCount }}
                                 overscanCount={3}
                                 onScroll={handleScroll}
                             />

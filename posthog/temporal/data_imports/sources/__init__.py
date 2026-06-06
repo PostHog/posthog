@@ -1,77 +1,32 @@
-from .ashby.source import AshbySource
-from .attio.source import AttioSource
-from .bigquery.source import BigQuerySource
-from .bing_ads.source import BingAdsSource
-from .braze.source import BrazeSource
-from .chargebee.source import ChargebeeSource
-from .clerk.source import ClerkSource
-from .common.registry import SourceRegistry
-from .customer_io.source import CustomerIOSource
-from .doit.source import DoItSource
-from .github.source import GithubSource
-from .google_ads.source import GoogleAdsSource
-from .google_sheets.source import GoogleSheetsSource
-from .hubspot.source import HubspotSource
-from .klaviyo.source import KlaviyoSource
-from .linkedin_ads.source import LinkedInAdsSource
-from .mailchimp.source import MailchimpSource
-from .mailjet.source import MailJetSource
-from .meta_ads.source import MetaAdsSource
-from .mongodb.source import MongoDBSource
-from .mssql.source import MSSQLSource
-from .mysql.source import MySQLSource
-from .polar.source import PolarSource
-from .postgres.source import PostgresSource
-from .reddit_ads.source import RedditAdsSource
-from .redshift.source import RedshiftSource
-from .revenuecat.source import RevenueCatSource
-from .salesforce.source import SalesforceSource
-from .shopify.source import ShopifySource
-from .snapchat_ads.source import SnapchatAdsSource
-from .snowflake.source import SnowflakeSource
-from .stripe.source import StripeSource
-from .supabase.source import SupabaseSource
-from .temporalio.source import TemporalIOSource
-from .tiktok_ads.source import TikTokAdsSource
-from .vitally.source import VitallySource
-from .zendesk.source import ZendeskSource
+from typing import Any
 
-__all__ = [
-    "AttioSource",
-    "AshbySource",
-    "SupabaseSource",
-    "CustomerIOSource",
-    "GithubSource",
-    "SourceRegistry",
-    "BigQuerySource",
-    "BingAdsSource",
-    "BrazeSource",
-    "ChargebeeSource",
-    "ClerkSource",
-    "DoItSource",
-    "GoogleAdsSource",
-    "GoogleSheetsSource",
-    "HubspotSource",
-    "KlaviyoSource",
-    "LinkedInAdsSource",
-    "MailchimpSource",
-    "MailJetSource",
-    "MetaAdsSource",
-    "MongoDBSource",
-    "RedditAdsSource",
-    "MSSQLSource",
-    "MySQLSource",
-    "PolarSource",
-    "PostgresSource",
-    "RedshiftSource",
-    "TikTokAdsSource",
-    "RevenueCatSource",
-    "SalesforceSource",
-    "ShopifySource",
-    "SnapchatAdsSource",
-    "SnowflakeSource",
-    "StripeSource",
-    "TemporalIOSource",
-    "VitallySource",
-    "ZendeskSource",
-]
+from .common.registry import SourceRegistry
+
+__all__ = ["SourceRegistry", "load_all_sources"]
+
+
+def load_all_sources() -> None:
+    """Import every source module so each registers itself with ``SourceRegistry``.
+
+    Deferred out of module scope so importing a leaf (e.g. ``sources.stripe.constants``)
+    doesn't drag every vendor SDK at app startup. Importing ``_load_all`` runs each
+    source module's ``@SourceRegistry.register`` decorator. Idempotent — re-imports are
+    cheap dict lookups in ``sys.modules``.
+    """
+    from . import _load_all  # noqa: F401, PLC0415
+
+
+def __getattr__(name: str) -> Any:
+    # Back-compat: source classes used to be re-exported here. Resolve them lazily so
+    # `from ...sources import StripeSource` keeps working without eager-loading every SDK.
+    # Guard private/dunder names (including `_load_all` itself) to avoid recursing through
+    # the very import we use to populate the namespace.
+    if name.startswith("_"):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    from . import _load_all  # noqa: PLC0415
+
+    try:
+        return getattr(_load_all, name)
+    except AttributeError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None

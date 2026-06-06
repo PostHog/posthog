@@ -27,7 +27,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         realtimeSupportedFilterManager = new RealtimeSupportedFilterManagerCDP(postgres)
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
         fetchRealtimeSupportedFiltersSpy = jest.spyOn(
             realtimeSupportedFilterManager as any,

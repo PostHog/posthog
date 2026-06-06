@@ -8,7 +8,7 @@ This module provides functions to interact with Cloudflare's API for:
 """
 
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from django.conf import settings
@@ -21,9 +21,12 @@ CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 class CloudflareAPIError(Exception):
     """Exception raised when Cloudflare API returns an error."""
 
-    def __init__(self, message: str, errors: t.Optional[list[dict]] = None):
+    def __init__(self, message: str, errors: t.Optional[list[dict]] = None) -> None:
         super().__init__(message)
         self.errors = errors or []
+
+    def is_rate_limited(self) -> bool:
+        return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
 
 
 class CustomHostnameSSLStatus(str, Enum):
@@ -45,6 +48,7 @@ class CustomHostnameStatus(str, Enum):
     PENDING = "pending"
     MOVED = "moved"
     DELETED = "deleted"
+    BLOCKED = "blocked"
 
 
 @dataclass
@@ -53,6 +57,12 @@ class CustomHostnameSSL:
 
     status: CustomHostnameSSLStatus
     validation_errors: list[dict]
+    # Optional fields populated by Cloudflare's response and used by diagnostics.
+    # Not all SSL configurations expose these (e.g. ACTIVE certs lack a challenge URL).
+    http_url: t.Optional[str] = None
+    http_body: t.Optional[str] = None
+    certificate_authority: t.Optional[str] = None
+    validation_records: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -65,15 +75,6 @@ class CustomHostnameInfo:
     ssl: CustomHostnameSSL
 
 
-@dataclass
-class WorkerRouteInfo:
-    """Information about a Worker Route."""
-
-    id: str
-    pattern: str
-    script: str
-
-
 def _get_headers() -> dict[str, str]:
     """Get headers for Cloudflare API requests."""
     if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ZONE_ID:
@@ -82,6 +83,24 @@ def _get_headers() -> dict[str, str]:
         "Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}",
         "Content-Type": "application/json",
     }
+
+
+def _parse_hostname(result: dict) -> "CustomHostnameInfo":
+    """Build a CustomHostnameInfo from a Cloudflare API custom_hostname result object."""
+    ssl_payload = result.get("ssl", {})
+    return CustomHostnameInfo(
+        id=result["id"],
+        hostname=result["hostname"],
+        status=CustomHostnameStatus(result["status"]),
+        ssl=CustomHostnameSSL(
+            status=CustomHostnameSSLStatus(ssl_payload["status"]),
+            validation_errors=ssl_payload.get("validation_errors", []),
+            http_url=ssl_payload.get("http_url"),
+            http_body=ssl_payload.get("http_body"),
+            certificate_authority=ssl_payload.get("certificate_authority"),
+            validation_records=ssl_payload.get("validation_records", []),
+        ),
+    )
 
 
 def _handle_response(response: requests.Response) -> dict:
@@ -132,17 +151,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
 
     response = requests.post(url, headers=_get_headers(), json=payload, timeout=30)
     data = _handle_response(response)
-
-    result = data["result"]
-    return CustomHostnameInfo(
-        id=result["id"],
-        hostname=result["hostname"],
-        status=CustomHostnameStatus(result["status"]),
-        ssl=CustomHostnameSSL(
-            status=CustomHostnameSSLStatus(result["ssl"]["status"]),
-            validation_errors=result["ssl"].get("validation_errors", []),
-        ),
-    )
+    return _parse_hostname(data["result"])
 
 
 def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
@@ -166,17 +175,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
         return None
 
     data = _handle_response(response)
-    result = data["result"]
-
-    return CustomHostnameInfo(
-        id=result["id"],
-        hostname=result["hostname"],
-        status=CustomHostnameStatus(result["status"]),
-        ssl=CustomHostnameSSL(
-            status=CustomHostnameSSLStatus(result["ssl"]["status"]),
-            validation_errors=result["ssl"].get("validation_errors", []),
-        ),
-    )
+    return _parse_hostname(data["result"])
 
 
 def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]:
@@ -202,16 +201,7 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]
     if not results:
         return None
 
-    result = results[0]
-    return CustomHostnameInfo(
-        id=result["id"],
-        hostname=result["hostname"],
-        status=CustomHostnameStatus(result["status"]),
-        ssl=CustomHostnameSSL(
-            status=CustomHostnameSSLStatus(result["ssl"]["status"]),
-            validation_errors=result["ssl"].get("validation_errors", []),
-        ),
-    )
+    return _parse_hostname(results[0])
 
 
 def delete_custom_hostname(hostname_id: str) -> bool:
@@ -228,98 +218,6 @@ def delete_custom_hostname(hostname_id: str) -> bool:
         CloudflareAPIError: If the API request fails (except for 404)
     """
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}"
-
-    response = requests.delete(url, headers=_get_headers(), timeout=30)
-
-    if response.status_code == 404:
-        # Resource already gone, treat as success (idempotent delete)
-        return True
-
-    _handle_response(response)
-    return True
-
-
-def create_worker_route(domain: str) -> WorkerRouteInfo:
-    """
-    Create a Worker Route for a domain.
-
-    This routes all traffic for the domain to the configured worker.
-
-    Args:
-        domain: The customer's domain (e.g., "analytics.customer.com")
-
-    Returns:
-        WorkerRouteInfo with the created route details
-
-    Raises:
-        CloudflareAPIError: If the API request fails
-    """
-    if not settings.CLOUDFLARE_WORKER_NAME:
-        raise ValueError("CLOUDFLARE_WORKER_NAME must be configured when creating worker routes")
-
-    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes"
-
-    pattern = f"{domain}/*"
-    payload = {
-        "pattern": pattern,
-        "script": settings.CLOUDFLARE_WORKER_NAME,
-    }
-
-    response = requests.post(url, headers=_get_headers(), json=payload, timeout=30)
-    data = _handle_response(response)
-
-    result = data["result"]
-    return WorkerRouteInfo(
-        id=result["id"],
-        pattern=result.get("pattern", pattern),
-        script=result.get("script", settings.CLOUDFLARE_WORKER_NAME),
-    )
-
-
-def get_worker_route_by_pattern(domain: str) -> t.Optional[WorkerRouteInfo]:
-    """
-    Find a Worker Route by domain pattern.
-
-    Args:
-        domain: The customer's domain (e.g., "analytics.customer.com")
-
-    Returns:
-        WorkerRouteInfo or None if not found
-
-    Raises:
-        CloudflareAPIError: If the API request fails
-    """
-    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes"
-
-    response = requests.get(url, headers=_get_headers(), timeout=30)
-    data = _handle_response(response)
-
-    pattern = f"{domain}/*"
-    for route in data.get("result", []):
-        if route.get("pattern") == pattern:
-            return WorkerRouteInfo(
-                id=route["id"],
-                pattern=route["pattern"],
-                script=route.get("script", ""),
-            )
-
-    return None
-
-
-def delete_worker_route(route_id: str) -> bool:
-    """
-    Delete a Worker Route.
-
-    Args:
-        route_id: The Cloudflare Worker Route ID
-
-    Returns:
-        True if deleted successfully or already gone (404)
-
-    Raises:
-        CloudflareAPIError: If the API request fails (except for 404)
-    """
-    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes/{route_id}"
 
     response = requests.delete(url, headers=_get_headers(), timeout=30)
 

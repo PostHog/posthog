@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -10,7 +12,7 @@ from posthog.models.organization import OrganizationMembership
 class TestPolicyEngineBypass(APIBaseTest):
     def _create_policy(
         self,
-        bypass_org_membership_levels: list[str] | None = None,
+        bypass_org_membership_levels: Sequence[str | int] | None = None,
         bypass_role_ids: list[str] | None = None,
     ) -> ApprovalPolicy:
         policy = ApprovalPolicy.objects.create(
@@ -34,12 +36,15 @@ class TestPolicyEngineBypass(APIBaseTest):
             (OrganizationMembership.Level.ADMIN, ["15"], False),
             (OrganizationMembership.Level.OWNER, ["15"], True),
             (OrganizationMembership.Level.ADMIN, [], False),
+            # integer-typed levels should also work
+            (OrganizationMembership.Level.ADMIN, [8, 15], True),
+            (OrganizationMembership.Level.MEMBER, [8, 15], False),
         ]
     )
     def test_bypass_org_membership_levels(
         self,
         user_level: int,
-        bypass_levels: list[str],
+        bypass_levels: Sequence[str | int],
         expected_bypass: bool,
     ):
         self.organization_membership.level = user_level
@@ -142,7 +147,7 @@ class TestPolicyEngineBypass(APIBaseTest):
 class TestPolicyEngineEvaluateBypass(APIBaseTest):
     def _create_policy(
         self,
-        bypass_org_membership_levels: list[str] | None = None,
+        bypass_org_membership_levels: Sequence[str | int] | None = None,
         bypass_role_ids: list[str] | None = None,
     ) -> ApprovalPolicy:
         policy = ApprovalPolicy.objects.create(
@@ -208,7 +213,7 @@ class TestPolicyEngineEvaluateBypass(APIBaseTest):
 class TestPolicySnapshotBypassFields(APIBaseTest):
     def _create_policy(
         self,
-        bypass_org_membership_levels: list[str] | None = None,
+        bypass_org_membership_levels: Sequence[str | int] | None = None,
         bypass_role_ids: list[str] | None = None,
     ) -> ApprovalPolicy:
         policy = ApprovalPolicy.objects.create(
@@ -272,6 +277,36 @@ class TestPolicySnapshotBypassFields(APIBaseTest):
 
         assert decision.policy_snapshot["bypass_org_membership_levels"] == []
         assert decision.policy_snapshot["bypass_roles"] == []
+
+
+class TestPolicyEngineActorIsApprover(APIBaseTest):
+    def test_actor_is_approver_via_role(self):
+        from ee.models.rbac.role import Role, RoleMembership
+
+        role = Role.objects.create(organization=self.organization, name="Approvers")
+        RoleMembership.objects.create(user=self.user, role=role)
+
+        engine = PolicyEngine()
+        # role IDs round-trip through JSON as strings, mirroring policy_snapshot storage
+        approver_config = {"quorum": 1, "users": [], "roles": [str(role.id)]}
+        context = {"organization": self.organization}
+
+        assert engine._actor_is_approver(self.user, approver_config, context) is True
+
+    def test_actor_is_not_approver_when_role_in_other_org(self):
+        from posthog.models.organization import Organization
+
+        from ee.models.rbac.role import Role, RoleMembership
+
+        other_org = Organization.objects.create(name="Other Org")
+        role = Role.objects.create(organization=other_org, name="Approvers")
+        RoleMembership.objects.create(user=self.user, role=role)
+
+        engine = PolicyEngine()
+        approver_config = {"quorum": 1, "users": [], "roles": [str(role.id)]}
+        context = {"organization": self.organization}
+
+        assert engine._actor_is_approver(self.user, approver_config, context) is False
 
 
 class TestBypassRolesValidation(APIBaseTest):

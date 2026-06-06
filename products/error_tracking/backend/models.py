@@ -1,3 +1,4 @@
+import time
 from decimal import Decimal
 from uuid import UUID
 
@@ -6,16 +7,26 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
+from posthog.kafka_client.topics import (
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
+)
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
-from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+from products.error_tracking.backend.sql import (
+    INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+)
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -33,7 +44,7 @@ class ErrorTrackingIssue(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    status = models.TextField(choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -49,23 +60,41 @@ class ErrorTrackingIssue(UUIDTModel):
             overrides = update_error_tracking_issue_fingerprints(
                 team_id=self.team.pk, issue_id=self.id, fingerprints=fingerprints
             )
+            # Reassign spike events from merged issues before deleting them
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue_id__in=issue_ids).update(issue=self)
             ErrorTrackingIssue.objects.filter(team=self.team, id__in=issue_ids).delete()
             update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
 
-    def split(self, fingerprints: list[str], exclusive: bool) -> None:
+    def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
+        own_fingerprints = set(
+            ErrorTrackingIssueFingerprintV2.objects.filter(team_id=self.team.pk, issue_id=self.id).values_list(
+                "fingerprint", flat=True
+            )
+        )
+
         overrides: list[ErrorTrackingIssueFingerprintV2] = []
+        new_issues: list[ErrorTrackingIssue] = []
 
         with transaction.atomic():
-            common_issue = ErrorTrackingIssue.objects.create(team=self.team) if not exclusive else None
-            for fingerprint in fingerprints:
-                new_issue = common_issue if common_issue else ErrorTrackingIssue.objects.create(team=self.team)
+            for entry in fingerprints:
+                fp = entry["fingerprint"]
+                if fp not in own_fingerprints:
+                    continue
+                new_issue = ErrorTrackingIssue.objects.create(
+                    team=self.team,
+                    name=entry.get("name") or "Untitled issue",
+                    description=entry.get("description"),
+                )
+                new_issues.append(new_issue)
                 overrides.extend(
                     update_error_tracking_issue_fingerprints(
-                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fingerprint]
+                        team_id=self.team.pk, issue_id=new_issue.id, fingerprints=[fp]
                     )
                 )
-
-        update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+            # Spike events are no longer meaningful after splitting since the issue composition changed
+            ErrorTrackingSpikeEvent.objects.filter(team=self.team, issue=self).delete()
+        return new_issues
 
 
 class ErrorTrackingExternalReference(UUIDTModel):
@@ -110,6 +139,7 @@ class ErrorTrackingIssueCohort(UUIDTModel):
 
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
@@ -118,6 +148,9 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingissueassignment"
+        indexes = [
+            models.Index(fields=["team_id"], name="posthog_et_assignment_team_idx"),
+        ]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDTModel):
@@ -286,10 +319,14 @@ class ErrorTrackingGroupingRule(UUIDTModel):
 class ErrorTrackingSuppressionRule(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    bytecode = models.JSONField(null=True, blank=True)
+    disabled_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # Grouping rules are ordered, and greedily evaluated
+    # Suppression rules are ordered, and greedily evaluated
     order_key = models.IntegerField(null=False, blank=False)
+    # Fraction of matching events to suppress (1.0 = all, 0.5 = half, etc.)
+    sampling_rate = models.FloatField(null=False, default=1.0)
 
     class Meta:
         indexes = [
@@ -318,11 +355,9 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         WEB = "web"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+    library = models.CharField(max_length=24, choices=Library, null=False, blank=False, default=Library.WEB)
 
-    match_type = models.CharField(
-        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
-    )
+    match_type = models.CharField(max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL)
 
     sample_rate = models.DecimalField(
         max_digits=3,
@@ -346,37 +381,6 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "library"], name="unique_controls_per_team_library"),
         ]
-
-
-def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
-    """Get the autocapture controls for a team and library, formatted for API responses."""
-    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
-    if result:
-        if result.get("sample_rate") is not None:
-            result["sample_rate"] = float(result["sample_rate"])
-        if result.get("id") is not None:
-            result["id"] = str(result["id"])
-    return result
-
-
-def get_all_autocapture_controls(team_id: int) -> dict[str, dict]:
-    """Get all autocapture controls for a team, keyed by library."""
-    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values()
-    result: dict[str, dict] = {}
-    for control in controls:
-        library = control.get("library")
-        if library:
-            result[library] = {
-                "id": str(control["id"]) if control.get("id") else None,
-                "library": control.get("library"),
-                "matchType": control.get("match_type"),
-                "sampleRate": float(control["sample_rate"]) if control.get("sample_rate") is not None else None,
-                "linkedFeatureFlag": control.get("linked_feature_flag"),
-                "eventTriggers": control.get("event_triggers"),
-                "urlTriggers": control.get("url_triggers"),
-                "urlBlocklist": control.get("url_blocklist"),
-            }
-    return result
 
 
 class ErrorTrackingStackFrame(UUIDTModel):
@@ -419,7 +423,7 @@ class ErrorTrackingGroup(UUIDTModel):
         blank=False,
         default=list,
     )
-    status = models.CharField(max_length=40, choices=Status.choices, default=Status.ACTIVE, null=False)
+    status = models.CharField(max_length=40, choices=Status, default=Status.ACTIVE, null=False)
     assignee = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -484,7 +488,6 @@ def override_error_tracking_issue_fingerprint(
     issue_id: UUID,
     version=0,
     is_deleted: bool = False,
-    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -497,8 +500,57 @@ def override_error_tracking_issue_fingerprint(
             "version": version,
             "is_deleted": int(is_deleted),
         },
-        sync=sync,
     )
+
+
+def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
+    if not issue_ids:
+        return
+
+    issues = {
+        i.id: i
+        for i in ErrorTrackingIssue.objects.filter(id__in=issue_ids, team_id=team_id).select_related("assignment")
+    }
+    fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(issue_id__in=issue_ids, team_id=team_id)
+
+    producer = ClickhouseProducer()
+    version = int(
+        time.time() * 1000
+    )  # ReplacingMergeTree version — match rust/cymbal FingerprintIssueState::new (Utc::now().timestamp_millis())
+
+    for fp in fingerprints:
+        issue = issues.get(fp.issue_id)
+        if issue is None:
+            continue
+
+        assignment = getattr(issue, "assignment", None)
+        assigned_user_id: int | None = None
+        assigned_role_id: str | None = None
+        if assignment is not None:
+            if assignment.user_id:
+                assigned_user_id = assignment.user_id
+            elif assignment.role_id:
+                assigned_role_id = str(assignment.role_id)
+
+        first_seen_raw = fp.first_seen or issue.created_at
+        first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
+        producer.produce(
+            sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            data={
+                "fingerprint": fp.fingerprint,
+                "issue_id": str(issue.id),
+                "team_id": team_id,
+                "issue_name": issue.name,
+                "issue_description": issue.description,
+                "issue_status": issue.status,
+                "assigned_user_id": assigned_user_id,
+                "assigned_role_id": assigned_role_id,
+                "first_seen": first_seen,
+                "is_deleted": 0,
+                "version": version,
+            },
+        )
 
 
 def delete_symbol_set_contents(upload_path: str) -> None:
@@ -509,3 +561,76 @@ def delete_symbol_set_contents(upload_path: str) -> None:
             code="object_storage_required",
             detail="Object storage must be available to delete source maps.",
         )
+
+
+class ErrorTrackingSpikeDetectionConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_spike_detection_config",
+    )
+    snooze_duration_minutes = models.IntegerField(default=10)
+    multiplier = models.IntegerField(default=10)
+    threshold = models.IntegerField(default=500)
+
+    class Meta:
+        db_table = "posthog_errortrackingspikedetectionconfig"
+
+
+class ErrorTrackingSettings(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_settings",
+    )
+    project_rate_limit_value = models.IntegerField(null=True, blank=True)
+    project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
+    per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingsettings"
+
+
+class ErrorTrackingSpikeEvent(UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
+    detected_at = models.DateTimeField()
+    computed_baseline = models.FloatField()
+    current_bucket_value = models.IntegerField()
+
+    class Meta:
+        db_table = "posthog_errortrackingspikeevent"
+        indexes = [
+            models.Index(fields=["team", "-detected_at"]),
+            models.Index(fields=["issue", "-detected_at"]),
+            models.Index(fields=["-detected_at"]),
+        ]
+
+
+class ErrorTrackingRecommendation(UUIDTModel):
+    """Materialized recommendation for a team, computed asynchronously via Celery."""
+
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        COMPUTING = "computing", "Computing"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
+    # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
+    # so adding new recommendations doesn't require a Django migration each time
+    type = models.CharField(max_length=64)
+    meta = models.JSONField(default=dict, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.READY)
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingrecommendation"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+        ]

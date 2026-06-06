@@ -25,7 +25,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme', 'insightQuery'],
             retentionLogic(props),
-            ['results', 'filteredResults', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
+            [
+                'results',
+                'filteredResults',
+                'selectedBreakdownValue',
+                'retentionMeans',
+                'breakdownDisplayNames',
+                'isPropertyValueAggregation',
+            ],
         ],
         actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),
@@ -95,13 +102,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (results: ProcessedRetentionPayload[], insightQuery: InsightQueryNode | null): string[] => {
                 if (results.length > 0 && results[0].values.length > 0) {
                     if (isRetentionQuery(insightQuery) && insightQuery.retentionFilter?.retentionCustomBrackets) {
-                        const { period, retentionCustomBrackets } = insightQuery.retentionFilter
+                        const { period, retentionCustomBrackets, cohortLabelStartIndex } = insightQuery.retentionFilter
+                        const offset = cohortLabelStartIndex ?? 0
                         const unit = capitalizeFirstLetter(dateOptionPlurals[period || 'Day'])
-                        const labels = [`${period || 'Day'} 0`]
+                        const labels = [`${period || 'Day'} ${offset}`]
                         let cumulativeTotal = 1
                         for (const bracketSize of retentionCustomBrackets) {
-                            const start = cumulativeTotal
-                            const end = cumulativeTotal + bracketSize - 1
+                            const start = cumulativeTotal + offset
+                            const end = cumulativeTotal + bracketSize - 1 + offset
                             if (start === end) {
                                 labels.push(`${unit} ${start}`)
                             } else {
@@ -112,7 +120,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                         return labels
                     }
                     if (isRetentionQuery(insightQuery)) {
-                        return results[0].values.map((_, i) => `${insightQuery.retentionFilter?.period || 'Day'} ${i}`)
+                        const offset = insightQuery.retentionFilter?.cohortLabelStartIndex ?? 0
+                        return results[0].values.map(
+                            (_, i) => `${insightQuery.retentionFilter?.period || 'Day'} ${i + offset}`
+                        )
                     }
                 }
                 return []

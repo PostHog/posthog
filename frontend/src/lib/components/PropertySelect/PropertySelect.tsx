@@ -19,6 +19,7 @@ export interface PropertySelectProps {
     selectedProperties: string[]
     sortable?: boolean
     taxonomicFilterGroup: TaxonomicFilterGroupType.PersonProperties | TaxonomicFilterGroupType.EventProperties
+    disabledReason?: string | null
 }
 
 const SortableProperty = ({
@@ -55,6 +56,7 @@ export const PropertySelect = ({
     addText,
     sortable = false,
     taxonomicFilterGroup,
+    disabledReason,
 }: PropertySelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
@@ -129,6 +131,7 @@ export const PropertySelect = ({
                         size="small"
                         icon={<IconPlus />}
                         sideIcon={null}
+                        disabledReason={disabledReason}
                     >
                         {addText}
                     </LemonButton>

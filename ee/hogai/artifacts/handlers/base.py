@@ -11,8 +11,9 @@ from posthog.schema import ArtifactContentType
 
 from posthog.models import Team
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact
+
 from ee.hogai.utils.types.base import AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 # Type variables for handler generics - bound to BaseModel for model_validate()
 T_Stored = TypeVar("T_Stored", bound=BaseModel)  # Stored content type (in DB)
@@ -27,6 +28,7 @@ class EnrichmentContext:
 
     team: Team
     state_messages: Sequence[AssistantMessageUnion] | None = None
+    artifact_id: str | None = None
 
 
 class ArtifactHandler(ABC, Generic[T_Stored, T_Enriched]):

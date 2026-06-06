@@ -1,11 +1,11 @@
 import dataclasses
 from typing import TYPE_CHECKING, Literal, Optional
 
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
-from posthog.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
 if TYPE_CHECKING:
-    from posthog.models.plugin import PluginConfig
+    from products.cdp.backend.models.plugin import PluginConfig
 else:
     PluginConfig = None
 
@@ -26,6 +26,7 @@ HogFunctionTemplateType = Literal[
     "site_destination",
     "internal_destination",
     "source_webhook",
+    "warehouse_source_webhook",
     "site_app",
     "transformation",
 ]
@@ -43,6 +44,7 @@ class HogFunctionMapping:
 class HogFunctionMappingTemplate:
     name: str
     include_by_default: Optional[bool] = None
+    use_all_events_by_default: Optional[bool] = None
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
     inputs_schema: Optional[list[dict]] = None

@@ -101,7 +101,7 @@ export const groupsModel = kea<groupsModelType>([
             (groupTypes): TaxonomicFilterGroupType[] => {
                 return Array.from(groupTypes.values()).map(
                     (groupType: GroupType) =>
-                        `${TaxonomicFilterGroupType.GroupsPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
+                        `${TaxonomicFilterGroupType.GroupsPrefix}_${groupType.group_type_index}` as TaxonomicFilterGroupType
                 )
             },
         ],
@@ -110,7 +110,7 @@ export const groupsModel = kea<groupsModelType>([
             (groupTypes): TaxonomicFilterGroupType[] => {
                 return Array.from(groupTypes.values()).map(
                     (groupType: GroupType) =>
-                        `${TaxonomicFilterGroupType.GroupNamesPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
+                        `${TaxonomicFilterGroupType.GroupNamesPrefix}_${groupType.group_type_index}` as TaxonomicFilterGroupType
                 )
             },
         ],
@@ -122,8 +122,8 @@ export const groupsModel = kea<groupsModelType>([
                         const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
                         if (groupType) {
                             return {
-                                singular: groupType.name_singular || groupType.group_type,
-                                plural: groupType.name_plural || wordPluralize(groupType.group_type),
+                                singular: groupType.name_singular || groupType.group_type || 'group',
+                                plural: groupType.name_plural || wordPluralize(groupType.group_type) || 'groups',
                             }
                         }
                         return {

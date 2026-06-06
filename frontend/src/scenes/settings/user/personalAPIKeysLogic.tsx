@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
@@ -31,7 +31,7 @@ export type EditingKeyFormValues = Pick<
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['user', 'hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
@@ -110,8 +110,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 access_type: undefined,
             } as EditingKeyFormValues,
             errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
-                label: !label ? 'Your API key needs a label' : undefined,
-                scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
+                label: !label ? 'Your personal API key needs a label' : undefined,
+                scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
                 access_type: !access_type ? ('Select access mode' as any) : undefined,
                 scoped_organizations:
                     access_type === 'organizations' && !scoped_organizations?.length
@@ -127,10 +127,25 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     return
                 }
 
+                // Sanitize scopes against `allowedScopeKeys` so flag-gated scopes
+                // (e.g. `llm_gateway`) can't slip through via presets like
+                // "Read-only access" that expand to every scope in API_SCOPES.
+                // `*` (all access) is preserved as-is.
+                const allowed = values.allowedScopeKeys
+                const sanitizedScopes =
+                    payload.scopes?.filter((scope) => {
+                        if (scope === '*') {
+                            return true
+                        }
+                        const [object] = scope.split(':')
+                        return !!object && allowed.has(object)
+                    }) ?? []
+                const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
+
                 const key =
                     values.editingKeyId === 'new'
-                        ? await api.personalApiKeys.create(payload)
-                        : await api.personalApiKeys.update(values.editingKeyId, payload)
+                        ? await api.personalApiKeys.create(sanitizedPayload)
+                        : await api.personalApiKeys.update(values.editingKeyId, sanitizedPayload)
 
                 breakpoint()
 
@@ -144,15 +159,32 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
     })),
     selectors(() => ({
-        filteredScopes: [
-            (s) => [s.searchTerm, s.featureFlags],
-            (searchTerm: string, featureFlags: Record<string, boolean | string>): APIScope[] => {
+        allowedScopes: [
+            (s) => [s.featureFlags, s.hasAvailableFeature],
+            (featureFlags, hasAvailableFeature): APIScope[] => {
                 let scopes = API_SCOPES
 
                 // Filter out llm_gateway scope if feature flag is disabled
                 if (!featureFlags[FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY]) {
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
                 }
+
+                // Hide approvals scope unless the org has the APPROVALS feature
+                if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
+                    scopes = scopes.filter((scope) => scope.key !== 'approvals')
+                }
+
+                return scopes
+            },
+        ],
+        allowedScopeKeys: [
+            (s) => [s.allowedScopes],
+            (allowedScopes): Set<string> => new Set(allowedScopes.map((scope) => scope.key)),
+        ],
+        filteredScopes: [
+            (s) => [s.searchTerm, s.allowedScopes],
+            (searchTerm, allowedScopes): APIScope[] => {
+                const scopes = allowedScopes
 
                 if (!searchTerm.trim()) {
                     return scopes
@@ -184,6 +216,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             },
         ],
 
+        isEditingKeyLegacy: [
+            (s) => [s.editingKeyId, s.keys],
+            (editingKeyId, keys): boolean => {
+                if (!editingKeyId || editingKeyId === 'new') {
+                    return false
+                }
+                const key = keys.find((k) => k.id === editingKeyId)
+                return key?.is_legacy_hashing ?? false
+            },
+        ],
+
         allOrganizations: [
             (s) => [s.user],
             (user): OrganizationBasicType[] => {
@@ -210,11 +253,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         isPersonalApiKeyIdDisabled: [
             (s) => [s.allOrganizations, s.allTeams, s.keys, s.getRestrictedOrganizationsForKey],
             (
-                    allOrganizations: OrganizationBasicType[],
-                    allTeams: TeamBasicType[] | null,
-                    keys: PersonalAPIKeyType[],
-                    getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
-                ) =>
+                allOrganizations: OrganizationBasicType[],
+                allTeams: TeamBasicType[] | null,
+                keys: PersonalAPIKeyType[],
+                getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
+            ) =>
                 (keyId: PersonalAPIKeyType['id']): boolean => {
                     const key = keys.find((k) => k.id === keyId)
                     if (!key) {
@@ -252,10 +295,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         getRestrictedOrganizationsForKey: [
             (s) => [s.allOrganizations, s.keys, s.getRestrictedTeamsForKey],
             (
-                    allOrganizations: OrganizationBasicType[],
-                    keys: PersonalAPIKeyType[],
-                    getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
-                ) =>
+                allOrganizations: OrganizationBasicType[],
+                keys: PersonalAPIKeyType[],
+                getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
+            ) =>
                 (keyId: PersonalAPIKeyType['id']): OrganizationBasicType[] => {
                     let restrictedOrgs: OrganizationBasicType[] = []
                     const key = keys.find((k) => k.id === keyId)

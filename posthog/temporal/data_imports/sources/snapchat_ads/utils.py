@@ -5,11 +5,16 @@ from typing import Any, Optional
 
 import structlog
 from dateutil import parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
-from posthog.temporal.data_imports.sources.snapchat_ads.settings import MAX_SNAPCHAT_DAYS_TO_QUERY, EndpointType
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from posthog.temporal.data_imports.sources.snapchat_ads.settings import (
+    BASE_URL,
+    MAX_SNAPCHAT_DAYS_TO_QUERY,
+    EndpointType,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +23,32 @@ SNAPCHAT_DATE_FORMAT = "%Y-%m-%dT00:00:00"
 # HTTP status codes that should trigger a retry
 # https://developers.snap.com/api/marketing-api/Ads-API/errors
 RETRYABLE_STATUS_CODES = [429, 500, 503]
+
+
+def fetch_account_currency(ad_account_id: str, access_token: str) -> str | None:
+    """Fetch the currency configured on the Snapchat ad account.
+
+    Snapchat stats don't include currency per row (unlike Meta),
+    so we fetch it from the ad account endpoint once per sync.
+    """
+    try:
+        response = make_tracked_session().get(
+            f"{BASE_URL}/adaccounts/{ad_account_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        adaccounts = data.get("adaccounts", [])
+        if adaccounts:
+            account = adaccounts[0].get("adaccount", {})
+            currency = account.get("currency")
+            if currency:
+                logger.info("snapchat_ads_account_currency", ad_account_id=ad_account_id, currency=currency)
+                return str(currency)
+    except Exception as e:
+        logger.warning("snapchat_ads_currency_fetch_failed", ad_account_id=ad_account_id, error=str(e))
+    return None
 
 
 class SnapchatAdsAPIError(Exception):
@@ -123,7 +154,7 @@ class SnapchatStatsResource:
     """Handles stats-specific operations like flattening and date chunking."""
 
     @staticmethod
-    def transform_stats_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def transform_stats_reports(reports: list[dict[str, Any]], currency: str | None = None) -> list[dict[str, Any]]:
         """Flatten nested timeseries_stat structure to individual daily records.
 
         Handles the breakdown response format where stats are nested inside
@@ -153,6 +184,8 @@ class SnapchatStatsResource:
                         "end_time": ts_entry.get("end_time"),
                         **ts_entry.get("stats", {}),
                     }
+                    if currency:
+                        flat_record["currency"] = currency
                     processed_reports.append(flat_record)
 
         return processed_reports
@@ -176,13 +209,15 @@ class SnapchatStatsResource:
         return processed_reports
 
     @classmethod
-    def apply_stream_transformations(cls, endpoint_type: EndpointType, reports: Iterable[Any]) -> list[dict[str, Any]]:
+    def apply_stream_transformations(
+        cls, endpoint_type: EndpointType, reports: Iterable[Any], currency: str | None = None
+    ) -> list[dict[str, Any]]:
         """Apply transformations based on endpoint type."""
         reports_list = list(reports)
 
         match endpoint_type:
             case EndpointType.STATS:
-                return cls.transform_stats_reports(reports_list)
+                return cls.transform_stats_reports(reports_list, currency=currency)
             case EndpointType.ENTITY:
                 return cls.transform_entity_reports(reports_list)
             case EndpointType.ACCOUNT:
@@ -325,13 +360,39 @@ class SnapchatAdsPaginator(BasePaginator):
             logger.exception("snapchat_ads_paginator_error", error=str(e))
             raise SnapchatAdsAPIError(f"Failed to parse Snapchat API response: {str(e)}", response=response)
 
-    def update_request(self, request: Request) -> None:
+    def _apply_next_link_cursor(self, request: Request) -> None:
         """Extract cursor from next_link and add to request params."""
-        if self._next_link and request.params is not None:
-            # Extract cursor from next_link query params
-            from urllib.parse import parse_qs, urlparse
+        if not self._next_link:
+            return
 
-            parsed = urlparse(self._next_link)
-            query_params = parse_qs(parsed.query)
-            if "cursor" in query_params:
-                request.params["cursor"] = query_params["cursor"][0]
+        from urllib.parse import parse_qs, urlparse
+
+        parsed = urlparse(self._next_link)
+        query_params = parse_qs(parsed.query)
+        cursor = query_params.get("cursor")
+        if not cursor:
+            return
+
+        if request.params is None:
+            request.params = {}
+        request.params["cursor"] = cursor[0]
+
+    def init_request(self, request: Request) -> None:
+        # When seeded via set_resume_state the paginator already knows the
+        # next_link for the resumed page — inject its cursor into the initial
+        # request so we don't re-issue the first page.
+        self._apply_next_link_cursor(request)
+
+    def update_request(self, request: Request) -> None:
+        self._apply_next_link_cursor(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_link and self._has_next_page:
+            return {"next_link": self._next_link}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_link = state.get("next_link")
+        if next_link:
+            self._next_link = next_link
+            self._has_next_page = True

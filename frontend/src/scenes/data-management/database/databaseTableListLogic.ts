@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { objectsEqual } from 'lib/utils'
@@ -36,23 +36,71 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
         {} as Record<string, T>
     )
 
+let inFlightDatabaseLoadKey: string | null = null
+let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
+
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setConnection: (connectionId: string | null) => ({ connectionId }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         database: [
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
-                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
-                    await performQuery(
-                        setLatestVersionsOnQuery({ kind: NodeKind.DatabaseSchemaQuery }) as DatabaseSchemaQuery
-                    ),
+                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
+                    const requestConnectionId = values.connectionId ?? undefined
+                    const requestKey = requestConnectionId ?? '__posthog__'
+
+                    if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
+                        const inFlight = inFlightDatabaseLoadPromise
+                        const result = await inFlight
+                        if (!databaseTableListLogic.isMounted()) {
+                            return null
+                        }
+                        return result
+                    }
+
+                    const request = performQuery(
+                        setLatestVersionsOnQuery({
+                            kind: NodeKind.DatabaseSchemaQuery,
+                            connectionId: requestConnectionId,
+                        }) as DatabaseSchemaQuery
+                    )
+
+                    inFlightDatabaseLoadKey = requestKey
+                    inFlightDatabaseLoadPromise = request
+
+                    let database: Required<DatabaseSchemaQueryResponse> | null = null
+                    try {
+                        database = await request
+                    } finally {
+                        if (inFlightDatabaseLoadKey === requestKey) {
+                            inFlightDatabaseLoadKey = null
+                            inFlightDatabaseLoadPromise = null
+                        }
+                    }
+
+                    // Reading `values` post-unmount throws kea's path-not-found error.
+                    if (!databaseTableListLogic.isMounted()) {
+                        return null
+                    }
+
+                    const currentConnectionId = values.connectionId ?? undefined
+                    if (currentConnectionId !== requestConnectionId) {
+                        return values.database
+                    }
+
+                    return database
+                },
             },
         ],
+    })),
+    reducers({
+        searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
+        connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
     }),
-    reducers({ searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }] }),
     selectors({
         allPosthogTables: [
             (s) => [s.allTables],
@@ -71,9 +119,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         allTables: [
-            (s) => [s.database],
-            (database): DatabaseSchemaTable[] => {
-                if (!database || !database.tables) {
+            (s) => [s.database, s.databaseLoading],
+            (database, databaseLoading): DatabaseSchemaTable[] => {
+                if (databaseLoading || !database || !database.tables) {
                     return []
                 }
 
@@ -83,12 +131,16 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
         allTablesMap: [
             (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): Record<string, DatabaseSchemaTable> => toMapByName(allTables),
+            (allTables: DatabaseSchemaTable[]): Record<string, DatabaseSchemaTable> =>
+                toMapByName(allTables.filter((t) => t.type !== 'endpoint')),
             { resultEqualityCheck: objectsEqual },
         ],
         posthogTables: [
-            (s) => [s.allPosthogTables],
-            (allPosthogTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
+            (s) => [s.allPosthogTables, s.connectionId],
+            (allPosthogTables: DatabaseSchemaTable[], connectionId: string | null): DatabaseSchemaTable[] => {
+                if (connectionId) {
+                    return []
+                }
                 const visiblePosthogTableNames = new Set(['events', 'groups', 'persons', 'sessions'])
                 return allPosthogTables.filter((table) => visiblePosthogTableNames.has(table.name))
             },
@@ -100,8 +152,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         systemTables: [
-            (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
+            (s) => [s.allTables, s.connectionId],
+            (allTables: DatabaseSchemaTable[], connectionId: string | null): DatabaseSchemaTable[] => {
+                if (connectionId) {
+                    return []
+                }
                 return allTables.filter((n) => n.type === 'system')
             },
             { resultEqualityCheck: objectsEqual },
@@ -157,6 +212,32 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             },
             { resultEqualityCheck: objectsEqual },
         ],
+        latestEndpointTables: [
+            (s) => [s.endpointTables],
+            (endpointTables: DatabaseSchemaEndpointTable[]): DatabaseSchemaEndpointTable[] => {
+                const grouped: Record<string, DatabaseSchemaEndpointTable> = {}
+                for (const table of endpointTables) {
+                    const match = table.name.match(/^(.+)_v(\d+)$/)
+                    if (!match) {
+                        continue
+                    }
+                    const [, baseName, versionStr] = match
+                    const version = parseInt(versionStr, 10)
+                    const existing = grouped[baseName]
+                    if (!existing) {
+                        grouped[baseName] = table
+                    } else {
+                        const existingMatch = existing.name.match(/_v(\d+)$/)
+                        const existingVersion = existingMatch ? parseInt(existingMatch[1], 10) : 0
+                        if (version > existingVersion) {
+                            grouped[baseName] = table
+                        }
+                    }
+                }
+                return Object.values(grouped)
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
         viewsMap: [
             (s) => [s.views, s.managedViews, s.endpointTables],
             (
@@ -177,8 +258,5 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 toMapById([...views, ...managedViews, ...endpointTables]),
             { resultEqualityCheck: objectsEqual },
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadDatabase()
     }),
 ])

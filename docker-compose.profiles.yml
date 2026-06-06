@@ -1,12 +1,19 @@
-# Docker Compose profile overlay for intent-based dev environment
+# Docker Compose profile overlay — historical backwards-compatibility layer.
 #
-# This file is ONLY used by hogli dev:start to selectively start Docker services.
-# Running `docker compose -f docker-compose.dev.yml up` without this overlay
-# will start ALL services as before (backward compatible).
+# This file exists only to retroactively gate services that were added to
+# docker-compose.dev.yml before per-service `profiles:` was adopted there.
+# It shadows those service definitions with a `profiles:` constraint so that
+# `hogli dev:start` and CI can start only what's needed without breaking
+# users who run `docker compose -f docker-compose.dev.yml up` directly
+# (they get all services, same as before).
 #
-# Usage with intent system:
+# DO NOT add new services here. New profile-gated services should define
+# `profiles:` directly in docker-compose.dev.yml (see capture, plugins,
+# ingestion-* for examples of the current pattern).
+#
+# Usage (legacy, for services still listed below):
 #   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml \
-#     --profile core --profile temporal up
+#     --profile temporal up
 #
 # Services not listed here have no profile constraint and always start.
 
@@ -25,8 +32,6 @@ services:
     otel-collector:
         profiles: [observability]
     jaeger:
-        profiles: [observability]
-    capture-logs:
         profiles: [observability]
 
     # Dev tools - debugging and monitoring UIs
@@ -48,5 +53,14 @@ services:
         profiles: [localstack]
     objectstorage-azure:
         profiles: [azure]
+
+    # Coordination - etcd for PersonHog and Kafka partition assignment
+    etcd:
+        profiles: [etcd]
+
+    # DuckDB query server
+    duckgres:
+        profiles: [duckgres]
+
 # Core services NOT listed = always start:
-# - proxy, db, redis, redis7, clickhouse, zookeeper, kafka, objectstorage, echo_server, feature-flags
+# - proxy, db, redis7, clickhouse, zookeeper, kafka, objectstorage, feature-flags

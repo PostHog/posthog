@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
+  <a href="https://www.youtube.com/watch?v=1FZji2L-LmM">
     <img src="https://res.cloudinary.com/dmukukwp6/image/upload/demo_thumb_68d0d8d56d" alt="PostHog Demonstration">
   </a>
 </p>
@@ -32,7 +32,7 @@
 - [Surveys](https://posthog.com/surveys): Ask anything with our collection of no-code survey templates, or build custom surveys with our survey builder.
 - [Data warehouse](https://posthog.com/data-warehouse): Sync data from external tools like Stripe, Hubspot, your data warehouse, and more. Query it alongside your product data.
 - [Data pipelines](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time or batch export large amounts to your warehouse.
-- [LLM analytics](https://posthog.com/docs/llm-analytics): Capture traces, generations, latency, and cost for your LLM-powered app.
+- [AI observability](https://posthog.com/docs/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app.
 - [Workflows](https://posthog.com/docs/workflows): Create workflows that automate actions or send messages to your users.
 
 Best of all, all of this is free to use with a [generous monthly free tier](https://posthog.com/pricing) for each product. Get started by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
@@ -98,6 +98,8 @@ We <3 contributions big and small:
 - Vote on features or get early access to beta functionality in our [roadmap](https://posthog.com/roadmap)
 - Open a PR (see our instructions on [developing PostHog locally](https://posthog.com/handbook/engineering/developing-locally))
 - Submit a [feature request](https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement%2C+feature&template=feature_request.yml) or [bug report](https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.yml)
+
+For an overview of the codebase structure, see [monorepo layout](docs/internal/monorepo-layout.md) and [products](products/README.md).
 
 ## Open-source vs. paid
 

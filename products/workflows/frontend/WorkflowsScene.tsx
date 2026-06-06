@@ -1,19 +1,20 @@
 import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -22,13 +23,13 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
-import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
+import { OptOutScene } from './OptOuts/OptOutScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
-import type { workflowSceneLogicType } from './WorkflowsSceneType'
+import type { workflowsSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -38,10 +39,9 @@ export type WorkflowsSceneProps = {
     tabId?: string
 }
 
-export const workflowSceneLogic = kea<workflowSceneLogicType>([
+export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
-    path(() => ['scenes', 'workflows', 'workflowSceneLogic']),
-    tabAwareScene(),
+    path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),
@@ -68,10 +68,10 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => [urls.workflows(values.currentTab)],
     })),
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         return {
             [urls.workflows()]: () => {
                 if (values.currentTab !== 'workflows') {
@@ -92,16 +92,20 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
 
 export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
-    logic: workflowSceneLogic,
+    logic: workflowsSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
     productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
-    const { currentTab } = useValues(workflowSceneLogic(props))
+    const { currentTab } = useValues(workflowsSceneLogic(props))
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const newChannelRestrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const newChannelMenuItems: LemonMenuItems = [
         {
@@ -171,7 +175,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}
-                resourceType={{ type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type' }}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type',
+                }}
                 actions={
                     <>
                         {currentTab === 'workflows' && (
@@ -207,6 +213,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                     icon={<IconPlusSmall />}
                                     size="small"
                                     type="primary"
+                                    disabledReason={newChannelRestrictedReason}
                                 >
                                     New channel
                                 </LemonButton>
@@ -226,7 +233,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset />
+            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>
     )

@@ -1,19 +1,25 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconBell, IconRefresh } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { HealthIssueCard } from '~/layout/navigation-3000/sidepanel/panels/SidePanelHealth'
-import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
-import { DataHealthIssue } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { pipelineHealthLogic } from './pipelineHealthLogic'
+import type { DataHealthIssue } from './pipelineHealthLogic'
+import { PipelineStatusIssueCard } from './PipelineStatusIssueCard'
 import { pipelineStatusSceneLogic } from './pipelineStatusSceneLogic'
+import { PipelineStatusSummary } from './PipelineStatusSummary'
+import { PipelineStatusToolbar } from './PipelineStatusToolbar'
 
 export const scene: SceneExport = {
     component: PipelineStatusScene,
@@ -21,8 +27,12 @@ export const scene: SceneExport = {
 }
 
 export function PipelineStatusScene(): JSX.Element {
-    const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(sidePanelHealthLogic)
-    const { loadHealthIssues } = useActions(sidePanelHealthLogic)
+    const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(pipelineHealthLogic)
+    const { loadHealthIssues } = useActions(pipelineHealthLogic)
+    const { filteredIssues, filteredIssueCount, isIssueDismissed } = useValues(pipelineStatusSceneLogic)
+    const { dismissIssue, undismissIssue } = useActions(pipelineStatusSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
 
     return (
         <SceneContent>
@@ -34,21 +44,40 @@ export function PipelineStatusScene(): JSX.Element {
                     type: 'pipeline_status',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconRefresh className="size-4" />}
-                        disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
-                        onClick={() => loadHealthIssues()}
-                    >
-                        {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
-                    </LemonButton>
+                    <>
+                        {healthAlertsEnabled && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconBell className="size-4" />}
+                                to={urls.healthAlerts(['external_data_failure', 'materialized_view_failure'])}
+                                onClick={() => {
+                                    posthog.capture('health_alerts_entry_point_clicked', {
+                                        source: 'pipeline_status',
+                                    })
+                                }}
+                                tooltip="Subscribe to alerts when a pipeline fails"
+                            >
+                                Alerts
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconRefresh className="size-4" />}
+                            disabledReason={healthIssuesLoading ? 'Refreshing...' : undefined}
+                            onClick={() => loadHealthIssues()}
+                        >
+                            {healthIssuesLoading ? 'Refreshing...' : 'Refresh'}
+                        </LemonButton>
+                    </>
                 }
             />
 
-            <div className="max-w-3xl">
+            <div className="max-w-3xl space-y-4">
                 {healthIssuesLoading && issues.length === 0 ? (
                     <div className="space-y-3">
+                        <LemonSkeleton className="h-8" />
                         <LemonSkeleton className="h-20" />
                         <LemonSkeleton className="h-20" />
                     </div>
@@ -65,21 +94,24 @@ export function PipelineStatusScene(): JSX.Element {
                     </LemonBanner>
                 ) : (
                     <>
-                        <LemonBanner type="warning" hideIcon={false} className="mb-4">
-                            <p className="font-semibold">
-                                {issueCount} issue{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''}{' '}
-                                attention
-                            </p>
-                            <p className="text-sm mt-1">
-                                These data pipelines have failed or been disabled and may affect your data.
-                            </p>
-                        </LemonBanner>
+                        <PipelineStatusSummary />
+                        <PipelineStatusToolbar />
 
-                        <div className="space-y-3">
-                            {issues.map((issue: DataHealthIssue) => (
-                                <HealthIssueCard key={issue.id} issue={issue} />
-                            ))}
-                        </div>
+                        {filteredIssueCount === 0 ? (
+                            <div className="text-center text-muted p-8">No issues match your filters.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {filteredIssues.map((issue: DataHealthIssue) => (
+                                    <PipelineStatusIssueCard
+                                        key={issue.id}
+                                        issue={issue}
+                                        isDismissed={isIssueDismissed(issue.id)}
+                                        onDismiss={() => dismissIssue(issue.id)}
+                                        onUndismiss={() => undismissIssue(issue.id)}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </>
                 )}
             </div>

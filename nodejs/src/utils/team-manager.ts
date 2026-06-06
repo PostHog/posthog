@@ -1,22 +1,31 @@
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader } from './lazy-loader'
+import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'availableFeatures'> & {
+type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
+}
+
+export interface TeamManagerOptions {
+    /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
+    loaderRetry?: LoaderRetryOptions
 }
 
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        options?: TeamManagerOptions
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
+            loaderRetry: options?.loaderRetry,
             loader: async (teamIdOrTokens: string[]) => {
                 return await this.fetchTeams(teamIdOrTokens)
             },
@@ -79,15 +88,6 @@ export class TeamManager {
         }
     }
 
-    public async getTeamForEvent(event: { team_id?: number | null; token?: string | null }): Promise<Team | null> {
-        if (event.team_id) {
-            return this.getTeam(event.team_id)
-        } else if (event.token) {
-            return this.getTeamByToken(event.token)
-        }
-        return null
-    }
-
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {
@@ -118,7 +118,7 @@ export class TeamManager {
                 t.name,
                 t.anonymize_ips,
                 t.api_token,
-                t.slack_incoming_webhook,
+                t.secret_api_token,
                 t.session_recording_opt_in,
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
@@ -127,6 +127,7 @@ export class TeamManager {
                 t.cookieless_server_hash_mode,
                 t.timezone,
                 t.logs_settings,
+                t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 o.available_product_features
             FROM posthog_team t

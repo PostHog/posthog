@@ -5,10 +5,10 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonTag } from '
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { IconSync } from 'lib/lemon-ui/icons'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,8 +17,8 @@ import { type Noun, groupsModel } from '~/models/groupsModel'
 import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
-import { groupFilters } from './FeatureFlags'
 import { featureFlagLogic } from './featureFlagLogic'
+import { groupFilters } from './FeatureFlags'
 
 function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohorts = new Set()
@@ -139,9 +139,10 @@ function FeatureFlagCopySection(): JSX.Element {
         projectsWithCurrentFlag,
         featureFlagCopyLoading,
         copySchedule,
+        disableCopiedFlag,
         scheduledChanges,
     } = useValues(featureFlagLogic)
-    const { setCopyDestinationProject, copyFlag, setCopySchedule } = useActions(featureFlagLogic)
+    const { setCopyDestinationProject, copyFlag, setCopySchedule, setDisableCopiedFlag } = useActions(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
@@ -193,6 +194,15 @@ function FeatureFlagCopySection(): JSX.Element {
                         onChange={setCopySchedule}
                         disabled={scheduledChanges.length === 0}
                         label={scheduledChanges.length > 0 ? `${scheduledChanges.length} pending` : 'None available'}
+                        className="h-10 flex items-center"
+                    />
+                </div>
+                <div>
+                    <div className="font-semibold leading-6 h-6">Disable copied flag</div>
+                    <LemonCheckbox
+                        checked={disableCopiedFlag}
+                        onChange={setDisableCopiedFlag}
+                        label="Copy as disabled"
                         className="h-10 flex items-center"
                     />
                 </div>

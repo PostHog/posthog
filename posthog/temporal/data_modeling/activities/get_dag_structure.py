@@ -2,7 +2,7 @@ import dataclasses
 
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.models import Edge, Node, NodeType
@@ -18,6 +18,8 @@ class GetDAGStructureInputs:
     dag_id: str
 
 
+# TODO(andrew): make this a property / function on the actual DAG record
+# maybe DAG().orchestration_plan() or similar
 @dataclasses.dataclass
 class DAG:
     """Structure of a DAG for orchestration.
@@ -35,7 +37,7 @@ class DAG:
     ephemeral_nodes: list[str] = dataclasses.field(default_factory=list)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)

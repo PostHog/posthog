@@ -3,11 +3,13 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LiveEvent } from '~/types'
+import { AnyPropertyFilter, LiveEvent, PropertyOperator } from '~/types'
 
+import { deduplicateEvents } from './deduplicateEvents'
 import type { liveEventsLogicType } from './liveEventsLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
@@ -21,11 +23,12 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
     props({} as LiveEventsLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[]) => ({ events }),
         clearEvents: true,
-        setFilters: (filters: { eventType: string | null }) => ({ filters }),
+        setFilters: (filters: { eventType?: string | null; properties?: AnyPropertyFilter[] }) => ({ filters }),
         updateEventsConnection: true,
         pauseStream: true,
         resumeStream: true,
@@ -36,18 +39,12 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         events: [
             [] as LiveEvent[],
             {
-                addEvents: (state, { events }) => {
-                    const newState = [...events, ...state]
-                    if (newState.length > 100) {
-                        return newState.slice(0, 100)
-                    }
-                    return newState
-                },
+                addEvents: (state, { events }) => deduplicateEvents(state, events, 100),
                 clearEvents: () => [],
             },
         ],
         filters: [
-            { eventType: null } as { eventType: string | null },
+            { eventType: null, properties: [] } as { eventType: string | null; properties: AnyPropertyFilter[] },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -106,6 +103,9 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             actions.clearEvents()
             actions.updateEventsConnection()
         },
+        clearEvents: () => {
+            cache.batch = []
+        },
         updateEventsConnection: async () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
@@ -119,10 +119,22 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 return
             }
 
-            const { eventType } = values.filters
+            const { eventType, properties } = values.filters
             const url = new URL(`${liveEventsHostOrigin()}/events`)
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
+            }
+            for (const pf of properties ?? []) {
+                if (!isEventPropertyFilter(pf) || pf.operator !== PropertyOperator.Exact || !pf.key) {
+                    continue
+                }
+                const vals = Array.isArray(pf.value) ? pf.value : [pf.value]
+                for (const v of vals) {
+                    if (v == null) {
+                        continue
+                    }
+                    url.searchParams.append('property', `${pf.key}=${String(v)}`)
+                }
             }
             url.searchParams.append('columns', '$current_url,$screen_name')
 
@@ -136,7 +148,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 signal: cache.eventSourceController.signal,
                 onMessage: (event) => {
                     lemonToast.dismiss(ERROR_TOAST_ID)
-                    const eventData = JSON.parse(event.data)
+                    let eventData: LiveEvent
+                    try {
+                        eventData = JSON.parse(event.data)
+                    } catch {
+                        // Drop malformed stream payloads rather than throwing inside the listener
+                        return
+                    }
                     cache.batch.push(eventData)
                     if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
                         actions.addEvents(cache.batch)
@@ -169,9 +187,20 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 const event = events[0]
                 const eventUrl = event.properties?.$current_url
                 if (eventUrl) {
-                    const eventHost = new URL(eventUrl).host
-                    const eventProtocol = new URL(eventUrl).protocol
-                    actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                    // Live events can carry a malformed `$current_url`; skip host extraction rather than throw.
+                    try {
+                        const parsedUrl = new URL(eventUrl)
+                        actions.addEventHost(`${parsedUrl.protocol}//${parsedUrl.host}`)
+                    } catch {
+                        // Ignore unparseable URLs
+                    }
+                }
+                // The team's `ingested_event` flag is flipped server-side when the first event is
+                // processed, but only reaches the frontend on the next ~30s team refresh. Refresh
+                // immediately when we observe a live event so banners that depend on the flag
+                // (e.g. the "no events yet" project notice) can't contradict the on-screen feed.
+                if (values.currentTeam && !values.currentTeam.ingested_event) {
+                    actions.loadCurrentTeam()
                 }
             }
         },

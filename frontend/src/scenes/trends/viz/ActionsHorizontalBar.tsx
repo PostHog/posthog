@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { formatAggregationAxisValueWithShareOfTotal } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -16,7 +18,11 @@ import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ showPersonsModal = true, context }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({
+    showPersonsModal = true,
+    context,
+    inCardView,
+}: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -24,6 +30,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps } = useValues(insightLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const {
         indexedResults,
         labelGroupType,
@@ -33,6 +40,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        isSingleSeriesDefinition,
+        isBreakdownSeries,
         getTrendsColor,
         getTrendsHidden,
         theme,
@@ -88,6 +97,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             tooltip={{
                 showHeader: false,
                 groupTypeLabel: context?.groupTypeLabel,
+                renderCount: (value: number): string =>
+                    formatAggregationAxisValueWithShareOfTotal(trendsFilter, value, total, baseCurrency),
             }}
             labelGroupType={labelGroupType}
             datasets={data}
@@ -96,8 +107,11 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             trendsFilter={trendsFilter}
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
-            ignoreActionsInSeriesLabels={context?.ignoreActionsInSeriesLabels}
+            ignoreActionsInSeriesLabels={
+                context?.ignoreActionsInSeriesLabels || (isSingleSeriesDefinition && isBreakdownSeries)
+            }
             isStacked={false}
+            inCardView={inCardView}
             onClick={
                 context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !hasDataWarehouseSeries)
                     ? (point) => {

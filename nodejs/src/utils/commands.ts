@@ -1,9 +1,7 @@
 import express from 'ultimate-express'
 
-import { HealthCheckResultOk, Hub, PluginServerService } from '../types'
-
-/** Narrowed Hub type for ServerCommands */
-export type ServerCommandsHub = Pick<Hub, 'pubSub'>
+import { HealthCheckResultOk, PluginServerService } from '../types'
+import { PubSub } from './pubsub'
 
 /**
  * We have various use cases where an external service like django needs to communicate with the node services
@@ -13,7 +11,7 @@ export type ServerCommandsHub = Pick<Hub, 'pubSub'>
  * don't need access to the pubsub redis
  */
 export class ServerCommands {
-    constructor(private hub: ServerCommandsHub) {}
+    constructor(private pubSub: PubSub) {}
 
     public get service(): PluginServerService {
         return {
@@ -41,7 +39,7 @@ export class ServerCommands {
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { command, message } = req.body
 
-            await this.hub.pubSub.publish(command, JSON.stringify(message))
+            await this.pubSub.publish(command, JSON.stringify(message))
 
             res.json({ success: true })
         }

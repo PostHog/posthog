@@ -93,15 +93,17 @@ interface VariableInputProps {
     onChange: (variableId: string, value: any, isNull: boolean) => void
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
+    onInsertAtCursor?: (text: string) => void
 }
 
-const VariableInput = ({
+export const VariableInput = ({
     variable,
     showEditingUI,
     closePopover,
     onChange,
     onRemove,
     variableSettingsOnClick,
+    onInsertAtCursor,
 }: VariableInputProps): JSX.Element => {
     const [localInputValue, setLocalInputValue] = useState<string>(() => {
         const val = variable.value ?? variable.default_value
@@ -183,12 +185,13 @@ const VariableInput = ({
                         className="grow"
                         value={localInputValue}
                         onChange={(value) => setLocalInputValue(String(value))}
-                        options={variable.values.map((n) => ({ label: n, value: n }))}
+                        options={(variable.values ?? []).map((n) => ({ label: n, value: n }))}
                     />
                 )}
                 {variable.type === 'Date' && (
                     <VariableCalendar
                         value={dayjs(localInputValue)}
+                        rawValue={localInputValue}
                         updateVariable={(date) => {
                             onChange(variable.id, date, isNull)
                             closePopover()
@@ -250,6 +253,17 @@ const VariableInput = ({
                             onClick={() => void copyToClipboard(variableAsHogQL, 'variable SQL')}
                             tooltip="Copy SQL"
                         />
+                        {onInsertAtCursor && (
+                            <LemonButton
+                                icon={<IconCodeInsert />}
+                                size="xsmall"
+                                onClick={() => {
+                                    onInsertAtCursor(variableAsHogQL)
+                                    closePopover()
+                                }}
+                                tooltip="Insert into query"
+                            />
+                        )}
                         {onRemove && (
                             <LemonButton
                                 onClick={() => onRemove(variable.id)}
@@ -331,9 +345,11 @@ export const VariableComponent = ({
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
                     disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    value={variable.value ?? variable.default_value}
-                    onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
-                    options={variable.values.map((n) => ({ label: n, value: n }))}
+                    value={variable.isNull ? null : (variable.value ?? variable.default_value ?? null)}
+                    onChange={(value) => onChange(variable.id, value, !value)}
+                    options={(variable.values ?? []).map((n) => ({ label: n, value: n }))}
+                    size={size}
+                    allowClear
                 />
             </LemonField.Pure>
         )
@@ -349,6 +365,7 @@ export const VariableComponent = ({
                     onChange={onChange}
                     closePopover={() => setPopoverOpen(false)}
                     onRemove={onRemove}
+                    onInsertAtCursor={onInsertAtCursor}
                     variableSettingsOnClick={() => {
                         if (variableSettingsOnClick) {
                             setPopoverOpen(false)

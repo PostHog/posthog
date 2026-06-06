@@ -9,12 +9,6 @@ export DEBIAN_FRONTEND=noninteractive
 export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 
-POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
-export POSTHOG_SECRET
-
-ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
-export ENCRYPTION_SALT_KEYS
-
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
@@ -129,10 +123,18 @@ then
     export REGISTRY_URL="posthog/posthog"
 fi
 
-
-
-# Write .env file
-cat > .env <<EOF
+# Write .env only on a fresh install. On a re-run (e.g. after a partial
+# failure) preserve the existing file, so POSTHOG_SECRET and
+# ENCRYPTION_SALT_KEYS are not regenerated, as it would invalidate active
+# sessions and corrupt encrypted data on a live instance.
+# Mirrors the FileExists(".env") guard in bin/hobby-installer.
+# Tag changes on an existing instance are handled by bin/upgrade-hobby.
+if [ -f .env ]; then
+    echo "Existing .env found, preserving configuration"
+else
+    POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
+    ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
+    cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 DOMAIN=$DOMAIN
@@ -142,6 +144,7 @@ CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
 EOF
+fi
 
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
@@ -224,6 +227,7 @@ echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml
+cp posthog/.env.services .env.services
 echo "Starting the stack!"
 # Retry docker-compose up with --pull always up to 3 times
 for attempt in 1 2 3; do

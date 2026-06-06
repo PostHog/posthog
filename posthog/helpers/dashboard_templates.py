@@ -1,14 +1,24 @@
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+from django.db.models import Q
 
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.dashboard_tile import DashboardTile, Text
-from posthog.models.insight import Insight
+from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.product_analytics.backend.models.insight import Insight
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -465,11 +475,33 @@ DASHBOARD_TEMPLATES: dict[str, Callable] = {
 # end of area to be removed
 
 
-def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
+def dashboard_template_from_creation_payload(template: dict[str, Any]) -> DashboardTemplate:
+    """Build an unsaved DashboardTemplate from create_from_template_json body.
+
+    The client may send API-shaped objects (e.g. nested ``created_by``). Only fields used for
+    dashboard instantiation are passed through; read-only / relation blobs are not unpacked into ``__init__``.
+    """
+    return DashboardTemplate(
+        template_name=template["template_name"],
+        dashboard_description=template["dashboard_description"],
+        dashboard_filters=template["dashboard_filters"],
+        tiles=template["tiles"],
+        tags=template.get("tags"),
+        variables=template.get("variables"),
+    )
+
+
+def create_from_template(
+    dashboard: Dashboard,
+    template: DashboardTemplate,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
-    dashboard.description = template.dashboard_description
+    dashboard.description = template.dashboard_description or ""
     for template_tag in template.tags or []:
         tag, _ = Tag.objects.get_or_create(
             name=template_tag,
@@ -479,7 +511,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
-    for template_tile in template.tiles:
+    for template_tile in template.tiles or []:
         if template_tile["type"] == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(
@@ -497,12 +529,41 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 body=template_tile.get("body"),
+                transparent_background=template_tile.get("transparent_background"),
+            )
+        elif template_tile["type"] == "BUTTON":
+            _create_tile_for_button(
+                dashboard,
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                url=template_tile.get("url", ""),
+                text=template_tile.get("text", ""),
+                placement=template_tile.get("placement", "left"),
+                style=template_tile.get("style", "primary"),
+                transparent_background=template_tile.get("transparent_background"),
+            )
+        elif template_tile["type"] == "WIDGET":
+            _create_tile_for_widget(
+                dashboard,
+                widget_type=template_tile.get("widget_type", ""),
+                config=template_tile.get("config", {}),
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                transparent_background=template_tile.get("transparent_background"),
+                user=user,
+                user_access_control=user_access_control,
             )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
-def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color: Optional[str]) -> None:
+def _create_tile_for_text(
+    dashboard: Dashboard,
+    body: str,
+    layouts: dict,
+    color: Optional[str],
+    transparent_background: Optional[bool] = None,
+) -> None:
     text = Text.objects.create(
         team=dashboard.team,
         body=body,
@@ -510,8 +571,77 @@ def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: dict, color:
     DashboardTile.objects.create(
         text=text,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
+        transparent_background=transparent_background,
+    )
+
+
+def _create_tile_for_button(
+    dashboard: Dashboard,
+    url: str,
+    text: str,
+    layouts: dict,
+    color: Optional[str],
+    placement: str = "left",
+    style: str = "primary",
+    transparent_background: Optional[bool] = None,
+) -> None:
+    button_tile = ButtonTile.objects.create(
+        team=dashboard.team,
+        url=url,
+        text=text,
+        placement=placement,
+        style=style,
+    )
+    DashboardTile.objects.create(
+        button_tile=button_tile,
+        dashboard=dashboard,
+        team_id=dashboard.team_id,
+        layouts=layouts,
+        color=color,
+        transparent_background=transparent_background,
+    )
+
+
+def _create_tile_for_widget(
+    dashboard: Dashboard,
+    widget_type: str,
+    config: dict,
+    layouts: dict | None,
+    color: Optional[str],
+    transparent_background: Optional[bool] = None,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    from products.dashboards.backend.widget_create import (
+        prepare_widget_tile_create,  # noqa: PLC0415 — breaks posthog.models import cycle
+    )
+
+    normalized_widget_type, validated_config = prepare_widget_tile_create(
+        team=dashboard.team,
+        widget_type=widget_type,
+        config=config,
+        user=user,
+        user_access_control=user_access_control,
+    )
+    with team_scope(dashboard.team_id):
+        widget = DashboardWidget.objects.create(
+            team=dashboard.team,
+            widget_type=normalized_widget_type,
+            config=validated_config,
+            created_by=user,
+            last_modified_by=user,
+        )
+    DashboardTile.objects.create(
+        widget=widget,
+        dashboard=dashboard,
+        team_id=dashboard.team_id,
+        layouts=layouts or {},
+        color=color,
+        transparent_background=transparent_background,
     )
 
 
@@ -536,16 +666,26 @@ def _create_tile_for_insight(
     DashboardTile.objects.create(
         insight=insight,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
     )
 
 
-def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> None:
+def create_dashboard_from_template(
+    template_key: str,
+    dashboard: Dashboard,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     if template_key in DASHBOARD_TEMPLATES:
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
-    template = DashboardTemplate.objects.filter(template_name=template_key).first()
+    template = DashboardTemplate.objects.filter(
+        Q(team_id=dashboard.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL),
+        template_name=template_key,
+    ).first()
     if not template:
         original_template = DashboardTemplate.original_template()
         if template_key == original_template.template_name:
@@ -553,7 +693,7 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
         else:
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
-    create_from_template(dashboard, template)
+    create_from_template(dashboard, template, user, user_access_control=user_access_control)
 
 
 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
@@ -855,6 +995,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
         tile = DashboardTile.objects.create(
             insight=insight,
             dashboard=dashboard,
+            team_id=dashboard.team_id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": x, "y": y, "minH": 1, "minW": 1},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
@@ -875,6 +1016,63 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
         }
         tile.last_refresh = None
         tile.save()
+
+    return dashboard
+
+
+def create_data_ops_dashboard(team, user) -> Dashboard:
+    """
+    Creates the default data ops overview dashboard for a team.
+    Seeded with a starter tile — users can add more to track sync health, row counts, etc.
+    """
+    dashboard = Dashboard.objects.create(
+        name="Data ops overview",
+        description="Your data ops overview. Add insights to track sync health, row counts, and anything else you care about.",
+        team=team,
+        created_by=user,
+        creation_mode="template",
+    )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Events ingested",
+        description="",
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "All events",
+                        "event": None,
+                    }
+                ],
+                "version": 2,
+                "interval": "hour",
+                "dateRange": {
+                    "date_to": None,
+                    "date_from": "-24h",
+                    "explicitDate": False,
+                },
+                "trendsFilter": {"display": "BoldNumber"},
+                "compareFilter": {"compare": True, "compare_to": "-1w"},
+            },
+        },
+        layouts={
+            "sm": {
+                "h": 3,
+                "w": 2,
+                "x": 0,
+                "y": 0,
+                "minH": 1,
+                "minW": 1,
+            },
+        },
+        color=None,
+        user=user,
+    )
 
     return dashboard
 

@@ -1,13 +1,24 @@
 {
     "name": "@posthog/products-customer-analytics",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "kea-test-utils": "^0.2.4"
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-test-utils": "catalog:",
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
+        "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

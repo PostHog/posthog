@@ -1,17 +1,17 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
-import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -34,7 +34,6 @@ import {
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
-import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -53,6 +52,11 @@ import {
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'
+
+const WebVitals = lazy(() => import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals })))
+const WebVitalsPathBreakdown = lazy(() =>
+    import('../nodes/WebVitals/WebVitalsPathBreakdown').then((m) => ({ default: m.WebVitalsPathBreakdown }))
+)
 
 export interface QueryProps<Q extends Node> {
     /** An optional key to identify the query */
@@ -83,6 +87,8 @@ export interface QueryProps<Q extends Node> {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
+    tabId?: string
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -105,7 +111,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }, [propsQuery]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const query = readOnly ? propsQuery : localQuery
+    const query = readOnly || propsSetQuery ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
@@ -138,6 +144,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
                 dataAttr={dataAttr}
+                tabId={props.tabId}
             />
         )
     } else if (isDataVisualizationNode(query)) {
@@ -150,6 +157,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                embedded={embedded}
                 editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />
@@ -267,21 +275,25 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isWebVitalsQuery(query)) {
         component = (
-            <WebVitals
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
+            <Suspense fallback={<Spinner />}>
+                <WebVitals
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                />
+            </Suspense>
         )
     } else if (isWebVitalsPathBreakdownQuery(query)) {
         component = (
-            <WebVitalsPathBreakdown
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
+            <Suspense fallback={<Spinner />}>
+                <WebVitalsPathBreakdown
+                    attachTo={props.attachTo}
+                    query={query}
+                    cachedResults={props.cachedResults}
+                    context={queryContext}
+                />
+            </Suspense>
         )
     } else if (isHogQuery(query)) {
         component = (

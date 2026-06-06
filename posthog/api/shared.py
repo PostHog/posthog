@@ -5,6 +5,7 @@ This module contains serializers that are used across other serializers for nest
 import copy
 from typing import Any, Optional
 
+from opentelemetry import trace
 from rest_framework import serializers
 from rest_framework.fields import SkipField
 from rest_framework.relations import PKOnlyObject
@@ -13,6 +14,8 @@ from rest_framework.utils import model_meta
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
+
+tracer = trace.get_tracer(__name__)
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -34,11 +37,21 @@ class UserBasicSerializer(serializers.ModelSerializer):
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
         if user.hedgehog_config:
-            return {
-                "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-                "color": user.hedgehog_config.get("color"),
-                "accessories": user.hedgehog_config.get("accessories"),
-            }
+            if user.hedgehog_config.get("version") == 2:
+                actor_options = user.hedgehog_config.get("actor_options", {})
+                return {
+                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                    "color": actor_options.get("color"),
+                    "accessories": actor_options.get("accessories"),
+                    "skin": actor_options.get("skin"),
+                }
+            else:
+                return {
+                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
+                    "color": user.hedgehog_config.get("color"),
+                    "accessories": user.hedgehog_config.get("accessories"),
+                    "skin": user.hedgehog_config.get("skin"),
+                }
         return None
 
 
@@ -192,6 +205,10 @@ class TeamBasicSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    @tracer.start_as_current_span("team_basic_serializer.to_representation")
+    def to_representation(self, instance):
+        return super().to_representation(instance)
+
 
 class TeamPublicSerializer(serializers.ModelSerializer):
     """
@@ -223,13 +240,18 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
             "members_can_use_personal_api_keys",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
             organization=organization, user=self.context["request"].user
         ).first()
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
+
+    @tracer.start_as_current_span("organization_basic_serializer.to_representation")
+    def to_representation(self, instance):
+        return super().to_representation(instance)
 
 
 class FilterBaseSerializer(serializers.Serializer):

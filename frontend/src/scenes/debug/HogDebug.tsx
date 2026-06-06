@@ -10,9 +10,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {

@@ -1,24 +1,45 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { createRef } from 'react'
 
+import { IconImage } from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import { PropertyAccessControl } from 'scenes/data-management/definition/PropertyAccessControl'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
+import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -30,14 +51,33 @@ export const scene: SceneExport<DefinitionLogicProps> = {
 
 export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogic(props))
+    const definitionLogicInstance = definitionLogic(props)
+    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
+    const { currentTeamId } = useValues(teamLogic)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+    const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
 
     const allowVerification = !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
     const showHiddenOption = 'hidden' in editDefinition
+
+    const { previews, previewsLoading } = useValues(definitionLogicInstance)
+    const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
+
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (_url, _fileName, uploadedMediaId) => {
+            createMediaPreview(uploadedMediaId)
+            reportMediaPreviewUploaded('definition_edit')
+        },
+        onError: (detail) => {
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
+
+    const mediaPreviewDragTarget = createRef<HTMLDivElement>()
 
     if (definitionMissing) {
         return <NotFound object="event" />
@@ -131,6 +171,69 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             </LemonField>
                         </div>
 
+                        {/* Allow uploading media previews only for custom events; not that useful for properties or autocapture events */}
+                        <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
+                            {objectStorageAvailable && !isProperty && !isCoreFilter(editDefinition.name) && (
+                                <div className="ph-ignore-input">
+                                    <LemonField
+                                        name="media_preview"
+                                        label={
+                                            <LemonLabel info="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                                Media preview
+                                            </LemonLabel>
+                                        }
+                                    >
+                                        <div>
+                                            <div
+                                                ref={mediaPreviewDragTarget}
+                                                className="mb-4 border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
+                                                onClick={(e) => {
+                                                    if (e.target === e.currentTarget) {
+                                                        const input = mediaPreviewDragTarget.current?.querySelector(
+                                                            'input[type="file"]'
+                                                        ) as HTMLInputElement
+                                                        input?.click()
+                                                    }
+                                                }}
+                                            >
+                                                <LemonFileInput
+                                                    accept="image/*"
+                                                    multiple={false}
+                                                    onChange={setFilesToUpload}
+                                                    loading={uploading}
+                                                    value={filesToUpload}
+                                                    alternativeDropTargetRef={mediaPreviewDragTarget}
+                                                    callToAction={
+                                                        <div className="flex items-center gap-2">
+                                                            <IconImage />
+                                                            <span>Click or drag and drop to upload an image</span>
+                                                        </div>
+                                                    }
+                                                />
+                                            </div>
+
+                                            {(previewsLoading || (previews && previews.length > 0)) && (
+                                                <ImageCarousel
+                                                    loading={previewsLoading}
+                                                    imageUrls={
+                                                        previews?.map((p: ObjectMediaPreview) => p.media_url) ?? []
+                                                    }
+                                                    onDelete={(url: string) => {
+                                                        const preview = previews.find(
+                                                            (p: ObjectMediaPreview) => p.media_url === url
+                                                        )
+                                                        if (preview) {
+                                                            deleteMediaPreview(preview.id)
+                                                        }
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                    </LemonField>
+                                </div>
+                            )}
+                        </FlaggedFeature>
+
                         {(allowVerification || showHiddenOption) && (
                             <div className="ph-ignore-input">
                                 <LemonField name="verified" label="Status" data-attr="definition-status">
@@ -173,7 +276,84 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
                         )}
+
+                        {!isProperty &&
+                            hasTaxonomyPrimaryProperty(editDefinition.name) &&
+                            (() => {
+                                const taxonomyValue = getPrimaryPropertyForEvent(editDefinition.name)
+                                if (!taxonomyValue) {
+                                    return null
+                                }
+                                return (
+                                    <div className="ph-ignore-input">
+                                        <LemonLabel info="This event has a built-in primary property that PostHog ships with — it can't be overridden on a per-team basis.">
+                                            Primary property
+                                        </LemonLabel>
+                                        <div
+                                            className="flex items-center gap-2 mt-1"
+                                            data-attr="definition-primary-property-builtin"
+                                        >
+                                            <PropertyKeyInfo
+                                                value={taxonomyValue}
+                                                type={TaxonomicFilterGroupType.EventProperties}
+                                                disableIcon
+                                            />
+                                            <LemonTag type="muted" size="small">
+                                                Built-in
+                                            </LemonTag>
+                                        </div>
+                                    </div>
+                                )
+                            })()}
+
+                        {!isProperty && !hasTaxonomyPrimaryProperty(editDefinition.name) && (
+                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                                <div className="ph-ignore-input">
+                                    <LemonField
+                                        name="primary_property"
+                                        label={
+                                            <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
+                                                Primary property
+                                            </LemonLabel>
+                                        }
+                                        data-attr="definition-primary-property"
+                                    >
+                                        {({ value, onChange }) => (
+                                            <TaxonomicPopover<string>
+                                                allowClear
+                                                data-attr="definition-primary-property-picker"
+                                                groupType={TaxonomicFilterGroupType.EventProperties}
+                                                eventNames={[editDefinition.name]}
+                                                value={value ?? null}
+                                                onChange={(changedValue) =>
+                                                    onChange(typeof changedValue === 'string' ? changedValue : null)
+                                                }
+                                                placeholder="Select a primary property"
+                                                selectingKeyOnly
+                                            />
+                                        )}
+                                    </LemonField>
+                                </div>
+                            </FlaggedFeature>
+                        )}
                     </div>
+                )}
+
+                {isProperty && editDefinition.id !== 'new' && currentTeamId && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PROPERTY_ACCESS_CONTROL}>
+                        <SceneDivider />
+                        <SceneSection
+                            title="Access control"
+                            description="Control who can see this property's values, and who can edit them from the PostHog UI."
+                        >
+                            <PayGateMini feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}>
+                                <PropertyAccessControl
+                                    propertyDefinitionId={editDefinition.id}
+                                    teamId={currentTeamId}
+                                />
+                            </PayGateMini>
+                        </SceneSection>
+                    </FlaggedFeature>
                 )}
             </SceneContent>
         </Form>

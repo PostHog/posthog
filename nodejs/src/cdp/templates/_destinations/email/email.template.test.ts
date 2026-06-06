@@ -22,8 +22,6 @@ describe('email template', () => {
                     },
                     from: {
                         integrationId: 1,
-                        email: 'test@posthog.com',
-                        name: 'Test User',
                     },
                     subject: 'PostHog Notification',
                     text: '',
@@ -45,9 +43,7 @@ describe('email template', () => {
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "from": {
-                "email": "test@posthog.com",
                 "integrationId": 1,
-                "name": "Test User",
               },
               "html": "",
               "subject": "PostHog Notification",
@@ -59,5 +55,35 @@ describe('email template', () => {
               "type": "email",
             }
         `)
+    })
+
+    it('should pass cc and bcc strings through to queue parameters', async () => {
+        const response = await tester.invoke(
+            {
+                email: {
+                    to: {
+                        email: 'to@example.com',
+                        name: '',
+                    },
+                    from: {
+                        integrationId: 1,
+                    },
+                    cc: 'cc1@example.com, cc2@example.com',
+                    bcc: 'bcc@example.com',
+                    subject: 'Test',
+                    text: '',
+                    html: '',
+                },
+                debug: false,
+            },
+            {}
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.invocation.queueParameters).toMatchObject({
+            type: 'email',
+            cc: 'cc1@example.com, cc2@example.com',
+            bcc: 'bcc@example.com',
+        })
     })
 })

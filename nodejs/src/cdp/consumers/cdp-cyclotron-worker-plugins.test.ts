@@ -1,10 +1,11 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
-import { RetryError } from '@posthog/plugin-scaffold'
-
+import { RetryError } from '~/plugin-scaffold'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -54,14 +55,10 @@ describe('CdpCyclotronWorkerPlugins', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub)
-
-        await processor.start()
-
-        jest.spyOn(processor['cyclotronJobQueue']!, 'queueInvocationResults').mockImplementation(() =>
-            Promise.resolve()
-        )
+        team = await getFirstTeam(hub.postgres)
+        const mockJobQueue = createMockJobQueue()
+        mockJobQueue.queueInvocationResults.mockResolvedValue(undefined)
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())

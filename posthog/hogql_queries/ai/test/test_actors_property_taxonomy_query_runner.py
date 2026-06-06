@@ -7,8 +7,9 @@ from posthog.schema import ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyRe
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyType
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 @override_settings(IN_UNIT_TESTING=True)

@@ -28,8 +28,9 @@ import {
     isMarketingAnalyticsTableQuery,
     isNonIntegratedConversionsTableQuery,
     isPersonsNode,
+    isSessionsQuery,
 } from '~/queries/utils'
-import { ExporterFormat } from '~/types'
+import { ExportContext, ExporterFormat } from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -57,7 +58,7 @@ export async function startDownload(
         exportSource = transformQuerySourceForExport(query.source, personDisplayNameProperties)
     }
 
-    const exportContext = isPersonsNode(query.source)
+    const exportContext: ExportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: exportSource }
 
@@ -67,7 +68,10 @@ export async function startDownload(
 
     if (onlySelectedColumns) {
         let columns = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+            (isEventsQuery(query.source) ||
+            isActorsQuery(query.source) ||
+            isGroupsQuery(query.source) ||
+            isSessionsQuery(query.source)
                 ? query.source.select
                 : null) ??
             query.columns ??
@@ -82,7 +86,14 @@ export async function startDownload(
         }
 
         if (columns.includes('person')) {
-            columns = columns.map((c: string) => (c === 'person' ? 'person.distinct_ids.0' : c))
+            // Expand the `person` column to `person.id` (canonical UUID, always populated),
+            // `person.distinct_ids.0` (may be blank when the person can't be hydrated), and
+            // `person.is_unresolved` (true for merged/deleted persons whose Postgres row is
+            // missing). The id keeps every row identifiable; is_unresolved must be listed
+            // explicitly so the backend's user_columns filter doesn't drop it.
+            columns = columns.flatMap((c: string) =>
+                c === 'person' ? ['person.id', 'person.distinct_ids.0', 'person.is_unresolved'] : [c]
+            )
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
@@ -112,8 +123,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
-    const canExportAllColumns =
-        (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
+    const canExportAllColumns = isEventsQuery(source) && source.select.includes('*')
     const showExportClipboardButtons =
         isPersonsNode(source) ||
         isEventsQuery(source) ||

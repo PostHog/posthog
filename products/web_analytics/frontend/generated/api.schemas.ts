@@ -7,132 +7,611 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface WebAnalyticsBreakdownResponseApi {
+/**
+ * * `screenshot` - Screenshot
+ * `iframe` - Iframe
+ * `recording` - Recording
+ */
+export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
+
+export const HeatmapTypeApi = {
+    Screenshot: 'screenshot',
+    Iframe: 'iframe',
+    Recording: 'recording',
+} as const
+
+/**
+ * * `processing` - Processing
+ * `completed` - Completed
+ * `failed` - Failed
+ */
+export type HeatmapScreenshotResponseStatusEnumApi =
+    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+
+export const HeatmapScreenshotResponseStatusEnumApi = {
+    Processing: 'processing',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface HeatmapSnapshotMetadataApi {
+    /** Viewport width (CSS pixels) this screenshot was rendered at. */
+    width: number
+    /** Whether the rendered image for this width is ready to fetch from the content endpoint. */
+    has_content: boolean
+}
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
     /**
-     * URL for next page of results
+     * @maxLength 200
      * @nullable
      */
-    next?: string | null
-    /** Array of breakdown items */
-    results: unknown[]
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-export interface WebAnalyticsOverviewResponseApi {
-    /** Unique visitors */
+export interface HeatmapScreenshotResponseApi {
+    readonly id: string
+    /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
+    readonly short_id: string
+    /**
+     * Human-readable label for the saved heatmap.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * The page URL this saved heatmap renders and overlays data on.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    /** Viewport widths (CSS pixels) the screenshot is rendered at. */
+    target_widths?: unknown
+    /** Render mode: 'screenshot', 'iframe', or 'recording'.
+
+  * `screenshot` - Screenshot
+  * `iframe` - Iframe
+  * `recording` - Recording */
+    type?: HeatmapTypeApi
+    /** Screenshot generation status: 'processing', 'completed', or 'failed'.
+
+  * `processing` - Processing
+  * `completed` - Completed
+  * `failed` - Failed */
+    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    /** Whether at least one rendered image is ready to fetch. */
+    readonly has_content: boolean
+    /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
+    readonly snapshots: readonly HeatmapSnapshotMetadataApi[]
+    /** Soft-delete flag; deleted heatmaps are hidden from the list. */
+    deleted?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /**
+     * Error detail when screenshot generation failed, otherwise null.
+     * @nullable
+     */
+    readonly exception: string | null
+}
+
+export interface HeatmapResponseItemApi {
+    count: number
+    pointer_y: number
+    pointer_relative_x: number
+    pointer_target_fixed: boolean
+}
+
+export interface HeatmapFoldSummaryApi {
+    /** Number of non-fixed interactions of this type on the page in the window (the population the above/below-the-fold split applies to; fixed-position elements are excluded since they're always on screen). */
+    total_count: number
+    /** How many of those interactions happened below the user's initial viewport — i.e. they had to scroll to reach them. */
+    below_fold_count: number
+    /** Percentage of non-fixed interactions that were below the initial viewport (0-100). A high value means engaged content sits off the first screen and is a candidate to move up. */
+    pct_below_fold: number
+    /**
+     * Median viewport height in CSS pixels across the matched interactions — the typical fold line to recommend against. Null when there are no interactions.
+     * @nullable
+     */
+    median_viewport_height: number | null
+}
+
+export interface HeatmapsResponseApi {
+    results: HeatmapResponseItemApi[]
+    /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
+    fold?: HeatmapFoldSummaryApi | null
+}
+
+export interface HeatmapEventItemApi {
+    /** @nullable */
+    session_id?: string | null
+    distinct_id: string
+    timestamp: string
+    pointer_relative_x: number
+    pointer_y: number
+    current_url: string
+    type: string
+}
+
+export interface HeatmapEventsResponseApi {
+    results: HeatmapEventItemApi[]
+    total_count: number
+    has_more: boolean
+}
+
+export interface SavedHeatmapListResponseApi {
+    results: HeatmapScreenshotResponseApi[]
+    /** Total number of saved heatmaps matching the filters. */
+    count: number
+}
+
+export interface SavedHeatmapRequestApi {
+    /**
+     * Human-readable label for the saved heatmap.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    /**
+     * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
+     * @maxItems 16
+     */
+    widths?: number[]
+    /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
+
+  * `screenshot` - Screenshot
+  * `iframe` - Iframe
+  * `recording` - Recording */
+    type?: HeatmapTypeApi
+    /** Set true to soft-delete the saved heatmap. */
+    deleted?: boolean
+}
+
+export interface PatchedSavedHeatmapRequestApi {
+    /**
+     * Human-readable label for the saved heatmap.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.
+     * @maxLength 2000
+     */
+    url?: string
+    /**
+     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    /**
+     * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
+     * @maxItems 16
+     */
+    widths?: number[]
+    /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
+
+  * `screenshot` - Screenshot
+  * `iframe` - Iframe
+  * `recording` - Recording */
+    type?: HeatmapTypeApi
+    /** Set true to soft-delete the saved heatmap. */
+    deleted?: boolean
+}
+
+/**
+ * * `Up` - Up
+ * `Down` - Down
+ */
+export type DirectionEnumApi = (typeof DirectionEnumApi)[keyof typeof DirectionEnumApi]
+
+export const DirectionEnumApi = {
+    Up: 'Up',
+    Down: 'Down',
+} as const
+
+export interface WoWChangeApi {
+    /** Absolute percentage change, rounded to nearest integer. */
+    percent: number
+    /** Direction of the change relative to the prior period.
+
+  * `Up` - Up
+  * `Down` - Down */
+    direction: DirectionEnumApi
+    /** Hex color indicating whether the change is a positive or negative signal. */
+    color: string
+    /** Short label, e.g. 'Up 12%'. */
+    text: string
+    /** Verbose label, e.g. 'Up 12% from prior period'. */
+    long_text: string
+}
+
+export interface NumericMetricApi {
+    /** Value for the most recent period. */
+    current: number
+    /**
+     * Value for the prior period, if available.
+     * @nullable
+     */
+    previous: number | null
+    /** Period-over-period change, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface DurationMetricApi {
+    /** Human-readable duration, e.g. '2m 34s'. */
+    current: string
+    /**
+     * Prior-period duration, e.g. '2m 10s'.
+     * @nullable
+     */
+    previous: string | null
+    /** Period-over-period change, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface TopPageApi {
+    /** Host for the page, if recorded. */
+    host: string
+    /** URL path. */
+    path: string
+    /** Unique visitors in the period. */
     visitors: number
-    /** Total page views */
-    views: number
-    /** Total sessions */
-    sessions: number
-    /**
-     * Bounce rate
-     * @minimum 0
-     * @maximum 1
-     */
-    bounce_rate: number
-    /** Average session duration in seconds */
-    session_duration: number
+    /** Period-over-period change in visitors, null when not meaningful. */
+    change: WoWChangeApi | null
 }
 
-export type WebAnalyticsBreakdownRetrieveParams = {
-    /**
-     * Apply URL path cleaning
-     */
-    apply_path_cleaning?: boolean
-    /**
- * Property to break down by
+export interface TopSourceApi {
+    /** Initial referring domain. */
+    name: string
+    /** Unique visitors from this source. */
+    visitors: number
+    /** Period-over-period change in visitors, null when not meaningful. */
+    change: WoWChangeApi | null
+}
 
-* `DeviceType` - DeviceType
-* `Browser` - Browser
-* `OS` - OS
-* `Viewport` - Viewport
-* `InitialReferringDomain` - InitialReferringDomain
-* `InitialUTMSource` - InitialUTMSource
-* `InitialUTMMedium` - InitialUTMMedium
-* `InitialUTMCampaign` - InitialUTMCampaign
-* `InitialUTMTerm` - InitialUTMTerm
-* `InitialUTMContent` - InitialUTMContent
-* `Country` - Country
-* `Region` - Region
-* `City` - City
-* `InitialPage` - InitialPage
-* `Page` - Page
-* `ExitPage` - ExitPage
-* `InitialChannelType` - InitialChannelType
+export interface GoalApi {
+    /** Goal name (action name). */
+    name: string
+    /** Total conversions in the period. */
+    conversions: number
+    /** Period-over-period change in conversions, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface WeeklyDigestResponseApi {
+    /** Unique visitors. */
+    visitors: NumericMetricApi
+    /** Total pageviews. */
+    pageviews: NumericMetricApi
+    /** Total sessions. */
+    sessions: NumericMetricApi
+    /** Bounce rate (0–100). */
+    bounce_rate: NumericMetricApi
+    /** Average session duration. */
+    avg_session_duration: DurationMetricApi
+    /** Top 5 pages by unique visitors. */
+    top_pages: TopPageApi[]
+    /** Top 5 traffic sources by unique visitors. */
+    top_sources: TopSourceApi[]
+    /** Goal conversions. */
+    goals: GoalApi[]
+    /** Link to the Web analytics dashboard for this project. */
+    dashboard_url: string
+}
+
+export interface WebAnalyticsFilterPresetApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at: string
+    readonly last_modified_by: UserBasicApi
+}
+
+export interface PaginatedWebAnalyticsFilterPresetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WebAnalyticsFilterPresetApi[]
+}
+
+export interface PatchedWebAnalyticsFilterPresetApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    deleted?: boolean
+    filters?: unknown
+    readonly last_modified_at?: string
+    readonly last_modified_by?: UserBasicApi
+}
+
+export type HeatmapScreenshotsContentRetrieveParams = {
+    /**
+     * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.
+     */
+    width?: number
+}
+
+export type HeatmapsListParams = {
+    /**
+ * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+* `unique_visitors` - unique_visitors
+* `total_count` - total_count
  * @minLength 1
  */
-    breakdown_by: WebAnalyticsBreakdownRetrieveBreakdownBy
+    aggregation?: HeatmapsListAggregation
     /**
-     * Start date for the query (format: YYYY-MM-DD)
-     */
-    date_from: string
-    /**
-     * End date for the query (format: YYYY-MM-DD)
-     */
-    date_to: string
-    /**
-     * Filter out test accounts
-     */
-    filter_test_accounts?: boolean
-    /**
-     * Host to filter by (e.g. example.com)
-     * @minLength 1
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
      * @nullable
      */
-    host?: string | null
+    cohort_ids?: string | null
     /**
-     * Number of results to return
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number
+}
+
+export type HeatmapsListAggregation = (typeof HeatmapsListAggregation)[keyof typeof HeatmapsListAggregation]
+
+export const HeatmapsListAggregation = {
+    UniqueVisitors: 'unique_visitors',
+    TotalCount: 'total_count',
+} as const
+
+export type HeatmapsEventsRetrieveParams = {
+    /**
+ * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+* `unique_visitors` - unique_visitors
+* `total_count` - total_count
+ * @minLength 1
+ */
+    aggregation?: HeatmapsEventsRetrieveAggregation
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean
+    /**
+     * Maximum interactions to return (1-100).
      * @minimum 1
-     * @maximum 1000
+     * @maximum 100
      */
     limit?: number
     /**
-     * Number of results to skip
+     * Number of interactions to skip, for pagination.
      * @minimum 0
      */
     offset?: number
+    /**
+     * JSON array of the heatmap coordinates to drill into, e.g. '[{"x": 0.5, "y": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.
+     * @minLength 1
+     */
+    points: string
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number
 }
 
-export type WebAnalyticsBreakdownRetrieveBreakdownBy =
-    (typeof WebAnalyticsBreakdownRetrieveBreakdownBy)[keyof typeof WebAnalyticsBreakdownRetrieveBreakdownBy]
+export type HeatmapsEventsRetrieveAggregation =
+    (typeof HeatmapsEventsRetrieveAggregation)[keyof typeof HeatmapsEventsRetrieveAggregation]
 
-export const WebAnalyticsBreakdownRetrieveBreakdownBy = {
-    DeviceType: 'DeviceType',
-    Browser: 'Browser',
-    OS: 'OS',
-    Viewport: 'Viewport',
-    InitialReferringDomain: 'InitialReferringDomain',
-    InitialUTMSource: 'InitialUTMSource',
-    InitialUTMMedium: 'InitialUTMMedium',
-    InitialUTMCampaign: 'InitialUTMCampaign',
-    InitialUTMTerm: 'InitialUTMTerm',
-    InitialUTMContent: 'InitialUTMContent',
-    Country: 'Country',
-    Region: 'Region',
-    City: 'City',
-    InitialPage: 'InitialPage',
-    Page: 'Page',
-    ExitPage: 'ExitPage',
-    InitialChannelType: 'InitialChannelType',
+export const HeatmapsEventsRetrieveAggregation = {
+    UniqueVisitors: 'unique_visitors',
+    TotalCount: 'total_count',
 } as const
 
-export type WebAnalyticsOverviewRetrieveParams = {
+export type SavedListParams = {
     /**
-     * Start date for the query (format: YYYY-MM-DD)
+     * Filter by the creating user's ID.
      */
-    date_from: string
+    created_by?: number
     /**
-     * End date for the query (format: YYYY-MM-DD)
+     * Maximum saved heatmaps to return.
      */
-    date_to: string
+    limit?: number
     /**
-     * Filter out test accounts
+     * Number to skip, for pagination.
      */
-    filter_test_accounts?: boolean
+    offset?: number
     /**
-     * Host to filter by (e.g. example.com)
+     * Field to order by, e.g. '-updated_at' (default) or 'created_at'.
      * @minLength 1
-     * @nullable
      */
-    host?: string | null
+    order?: string
+    /**
+     * Case-insensitive substring match on URL or name.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Filter by generation status: 'processing', 'completed', or 'failed'.
+     * @minLength 1
+     */
+    status?: string
+    /**
+     * Filter by render mode: 'screenshot', 'iframe', or 'recording'.
+     * @minLength 1
+     */
+    type?: string
+}
+
+export type WebAnalyticsWeeklyDigestParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     */
+    compare?: boolean
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number
+}
+
+export type WebAnalyticsFilterPresetsListParams = {
+    created_by?: number
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
 }

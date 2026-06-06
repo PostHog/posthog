@@ -12,6 +12,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import PostHogAnalyticsResource
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -48,7 +49,8 @@ def increment_counter(team_id: int, normalized_query_hash: str, is_cached: bool)
 
 
 def get_teams_enabled_for_web_analytics_cache_warming() -> list[int]:
-    return get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
+    value = get_instance_setting("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM")
+    return value if isinstance(value, list) else []
 
 
 def queries_to_keep_fresh(
@@ -75,12 +77,18 @@ def queries_to_keep_fresh(
             WHERE
                 timestamp >= now() - INTERVAL %(days)s DAY
                 AND team_id = %(team_id)s
-                AND query_type IN (
-                    'stats_table_query',
+                AND (
+                    startsWith(query_type, 'stats_table_')
+                    OR query_type IN (
                     'web_goals_query',
                     'web_overview_preaggregated_query',
                     'web_overview_query',
-                    'web_vitals_path_breakdown_query'
+                    'web_overview_lazy_query',
+                    'web_stats_paths_lazy_query',
+                    'web_vitals_path_breakdown_query',
+                    'web_vitals_paths_lazy_query',
+                    'external_clicks_query'
+                )
                 )
                 AND query_json_raw != ''
                 AND exception_code = 0
@@ -183,7 +191,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: dict) -> None:
                 tag_queries(team_id=team_id, trigger="webAnalyticsQueryWarming", feature=Feature.CACHE_WARMUP)
 
                 # TODO: We shouldn't try to run a query if it failed last run
-                runner.run()
+                runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
                 increment_counter(team_id, normalized_query_hash, is_cached=False)
                 queries_warmed += 1
 

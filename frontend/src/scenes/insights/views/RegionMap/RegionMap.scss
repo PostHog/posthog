@@ -1,0 +1,21 @@
+.RegionMap {
+    width: 100%;
+    line-height: 0;
+
+    svg {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+
+    &__geography {
+        cursor: pointer;
+        outline: none;
+        stroke: var(--color-bg-surface-primary);
+        stroke-width: 0.5px;
+
+        &:hover {
+            opacity: 0.8;
+        }
+    }
+}

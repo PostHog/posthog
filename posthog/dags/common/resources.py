@@ -1,4 +1,5 @@
 import json
+import socket
 import asyncio
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -13,10 +14,48 @@ import psycopg2.extras
 import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
+from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.profiles import KafkaClusterProfile
+from posthog.kafka_client.routing import get_producer
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
+
+
+def _is_retryable_clickhouse_exception(e: Exception) -> bool:
+    """Check if a ClickHouse-related exception should be retried.
+
+    Handles both ClickHouse driver errors (with specific error codes) and
+    network-level exceptions like socket timeouts.
+    """
+    # Network-level exceptions (socket timeouts, connection errors)
+    if isinstance(e, (TimeoutError, socket.timeout, OSError, ConnectionError)):
+        return True
+
+    # ClickHouse driver-specific errors
+    return isinstance(e, Error) and (
+        (
+            e.code
+            in (  # these are typically transient errors and unrelated to the query being executed
+                ErrorCodes.NETWORK_ERROR,
+                ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+                ErrorCodes.NOT_ENOUGH_SPACE,
+                ErrorCodes.SOCKET_TIMEOUT,
+                # Raised by waitMutationToFinishOnReplicas / cross-replica reads when the
+                # coordinator's snapshot of active replicas momentarily lacks the covering
+                # part (e.g. mid-fetch, mid-merge) or no replica is online. The mutation
+                # itself usually proceeds; the wait is what fails. Retry to re-poll.
+                ErrorCodes.NO_REPLICA_HAS_PART,  # 234
+                ErrorCodes.NO_ACTIVE_REPLICAS,  # 254
+                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
+            )
+        )
+        # queries that exceed memory limits can be retried if they were killed due to total server
+        # memory consumption, but we should avoid retrying queries that were killed due to query limits
+        or (e.code == ErrorCodes.MEMORY_LIMIT_EXCEEDED and "Memory limit (total) exceeded" in e.message)
+    )
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -32,32 +71,101 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "receive_timeout": f"{15 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str | None = None
+
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        return get_cluster(
+            context.log,
+            host=self.host,
+            cluster=self.cluster,
+            client_settings=self.client_settings,
+            retry_policy=RetryPolicy(
+                max_attempts=8,
+                delay=ExponentialBackoff(20),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+        )
+
+
+class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
+    """
+    ClickHouse cluster resource that connects as the dedicated 'backups' user.
+
+    Requires CLICKHOUSE_BACKUPS_USER and CLICKHOUSE_BACKUPS_PASSWORD env vars.
+    The backups user must have a server-side settings profile with
+    use_concurrency_control=0 (configured in users.xml via Ansible) because
+    async BACKUP threads don't inherit session-level settings.
+    """
+
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str = settings.CLICKHOUSE_CLUSTER
+
+    client_settings: dict[str, str] = {
+        "max_execution_time": "0",
+        "max_memory_usage": "0",
+        "mutations_sync": "0",
+        "receive_timeout": f"{60 * 60}",  # backups can take a long time
+    }
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        assert context.log is not None
+        user, password = get_clickhouse_creds(ClickHouseUser.BACKUPS)
+        from django.conf import settings as django_settings
+
+        if user == django_settings.CLICKHOUSE_USER:
+            context.log.warning(
+                "CLICKHOUSE_BACKUPS_USER not configured, falling back to default user. "
+                "Backups will not use the dedicated 'backups' profile with use_concurrency_control=0."
+            )
+        return get_cluster(
+            context.log,
+            host=self.host,
+            cluster=self.cluster,
+            client_settings=self.client_settings,
+            retry_policy=RetryPolicy(
+                max_attempts=8,
+                delay=ExponentialBackoff(20),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+            connection_overrides={"user": user, "password": password},
+        )
+
+
+class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
+    """
+    ClickHouse cluster resource that connects as the dedicated 'part_breaker' user.
+
+    Requires CLICKHOUSE_PART_BREAKER_USER and CLICKHOUSE_PART_BREAKER_PASSWORD env vars.
+    The part_breaker user needs SELECT on system tables, CREATE/DROP/INSERT/ALTER on
+    staging tables, and ALTER FREEZE / DROP PART on source tables.
+    """
+
+    client_settings: dict[str, str] = {
+        "max_execution_time": str(settings.PART_BREAKER_MAX_EXECUTION_TIME),  # default 24h
+        "max_memory_usage": str(settings.PART_BREAKER_MAX_MEMORY_USAGE),  # default 128 GiB
+        "receive_timeout": str(settings.PART_BREAKER_RECEIVE_TIMEOUT),  # default 48h
+    }
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        assert context.log is not None
+        user, password = get_clickhouse_creds(ClickHouseUser.PART_BREAKER)
+        from django.conf import settings as django_settings
+
+        if user == django_settings.CLICKHOUSE_USER:
+            context.log.warning(
+                f"CLICKHOUSE_PART_BREAKER_USER not configured, falling back to default user '{user}'. "
+                "Part breaker will not use a dedicated user with restricted permissions."
+            )
         return get_cluster(
             context.log,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
                 delay=ExponentialBackoff(20),
-                exceptions=lambda e: (
-                    isinstance(e, Error)
-                    and (
-                        (
-                            e.code
-                            in (  # these are typically transient errors and unrelated to the query being executed
-                                ErrorCodes.NETWORK_ERROR,
-                                ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
-                                ErrorCodes.NOT_ENOUGH_SPACE,
-                                ErrorCodes.SOCKET_TIMEOUT,
-                                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
-                            )
-                        )
-                        # queries that exceed memory limits can be retried if they were killed due to total server
-                        # memory consumption, but we should avoid retrying queries that were killed due to query limits
-                        or (e.code == ErrorCodes.MEMORY_LIMIT_EXCEEDED and "Memory limit (total) exceeded" in e.message)
-                    )
-                ),
+                exceptions=_is_retryable_clickhouse_exception,
             ),
+            connection_overrides={"user": user, "password": password},
         )
 
 
@@ -107,7 +215,7 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
             )
 
         asyncio.run(initialize_self_capture_api_token())
-        posthoganalytics.personal_api_key = self.personal_api_key
+        posthoganalytics.personal_api_key = self.personal_api_key  # ty: ignore[invalid-assignment]
 
         return None
 
@@ -135,11 +243,19 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 @dagster.resource
 def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
+    """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
+
+    Every existing consumer of this resource (`detach_distinct_id_op`,
+    `person_property_reconciliation`, `person_property_reconciliation_restore`)
+    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
+    routing map sends to the INGESTION profile. Binding the resource here keeps
+    that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
+    fails loud rather than silently dropping writes via the DEFAULT fallback.
+
+    Ops producing to topics on a different profile must call
+    `posthog.kafka_client.routing.get_producer(topic=...)` directly.
     """
-    Kafka producer resource with proper cleanup.
-    Flushes pending messages on teardown.
-    """
-    producer = _KafkaProducer()
+    producer = get_producer(profile=KafkaClusterProfile.INGESTION)
     try:
         yield producer
     finally:

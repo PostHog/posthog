@@ -30,7 +30,6 @@ class TestUserActivityLoggingConfiguration(BaseTest):
             ("_billing_plan_details", True),
             ("strapi_id", True),
             ("password", False),
-            ("temporary_token", False),
             ("anonymize_data", False),
             ("is_email_verified", False),
         ]
@@ -47,7 +46,6 @@ class TestUserActivityLoggingConfiguration(BaseTest):
         [
             ("email", True),
             ("password", True),
-            ("temporary_token", True),
             ("pending_email", True),
             ("first_name", False),
             ("last_name", False),

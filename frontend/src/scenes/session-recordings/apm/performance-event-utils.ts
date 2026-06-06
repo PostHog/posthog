@@ -1,9 +1,8 @@
 import { CapturedNetworkRequest } from 'posthog-js'
-
-import { eventWithTime } from '@posthog/rrweb-types'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { humanizeBytes } from 'lib/utils'
+import { assignField, humanizeBytes, isKeyOf } from 'lib/utils'
 
 import { PerformanceEvent } from '~/types'
 
@@ -212,8 +211,8 @@ export function mapRRWebNetworkRequest(
     }
 
     Object.entries(RRWebPerformanceEventReverseMapping).forEach(([key, value]) => {
-        if (key in capturedRequest) {
-            data[value] = capturedRequest[key]
+        if (isKeyOf(key, capturedRequest)) {
+            assignField(data, value, capturedRequest[key])
         }
     })
 
@@ -239,6 +238,9 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
                 snapshot.data.plugin === NETWORK_PLUGIN_NAME
             ) {
                 const properties = snapshot.data.payload as any
+                if (!properties || typeof properties !== 'object') {
+                    return
+                }
 
                 const data: Partial<PerformanceEvent> = {
                     timestamp: snapshot.timestamp,
@@ -248,7 +250,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
 
                 Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
                     if (key in properties) {
-                        data[value] = properties[key]
+                        assignField(data, value, properties[key])
                     }
                 })
 
@@ -261,7 +263,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
             ) {
                 const payload = snapshot.data.payload as any
 
-                if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
+                if (!payload || !Array.isArray(payload.requests) || payload.requests.length === 0) {
                     return
                 }
 

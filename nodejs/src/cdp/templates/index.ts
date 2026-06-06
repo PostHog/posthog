@@ -12,20 +12,26 @@ import { template as googleTagManagerTemplate } from './_destinations/google-tag
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubspot.template'
+import { template as klimeTemplate } from './_destinations/klime/klime.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
+import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
+import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
+import { template as unifyTemplate } from './_destinations/unify/unify.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
+import { template as whatsappTemplate } from './_destinations/whatsapp/whatsapp.template'
 import { template as pixelTemplate } from './_sources/pixel/pixel.template'
 import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
+import { template as vercelLogDrainTemplate } from './_sources/vercel/vercel_log_drain.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
@@ -52,6 +58,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linkedinAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
+    whatsappTemplate,
     googleSheetsTemplate,
     googleTagManagerTemplate,
     emailTemplate,
@@ -61,8 +68,12 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogGroupIdentifyTemplate,
     posthogUpdatePersonPropertiesTemplate,
     posthogSetHogflowVariableTemplate,
+    posthogGetTicketTemplate,
+    posthogUpdateTicketTemplate,
     hubspotCompanyTemplate,
     accoilTemplate,
+    klimeTemplate,
+    unifyTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -98,6 +109,7 @@ export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [n
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [
     incomingWebhookTemplate,
     stripeWebhookTemplate,
+    vercelLogDrainTemplate,
     pixelTemplate,
 ]
 

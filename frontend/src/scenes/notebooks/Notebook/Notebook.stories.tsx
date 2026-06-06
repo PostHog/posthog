@@ -253,6 +253,28 @@ const testCases: Record<string, NotebookType> = {
         },
     ]),
     'api/projects/:team_id/notebooks/empty': notebookTestTemplate('empty', []),
+    'api/projects/:team_id/notebooks/flattened-table': notebookTestTemplate('flattened-table', [
+        {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Flattened table recovery' }],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                { type: 'text', text: 'Stored as a literal paragraph; migration should render it as a real table:' },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: '| Content type | Tab opens | Unique users | |---|---|---| | Session replay | 287K (32%) | 58K | | New/blank tab | 248K (27%) | 53K | | Dashboard | 53K (6%) | 14K |',
+                },
+            ],
+        },
+    ]),
 }
 
 const meta: Meta = {
@@ -267,7 +289,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                'api/environments/:team_id/query': {
+                'api/environments/:team_id/query/HogQLQuery': {
                     clickhouse:
                         "SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id, any(events.properties) AS properties FROM events WHERE and(equals(events.team_id, 1), in(events.event, [%(hogql_val_0)s, %(hogql_val_1)s]), ifNull(in(session_id, [%(hogql_val_2)s]), 0), ifNull(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_3)s), %(hogql_val_4)s), 0), ifNull(lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_5)s), %(hogql_val_6)s), 0)) GROUP BY session_id LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                     columns: ['session_id', 'properties'],
@@ -411,7 +433,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const NotebooksList: Story = {}
 export const Headings: Story = { parameters: { pageUrl: urls.notebook('headings') } }
 export const CollapsedHeadings: Story = { parameters: { pageUrl: urls.notebook('collapsed-headings') } }
@@ -420,6 +442,7 @@ export const NumberedList: Story = { parameters: { pageUrl: urls.notebook('numbe
 export const BulletList: Story = { parameters: { pageUrl: urls.notebook('bullet-list') } }
 export const TextOnlyNotebook: Story = { parameters: { pageUrl: urls.notebook('12345') } }
 export const EmptyNotebook: Story = { parameters: { pageUrl: urls.notebook('empty') } }
+export const FlattenedTable: Story = { parameters: { pageUrl: urls.notebook('flattened-table') } }
 export const NotebookNotFound: Story = { parameters: { pageUrl: urls.notebook('abcde') } }
 
 export const RecordingsPlaylist: Story = {

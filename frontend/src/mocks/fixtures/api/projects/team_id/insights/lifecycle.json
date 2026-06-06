@@ -1,7 +1,7 @@
 {
     "id": 51,
     "short_id": "jEAIVJnF",
-    "name": "",
+    "name": null,
     "derived_name": "User lifecycle based on Pageview",
     "filters": {},
     "filters_hash": "cache_aa11294b4c87ebf92d0d5c6672b319ff",

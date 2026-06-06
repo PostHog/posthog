@@ -2,6 +2,7 @@ import re
 import json
 import math
 import time
+import random
 import datetime
 import dataclasses
 from collections.abc import Callable
@@ -259,6 +260,27 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
     return urllib.parse.unquote(args[0])
 
 
+def tryDecodeURLComponent(
+    args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
+) -> Optional[str]:
+    import re
+    import urllib.parse
+
+    s = args[0]
+    if not s:
+        return s
+
+    # JavaScript's decodeURIComponent throws on invalid percent-encoding
+    # Python's unquote is lenient, so check for % not followed by 2 hex digits
+    if re.search(r"%(?![0-9A-Fa-f]{2})", s):
+        return None
+
+    try:
+        return urllib.parse.unquote(s)
+    except Exception:
+        return None
+
+
 def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
@@ -304,6 +326,10 @@ def generateUUIDv4(args: list[Any], team: Optional["Team"], stdout: Optional[lis
     import uuid
 
     return str(uuid.uuid4())
+
+
+def randomFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> float:
+    return random.random()
 
 
 def keys(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
@@ -826,6 +852,22 @@ def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
         raise ValueError("range function supports 1 or 2 arguments only")
 
 
+def JSONExtractGeneric(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    if len(args) < 2:
+        return None
+    obj = args[0]
+    try:
+        if isinstance(obj, str):
+            obj = json.loads(obj)
+    except json.JSONDecodeError:
+        return None
+    # Last argument is the return type (ClickHouse convention), which we ignore.
+    # Arguments between first and last are path components.
+    path = args[1:-1] if len(args) > 2 else []
+    val = get_nested_value(obj, path, True)
+    return val
+
+
 def JSONExtractArrayRaw(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     obj = args[0]
     path = args[1:]
@@ -882,6 +924,37 @@ def JSONExtractString(args: list[Any], team: Optional["Team"], stdout: Optional[
     return str(val) if val is not None else None
 
 
+def multiSearchAnyCaseInsensitive(args: list[Any], team, stdout, timeout):
+    if args[0] is None or args[1] is None:
+        return 0
+    haystack = str(args[0]).lower()
+    needles = args[1] if isinstance(args[1], list) else []
+    return int(any(str(needle).lower() in haystack for needle in needles))
+
+
+def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    """
+    Extract substring matching a regex pattern.
+    Matches ClickHouse extract(haystack, pattern) behavior:
+    - Returns first capture group if pattern has groups
+    - Returns whole match if no capture groups
+    - Returns empty string if no match
+    """
+    if args[0] is None or args[1] is None:
+        return ""
+    haystack = str(args[0])
+    pattern = str(args[1])
+    try:
+        match = re.search(pattern, haystack)
+        if not match:
+            return ""
+        if match.lastindex and match.lastindex >= 1:
+            return match.group(1) or ""
+        return match.group(0) or ""
+    except re.error:
+        return ""
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -897,13 +970,12 @@ STL: dict[str, STLFunction] = {
         minArgs=2,
         maxArgs=2,
     ),
+    "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
-    "ilike": STLFunction(
-        fn=lambda args, team, stdout, timeout: like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
-    ),
+    "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),
     "notLike": STLFunction(fn=lambda args, team, stdout, timeout: not like(args[0], args[1]), minArgs=2, maxArgs=2),
     "notILike": STLFunction(
-        fn=lambda args, team, stdout, timeout: not like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
+        fn=lambda args, team, stdout, timeout: not like(args[0], args[1], True), minArgs=2, maxArgs=2
     ),
     "toString": STLFunction(fn=toString, minArgs=1, maxArgs=1),
     "toUUID": STLFunction(fn=toString, minArgs=1, maxArgs=1),
@@ -934,6 +1006,7 @@ STL: dict[str, STLFunction] = {
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),
     "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
+    "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),
     "replaceOne": STLFunction(
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1), minArgs=3, maxArgs=3
     ),
@@ -959,6 +1032,7 @@ STL: dict[str, STLFunction] = {
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
+    "randomFloat": STLFunction(fn=randomFloat, minArgs=0, maxArgs=0),
     "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
     "sha256": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),
@@ -1046,6 +1120,7 @@ STL: dict[str, STLFunction] = {
         maxArgs=2,
     ),
     "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
+    "JSONExtract": STLFunction(fn=JSONExtractGeneric, minArgs=2),
     "JSONExtractArrayRaw": STLFunction(fn=JSONExtractArrayRaw, minArgs=1),
     "JSONExtractFloat": STLFunction(fn=JSONExtractFloat, minArgs=1),
     "JSONExtractInt": STLFunction(fn=JSONExtractInt, minArgs=1),
@@ -1093,4 +1168,9 @@ STL: dict[str, STLFunction] = {
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
+    "multiSearchAnyCaseInsensitive": STLFunction(
+        fn=multiSearchAnyCaseInsensitive,
+        minArgs=2,
+        maxArgs=2,
+    ),
 }

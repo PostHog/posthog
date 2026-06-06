@@ -10,18 +10,20 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    CyclotronJobFiltersType,
     HogFunctionSubTemplateIdType,
+    HogFunctionSubTemplateType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
     HogFunctionTypeType,
     UserType,
 } from '~/types'
+
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
@@ -40,14 +42,31 @@ export type HogFunctionTemplateListLogicProps = {
     additionalTypes?: HogFunctionTypeType[]
     /** If provided, only those templates will be shown */
     subTemplateIds?: HogFunctionSubTemplateIdType[] | null
-    /** Overrides to be used when creating a new hog function */
-    getConfigurationOverrides?: (subTemplateId?: HogFunctionSubTemplateIdType) => CyclotronJobFiltersType | undefined
+    /**
+     * Overrides to merge into the sub-template before building the new-function URL.
+     * Common fields: `filters` (merged with the sub-template's defaults), `name`,
+     * `description`. Anything else returned overrides the matching field on the
+     * sub-template. The resolved sub-template is passed as the second argument so
+     * callers that need to decorate the sub-template's own name/description (e.g.
+     * health alerts adding the selected `kind` to the name) can do so.
+     */
+    getConfigurationOverrides?: (
+        subTemplateId: HogFunctionSubTemplateIdType | undefined,
+        subTemplate: HogFunctionSubTemplateType | null
+    ) => Partial<HogFunctionSubTemplateType> | undefined
     syncFiltersWithUrl?: boolean
     manualTemplates?: HogFunctionTemplateType[] | null
     manualTemplatesLoading?: boolean
     hideComingSoonByDefault?: boolean
     customFilterFunction?: (template: HogFunctionTemplateType) => boolean
+    /** Extra search params to include in the URL when navigating to create a new hog function */
+    queryParams?: Record<string, string>
 }
+
+// Stable references for default prop values - avoids reselect input stability warnings
+// caused by `?? []` / `?? () => true` creating new references on every selector call.
+const EMPTY_ARRAY: never[] = []
+const ALWAYS_TRUE = (): boolean => true
 
 export const shouldShowHogFunctionTemplate = (
     hogFunctionTemplate: HogFunctionTemplateType,
@@ -116,8 +135,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 s.rawTemplates,
                 s.user,
                 s.featureFlags,
-                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
-                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? EMPTY_ARRAY,
+                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? EMPTY_ARRAY,
             ],
             (
                 rawTemplates,
@@ -153,6 +172,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
+                    .filter(
+                        (x) =>
+                            x.id !== 'template-source-vercel-log-drain' ||
+                            !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
+                    )
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -160,9 +184,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         templatesFuse: [
             (s) => [s.templates],
             (templates): Fuse => {
-                return new FuseClass(templates || [], {
+                return createFuse(templates || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],
@@ -173,7 +196,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 s.templates,
                 s.templatesFuse,
                 (_, props) => props.hideComingSoonByDefault ?? false,
-                (_, props) => props.customFilterFunction ?? (() => true),
+                (_, props) => props.customFilterFunction ?? ALWAYS_TRUE,
             ],
             (
                 filters,
@@ -220,7 +243,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ getConfigurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
+            ({
+                getConfigurationOverrides,
+                queryParams,
+            }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
                         // "Coming soon" sources don't have docs yet
@@ -245,30 +271,27 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         ? getSubTemplate(template, template.sub_template_id)
                         : null
 
-                    const configurationOverrides = getConfigurationOverrides
-                        ? getConfigurationOverrides(subTemplate?.sub_template_id)
-                        : null
+                    const overrides = getConfigurationOverrides
+                        ? getConfigurationOverrides(subTemplate?.sub_template_id, subTemplate)
+                        : undefined
 
-                    const filters =
-                        configurationOverrides || subTemplate?.filters
+                    const mergedFilters =
+                        overrides?.filters || subTemplate?.filters
                             ? {
                                   ...subTemplate?.filters,
-                                  ...configurationOverrides,
+                                  ...overrides?.filters,
                               }
                             : undefined
 
                     const configuration: Record<string, any> = {
                         ...subTemplate,
-                        ...(filters ? { filters } : {}),
+                        ...overrides,
+                        ...(mergedFilters ? { filters: mergedFilters } : {}),
                     }
 
-                    return combineUrl(
-                        urls.hogFunctionNew(template.id),
-                        {},
-                        {
-                            configuration,
-                        }
-                    ).url
+                    return combineUrl(urls.hogFunctionNew(template.id), queryParams ?? {}, {
+                        configuration,
+                    }).url
                 }
             },
         ],

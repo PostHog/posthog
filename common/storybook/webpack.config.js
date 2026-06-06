@@ -3,11 +3,28 @@ const path = require('path')
 
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const fs = require('fs-extra')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
 
 function createEntry(entry) {
+    // Copy hedgehog-mode assets to dist
+    const hedgehogModeSrc = path.resolve(
+        __dirname,
+        '..',
+        '..',
+        'frontend',
+        'node_modules',
+        '@posthog',
+        'hedgehog-mode',
+        'assets'
+    )
+    const hedgehogModeDest = path.resolve(__dirname, 'dist', 'hedgehog-mode')
+    if (fs.existsSync(hedgehogModeSrc)) {
+        fs.copySync(hedgehogModeSrc, hedgehogModeDest, { overwrite: true })
+    }
+
     const commonLoadersForSassAndLess = [
         {
             loader: 'style-loader',
@@ -58,12 +75,24 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'scenes'),
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
+                '@posthog/mcp-ui': path.resolve(__dirname, '..', '..', 'services', 'mcp', 'src', 'ui-apps', 'lib'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
-                storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
+                '@posthog/quill': path.resolve(__dirname, '..', '..', 'packages', 'quill', 'packages', 'quill', 'src'),
+                '@posthog/quill-charts': path.resolve(
+                    __dirname,
+                    '..',
+                    '..',
+                    'packages',
+                    'quill',
+                    'packages',
+                    'charts',
+                    'src'
+                ),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
+                '@common': path.resolve(__dirname, '..', '..', 'common'),
                 react: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react'),
                 'react-dom': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react-dom'),
                 kea: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea'),
@@ -105,8 +134,8 @@ function createEntry(entry) {
                     },
                 },
                 {
-                    // Apply rule for .sass, .scss or .css files
-                    test: /\.(sa|sc|c)ss$/,
+                    // Apply rule for .sass or .scss files
+                    test: /\.(sa|sc)ss$/,
 
                     // Set loaders to transform files.
                     // Loaders are applying from right to left(!)
@@ -121,6 +150,16 @@ function createEntry(entry) {
                             },
                         },
                     ].filter((a) => a),
+                },
+                {
+                    // Plain .css files (e.g. Tailwind's prebuilt bundle) skip
+                    // sass-loader — Tailwind v4 output uses modern CSS like
+                    // `min(fit-content, ...)` which sass cannot parse.
+                    // postcss-loader compiles Tailwind on the initial build only;
+                    // HMR won't re-run PostCSS, so newly-used utility classes
+                    // require a Storybook restart (see .storybook/README.md).
+                    test: /\.css$/,
+                    use: commonLoadersForSassAndLess,
                 },
                 {
                     // Apply rule for less files (used to import and override AntD)
@@ -140,7 +179,7 @@ function createEntry(entry) {
 
                 {
                     // Now we apply rule for images
-                    test: /\.(png|jpe?g|gif|svg|lottie)$/,
+                    test: /\.(png|jpe?g|gif|svg)$/,
                     use: [
                         {
                             // Using file-loader for these files
@@ -189,8 +228,8 @@ function createEntry(entry) {
                     loader: 'babel-loader',
                 },
                 {
-                    // Apply rule for .sql files
-                    test: /\.sql$/,
+                    // Load .sql and .yaml files
+                    test: /\.(sql|yaml)$/,
                     type: 'asset/source',
                 },
             ],

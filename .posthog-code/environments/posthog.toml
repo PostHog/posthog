@@ -1,0 +1,7 @@
+id = "a53111b2-2019-4a21-a4c6-63436a0769d3" # DO NOT EDIT MANUALLY
+version = 1
+
+name = "posthog"
+
+[setup]
+script = "direnv allow ."

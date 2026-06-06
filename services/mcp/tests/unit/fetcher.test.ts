@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildApiFetcher } from '@/api/fetcher'
-import type { Fetcher } from '@/api/generated'
+import { buildApiFetcher, type Fetcher } from '@/api/fetcher'
 import { globalRateLimiter } from '@/api/rate-limiter'
+import { PostHogApiError } from '@/lib/errors'
 
 // Mock the global rate limiter
 vi.mock('@/api/rate-limiter', () => ({
@@ -231,31 +231,42 @@ describe('buildApiFetcher', () => {
     })
 
     describe('error handling', () => {
-        it('should throw error on non-429 error responses', async () => {
-            const mockErrorResponse = new Response(JSON.stringify({ error: 'Not found' }), {
-                status: 404,
-            })
-
-            vi.mocked(global.fetch).mockResolvedValueOnce(mockErrorResponse)
+        it('should throw a typed PostHogApiError on non-429 4xx responses', async () => {
+            vi.mocked(global.fetch).mockResolvedValueOnce(
+                new Response(JSON.stringify({ error: 'Not found' }), {
+                    status: 404,
+                    statusText: 'Not Found',
+                })
+            )
 
             const fetcher = buildApiFetcher(mockConfig)
 
-            await expect(fetcher.fetch(baseFetchInput)).rejects.toThrow('Failed request: [404]')
+            const thrown = await fetcher.fetch(baseFetchInput).catch((err) => err)
+            expect(thrown).toBeInstanceOf(PostHogApiError)
+            expect(thrown).toMatchObject({
+                status: 404,
+                statusText: 'Not Found',
+            })
+            expect(thrown.message).toContain('Failed request: [404]')
 
             // Should not retry on non-429 errors
             expect(global.fetch).toHaveBeenCalledTimes(1)
         })
 
-        it('should throw error on 500 server errors without retry', async () => {
-            const mockErrorResponse = new Response(JSON.stringify({ error: 'Internal error' }), {
-                status: 500,
-            })
-
-            vi.mocked(global.fetch).mockResolvedValueOnce(mockErrorResponse)
+        it('should throw a typed PostHogApiError on 5xx responses without retry', async () => {
+            vi.mocked(global.fetch).mockResolvedValueOnce(
+                new Response(JSON.stringify({ error: 'Internal error' }), {
+                    status: 500,
+                    statusText: 'Internal Server Error',
+                })
+            )
 
             const fetcher = buildApiFetcher(mockConfig)
 
-            await expect(fetcher.fetch(baseFetchInput)).rejects.toThrow('Failed request: [500]')
+            const thrown = await fetcher.fetch(baseFetchInput).catch((err) => err)
+            expect(thrown).toBeInstanceOf(PostHogApiError)
+            expect(thrown.status).toBe(500)
+            expect(thrown.message).toContain('Failed request: [500]')
 
             expect(global.fetch).toHaveBeenCalledTimes(1)
         })

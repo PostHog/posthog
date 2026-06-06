@@ -1,0 +1,68 @@
+@import 'tailwindcss';
+
+/*
+ * Quill design system stylesheets — all four are load-bearing.
+ *
+ * Order matters (see packages/quill/packages/quill/README.md):
+ *   1. tokens.css     — registers Quill's @theme tokens (--color-*, --radius-*, etc.)
+ *                       so utility classes like `bg-card`, `text-muted-foreground`,
+ *                       `rounded-md` resolve against Quill's design tokens.
+ *   2. base.css       — `* { border-color: var(--border) }` reset; load-bearing
+ *                       for primitives that write plain `border` without a colour.
+ *   3. primitives.css — pre-compiled BEM rules (.quill-badge, .quill-popover, …)
+ *                       authored CSS that Tailwind can't generate. Skipping this
+ *                       leaves badges, popovers, menus, dialogs etc. unstyled.
+ *   4. tailwind.css   — Quill's `@source` directive pointing at its compiled JS,
+ *                       so Tailwind picks up utility class names from primitives.
+ *
+ * Quill must be built (`pnpm build:quill`) before this entry compiles.
+ */
+@import '@posthog/quill/tokens.css';
+@import '@posthog/quill/base.css';
+@import '@posthog/quill/primitives.css';
+@import '@posthog/quill/tailwind.css';
+
+@import './base.css';
+
+/*
+ * Bridge: when the MCP host (Claude Desktop, etc.) injects ext-apps CSS
+ * variables (`--color-background-primary`, `--color-text-primary`, …),
+ * relay them into the Quill tokens primitives use.
+ *
+ * Selector is `*` (not `:root`) deliberately: Quill's tokens.css sets the
+ * same Quill tokens (`--background`, `--card`, `--muted`, `--border`,
+ * `--input`) on `* { ... }` to support local theme overrides like
+ * `[--theme-hue:200]`. A `:root` bridge would only beat that on the
+ * `<html>` element via specificity; every descendant would still pick up
+ * Quill's `*` value directly. Using `*` here lands the bridge on every
+ * element and wins via cascade order (we `@import` quill/tokens.css above).
+ *
+ * Fallbacks: when the host doesn't inject a `--color-*` var, our
+ * `./base.css` provides a `:root` default (with a `prefers-color-scheme`
+ * dark override). That `:root` value is inherited everywhere, so
+ * `var(--color-background-primary)` always resolves — no explicit fallback
+ * needed here. (A `var(--background)` fallback would create a self-cycle
+ * since we're setting `--background` itself.)
+ *
+ * See https://github.com/modelcontextprotocol/ext-apps/blob/main/src/spec.types.ts
+ */
+* {
+    --background: var(--color-background-primary);
+    --foreground: var(--color-text-primary);
+    --card: var(--color-background-secondary);
+    --card-foreground: var(--color-text-primary);
+    --popover: var(--color-background-secondary);
+    --popover-foreground: var(--color-text-primary);
+    --muted: var(--color-background-tertiary);
+    --muted-foreground: var(--color-text-secondary);
+    --border: var(--color-border-primary);
+    --input: var(--color-border-secondary);
+}
+
+/* Scan our own source files (apps, components, shared lib) plus product MCP apps and Quill primitives. */
+@source "../lib/**/*.tsx";
+@source "../components/**/*.tsx";
+@source "../apps/**/*.tsx";
+@source "../../../../../products/*/mcp/**/*.tsx";
+@source "../../../../../packages/quill/packages/primitives/src/**/*.{ts,tsx}";
+@source "../../../../../packages/quill/packages/components/src/**/*.{ts,tsx}";

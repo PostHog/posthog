@@ -13,16 +13,17 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    EstimatedQueryExecutionTimeTooLong,
-    QuerySizeExceeded,
 )
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
     CohortErrorCode,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    get_nested_cohort_ids,
     get_static_cohort_size,
     parse_error_code,
     print_cohort_hogql_query,
@@ -398,31 +399,22 @@ class TestCohortUtils(BaseTest):
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
-    def test_get_static_cohort_size_uses_specified_database(self):
+    def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
-        mock_qs = MagicMock()
-        mock_qs.filter.return_value = mock_qs
-        mock_qs.using.return_value = mock_qs
-        mock_qs.count.return_value = 42
+        with patch("posthog.models.cohort.util.count_cohort_members", return_value=42) as mock_count:
+            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, consistency="strong")
 
-        with patch("posthog.models.cohort.util.CohortPeople.objects", mock_qs):
-            result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, using_database="test_db")
-
-        mock_qs.using.assert_called_once_with("test_db")
+        mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, consistency="strong")
         self.assertEqual(result, 42)
 
-    def test_get_static_cohort_size_without_database_does_not_call_using(self):
+    def test_get_static_cohort_size_defaults_to_eventual_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
-        mock_qs = MagicMock()
-        mock_qs.filter.return_value = mock_qs
-        mock_qs.count.return_value = 10
-
-        with patch("posthog.models.cohort.util.CohortPeople.objects", mock_qs):
+        with patch("posthog.models.cohort.util.count_cohort_members", return_value=10) as mock_count:
             result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
 
-        mock_qs.using.assert_not_called()
+        mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, consistency="eventual")
         self.assertEqual(result, 10)
 
     def test_print_cohort_hogql_query_raises_error_on_mixed_id_types_in_union(self):
@@ -619,6 +611,82 @@ class TestCohortUtils(BaseTest):
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
 
+class TestGetNestedCohortIds(BaseTest):
+    def test_no_cohort_references(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="leaf",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        assert get_nested_cohort_ids(cohort) == set()
+
+    def test_single_cohort_reference(self):
+        inner = _create_cohort(
+            team=self.team,
+            name="inner",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        outer = _create_cohort(
+            team=self.team,
+            name="outer",
+            groups=[{"properties": [{"key": "id", "value": inner.pk, "type": "cohort"}]}],
+        )
+        assert get_nested_cohort_ids(outer) == {inner.pk}
+
+    def test_multiple_cohort_references(self):
+        a = _create_cohort(
+            team=self.team,
+            name="a",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        b = _create_cohort(
+            team=self.team,
+            name="b",
+            groups=[{"properties": [{"key": "name", "value": "test2", "type": "person"}]}],
+        )
+        parent = _create_cohort(
+            team=self.team,
+            name="parent",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "id", "value": a.pk, "type": "cohort"},
+                        {"key": "id", "value": b.pk, "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+        assert get_nested_cohort_ids(parent) == {a.pk, b.pk}
+
+    def test_invalid_value_skipped(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="bad-ref",
+            groups=[{"properties": [{"key": "id", "value": "not-a-number", "type": "cohort"}]}],
+        )
+        assert get_nested_cohort_ids(cohort) == set()
+
+    def test_mixed_property_types(self):
+        inner = _create_cohort(
+            team=self.team,
+            name="inner",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        outer = _create_cohort(
+            team=self.team,
+            name="mixed",
+            groups=[
+                {
+                    "properties": [
+                        {"key": "email", "value": "a@a.com", "type": "person"},
+                        {"key": "id", "value": inner.pk, "type": "cohort"},
+                    ]
+                }
+            ],
+        )
+        assert get_nested_cohort_ids(outer) == {inner.pk}
+
+
 class TestDependentCohorts(BaseTest):
     def test_dependent_cohorts_for_simple_cohort(self):
         cohort = _create_cohort(
@@ -798,7 +866,7 @@ class TestDependentCohorts(BaseTest):
         self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
         self.assertEqual(get_all_cohort_dependencies(cohort3), [cohort2, cohort1])
         self.assertEqual(get_all_cohort_dependencies(cohort4), [cohort1])
-        self.assertEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
+        self.assertCountEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
 
     def test_dependent_cohorts_ignore_invalid_ids(self):
         cohort1 = _create_cohort(
@@ -901,7 +969,7 @@ class TestParseErrorCode(BaseTest):
             "SocketTimeoutError": SocketTimeoutError,
             "ClickHouseQueryTimeOut": ClickHouseQueryTimeOut,
             "ClickHouseQueryMemoryLimitExceeded": ClickHouseQueryMemoryLimitExceeded,
-            "QuerySizeExceeded": QuerySizeExceeded,
+            "QuerySizeExceeded": ClickHouseQuerySizeExceeded,
             "DRFValidationError": DRFValidationError,
             "ValueError": ValueError,
             "Exception": Exception,
@@ -911,7 +979,7 @@ class TestParseErrorCode(BaseTest):
             return simple_exceptions[exception_type]("test")
 
         if exception_type == "EstimatedQueryExecutionTimeTooLong":
-            return EstimatedQueryExecutionTimeTooLong()
+            return ClickHouseEstimatedQueryExecutionTimeTooLong()
 
         if exception_type == "PydanticValidationError":
             try:

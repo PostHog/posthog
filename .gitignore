@@ -1,6 +1,9 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.cache
+.planning
+.pr-review-diff.patch
 __emails__
 __pycache__/
 .coverage
@@ -8,8 +11,11 @@ __pycache__/
 .dmypy.json
 .DS_Store
 .eslintcache
+.hypothesis
 .mypy_cache
 .parcel-cache
+pbt-divergences.jsonl
+posthog/hogql/test/fixtures/real_queries/
 .posthog/
 .postgres-backups/
 .python-version
@@ -38,9 +44,12 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
+common/replay-headless/dist
 common/storybook/dist
 coverage-*.xml
 debug.log
+docs/internal/logs-sampling-discovery.md
+docs/internal/logs-sampling-runbook.md
 docker-compose.prod.yml
 ee/benchmarks/results
 ee/support_sidebar_max/.env
@@ -49,12 +58,14 @@ ee/support_sidebar_max/.vscode/settings.json
 ee/support_sidebar_max/max-venv/
 frontend/storybook-static
 max-test-venv/
+mts_example_*.json
 node_modules/
 object_storage/
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 pyrightconfig.json
 settings.yml
+scripts/local/
 share/GeoLite2-City.*
 staticfiles
 storybook-static
@@ -73,6 +84,7 @@ yalc.lock
 .vscode/*
 !.vscode/launch.json
 !.vscode/settings.example.json
+!.vscode/extensions.json
 
 # Ignoring local Zed config
 # but commit shared `debug.json` file
@@ -101,6 +113,7 @@ playwright/.auth/
 playwright/playwright-report/
 playwright/test-results/
 test-results/
+.playwright-mcp/
 
 # Dagster
 .dagster_home/*
@@ -111,21 +124,27 @@ test-results/
 
 # Frontend caching, build artifacts, logs, private assets, etc.
 common/tailwind/dist
-frontend/__snapshots__/__diff_output__/
-frontend/__snapshots__/__failures__/
+frontend/__snapshots__/
+playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
+frontend/dist-report/
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
+
+# Watchman cache
+.watchman-cookie-*
 
 # Dist release target dir
 target/*
 
 # Ignore user's Cursor rules
 .cursor/**/user*.mdc
+# Ignore Cursor plans
+.cursor/**/*.plan.md
 CLAUDE.local.md
 
 # Ignore file for clearing demo data on local
@@ -133,6 +152,8 @@ posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
 .claude/settings.local.json
+.claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -146,26 +167,49 @@ bin/hobby-installer-*
 bin/hobby-installer/hobby-installer
 bin/hobby-installer/hobby-installer.log
 
+# phrocs binary
+bin/phrocs
+
 # Debug output of our session summaries product
 .session-summaries
 
 # Claude Code review outputs
 CODE_DEBUGGING_SESSION.md
 CODE_REVIEW.md
+QAREPORT.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json
 data/seaweedfs
 data/seaweedfs/
 
-# No env files except for the example
+# No env files except for the example, development defaults, services, and local-overrides template
 .env*
 !.env.example
+!.env.development
+!.env.services
+!.env.local.example
 
 # Ignore Agent OS (Claude Code) files
 .claude/agents/agent-os
 .claude/commands/agent-os
-agent-os/
 
+agent-os/
 # MCP build files
-services/mcp/ui-apps-dist
+services/mcp/public/ui-apps
+
+# Product skills (synced by hogli sync:skill)
+.agents/skills/.gitignore
+
+# Test output
+junit.xml
+.test_dependency_map
+
+# Downloaded GitHub issues for signals
+products/signals/backend/github_issues/
+.pnpm-store
+
+# Local-only HogQL log-corpus dumps (downloaded from Metabase by
+# posthog/hogql/scripts/log_corpus_diagnostic.py — contains
+# redacted production queries; not for git).
+posthog/hogql/scripts/.local/

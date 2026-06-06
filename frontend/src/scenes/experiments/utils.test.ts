@@ -5,12 +5,15 @@ import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_met
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
 import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import {
+    Breakdown,
+    CachedNewExperimentQueryResponse,
     ExperimentEventExposureConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
     NodeKind,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -18,25 +21,25 @@ import {
     ExperimentMetricMathType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
-    FeatureFlagFilters,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/shared/utils'
 import { filterToMetricConfig } from './metricQueryUtils'
+import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getEventCountQuery,
+    getOrderedMetricsWithResults,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
     isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
     percentageDistribution,
-    transformFiltersForWinningVariant,
 } from './utils'
 
 describe('utils', () => {
@@ -101,136 +104,6 @@ describe('utils', () => {
         ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
             expect(isEvenlyDistributed(variants)).toBe(expected)
         })
-    })
-
-    it('transforms filters for a winning variant', async () => {
-        let currentFilters: FeatureFlagFilters = {
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {},
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        rollout_percentage: 50,
-                    },
-                    {
-                        key: 'test',
-                        rollout_percentage: 50,
-                    },
-                ],
-            },
-            aggregation_group_type_index: null,
-        }
-        let expectedFilters: FeatureFlagFilters = {
-            aggregation_group_type_index: null,
-            payloads: {},
-            multivariate: {
-                variants: [
-                    { key: 'control', rollout_percentage: 0 },
-                    { key: 'test', rollout_percentage: 100 },
-                ],
-            },
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    description: 'Added automatically when the experiment variant was shipped',
-                },
-                { properties: [], rollout_percentage: 100 },
-            ],
-        }
-
-        let newFilters = transformFiltersForWinningVariant(currentFilters, 'test')
-        expect(newFilters).toEqual(expectedFilters)
-
-        currentFilters = {
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {
-                test_1: "{key: 'test_1'}",
-                test_2: "{key: 'test_2'}",
-                test_3: "{key: 'test_3'}",
-                control: "{key: 'control'}",
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        name: 'This is control',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_1',
-                        name: 'This is test_1',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_2',
-                        name: 'This is test_2',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_3',
-                        name: 'This is test_3',
-                        rollout_percentage: 25,
-                    },
-                ],
-            },
-            aggregation_group_type_index: 1,
-        }
-        expectedFilters = {
-            aggregation_group_type_index: 1,
-            payloads: {
-                test_1: "{key: 'test_1'}",
-                test_2: "{key: 'test_2'}",
-                test_3: "{key: 'test_3'}",
-                control: "{key: 'control'}",
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        name: 'This is control',
-                        rollout_percentage: 100,
-                    },
-                    {
-                        key: 'test_1',
-                        name: 'This is test_1',
-                        rollout_percentage: 0,
-                    },
-                    {
-                        key: 'test_2',
-                        name: 'This is test_2',
-                        rollout_percentage: 0,
-                    },
-                    {
-                        key: 'test_3',
-                        name: 'This is test_3',
-                        rollout_percentage: 0,
-                    },
-                ],
-            },
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    description: 'Added automatically when the experiment variant was shipped',
-                },
-                { properties: [], rollout_percentage: 100 },
-            ],
-        }
-
-        newFilters = transformFiltersForWinningVariant(currentFilters, 'control')
-        expect(newFilters).toEqual(expectedFilters)
     })
 })
 
@@ -680,6 +553,7 @@ describe('checkFeatureFlagEligibility', () => {
         deleted: false,
         active: true,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -691,7 +565,7 @@ describe('checkFeatureFlagEligibility', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
+        evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
     it('throws an error for a remote configuration feature flag', () => {
@@ -1112,5 +986,400 @@ describe('hasLegacyMetrics', () => {
         } as unknown as Experiment
 
         expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+})
+
+describe('getOrderedMetricsWithResults', () => {
+    const baseExperiment = {
+        ...experimentJson,
+        metrics: [],
+        metrics_secondary: [],
+        saved_metrics: [],
+        primary_metrics_ordered_uuids: [],
+        secondary_metrics_ordered_uuids: [],
+    } as unknown as Experiment
+
+    const mockResult = (data: Record<string, any>): CachedNewExperimentQueryResponse =>
+        data as CachedNewExperimentQueryResponse
+
+    describe('inline metrics', () => {
+        it('returns inline metrics with their results and errors', () => {
+            const experiment = {
+                ...baseExperiment,
+                metrics: [
+                    {
+                        uuid: 'metric-1',
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                ] as unknown as ExperimentMetric[],
+                primary_metrics_ordered_uuids: ['metric-1'],
+            }
+
+            const results = [mockResult({ result: 'data1' })]
+            const errors = [null]
+
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+
+            expect(ordered).toHaveLength(1)
+            expect(ordered[0].metric.uuid).toBe('metric-1')
+            expect(ordered[0].result).toEqual({ result: 'data1' })
+            expect(ordered[0].error).toBeNull()
+        })
+
+        it('handles multiple inline metrics in ordered array', () => {
+            const experiment = {
+                ...baseExperiment,
+                metrics: [
+                    {
+                        uuid: 'metric-1',
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test1' },
+                    },
+                    {
+                        uuid: 'metric-2',
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test2' },
+                    },
+                ] as unknown as ExperimentMetric[],
+                primary_metrics_ordered_uuids: ['metric-2', 'metric-1'],
+            }
+
+            const results = [mockResult({ result: 'data1' }), mockResult({ result: 'data2' })]
+            const errors = [null, null]
+
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+
+            expect(ordered).toHaveLength(2)
+            expect(ordered[0].metric.uuid).toBe('metric-2')
+            expect(ordered[0].displayIndex).toBe(0)
+            expect(ordered[1].metric.uuid).toBe('metric-1')
+            expect(ordered[1].displayIndex).toBe(1)
+        })
+    })
+
+    describe('shared metrics', () => {
+        it('enriches shared metrics with name and flags', () => {
+            const experiment = {
+                ...baseExperiment,
+                saved_metrics: [
+                    {
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test' },
+                        },
+                        metadata: { type: 'primary' },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['shared-uuid'],
+            }
+
+            const results = [mockResult({ result: 'shared-data' })]
+            const errors = [null]
+
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+
+            expect(ordered).toHaveLength(1)
+            expect(ordered[0].metric.uuid).toBe('shared-uuid')
+            expect(ordered[0].metric.name).toBe('Shared Metric')
+            expect(ordered[0].metric.sharedMetricId).toBe(123)
+            expect(ordered[0].metric.isSharedMetric).toBe(true)
+        })
+
+        it('merges breakdowns from metadata into shared metrics', () => {
+            const breakdowns: Breakdown[] = [
+                { property: '$browser', type: 'event' },
+                { property: '$os', type: 'event' },
+            ]
+
+            const experiment = {
+                ...baseExperiment,
+                saved_metrics: [
+                    {
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test' },
+                        },
+                        metadata: {
+                            type: 'primary',
+                            breakdowns,
+                        },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['shared-uuid'],
+            }
+
+            const results = [mockResult({ result: 'shared-data' })]
+            const errors = [null]
+
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+
+            expect(ordered).toHaveLength(1)
+            expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual(breakdowns)
+        })
+
+        it('merges existing breakdownFilter properties with metadata breakdowns', () => {
+            const metadataBreakdowns: Breakdown[] = [{ property: '$browser', type: 'event' }]
+
+            const experiment = {
+                ...baseExperiment,
+                saved_metrics: [
+                    {
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test' },
+                            breakdownFilter: { some_other_prop: 'value' },
+                        },
+                        metadata: {
+                            type: 'primary',
+                            breakdowns: metadataBreakdowns,
+                        },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['shared-uuid'],
+            }
+
+            const results = [mockResult({ result: 'shared-data' })]
+            const errors = [null]
+
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+
+            expect(ordered).toHaveLength(1)
+            expect(ordered[0].metric.breakdownFilter).toEqual({
+                some_other_prop: 'value',
+                breakdowns: metadataBreakdowns,
+            })
+        })
+
+        it('filters shared metrics by type (primary vs secondary)', () => {
+            const experiment = {
+                ...baseExperiment,
+                saved_metrics: [
+                    {
+                        saved_metric: 1,
+                        name: 'Primary Shared',
+                        query: {
+                            uuid: 'primary-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test1' },
+                        },
+                        metadata: { type: 'primary' },
+                    },
+                    {
+                        saved_metric: 2,
+                        name: 'Secondary Shared',
+                        query: {
+                            uuid: 'secondary-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test2' },
+                        },
+                        metadata: { type: 'secondary' },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['primary-uuid'],
+                secondary_metrics_ordered_uuids: ['secondary-uuid'],
+            }
+
+            const primaryResults = [mockResult({ result: 'primary-data' })]
+            const secondaryResults = [mockResult({ result: 'secondary-data' })]
+
+            const primaryOrdered = getOrderedMetricsWithResults(
+                experiment,
+                primaryResults,
+                [null],
+                secondaryResults,
+                [null],
+                false
+            )
+            const secondaryOrdered = getOrderedMetricsWithResults(
+                experiment,
+                primaryResults,
+                [null],
+                secondaryResults,
+                [null],
+                true
+            )
+
+            expect(primaryOrdered).toHaveLength(1)
+            expect(primaryOrdered[0].metric.uuid).toBe('primary-uuid')
+
+            expect(secondaryOrdered).toHaveLength(1)
+            expect(secondaryOrdered[0].metric.uuid).toBe('secondary-uuid')
+        })
+    })
+
+    describe('mixed inline and shared metrics', () => {
+        it('combines inline and shared metrics in correct order', () => {
+            const experiment = {
+                ...baseExperiment,
+                metrics: [
+                    {
+                        uuid: 'inline-1',
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'inline' },
+                    },
+                ] as unknown as ExperimentMetric[],
+                saved_metrics: [
+                    {
+                        saved_metric: 123,
+                        name: 'Shared',
+                        query: {
+                            uuid: 'shared-1',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'shared' },
+                        },
+                        metadata: { type: 'primary' },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['shared-1', 'inline-1'],
+            }
+
+            const results = [mockResult({ result: 'inline-data' }), mockResult({ result: 'shared-data' })]
+            const errors = [null, null]
+
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+
+            expect(ordered).toHaveLength(2)
+            expect(ordered[0].metric.uuid).toBe('shared-1')
+            expect(ordered[0].metric.isSharedMetric).toBe(true)
+            expect(ordered[1].metric.uuid).toBe('inline-1')
+            expect(ordered[1].metric.isSharedMetric).toBeUndefined()
+        })
+    })
+
+    describe('edge cases', () => {
+        it('returns empty array when no metrics exist', () => {
+            const experiment = {
+                ...baseExperiment,
+                primary_metrics_ordered_uuids: [],
+            }
+
+            const ordered = getOrderedMetricsWithResults(experiment, [], [], [], [], false)
+
+            expect(ordered).toEqual([])
+        })
+
+        it('handles empty breakdowns array in metadata', () => {
+            const experiment = {
+                ...baseExperiment,
+                saved_metrics: [
+                    {
+                        saved_metric: 123,
+                        name: 'Shared',
+                        query: {
+                            uuid: 'shared-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test' },
+                        },
+                        metadata: {
+                            type: 'primary',
+                            breakdowns: [],
+                        },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['shared-uuid'],
+            }
+
+            const ordered = getOrderedMetricsWithResults(experiment, [mockResult({})], [null], [], [], false)
+
+            expect(ordered).toHaveLength(1)
+            expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual([])
+        })
+
+        it('handles missing breakdowns in metadata', () => {
+            const experiment = {
+                ...baseExperiment,
+                saved_metrics: [
+                    {
+                        saved_metric: 123,
+                        name: 'Shared',
+                        query: {
+                            uuid: 'shared-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: 'test' },
+                        },
+                        metadata: { type: 'primary' },
+                    },
+                ],
+                primary_metrics_ordered_uuids: ['shared-uuid'],
+            }
+
+            const ordered = getOrderedMetricsWithResults(experiment, [mockResult({})], [null], [], [], false)
+
+            expect(ordered).toHaveLength(1)
+            expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual([])
+        })
+
+        it('tracks metricIndex for retry functionality', () => {
+            const experiment = {
+                ...baseExperiment,
+                metrics: [
+                    {
+                        uuid: 'metric-1',
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                ] as unknown as ExperimentMetric[],
+                primary_metrics_ordered_uuids: ['metric-1'],
+            }
+
+            const ordered = getOrderedMetricsWithResults(experiment, [mockResult({})], [null], [], [], false)
+
+            expect(ordered[0].metricIndex).toBe(0)
+        })
+    })
+})
+
+describe('getEventCountQuery', () => {
+    it('includes product analytics tags in the query', () => {
+        const metric: ExperimentMetric = {
+            uuid: 'test-metric',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: 'Pageview',
+            },
+        }
+
+        const query = getEventCountQuery(metric, true)
+
+        expect(query).not.toBeNull()
+        expect(query?.tags).toEqual({ productKey: ProductKey.PRODUCT_ANALYTICS })
+    })
+
+    it('returns null when series is empty', () => {
+        const metric: ExperimentMetric = {
+            uuid: 'test-metric',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+        } as ExperimentMetric
+
+        const query = getEventCountQuery(metric, true)
+
+        expect(query).toBeNull()
     })
 })

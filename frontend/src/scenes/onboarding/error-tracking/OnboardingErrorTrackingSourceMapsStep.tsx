@@ -7,13 +7,13 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { OnboardingStepKey } from '~/types'
 
 import { EditKeyModal } from '../../settings/user/PersonalAPIKeys'
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
 import { SourceMapsInstructionsModal } from './OnboardingErrorTrackingSourceMapsModal'
 import { SourceMapOptionCard } from './source-maps/SourceMapOptionCard'
-import { SourceMapStatus } from './source-maps/SourceMapStatus'
 import { automatedSourceMapsTechnologies } from './source-maps/SourceMapsSDKInstructionsMap'
 import { sourceMapsStepLogic } from './source-maps/sourceMapsStepLogic'
+import { SourceMapStatus } from './source-maps/SourceMapStatus'
 
 export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType = () => {
     const { selectedOption, instructionsModalOpen, shouldShowContinue, shouldShowSourceMapStatus } =
@@ -68,7 +68,7 @@ export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType 
                             </p>
                             <CodeSnippet language={Language.Bash}>
                                 {[
-                                    "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/download/posthog-cli-v0.0.2/posthog-cli-installer.sh | sh",
+                                    "curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh",
                                     'posthog-cli-update',
                                 ].join('\n')}
                             </CodeSnippet>

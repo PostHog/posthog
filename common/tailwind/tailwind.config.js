@@ -11,6 +11,7 @@ const commonColors = {
     'accent-active': 'var(--color-accent-active)',
     'accent-highlight-primary': 'var(--color-accent-highlight-primary)',
     'accent-highlight-secondary': 'var(--color-accent-highlight-secondary)',
+    ai: 'var(--color-ai)',
 }
 
 const deprecatedColors = {
@@ -334,6 +335,15 @@ const config = {
         '../../frontend/src/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
+        '../../products/**/mcp/apps/**/*.{ts,tsx}',
+        '../../services/mcp/src/ui-apps/lib/**/*.{ts,tsx}',
+        // @posthog/quill ships BEM CSS for component look, but uses Tailwind
+        // utilities for layout/spacing in its compiled JS. Scan dist here so
+        // those utilities get compiled into this pre-built Tailwind bundle.
+        '../../packages/quill/packages/quill/dist/**/*.{js,cjs}',
+        // @posthog/quill-charts is consumed from source; its overlays, legends and
+        // blocks use Tailwind utilities, so scan its src or those classes get purged.
+        '../../packages/quill/packages/charts/src/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
@@ -637,6 +647,8 @@ const config = {
                 'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
                 // Fade out after a delay
                 'fade-out-delayed': 'fade-out-delayed 5s ease-out forwards',
+                // Quick horizontal shake
+                shake: 'shake 0.5s ease-in-out',
             },
             keyframes: {
                 'pulse-glow': {
@@ -650,6 +662,13 @@ const config = {
                 'fade-out-delayed': {
                     '0%, 30%': { opacity: '1' },
                     '100%': { opacity: '0' },
+                },
+                shake: {
+                    '0%, 100%': { transform: 'translateX(0)' },
+                    '20%': { transform: 'translateX(-3px)' },
+                    '40%': { transform: 'translateX(3px)' },
+                    '60%': { transform: 'translateX(-2px)' },
+                    '80%': { transform: 'translateX(2px)' },
                 },
             },
             colors: {

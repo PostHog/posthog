@@ -1,13 +1,7 @@
-import { useValues } from 'kea'
-
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-
-import { AccessControlLevel } from '~/types'
-
-import { ingestionControlsLogic } from '../ingestionControlsLogic'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
 
 export function MinDurationTrigger({
     value,
@@ -16,16 +10,18 @@ export function MinDurationTrigger({
     value: number | null | undefined
     onChange: (value: number | null | undefined) => void
 }): JSX.Element {
-    const { resourceType } = useValues(ingestionControlsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
-        <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-            <LemonSelect
-                dropdownMatchSelectWidth={false}
-                onChange={onChange}
-                options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
-                value={value}
-            />
-        </AccessControlAction>
+        <LemonSelect
+            dropdownMatchSelectWidth={false}
+            onChange={onChange}
+            options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
+            value={value}
+            disabledReason={restrictedReason}
+        />
     )
 }

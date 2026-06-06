@@ -1,32 +1,38 @@
+from __future__ import annotations
+
 import json
 import math
 import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 import numpy as np
 import orjson
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+from arro3.core.types import ArrowSchemaExportable
+from circular_dict import CircularDict
 from dateutil import parser
-from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.common.normalizers.naming.snake_case import NamingConvention
-from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
-DLT_TO_PA_TYPE_MAP = {
+DLT_TO_PA_TYPE_MAP: dict[
+    Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"], pa.DataType
+] = {
     "text": pa.string(),
     "bigint": pa.int64(),
     "bool": pa.bool_(),
@@ -39,8 +45,12 @@ DLT_TO_PA_TYPE_MAP = {
 }
 
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
-DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
+DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
+MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
+
+type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"]
+type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
 
 class BillingLimitsWillBeReachedException(Exception):
@@ -59,17 +69,34 @@ class TemporaryFileSizeExceedsLimitException(Exception):
     pass
 
 
+class SchemaColumnTypeChangedException(Exception):
+    """Raised when an incoming column can't be cast into the existing (narrower) Delta column type.
+
+    The usual cause is the source column's type being widened upstream (e.g. Postgres
+    `integer` → `bigint`) after the Delta table was already created with the narrower type.
+    delta-rs cannot widen an existing column in place, so retrying is futile — the table must
+    be reset and fully re-synced to adopt the new type.
+    """
+
+    pass
+
+
 def normalize_column_name(column_name: str) -> str:
-    return NamingConvention().normalize_identifier(column_name)
+    return NamingConvention.normalize_identifier(column_name)
 
 
-def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:
+def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Schema:
+    # PyArrow's stubs don't model Arrow C Data Interface inputs here.
+    return pa.schema(cast(Any, schema))
+
+
+def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
     try:
         if date_str is None:
             return None
 
         if isinstance(date_str, pa.StringScalar):
-            scalar = date_str.as_py()
+            scalar = cast(str | None, date_str.as_py())
 
             if scalar is None:
                 return None
@@ -79,33 +106,12 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
         if isinstance(date_str, pa.TimestampScalar):
             return date_str
 
-        return parser.parse(date_str)
+        if isinstance(date_str, str | bytes):
+            return parser.parse(date_str)
+
+        return None
     except (ValueError, OverflowError, TypeError):
         return None
-
-
-def _get_primary_keys(resource: DltResource) -> list[str] | None:
-    primary_keys = resource._hints.get("primary_key")
-
-    if primary_keys is None:
-        return None
-
-    if isinstance(primary_keys, str):
-        return [normalize_column_name(primary_keys)]
-
-    if isinstance(primary_keys, list | Sequence):
-        return [normalize_column_name(pk) for pk in primary_keys]
-
-    raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
-
-
-def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
-    columns = resource._hints.get("columns")
-
-    if columns is None:
-        return None
-
-    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
@@ -121,7 +127,10 @@ def _handle_null_columns_with_definitions(table: pa.Table, source: SourceRespons
         normalized_field_name = normalize_column_name(field_name)
         # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
         if normalized_field_name not in table.schema.names:
-            new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
+            new_column = pa.array(
+                [None] * table.num_rows,
+                type=DLT_TO_PA_TYPE_MAP[cast(SupportedDltDataType, data_type)],
+            )
             table = table.append_column(normalized_field_name, new_column)
 
     return table
@@ -160,113 +169,155 @@ def get_default_value_for_pyarrow_type(arrow_type: pa.DataType) -> Any:
         raise ValueError(f"Unsupported PyArrow type: {arrow_type}")
 
 
-def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
-    py_table_field_names = table.schema.names
+def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+    # First pass: normalize types that Delta write path does not handle well.
+    for column_name in incoming_table.column_names:
+        incoming_column = incoming_table.column(column_name)
+        incoming_field = incoming_table.field(column_name)
 
-    for column_name in table.column_names:
-        column = table.column(column_name)
-        field = table.field(column_name)
-
-        # Change pa.structs to JSON string
-        if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
-            json_column = pa.array([_json_dumps(row.as_py()) if row.as_py() is not None else None for row in column])
-            table = table.set_column(table.schema.get_field_index(column_name), column_name, json_column)
-            column = table.column(column_name)
-        # Change pa.duration to int with total seconds
-        elif pa.types.is_duration(column.type):
-            seconds_column = pa.array(
-                [row.as_py().total_seconds() if row.as_py() is not None else None for row in column]
+        # Convert nested values to JSON strings for stable schema writes.
+        if pa.types.is_struct(incoming_column.type) or pa.types.is_list(incoming_column.type):
+            nested_values = cast(list[object | None], incoming_column.to_pylist())
+            json_column = pa.array([_json_dumps(value) if value is not None else None for value in nested_values])
+            incoming_table = incoming_table.set_column(
+                incoming_table.schema.get_field_index(column_name), column_name, json_column
             )
-            table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
-            column = table.column(column_name)
+            incoming_column = incoming_table.column(column_name)
+        # Convert duration to numeric seconds.
+        elif pa.types.is_duration(incoming_column.type):
+            duration_values = cast(list[datetime.timedelta | None], incoming_column.to_pylist())
+            seconds_column = pa.array(
+                [value.total_seconds() if value is not None else None for value in duration_values]
+            )
+            incoming_table = incoming_table.set_column(
+                incoming_table.schema.get_field_index(column_name), column_name, seconds_column
+            )
+            incoming_column = incoming_table.column(column_name)
 
-        # Convert nanosecond timestamps to microseconds and convert to UTC
-        if pa.types.is_timestamp(field.type) and (field.type.unit == "ns" or field.type.tz is not None):
-            microsecond_timestamps = pc.cast(column, pa.timestamp("us"), safe=False)
-            table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
+        # Normalize timestamps to microseconds and no timezone.
+        if pa.types.is_timestamp(incoming_field.type) and (
+            incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
+        ):
+            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
+            incoming_table = incoming_table.set_column(
+                incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
+            )
 
-    if delta_schema:
-        for field in delta_schema.to_pyarrow():
-            if field.name not in py_table_field_names:
-                if field.nullable:
-                    new_column_data = pa.array([None] * table.num_rows, type=field.type)
-                else:
-                    new_column_data = pa.array(
-                        [get_default_value_for_pyarrow_type(field.type)] * table.num_rows, type=field.type
+    if not delta_schema:
+        return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
+
+    # Second pass: align with existing Delta table schema.
+    delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    for delta_field in delta_arrow_schema:
+        if delta_field.name not in incoming_table.schema.names:
+            new_column_data = (
+                pa.array([None] * incoming_table.num_rows, type=delta_field.type)
+                if delta_field.nullable
+                else pa.array(
+                    [get_default_value_for_pyarrow_type(delta_field.type)] * incoming_table.num_rows,
+                    type=delta_field.type,
+                )
+            )
+            incoming_table = incoming_table.append_column(delta_field, new_column_data)
+
+        incoming_column = incoming_table.column(delta_field.name)
+
+        if (
+            pa.types.is_decimal(delta_field.type)
+            and pa.types.is_decimal(incoming_column.type)
+            and incoming_column.type != delta_field.type
+        ):
+            delta_dec = cast(pa.Decimal128Type | pa.Decimal256Type, delta_field.type)
+            incoming_dec = cast(pa.Decimal128Type | pa.Decimal256Type, incoming_column.type)
+            field_index = incoming_table.schema.get_field_index(delta_field.name)
+
+            # Build candidate types in preference order: exact delta → minimal merged decimal128 → decimal256.
+            candidates: list[pa.DataType] = []
+
+            if delta_dec.scale == incoming_dec.scale and delta_dec.precision <= incoming_dec.precision:
+                candidates.append(delta_field.type)
+
+            delta_int = delta_dec.precision - delta_dec.scale
+            incoming_int = incoming_dec.precision - incoming_dec.scale
+            max_int = max(delta_int, incoming_int)
+            if max_int <= 38:
+                merged_scale = min(max(delta_dec.scale, incoming_dec.scale), 38 - max_int)
+                candidates.append(pa.decimal128(max_int + merged_scale, merged_scale))
+
+            candidates.append(pa.decimal256(76, incoming_dec.scale))
+
+            for target in candidates:
+                if target == incoming_column.type:
+                    break
+                try:
+                    target_schema = incoming_table.schema.set(
+                        field_index, incoming_table.schema.field(field_index).with_type(target)
                     )
-                table = table.append_column(field, new_column_data)
+                    incoming_table = incoming_table.cast(target_schema)
+                    break
+                except pa.ArrowInvalid:
+                    continue
 
-            # If the delta table schema has a larger scale/precision, then update the
-            # pyarrow schema to use the larger values so that we're not trying to downscale
-            if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
-                py_arrow_table_column = table.column(field.name)
+            incoming_column = incoming_table.column(delta_field.name)
 
+        if delta_field.type != incoming_column.type and not (
+            pa.types.is_decimal(delta_field.type) and pa.types.is_decimal(incoming_column.type)
+        ):
+            if isinstance(delta_field.type, pa.TimestampType):
                 if (
-                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
-                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
-                ) and (
-                    field.type.precision > py_arrow_table_column.type.precision
-                    or field.type.scale > py_arrow_table_column.type.scale
+                    isinstance(incoming_column.type, pa.TimestampType)
+                    and delta_field.type.tz != incoming_column.type.tz
                 ):
-                    field_index = table.schema.get_field_index(field.name)
-
-                    new_decimal_type = (
-                        pa.decimal128(field.type.precision, field.type.scale)
-                        if field.type.precision <= 38
-                        else pa.decimal256(field.type.precision, field.type.scale)
+                    casted_column = incoming_column.cast(delta_field.type).combine_chunks()
+                    incoming_table = incoming_table.set_column(
+                        incoming_table.schema.get_field_index(delta_field.name), delta_field.name, casted_column
                     )
-
-                    new_schema = table.schema.set(
-                        field_index,
-                        table.schema.field(field_index).with_type(new_decimal_type),
-                    )
-                    table = table.cast(new_schema)
-
-            # If the deltalake schema has a different type to the pyarrows table, then cast to the deltalake field type
-            py_arrow_table_column = table.column(field.name)
-            if field.type != py_arrow_table_column.type:
-                if isinstance(field.type, pa.TimestampType):
-                    # If different timezones, cast to the correct tz
-                    if (
-                        isinstance(py_arrow_table_column.type, pa.TimestampType)
-                        and field.type.tz != py_arrow_table_column.type.tz
-                    ):
-                        casted_column = table.column(field.name).cast(field.type)
-                        table = table.set_column(
-                            table.schema.get_field_index(field.name),
-                            field.name,
-                            casted_column.combine_chunks(),
-                        )
-                    else:
-                        timestamp_array = pa.array(
-                            [safe_parse_datetime(s) for s in table.column(field.name)], type=field.type
-                        )
-                        table = table.set_column(
-                            table.schema.get_field_index(field.name),
-                            field.name,
-                            timestamp_array,
-                        )
                 else:
-                    table = table.set_column(
-                        table.schema.get_field_index(field.name),
-                        field.name,
-                        table.column(field.name).cast(field.type),
+                    parsed_timestamps = pa.array(
+                        [safe_parse_datetime(s) for s in incoming_column], type=delta_field.type
                     )
+                    incoming_table = incoming_table.set_column(
+                        incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
+                    )
+            else:
+                try:
+                    casted_column = incoming_column.cast(delta_field.type).combine_chunks()
+                except pa.ArrowInvalid as e:
+                    # A narrowing cast overflowed. The usual cause is the source column's type
+                    # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
+                    # column was created with the narrower type. delta-rs cannot widen an existing
+                    # column in place, so retrying is futile — surface an actionable error telling
+                    # the user to reset and fully re-sync the table.
+                    if pa.types.is_integer(delta_field.type) and pa.types.is_integer(incoming_column.type):
+                        raise SchemaColumnTypeChangedException(
+                            f"Source column type changed: '{delta_field.name}' has values that no longer "
+                            f"fit its stored type {delta_field.type} (incoming data is now "
+                            f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                        ) from e
+                    raise
 
-                py_arrow_table_column = table.column(field.name)
+                incoming_table = incoming_table.set_column(
+                    incoming_table.schema.get_field_index(delta_field.name),
+                    delta_field.name,
+                    casted_column,
+                )
 
-            py_arrow_table_field = table.field(field.name)
-            # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
-            if not field.nullable and py_arrow_table_field.nullable:
-                filled_nulls_arr = py_arrow_table_column.fill_null(
-                    fill_value=get_default_value_for_pyarrow_type(py_arrow_table_field.type)
-                )
-                table = table.set_column(
-                    table.schema.get_field_index(field.name), field, filled_nulls_arr.combine_chunks()
-                )
+            incoming_column = incoming_table.column(delta_field.name)
+
+        # Delta column is non-nullable: backfill nulls before write.
+        incoming_field = incoming_table.field(delta_field.name)
+        if not delta_field.nullable and incoming_field.nullable:
+            filled_nulls_arr = incoming_column.fill_null(
+                fill_value=get_default_value_for_pyarrow_type(incoming_field.type)
+            )
+            incoming_table = incoming_table.set_column(
+                incoming_table.schema.get_field_index(delta_field.name),
+                delta_field,
+                filled_nulls_arr.combine_chunks(),
+            )
 
     # Change types based on what deltalake tables support
-    return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
+    return incoming_table.cast(ensure_delta_compatible_arrow_schema(incoming_table.schema))
 
 
 def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.Table:
@@ -300,10 +351,10 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
 
-def setup_partitioning(
+async def setup_partitioning(
     pa_table: pa.Table,
     existing_delta_table: deltalake.DeltaTable | None,
-    schema: "ExternalDataSchema",
+    schema: ExternalDataSchema,
     resource: SourceResponse,
     logger: FilteringBoundLogger,
 ) -> pa.Table:
@@ -318,8 +369,14 @@ def setup_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_pyarrow()
-        if PARTITION_KEY not in delta_schema.names:
+        # Check the table's *partition columns* — not its schema columns. A delta
+        # table can contain `_ph_partition_key` in its schema without being
+        # partitioned by it (e.g. leftover from a prior write that included the
+        # column but was committed with `partition_by=None`). Writing with
+        # `partition_by=PARTITION_KEY` in that case raises
+        # `DeltaError: Specified table partitioning does not match table partitioning`.
+        partition_columns = getattr(existing_delta_table.metadata(), "partition_columns", None) or []
+        if PARTITION_KEY not in partition_columns:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
@@ -345,7 +402,7 @@ def setup_partitioning(
             logger.debug(
                 f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
             )
-            schema.set_partitioning_enabled(
+            await database_sync_to_async_pool(schema.set_partitioning_enabled)(
                 updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
             )
 
@@ -459,9 +516,12 @@ def append_partition_key_to_table(
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.date):
                     partition_array.append(date.strftime(date_format))
-                elif isinstance(date, str):
+                elif isinstance(date, str) and date.strip():
                     date = parser.parse(date)
                     partition_array.append(date.strftime(date_format))
+                elif isinstance(date, str):
+                    # Empty string — treat as unknown date
+                    partition_array.append("1970-01")
                 else:
                     partition_array.append("1970-01")
             else:
@@ -492,7 +552,7 @@ def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schem
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(list(batch), schema)
+    processed_batch = _process_batch(batch, schema)
 
     return processed_batch
 
@@ -550,17 +610,18 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
-def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
-    for decimal_type in [
-        pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
-        pa.decimal256(76, DEFAULT_NUMERIC_SCALE),
-    ]:
+def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array:
+    non_null = [v for v in values if v is not None]
+    if non_null:
+        optimal_type = _get_max_decimal_type(non_null)
         try:
-            return pa.array(values, type=decimal_type)
-        except:
+            return pa.array(values, type=optimal_type)
+        except pa.ArrowInvalid:
             pass
-
-    raise ValueError("Cant build a decimal type from defaults")
+    try:
+        return pa.array(values, type=pa.decimal256(76, MAX_NUMERIC_SCALE))
+    except Exception as exc:
+        raise ValueError("Cannot build decimal array from values") from exc
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -600,7 +661,13 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
 def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.dtype[Any]]):
     if isinstance(column_data, pa.ChunkedArray):
-        return column_data.combine_chunks().tolist()
+        try:
+            return column_data.combine_chunks().tolist()
+        except pa.ArrowInvalid as e:
+            if "consider casting input from `string` to `large_string`" in "".join(e.args):
+                return column_data.cast(pa.large_string()).combine_chunks().tolist()
+
+            raise
 
     return column_data.tolist()
 
@@ -626,10 +693,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
     for col in column_names:
-        values = [
-            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
-            for row in table_data
-        ]
+        values: list[object | None] = []
+        for row in table_data:
+            value = row.get(col, None)
+            if isinstance(value, float) and np.isnan(value):
+                values.append(None)
+            else:
+                values.append(value)
 
         try:
             # We want to use pyarrow arrays where possible to optimise on memory usage
@@ -665,7 +735,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 columnar_table_data[field_name] = float_array.cast(field.type, safe=False)
                 unique_types_in_column = {decimal.Decimal}
                 py_type = decimal.Decimal
-                val = decimal.Decimal(val)
+                val = decimal.Decimal(cast(DecimalInput, val))
 
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
@@ -784,7 +854,12 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 if len(e.args) > 0 and (
                     "does not fit into precision" in e.args[0] or "would cause data loss" in e.args[0]
                 ):
-                    number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
+                    decimal_values = (
+                        all_values
+                        if py_type is decimal.Decimal
+                        else [_convert_to_decimal_or_none(x) for x in all_values]
+                    )
+                    number_arr = _decimal_array_from_values(decimal_values)
                     new_field_type = number_arr.type
 
                     py_type = decimal.Decimal
@@ -863,3 +938,36 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
+
+
+# from `conditional-cache`, but changed to be made async
+def conditional_lru_cache_async(
+    maxsize: int = 128, typed: bool = False, condition: Callable[[Any], bool] = lambda x: True
+):
+    cache = CircularDict(maxlen=maxsize)
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            key = _make_key(args, kwargs, typed)
+
+            if key in cache:
+                return cache[key]
+
+            result = await func(*args, **kwargs)
+
+            if condition(result):
+                cache[key] = result
+
+            return result
+
+        def cache_remove(*args, **kwargs):
+            key = _make_key(args, kwargs, typed)
+            cache.pop(key, None)
+
+        cast(Any, wrapper).cache_remove = cache_remove
+        cast(Any, wrapper).cache_clear = lambda: cache.clear()
+
+        return wrapper
+
+    return decorator

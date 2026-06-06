@@ -1,0 +1,16 @@
+{
+    "mcpServers": {
+        "phrocs": {
+            "command": "uv",
+            "args": ["run", "python", "tools/phrocs/mcp_server.py"]
+        },
+        "traffic-sim": {
+            "command": "uv",
+            "args": ["run", "python", "tools/traffic-sim/mcp_server.py"]
+        },
+        "posthog-local": {
+            "type": "http",
+            "url": "http://localhost:8787/mcp"
+        }
+    }
+}

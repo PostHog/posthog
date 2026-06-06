@@ -6,28 +6,49 @@ Language-agnostic protobuf definitions for PostHog services.
 
 ```text
 proto/
-├── buf.yaml              # Linting and breaking change config
+├── buf.yaml
+├── cymbal/               # Cymbal internal services
+│   └── resolution/v1/    # Exception-level symbol resolution
+├── kafka_assigner/       # Kafka partition assignment
 └── personhog/            # Person data service
-    ├── types/v1/         # Shared message types
-    ├── replica/v1/       # Read API
-    └── service/v1/       # Public API
+    ├── types/v1/
+    ├── replica/v1/
+    └── service/v1/
 ```
 
-## Language Bindings
+## Consumers
 
-| Language | Package                                         | Notes                             |
-| -------- | ----------------------------------------------- | --------------------------------- |
-| Rust     | [`rust/personhog-proto`](/rust/personhog-proto) | Generated at build time via tonic |
+| Proto             | Rust                                         | Python                                                   |
+| ----------------- | -------------------------------------------- | -------------------------------------------------------- |
+| `cymbal/`         | `rust/cymbal-proto` (auto via tonic)         | —                                                        |
+| `personhog/`      | `rust/personhog-proto` (auto via tonic)      | `posthog/personhog_client/proto/generated/` (checked in) |
+| `kafka_assigner/` | `rust/kafka-assigner-proto` (auto via tonic) | —                                                        |
 
-## CI Checks
+## Updating protos
 
-Proto changes trigger `.github/workflows/ci-proto.yml`:
+1. Edit `.proto` files in the relevant directory
+2. Regenerate language bindings for affected consumers (see table above)
+3. Commit generated files — CI rejects stale stubs
 
-- **Lint**: Style and naming conventions
-- **Breaking**: Detects backwards-incompatible changes against `master`
+### Python stubs (personhog only)
 
-## Adding a New Proto
+```bash
+bin/generate_personhog_proto.sh
+```
 
-1. Add/modify `.proto` files in the appropriate directory
-2. Run `buf lint proto/` locally (if buf installed) or let CI validate
-3. Update language bindings as needed
+Only needed when `personhog/` protos change. Requires `grpcio-tools` and `protoletariat` (`uv sync`).
+
+If you added or removed **message types**, update the re-exports in `posthog/personhog_client/proto/__init__.py`.
+If you added or removed **RPCs**, update the wrapper methods in `posthog/personhog_client/client.py`.
+
+### Rust
+
+No action needed — Rust bindings regenerate on `cargo build`.
+
+## CI
+
+`.github/workflows/ci-proto.yml` runs on proto changes:
+
+- `buf lint` — style and naming
+- `buf breaking` — backwards compatibility against `master`
+- Python codegen staleness check

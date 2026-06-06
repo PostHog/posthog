@@ -286,7 +286,7 @@ class PolicyEngine:
         # Check bypass_org_membership_levels
         if policy.bypass_org_membership_levels:
             membership = actor.organization_memberships.filter(organization=org).first()
-            if membership and str(membership.level) in policy.bypass_org_membership_levels:
+            if membership and membership.level in [int(lvl) for lvl in policy.bypass_org_membership_levels]:
                 return True
 
         # Check bypass_roles (RBAC roles)
@@ -331,11 +331,14 @@ class PolicyEngine:
             if not org:
                 return False
 
-            actor_roles = set(
-                RoleMembership.objects.filter(user=actor, role__organization=org).values_list("role_id", flat=True)
-            )
+            actor_roles = {
+                str(rid)
+                for rid in RoleMembership.objects.filter(user=actor, role__organization=org).values_list(
+                    "role_id", flat=True
+                )
+            }
 
-            approver_roles = set(approver_config["roles"])
+            approver_roles = {str(r) for r in approver_config["roles"]}
             if actor_roles & approver_roles:
                 return True
 

@@ -1,7 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
 import math
-from typing import Optional, Union
+from typing import Optional, TypedDict, Union
 
 from pydantic import BaseModel
 
@@ -18,7 +18,8 @@ from posthog.schema import (
     LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -26,13 +27,26 @@ from posthog.schema import (
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
+    MarketingIntegrationConfig8,
+    MetaAdsConversionFallbackActionTypes,
+    MetaAdsConversionOmniActionTypes,
+    MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
     NativeMarketingSource,
+    PinterestAdsDefaultSources,
+    PinterestAdsTableExclusions,
+    PinterestAdsTableKeywords,
     RedditAdsDefaultSources,
     RedditAdsTableExclusions,
     RedditAdsTableKeywords,
+    SnapchatAdsConversionFields,
+    SnapchatAdsConversionValueFields,
+    SnapchatAdsDefaultSources,
+    SnapchatAdsTableExclusions,
+    SnapchatAdsTableKeywords,
     TikTokAdsDefaultSources,
     TikTokAdsTableExclusions,
     TikTokAdsTableKeywords,
@@ -71,20 +85,56 @@ TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 
-# Fallback query when no valid adapters are found (includes all 9 columns in correct order)
-# Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
-FALLBACK_EMPTY_QUERY = (
-    f"SELECT '' as {MATCH_KEY_FIELD}, "
-    f"'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, "
-    f"'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, "
-    f"'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} "
-    "WHERE 1=0"
-)
+# Placeholder shown in hierarchy columns when an optional parent table isn't synced.
+# Example: at AD drill-down with `ads` synced but not `adsets`, the ad_group_name /
+# ad_group_id columns surface this label so the user understands why the column is
+# blank — instead of showing NULL or an empty string. Adapter-agnostic: any source
+# that exposes optional hierarchy tables should reuse this.
+UNSYNCED_HIERARCHY_LABEL = "No sync"
+
+
+# Fallback query when no valid adapters are found. Emits either 9 or 13 columns to
+# match the schema adapters produce for the given drill-down level.
+def build_fallback_empty_query_ast(
+    drill_down_level: MarketingAnalyticsDrillDownLevel | None = None,
+) -> ast.SelectQuery:
+    select_columns: list[ast.Expr] = [
+        ast.Alias(alias=MATCH_KEY_FIELD, expr=ast.Constant(value="")),
+        ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CAMPAIGN, expr=ast.Constant(value="No Campaign")),
+        ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.ID, expr=ast.Constant(value="No ID")),
+        ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.SOURCE, expr=ast.Constant(value="No Source")),
+    ]
+    if drill_down_level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
+        # Match the 13-column schema adapters emit at ad-group / ad levels so the UNION
+        # stays consistent when no adapter supports this level.
+        select_columns.extend(
+            [
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.AD_GROUP_NAME, expr=ast.Constant(value=None)),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.AD_GROUP_ID, expr=ast.Constant(value=None)),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.AD_NAME, expr=ast.Constant(value=None)),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.AD_ID, expr=ast.Constant(value=None)),
+            ]
+        )
+    select_columns.extend(
+        [
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CLICKS, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.COST, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION, expr=ast.Constant(value=0.0)),
+            ast.Alias(
+                alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE, expr=ast.Constant(value=0.0)
+            ),
+        ]
+    )
+    return ast.SelectQuery(
+        select=select_columns,
+        where=ast.CompareOperation(
+            left=ast.Constant(value=1),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=0),
+        ),
+    )
+
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
@@ -99,6 +149,27 @@ BASE_COLUMN_MAPPING = {
     MarketingAnalyticsBaseColumns.SOURCE: ast.Alias(
         alias=MarketingAnalyticsBaseColumns.SOURCE,
         expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.SOURCE]),
+    ),
+    # Naming inconsistency: the schema name uses `_name` suffixes (`ad_group_name`,
+    # `ad_name`) while CAMPAIGN's schema name is just `campaign`. Predates this PR;
+    # changing the older convention would require a migration of saved source_map
+    # configs across all teams. The display alias ("Ad group" / "Ad") hides the
+    # inconsistency from the UI.
+    MarketingAnalyticsBaseColumns.AD_GROUP: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.AD_GROUP,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.AD_GROUP_NAME]),
+    ),
+    MarketingAnalyticsBaseColumns.AD_GROUP_ID: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.AD_GROUP_ID,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.AD_GROUP_ID]),
+    ),
+    MarketingAnalyticsBaseColumns.AD: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.AD,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.AD_NAME]),
+    ),
+    MarketingAnalyticsBaseColumns.AD_ID: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.AD_ID,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.AD_ID]),
     ),
     MarketingAnalyticsBaseColumns.COST: ast.Alias(
         alias=MarketingAnalyticsBaseColumns.COST,
@@ -168,8 +239,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -208,9 +279,148 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
+
+# Hierarchy columns are emitted by the campaign_costs CTE only at AD_GROUP / AD levels
+# (the adapters add ad_group_name / ad_group_id / ad_name / ad_id to their SELECT only
+# at those levels — see MarketingSourceAdapter._build_select_columns). At every other
+# level the CTE schema doesn't have them, so the runtime adds these to the excluded
+# set automatically. Keeping this in one place means level configs don't need to repeat
+# the four entries, and adding a new hierarchy column only requires updating this set
+# plus the adapter SELECT.
+HIERARCHY_BASE_COLUMNS: frozenset[MarketingAnalyticsBaseColumns] = frozenset(
+    {
+        MarketingAnalyticsBaseColumns.AD_GROUP,
+        MarketingAnalyticsBaseColumns.AD_GROUP_ID,
+        MarketingAnalyticsBaseColumns.AD,
+        MarketingAnalyticsBaseColumns.AD_ID,
+    }
+)
+
+# Levels that emit hierarchy columns from the CTE. Other levels exclude them automatically
+# via HIERARCHY_BASE_COLUMNS.
+HIERARCHY_DRILL_DOWN_LEVELS: frozenset[MarketingAnalyticsDrillDownLevel] = frozenset(
+    {MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD}
+)
+
+
+def get_effective_excluded_columns(
+    level: MarketingAnalyticsDrillDownLevel,
+) -> frozenset[MarketingAnalyticsBaseColumns]:
+    """Combine the level's user-facing excluded set with the hierarchy auto-exclusion.
+    Returns the full set of columns the runtime should not emit at this level."""
+    user_excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
+    if level in HIERARCHY_DRILL_DOWN_LEVELS:
+        return user_excluded
+    return user_excluded | HIERARCHY_BASE_COLUMNS
+
+
+class DrillDownLevelConfig(TypedDict, total=False):
+    column_alias: str
+    excluded_base_columns: frozenset[MarketingAnalyticsBaseColumns]
+    # When True, this level can't be attributed to events — conversion goal columns
+    # are dropped. Used for ad-group / ad levels where the platform supplies cost data
+    # but events can't be mapped to a specific ad.
+    excludes_conversion_goals: bool
+
+
+# Centralized drill-down level configuration. Hierarchy columns (ad_group / ad) are
+# auto-excluded by the runtime at non-hierarchy levels — see HIERARCHY_BASE_COLUMNS —
+# so they don't need to appear in `excluded_base_columns` for CHANNEL/SOURCE/CAMPAIGN/UTM.
+DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelConfig] = {
+    MarketingAnalyticsDrillDownLevel.CHANNEL: {
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.SOURCE: {
+        "column_alias": MarketingAnalyticsBaseColumns.SOURCE,
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+                MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.CAMPAIGN: {
+        "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
+        # Empty user-config preserves master's natural enum order at CAMPAIGN —
+        # hierarchy columns are auto-excluded by the runtime.
+        "excluded_base_columns": frozenset(),
+    },
+    MarketingAnalyticsDrillDownLevel.AD_GROUP: {
+        # Show parent context (Campaign + Source) plus the ad-group itself.
+        # Hide campaign Id and ad-level columns (they don't apply at this level).
+        "column_alias": MarketingAnalyticsBaseColumns.AD_GROUP,
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.AD,
+                MarketingAnalyticsBaseColumns.AD_ID,
+            }
+        ),
+        "excludes_conversion_goals": True,
+    },
+    MarketingAnalyticsDrillDownLevel.AD: {
+        # Full hierarchy: Campaign + Source + Ad group + Ad. Hide campaign Id and ad-group ID.
+        "column_alias": MarketingAnalyticsBaseColumns.AD,
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.AD_GROUP_ID,
+            }
+        ),
+        "excludes_conversion_goals": True,
+    },
+    # UTM levels: platform cost can't be attributed to a UTM value, so all base columns
+    # are stripped — only the grouping alias + conversion goal columns remain. The
+    # runtime hierarchy auto-exclusion is a no-op here (already in `frozenset(...)`).
+    MarketingAnalyticsDrillDownLevel.MEDIUM: {
+        "column_alias": "Medium",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+    MarketingAnalyticsDrillDownLevel.CONTENT: {
+        "column_alias": "Content",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+    MarketingAnalyticsDrillDownLevel.TERM: {
+        "column_alias": "Term",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+}
+
+# All possible grouping column aliases (used to identify string columns)
+DRILL_DOWN_STRING_COLUMN_ALIASES: frozenset[str] = frozenset(
+    cfg["column_alias"] for cfg in DRILL_DOWN_LEVEL_CONFIG.values()
+)
 
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
@@ -222,6 +432,14 @@ MARKETING_ANALYTICS_SCHEMA = {
     MarketingAnalyticsColumnsSchemaNames.DATE: {"required": True},
     MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS: {"required": False},
     MarketingAnalyticsColumnsSchemaNames.CURRENCY: {"required": False},
+    # Ad group / ad fields — optional. Only platforms that expose ad-group / ad
+    # granularity (Meta, Google Ads, TikTok, Reddit, Pinterest, Snapchat, Bing) will
+    # populate these. When absent, the corresponding drill-down levels show no data
+    # for that source.
+    MarketingAnalyticsColumnsSchemaNames.AD_GROUP_ID: {"required": False},
+    MarketingAnalyticsColumnsSchemaNames.AD_GROUP_NAME: {"required": False},
+    MarketingAnalyticsColumnsSchemaNames.AD_ID: {"required": False},
+    MarketingAnalyticsColumnsSchemaNames.AD_NAME: {"required": False},
 }
 
 # Valid native marketing sources - derived from generated enum
@@ -234,13 +452,15 @@ VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
 
 # Map generated config models to NativeMarketingSource using sourceType field
-_ALL_CONFIG_MODELS = [
+_ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
+    MarketingIntegrationConfig8,
 ]
 
 
@@ -276,6 +496,8 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsDefaultSources,
     NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsDefaultSources,
+    NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
 }
 
 _TABLE_KEYWORDS_ENUMS = {
@@ -285,6 +507,8 @@ _TABLE_KEYWORDS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
     NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
+    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableKeywords,
 }
 
 _TABLE_EXCLUSIONS_ENUMS = {
@@ -294,6 +518,8 @@ _TABLE_EXCLUSIONS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
     NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
+    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableExclusions,
 }
 
 # Derived constants from generated types
@@ -326,8 +552,56 @@ INTEGRATION_PRIMARY_SOURCE = {
     source: _get_field_default(config, "primarySource") for source, config in _CONFIG_MODELS.items()
 }
 
+
+class HierarchySchemaNames(TypedDict, total=False):
+    """Schema names for the optional ad-group / ad warehouse tables of a native source.
+
+    Each field is independent: a source may declare adset-level only (LinkedIn lacks
+    creatives, only campaign-as-ad-group), the adset and ad pair (Meta / Google /
+    TikTok / Reddit / Pinterest / Snapchat), or none (campaign-only). When ad_table /
+    ad_stats_table are absent, AD drill-down is skipped for that source.
+
+    The factory uses these to wire the matching warehouse tables into the adapter
+    config — when the schema name (output of `_extract_schema_name`) matches one of
+    these constants, the table is set on the corresponding slot.
+    """
+
+    adset_table: str
+    adset_stats_table: str
+    ad_table: str
+    ad_stats_table: str
+
+
+# A source supports a drill-down level only when its generated config declares the
+# matching `*TableName` fields; otherwise it stays campaign-only.
+def _hierarchy_for(config: type[BaseModel]) -> HierarchySchemaNames | None:
+    result: HierarchySchemaNames = {}
+    if "adsetTableName" in config.model_fields and "adsetStatsTableName" in config.model_fields:
+        result["adset_table"] = _get_field_default(config, "adsetTableName")
+        result["adset_stats_table"] = _get_field_default(config, "adsetStatsTableName")
+    if "adTableName" in config.model_fields and "adStatsTableName" in config.model_fields:
+        result["ad_table"] = _get_field_default(config, "adTableName")
+        result["ad_stats_table"] = _get_field_default(config, "adStatsTableName")
+    return result or None
+
+
+NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES: dict[NativeMarketingSource, HierarchySchemaNames] = {
+    source: hierarchy for source, config in _CONFIG_MODELS.items() if (hierarchy := _hierarchy_for(config)) is not None
+}
+
 INTEGRATION_DEFAULT_SOURCES = {
     source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
+}
+
+# Snapchat Ads conversion fields - derived from generated enums
+SNAPCHAT_CONVERSION_FIELDS = [e.value for e in SnapchatAdsConversionFields]
+SNAPCHAT_CONVERSION_VALUE_FIELDS = [e.value for e in SnapchatAdsConversionValueFields]
+
+# Meta Ads conversion action types - derived from generated enums
+META_CONVERSION_ACTION_TYPES = {
+    "omni": [e.value for e in MetaAdsConversionOmniActionTypes],
+    "fallback": [e.value for e in MetaAdsConversionFallbackActionTypes],
+    "specific": [e.value for e in MetaAdsConversionSpecificActionTypes],
 }
 
 # Column kind mapping for WebAnalyticsItemBase
@@ -335,14 +609,19 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.ID: "unit",
     MarketingAnalyticsBaseColumns.CAMPAIGN: "unit",
     MarketingAnalyticsBaseColumns.SOURCE: "unit",
+    MarketingAnalyticsBaseColumns.AD_GROUP: "unit",
+    MarketingAnalyticsBaseColumns.AD_GROUP_ID: "unit",
+    MarketingAnalyticsBaseColumns.AD: "unit",
+    MarketingAnalyticsBaseColumns.AD_ID: "unit",
     MarketingAnalyticsBaseColumns.COST: "currency",
     MarketingAnalyticsBaseColumns.CLICKS: "unit",
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: "unit",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: "currency",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -350,14 +629,19 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.ID: False,
     MarketingAnalyticsBaseColumns.CAMPAIGN: False,
     MarketingAnalyticsBaseColumns.SOURCE: False,
+    MarketingAnalyticsBaseColumns.AD_GROUP: False,
+    MarketingAnalyticsBaseColumns.AD_GROUP_ID: False,
+    MarketingAnalyticsBaseColumns.AD: False,
+    MarketingAnalyticsBaseColumns.AD_ID: False,
     MarketingAnalyticsBaseColumns.COST: True,  # Higher cost is bad
     MarketingAnalyticsBaseColumns.CLICKS: False,  # More clicks is good
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: False,  # More reported conversions is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: True,  # Higher cost per conversion is bad
 }
 
 
@@ -395,7 +679,7 @@ def to_marketing_analytics_data(
             break
     else:
         # Check if it's a conversion goal or cost per conversion
-        if key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+        if key.startswith(MarketingAnalyticsConstants.COST_PER):
             kind = "currency"
             is_increase_bad = True  # Cost per conversion - higher is bad
         else:
@@ -403,12 +687,15 @@ def to_marketing_analytics_data(
             kind = "unit"
             is_increase_bad = False  # More conversions is good
 
-    # For string columns (ID, Campaign, Source), preserve the string values
-    if kind == "unit" and key in [
+    # For string columns (IDs, names, and drill-down grouping aliases), preserve the string
+    # values. ID columns hold platform identifiers (Meta ad IDs are 17-digit numbers) and
+    # must NOT be coerced to int — the frontend formats numbers in compact form ("120000T").
+    string_columns = DRILL_DOWN_STRING_COLUMN_ALIASES | {
         MarketingAnalyticsBaseColumns.ID.value,
-        MarketingAnalyticsBaseColumns.CAMPAIGN.value,
-        MarketingAnalyticsBaseColumns.SOURCE.value,
-    ]:
+        MarketingAnalyticsBaseColumns.AD_GROUP_ID.value,
+        MarketingAnalyticsBaseColumns.AD_ID.value,
+    }
+    if kind == "unit" and key in string_columns:
         # String columns - no numeric processing needed
         pass
     else:

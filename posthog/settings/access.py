@@ -32,7 +32,7 @@ CSRF_TRUSTED_ORIGINS = (
     if raw_site_url
     else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
-
+CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
@@ -65,6 +65,24 @@ DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
+SECRET_KEY_FALLBACKS: list[str] = get_list(os.getenv("SECRET_KEY_FALLBACKS", ""))
+
+# Dedicated key for signing PostHog-issued JWTs (posthog.jwt), so JWT signing can move off
+# SECRET_KEY. Defaults to SECRET_KEY, so deployments keep working until they provision a
+# separate key; once set, add the old key to JWT_SIGNING_KEY_FALLBACKS so tokens already in
+# flight keep validating until they expire. An empty value coalesces back to SECRET_KEY —
+# signing with an empty key is never a valid intent.
+JWT_SIGNING_KEY: str = os.getenv("JWT_SIGNING_KEY", "") or SECRET_KEY
+# Previous JWT signing keys still trusted for verifying tokens in flight, newest first.
+# Defaults to SECRET_KEY_FALLBACKS only when *unset*; an explicit empty value (e.g.
+# JWT_SIGNING_KEY_FALLBACKS="") clears it, so operators can stop trusting old JWT keys
+# without disturbing SECRET_KEY_FALLBACKS (which Django also uses for session/CSRF rotation).
+JWT_SIGNING_KEY_FALLBACKS: list[str] = (
+    get_list(os.environ["JWT_SIGNING_KEY_FALLBACKS"])
+    if "JWT_SIGNING_KEY_FALLBACKS" in os.environ
+    else (SECRET_KEY_FALLBACKS if JWT_SIGNING_KEY == SECRET_KEY else [])
+)
+
 
 if not DEBUG and not TEST and not STATIC_COLLECTION and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(
@@ -74,6 +92,13 @@ For the safety of your instance, you must generate and set a unique key.
 """
     )
     sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
+
+# RS256 private key for sandbox JWT authentication
+# Used to sign tokens; public key is derived from this and injected into sandboxes for verification
+SANDBOX_JWT_PRIVATE_KEY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY")
+
+# Additional RS256 private key accepted during key rotation of SANDBOX_JWT_PRIVATE_KEY
+SANDBOX_JWT_PRIVATE_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY_SECONDARY")
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))

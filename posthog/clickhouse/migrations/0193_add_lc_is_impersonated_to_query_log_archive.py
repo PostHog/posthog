@@ -10,7 +10,7 @@ operations = [
     # Add the lc_is_impersonated column to the tables
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         is_alter_on_replicated_table=True,
         sharded=False,
     ),
@@ -23,7 +23,7 @@ operations = [
     # Update the MV to extract is_impersonated from log_comment
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_MV_V4_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
+        node_roles=[NodeRole.DATA, NodeRole.ENDPOINTS],
         is_alter_on_replicated_table=False,
         sharded=False,
     ),

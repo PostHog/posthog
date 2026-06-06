@@ -18,7 +18,7 @@
  * - Bulk writes (batch INSERT)
  */
 import { newBatchPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineResult, dlq, isOkResult, ok } from '../results'
 
 /**
@@ -44,7 +44,7 @@ describe('Batch Pipeline Basics', () => {
 
         const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBatchDoubleStep()).build()
 
-        const batch = [1, 2, 3, 4, 5].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -68,7 +68,7 @@ describe('Batch Pipeline Basics', () => {
 
         const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createUppercaseStep()).build()
 
-        const batch = ['a', 'b', 'c'].map((s) => createContext(ok(s)))
+        const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -94,7 +94,7 @@ describe('Cardinality Guarantee', () => {
 
         const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createValidBatchStep()).build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -117,7 +117,7 @@ describe('Cardinality Guarantee', () => {
 
         const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBadBatchStep()).build()
 
-        const batch = [1, 2, 3].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         await expect(pipeline.next()).rejects.toThrow(/different number of results than input values/)
@@ -157,7 +157,7 @@ describe('OK Filtering', () => {
             .pipeBatch(createProcessStep())
             .build()
 
-        const batch = [1, 2, 3, 4, 5].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         await pipeline.next()

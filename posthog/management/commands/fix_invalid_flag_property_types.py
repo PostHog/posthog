@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from posthog.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 # Valid property types for feature flags (from validate_filters in api/feature_flag.py)
 VALID_PROPERTY_TYPES = {"person", "cohort", "group", "flag"}
@@ -35,7 +35,7 @@ class Command(BaseCommand):
 
         # Only fetch flags that have invalid property types (efficient DB-level filter)
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (INVALID_FLAGS_SQL is a static constant, admin-only command)
-        flags = FeatureFlag.objects.filter(deleted=False, active=True).extra(where=[f"EXISTS ({INVALID_FLAGS_SQL})"])
+        flags = FeatureFlag.objects.filter(active=True).extra(where=[f"EXISTS ({INVALID_FLAGS_SQL})"])
         if team_id:
             flags = flags.filter(team_id=team_id)
             self.stdout.write(f"Filtering to team_id={team_id}")

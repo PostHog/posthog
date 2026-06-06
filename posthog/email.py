@@ -3,8 +3,10 @@
 import sys
 import html
 import uuid
+import datetime
+import dataclasses
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -24,6 +26,7 @@ from celery import shared_task
 from lxml import html as lxml_html
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.utils import CeleryQueue
@@ -114,6 +117,11 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "approval_rejected": "58",
     "approval_expired": "59",
     "approval_applied": "61",
+    "conversation_restore": "63",
+    "proxy_provisioned": "64",
+    "delegation_invite": "66",
+    "provisioning_welcome": "67",
+    "baa_signed_ai_disabled": "68",
 }
 
 
@@ -261,11 +269,49 @@ def _send_via_smtp(
                 )
 
 
+# `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never
+# user-controlled. It must pass through verbatim so the `&` separators don't
+# get HTML-escaped before reaching Customer.io — Liquid renders the value raw,
+# and mail clients expect the literal `&` between query parameters.
+_PASSTHROUGH_KEYS = {"utm_tags"}
+
+# Keys whose values are PostHog-generated URLs (built from `settings.SITE_URL`
+# + a path) and should remain clickable in the rendered email. Defanging would
+# break every "click here" button, so URL-shape characters (`:`, `/`, `.`) are
+# preserved — but attribute-injection characters (`<`, `>`, `"`, `'`, `&`) are
+# still html-escaped, so a user-controlled path segment (e.g. the `slug`
+# appended in `build_comment_item_url`) cannot break out of `<a href="...">`.
+_TRUSTED_URL_KEYS = {"url", "href", "link", "site_url"}
+_TRUSTED_URL_KEY_SUFFIXES = ("_url", "_link", "_href")
+
+_KeyPolicy = Literal["passthrough", "trusted_url", "default"]
+
+
+def _classify_key(key: Any) -> _KeyPolicy:
+    if not isinstance(key, str):
+        return "default"
+    lower = key.lower()
+    if lower in _PASSTHROUGH_KEYS:
+        return "passthrough"
+    if lower in _TRUSTED_URL_KEYS or lower.endswith(_TRUSTED_URL_KEY_SUFFIXES):
+        return "trusted_url"
+    return "default"
+
+
 def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, Any]:
     """
-    Sanitizes properties that will be used in email templates to prevent HTML injection.
-    This function recursively processes dictionaries, lists, and scalar values to ensure
-    all string values are properly escaped.
+    Sanitizes properties that will be used in email templates to prevent HTML
+    injection and to defang URL-shaped strings so mail clients don't auto-link
+    user-controlled content like display names or organization names.
+    Recursively processes dictionaries, lists, and scalar values. Keys are
+    handled in three tiers:
+
+    - `_PASSTHROUGH_KEYS` (e.g. `utm_tags`) — value returned unchanged.
+    - `_TRUSTED_URL_KEYS` and `*_url` / `*_link` / `*_href` — html-escaped only,
+      no defang, so the link stays clickable but a user-controlled portion of
+      the URL can't escape the href attribute.
+    - everything else — full `sanitize_email_string` (NFKC + invisible-strip +
+      html-escape + URL defang).
 
     Args:
         properties: Dictionary of properties to sanitize
@@ -279,46 +325,42 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     if properties is None:
         return {}
 
-    # Special keys that should not be sanitized (e.g., URL query parameters)
-    skip_sanitization_keys = ["utm_tags"]
+    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID, datetime.datetime, datetime.date)
 
-    # Supported types (besides containers like dict and list)
-    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID)
-
-    def sanitize_value(value: Any) -> Any:
+    def sanitize_value(value: Any, *, key: Any = None) -> Any:
+        policy = _classify_key(key) if key is not None else "default"
+        if policy == "passthrough":
+            return value
         if isinstance(value, str):
-            return html.escape(value)
+            if policy == "trusted_url":
+                return html.escape(value)
+            return sanitize_email_string(value)
         elif isinstance(value, dict):
-            return {k: sanitize_value(v) for k, v in value.items()}
+            return {k: sanitize_value(v, key=k) for k, v in value.items()}
         elif isinstance(value, list):
             return [sanitize_value(item) for item in value]
         elif isinstance(value, uuid.UUID):
-            # Handle UUID by converting to string and escaping
-            return html.escape(str(value))
+            return sanitize_email_string(str(value))
+        elif isinstance(value, datetime.datetime | datetime.date):
+            # Reached via dataclasses.asdict() for facade contracts with created_at-style fields.
+            return sanitize_email_string(value.isoformat())
         elif hasattr(value, "_meta") and hasattr(value, "pk"):
-            # Handle Django models by converting to string and escaping
-            return html.escape(str(value))
+            # str(model) often contains user-controlled fields (Team.name, Organization.name)
+            # that mail clients would otherwise auto-link.
+            return sanitize_email_string(str(value))
         elif isinstance(value, Decimal):
-            # Convert Decimal to float for JSON serialization
             return float(value)
         elif isinstance(value, int | float | bool | type(None)):
-            # These types are safe as-is
             return value
+        elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return {k: sanitize_value(v, key=k) for k, v in dataclasses.asdict(value).items()}
         else:
-            # Raise an error for unsupported types - this is a security measure to prevent uncaught injections
             raise TypeError(
                 f"Unsupported type in email properties: {type(value).__name__}. "
-                f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, and Django models are supported."
+                f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, dataclasses, and Django models are supported."
             )
 
-    result = {}
-    for k, v in properties.items():
-        if k in skip_sanitization_keys:
-            result[k] = v  # Skip sanitization for special keys
-        else:
-            result[k] = sanitize_value(v)
-
-    return result
+    return {k: sanitize_value(v, key=k) for k, v in properties.items()}
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

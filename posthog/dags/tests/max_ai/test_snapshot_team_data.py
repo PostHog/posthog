@@ -14,8 +14,8 @@ from posthog.schema import (
 )
 
 from posthog.models import GroupTypeMapping, Organization, Project, Team
-from posthog.models.property_definition import PropertyDefinition
 
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.posthog_ai.dags.snapshot_team_data import (
     SnapshotUnrecoverableError,
     snapshot_actors_property_taxonomy,

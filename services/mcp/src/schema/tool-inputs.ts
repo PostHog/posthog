@@ -1,81 +1,228 @@
 import { z } from 'zod'
 
-import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
-import {
-    AddInsightToDashboardSchema,
-    CreateDashboardInputSchema,
-    ListDashboardsSchema,
-    ReorderDashboardTilesSchema,
-    UpdateDashboardInputSchema,
-} from './dashboards'
-import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
-import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
-import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
-import { InsightQuerySchema } from './query'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    UpdateSurveyInputSchema,
-} from './surveys'
+import { PropertyFilter } from './query'
 
-export const DashboardAddInsightSchema = z.object({
-    data: AddInsightToDashboardSchema,
+export const ExternalDataJobsAfterSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
+
+export const ExternalDataJobsBeforeSchema = z
+    .string()
+    .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
+
+export const ExternalDataJobsSchemasSchema = z
+    .array(z.string())
+    .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const ExternalDataSourcePayloadSchema = z
+    .record(z.string(), z.unknown())
+    .describe(
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+    )
+
+export const ExternalDataSourceTypeSchema = z
+    .string()
+    .describe(
+        'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
+    )
+
+const UsageMetricEventsFilterEntrySchema = z.object({
+    id: z.string().describe('Event name (e.g. "$pageview").'),
+    name: z.string().optional(),
+    type: z.literal('events').optional(),
+    order: z.number().int().optional(),
+    properties: z.array(z.unknown()).optional(),
 })
 
-export const DashboardCreateSchema = z.object({
-    data: CreateDashboardInputSchema,
+const UsageMetricEventsFiltersSchema = z
+    .object({
+        events: z.array(UsageMetricEventsFilterEntrySchema).describe('Events to count or sum over.'),
+        actions: z.array(z.unknown()).optional(),
+        properties: z.array(z.unknown()).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    })
+    .describe('Events-source filter shape (default).')
+
+const UsageMetricDataWarehouseFiltersSchema = z
+    .object({
+        source: z.literal('data_warehouse'),
+        table_name: z
+            .string()
+            .describe(
+                'Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.'
+            ),
+        timestamp_field: z
+            .string()
+            .describe(
+                'Timestamp column or HogQL expression on the row (e.g. "created" or "toDateTime(created_at)"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.'
+            ),
+        key_field: z
+            .string()
+            .describe(
+                'Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.'
+            ),
+    })
+    .describe('Data-warehouse-source filter shape.')
+
+export const UsageMetricFiltersSchema = z
+    .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
+    .describe(
+        'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
+
+const CategoricalScoreOptionSchema = z.object({
+    key: z
+        .string()
+        .min(1)
+        .max(128)
+        .describe(
+            'Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected.'
+        ),
+    label: z.string().min(1).max(256).describe('Human-readable label shown in the review UI.'),
 })
 
-export const DashboardDeleteSchema = z.object({
-    dashboardId: z.number(),
-})
+const CategoricalScoreDefinitionConfigSchema = z
+    .object({
+        options: z
+            .array(CategoricalScoreOptionSchema)
+            .min(1)
+            .refine(
+                (options) => new Set(options.map((option) => option.key)).size === options.length,
+                'Categorical option keys must be unique.'
+            )
+            .describe('Ordered categorical options. Must contain at least one option with unique keys.'),
+        selection_mode: z
+            .enum(['single', 'multiple'])
+            .optional()
+            .describe('Whether reviewers select one option or many. Defaults to "single".'),
+        min_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Minimum selections required. Only valid when selection_mode is "multiple".'),
+        max_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "categorical".')
 
-export const DashboardGetSchema = z.object({
-    dashboardId: z.number(),
-})
+const NumericScoreDefinitionConfigSchema = z
+    .object({
+        min: z.number().optional().describe('Optional inclusive minimum score.'),
+        max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
+        step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "numeric".')
 
-export const DashboardGetAllSchema = z.object({
-    data: ListDashboardsSchema.optional(),
-})
+const BooleanScoreDefinitionConfigSchema = z
+    .object({
+        true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
+        false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "boolean".')
 
-export const DashboardUpdateSchema = z.object({
-    dashboardId: z.number(),
-    data: UpdateDashboardInputSchema,
-})
+export const ScoreDefinitionConfigSchema = z
+    .union([
+        CategoricalScoreDefinitionConfigSchema,
+        NumericScoreDefinitionConfigSchema,
+        BooleanScoreDefinitionConfigSchema,
+    ])
+    .describe(
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+    )
 
-export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
+export const PromptListInputSchema = z.object({
+    search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    content: z
+        .enum(['full', 'preview', 'none'])
+        .default('none')
+        .describe(
+            "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely."
+        ),
+})
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
 })
 
-export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
-
-export const ErrorTrackingListSchema = ListErrorsSchema
-
-export const ExperimentGetAllSchema = z.object({
-    data: z
-        .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
-        })
-        .optional(),
-})
-
-export const ExperimentGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to retrieve'),
+export const FeedbackSubmitSchema = z.object({
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
+        ),
+    sentiment: z
+        .enum(['negative', 'mixed'])
+        .describe(
+            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
+        ),
+    category: z
+        .enum([
+            'tool_correctness',
+            'tool_description',
+            'tool_input_schema',
+            'tool_output_format',
+            'missing_tool',
+            'instructions_clarity',
+            'performance',
+            'error_message',
+            'other',
+        ])
+        .describe(
+            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
+        ),
+    task_completed: z
+        .boolean()
+        .describe(
+            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
+        ),
+    tools_used: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+        ),
+    friction_points: z
+        .string()
+        .optional()
+        .describe(
+            'Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user\'s task or data.'
+        ),
+    suggested_improvement: z
+        .string()
+        .optional()
+        .describe(
+            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
+        ),
+    user_request: z
+        .string()
+        .optional()
+        .describe(
+            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+        ),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+        ),
 })
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
-})
-
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
 /**
@@ -102,7 +249,12 @@ export const ExperimentUpdateInputSchema = z.object({
                     .array(z.string())
                     .optional()
                     .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this metric measures'),
             })
         )
@@ -116,7 +268,12 @@ export const ExperimentUpdateInputSchema = z.object({
                 metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
                 event_name: z.string().describe('PostHog event name'),
                 funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this metric measures'),
             })
         )
@@ -135,7 +292,10 @@ export const ExperimentUpdateInputSchema = z.object({
 
     conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
 
-    restart: z.boolean().optional().describe('Restart concluded experiment (clears end_date and conclusion)'),
+    restart: z
+        .boolean()
+        .optional()
+        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
 
     archive: z.boolean().optional().describe('Archive or unarchive experiment'),
 })
@@ -161,11 +321,6 @@ export const ExperimentCreateSchema = z.object({
             'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
         ),
 
-    type: z
-        .enum(['product', 'web'])
-        .default('product')
-        .describe("Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"),
-
     // Primary metrics with guidance
     primary_metrics: z
         .array(
@@ -187,7 +342,12 @@ export const ExperimentCreateSchema = z.object({
                     .describe(
                         "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
                     ),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z
                     .string()
                     .optional()
@@ -214,7 +374,12 @@ export const ExperimentCreateSchema = z.object({
                     .array(z.string())
                     .optional()
                     .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z.record(z.any()).optional().describe('Event properties to filter on'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this secondary metric measures'),
             })
         )
@@ -229,7 +394,20 @@ export const ExperimentCreateSchema = z.object({
             z.object({
                 key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
+                split_percent: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe(
+                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
+                    ),
+                rollout_percentage: z
+                    .number()
+                    .min(0)
+                    .max(100)
+                    .optional()
+                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
             })
         )
         .optional()
@@ -249,7 +427,7 @@ export const ExperimentCreateSchema = z.object({
     filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
 
     target_properties: z
-        .record(z.any())
+        .record(z.string(), z.any())
         .optional()
         .describe('Properties to target specific user segments (e.g., country, subscription type)'),
 
@@ -263,92 +441,48 @@ export const ExperimentCreateSchema = z.object({
         .number()
         .optional()
         .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-})
 
-export const FeatureFlagCreateSchema = z.object({
-    name: z.string(),
-    key: z.string(),
-    description: z.string(),
-    filters: FilterGroupsSchema,
-    active: z.boolean(),
-    tags: z.array(z.string()).optional(),
-})
-
-export const FeatureFlagDeleteSchema = z.object({
-    flagKey: z.string(),
-})
-
-export const FeatureFlagGetAllSchema = z.object({
-    data: z
-        .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
-        })
-        .optional(),
-})
-
-export const FeatureFlagGetDefinitionSchema = z.object({
-    flagId: z.number().int().positive().optional(),
-    flagKey: z.string().optional(),
-})
-
-export const FeatureFlagUpdateSchema = z.object({
-    flagKey: z.string(),
-    data: UpdateFeatureFlagInputSchema,
-})
-
-export const InsightCreateSchema = z.object({
-    data: CreateInsightInputSchema,
-})
-
-export const InsightDeleteSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetSchema = z.object({
-    insightId: z.string(),
-})
-
-export const InsightGetAllSchema = z.object({
-    data: ListInsightsSchema.optional(),
-})
-
-export const InsightGenerateHogQLFromQuestionSchema = z.object({
-    question: z
-        .string()
-        .max(1000)
-        .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
+    allow_unknown_events: z
+        .boolean()
+        .optional()
+        .describe(
+            "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
+        ),
 })
 
 export const InsightQueryInputSchema = z.object({
-    insightId: z.string(),
+    insightId: z.string().describe('The insight ID or short_id to run.'),
+    output_format: z
+        .enum(['optimized', 'json'])
+        .optional()
+        .default('optimized')
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+    variables_override: z
+        .union([z.string(), z.record(z.string(), z.unknown())])
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+        ),
+    filters_override: z
+        .union([z.string(), z.record(z.string(), z.unknown())])
+        .optional()
+        .describe(
+            "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+        ),
 })
 
-export const InsightUpdateSchema = z.object({
-    insightId: z.string(),
-    data: UpdateInsightInputSchema,
-})
-
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
 
-export const OrganizationGetDetailsSchema = z.object({})
-
-export const OrganizationGetAllSchema = z.object({})
-
 export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string().uuid(),
+    orgId: z.string(),
 })
 
 export const ProjectGetAllSchema = z.object({})
-
-export const ProjectEventDefinitionsSchema = z.object({
-    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
@@ -373,90 +507,110 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
-export const ProjectPropertyDefinitionsInputSchema = z.object({
-    type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
-    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
-
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
-export const SurveyCreateSchema = CreateSurveyInputSchema
-
 export const SurveyResponseCountsSchema = z.object({})
 
-export const SurveyGlobalStatsSchema = GetSurveyStatsInputSchema
-
-export const SurveyStatsSchema = GetSurveySpecificStatsInputSchema
-
-export const SurveyDeleteSchema = z.object({
-    surveyId: z.string(),
+// Debug MCP UI Apps
+export const DebugMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the debug data'),
 })
 
-export const SurveyGetSchema = z.object({
-    surveyId: z.string(),
-})
-
-export const SurveyGetAllSchema = ListSurveysInputSchema
-
-export const SurveyUpdateSchema = UpdateSurveyInputSchema.extend({
-    surveyId: z.string(),
-})
-
-export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
-})
-
-export { LogsQueryInputSchema, LogsListAttributesInputSchema, LogsListAttributeValuesInputSchema }
-
-// Actions
-export const ActionCreateSchema = CreateActionInputSchema
-
-export const ActionDeleteSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to delete'),
-})
-
-export const ActionGetSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
-})
-
-export const ActionGetAllSchema = z.object({
-    data: ListActionsInputSchema.optional(),
-})
-
-export const ActionUpdateSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to update'),
-    data: UpdateActionInputSchema,
-})
-
-// Entity Search
-export const EntitySearchSchema = z.object({
-    query: z.string().min(1).describe('Search query to find entities by name or description'),
-    entities: z
-        .array(
-            z.enum([
-                'insight',
-                'dashboard',
-                'experiment',
-                'feature_flag',
-                'notebook',
-                'action',
-                'cohort',
-                'event_definition',
-                'survey',
-            ])
-        )
+// PostHog AI tools
+export const ExecuteSQLSchema = z.object({
+    query: z.string().min(1).describe('The final SQL query to be executed.'),
+    truncate: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+    connectionId: z
+        .string()
         .optional()
         .describe(
-            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
-// Demo MCP UI Apps
-export const DemoMcpUiAppsSchema = z.object({
-    message: z.string().optional().describe('Optional message to include in the demo data'),
+export const ReadDataWarehouseSchemaSchema = z
+    .object({})
+    .describe('No input required. Returns core data warehouse schemas.')
+
+const ReadEventsQuerySchema = z.object({
+    kind: z.literal('events'),
+    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
+    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
 })
+
+const ReadEventPropertiesQuerySchema = z.object({
+    kind: z.literal('event_properties'),
+    event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
+})
+
+const ReadEntityPropertiesQuerySchema = z.object({
+    kind: z.literal('entity_properties'),
+    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+})
+
+const ReadActionPropertiesQuerySchema = z.object({
+    kind: z.literal('action_properties'),
+    action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
+})
+
+const ReadEntitySamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('entity_property_values'),
+    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+    property_name: z.string().describe('Verified property name of an entity.'),
+})
+
+const ReadEventSamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('event_property_values'),
+    event_name: z.string().describe('Verified event name'),
+    property_name: z.string().describe('Verified property name of an event.'),
+})
+
+const ReadActionSamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('action_property_values'),
+    action_id: z.number().int().describe('Verified action ID'),
+    property_name: z.string().describe('Verified property name of an action.'),
+})
+
+export const ReadDataSchemaSchema = z.object({
+    query: z
+        .discriminatedUnion('kind', [
+            ReadEventsQuerySchema,
+            ReadEventPropertiesQuerySchema,
+            ReadEntityPropertiesQuerySchema,
+            ReadActionPropertiesQuerySchema,
+            ReadEntitySamplePropertyValuesQuerySchema,
+            ReadEventSamplePropertyValuesQuerySchema,
+            ReadActionSamplePropertyValuesQuerySchema,
+        ])
+        .describe('The data schema query to execute.'),
+})
+
+// Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
+// instead of forwarding an empty/ambiguous body and waiting for a 400.
+export function validateDistinctIdPersonIdExclusive(
+    data: { distinct_id?: string | undefined; person_id?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    const hasDistinctId = typeof data.distinct_id === 'string' && data.distinct_id.length > 0
+    const hasPersonId = typeof data.person_id === 'string' && data.person_id.length > 0
+    if (!hasDistinctId && !hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Either distinct_id or person_id must be provided',
+        })
+    }
+    if (hasDistinctId && hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Cannot provide both distinct_id and person_id (they are mutually exclusive)',
+        })
+    }
+}

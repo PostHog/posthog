@@ -1,0 +1,41 @@
+{
+    "name": "hedgebox-demo-app",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "fetch-posthog-key": "node scripts/fetch-posthog-key.js",
+        "dev": "pnpm run fetch-posthog-key && next dev",
+        "build": "pnpm run fetch-posthog-key && next build",
+        "start": "next start",
+        "lint": "next lint"
+    },
+    "dependencies": {
+        "next": "15.5.18",
+        "posthog-js": "^1.376.2",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20",
+        "@types/react": "^18.3.27",
+        "@types/react-dom": "^18.3.7",
+        "autoprefixer": "^10.0.1",
+        "daisyui": "^4.4.0",
+        "eslint": "^9",
+        "eslint-config-next": "15.5.18",
+        "pg": "^8.16.3",
+        "playwright": "^1.40.0",
+        "postcss": "^8.5.15",
+        "tailwindcss": "^3.3.0",
+        "typescript": "^5"
+    },
+    "pnpm": {
+        "overrides": {
+            "protobufjs": ">=8.2.0",
+            "postcss": ">=8.5.10",
+            "flatted": ">=3.4.2",
+            "glob@>=10.0.0": ">=10.5.0",
+            "minimatch@<3.1.4": ">=3.1.4"
+        }
+    }
+}

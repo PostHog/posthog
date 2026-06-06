@@ -1,3 +1,4 @@
+// Loads and manages batch export runs — grouping by date, retry, cancel, and pagination logic.
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -9,12 +10,14 @@ import { dayjs } from 'lib/dayjs'
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
 import type { batchExportRunsLogicType } from './batchExportRunsLogicType'
+import { BatchExportContext } from './types'
 
 const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {
     id: string
+    context?: BatchExportContext
 }
 
 export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
@@ -22,13 +25,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportRunsLogic', key]),
     connect((props: BatchExportRunsLogicProps) => ({
-        values: [
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
-        ],
+        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig', 'batchExportConfigLoading']],
         actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
     })),
     actions({
@@ -83,6 +80,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         ],
     }),
     selectors({
+        recordLabel: [
+            () => [(_, props) => props],
+            (props: BatchExportRunsLogicProps): string => (props.context === 'hog_function' ? 'events' : 'rows'),
+        ],
         hasMoreRunsToLoad: [(s) => [s.runsPaginatedResponse], (runsPaginatedResponse) => !!runsPaginatedResponse?.next],
         loading: [
             (s) => [s.runsPaginatedResponseLoading],

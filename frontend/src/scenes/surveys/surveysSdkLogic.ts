@@ -1,24 +1,24 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
+import { sdkHealthLogic } from '~/scenes/onboarding/sdks/sdkHealthLogic'
 
-import { TeamSdkVersions } from './surveyVersionRequirements'
 import type { surveysSdkLogicType } from './surveysSdkLogicType'
+import { TeamSdkVersions } from './surveyVersionRequirements'
 
 export const surveysSdkLogic = kea<surveysSdkLogicType>([
     path(['scenes', 'surveys', 'surveysSdkLogic']),
     connect(() => ({
-        values: [sidePanelSdkDoctorLogic, ['augmentedData as sdkDoctorData']],
+        values: [sdkHealthLogic, ['augmentedData as sdkHealthData']],
     })),
     selectors({
         teamSdkVersions: [
-            (s) => [s.sdkDoctorData],
-            (sdkDoctorData): TeamSdkVersions => {
+            (s) => [s.sdkHealthData],
+            (sdkHealthData): TeamSdkVersions => {
                 const versions: TeamSdkVersions = {}
 
-                for (const [sdkType, sdkInfo] of Object.entries(sdkDoctorData ?? {})) {
+                for (const [sdkType, sdkInfo] of Object.entries(sdkHealthData ?? {})) {
                     if (sdkInfo?.allReleases?.length) {
-                        // sdk doctor uses 'web' but we use 'posthog-js' in SURVEY_SDK_REQUIREMENTS
+                        // sdk health uses 'web' but we use 'posthog-js' in SURVEY_SDK_REQUIREMENTS
                         const key = sdkType === 'web' ? 'posthog-js' : sdkType
                         versions[key as keyof TeamSdkVersions] = sdkInfo.allReleases[0]?.version ?? null
                     }

@@ -1,0 +1,82 @@
+# 3-node Redis cluster for integration tests.
+# All nodes use host networking so they can discover each other via 127.0.0.1.
+#
+# Usage:
+#   docker compose -f docker-compose.integration.yml up -d
+#   docker compose -f docker-compose.integration.yml logs redis-cluster-init --follow
+#   go test ./events/ -tags=integration -run TestRedisShardedPubSub -v -timeout 30s
+#   docker compose -f docker-compose.integration.yml down -v
+services:
+    redis-node-1:
+        image: redis:7.2
+        network_mode: host
+        command: >
+            redis-server
+            --port 7001
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --appendonly yes
+        volumes:
+            - redis-data-1:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '7001', 'ping']
+            interval: 1s
+            timeout: 3s
+            retries: 10
+
+    redis-node-2:
+        image: redis:7.2
+        network_mode: host
+        command: >
+            redis-server
+            --port 7002
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --appendonly yes
+        volumes:
+            - redis-data-2:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '7002', 'ping']
+            interval: 1s
+            timeout: 3s
+            retries: 10
+
+    redis-node-3:
+        image: redis:7.2
+        network_mode: host
+        command: >
+            redis-server
+            --port 7003
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --appendonly yes
+        volumes:
+            - redis-data-3:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '7003', 'ping']
+            interval: 1s
+            timeout: 3s
+            retries: 10
+
+    redis-cluster-init:
+        image: redis:7.2
+        network_mode: host
+        depends_on:
+            redis-node-1:
+                condition: service_healthy
+            redis-node-2:
+                condition: service_healthy
+            redis-node-3:
+                condition: service_healthy
+        command: >
+            redis-cli --cluster create
+            127.0.0.1:7001 127.0.0.1:7002 127.0.0.1:7003
+            --cluster-replicas 0 --cluster-yes
+
+volumes:
+    redis-data-1:
+    redis-data-2:
+    redis-data-3:

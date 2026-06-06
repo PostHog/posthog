@@ -1,12 +1,13 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
+use serde_json::json;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::api::symbol_sets::{self, SymbolSetUpload};
 use crate::invocation_context::context;
-use crate::sourcemaps::args::ReleaseArgs;
+use crate::sourcemaps::args::{ReleaseArgs, UploadConflictArgs};
 use crate::sourcemaps::content::SourceMapFile;
 use crate::sourcemaps::inject::get_release_for_maps;
 
@@ -16,13 +17,25 @@ pub struct Args {
     #[arg(short, long)]
     pub directory: PathBuf,
 
+    /// The maximum number of chunks to upload in a single batch
+    #[arg(long, default_value = "50")]
+    pub batch_size: usize,
+
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
     context().capture_command_invoked("hermes_upload");
-    let Args { directory, release } = args;
+    let Args {
+        directory,
+        release,
+        batch_size,
+        conflict,
+    } = args;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -40,9 +53,18 @@ pub fn upload(args: &Args) -> Result<()> {
         get_release_for_maps(&directory, release.clone(), maps.iter())?.map(|r| r.id.to_string());
 
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
+    let mut empty_skipped = 0usize;
     for mut map in maps.into_iter() {
         if map.get_chunk_id().is_none() {
             warn!("Skipping map {}, no chunk ID", map.inner.path.display());
+            continue;
+        }
+        if map.is_empty() {
+            warn!(
+                "Skipping {}: sourcemap is empty (no mappings/sources/names) — likely a bundler misconfiguration",
+                map.inner.path.display()
+            );
+            empty_skipped += 1;
             continue;
         }
 
@@ -56,8 +78,41 @@ pub fn upload(args: &Args) -> Result<()> {
 
     info!("Found {} maps to upload", uploads.len());
 
-    symbol_sets::upload(&uploads, 100)?;
+    let file_count = uploads.len();
+    let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
+    context().capture_event(
+        "error_tracking_cli_sourcemaps_upload_started",
+        vec![
+            ("type", json!("hermes")),
+            ("file_count", json!(file_count)),
+            ("total_bytes", json!(total_bytes)),
+            ("empty_skipped", json!(empty_skipped)),
+        ],
+    );
 
+    let started_at = Instant::now();
+    let upload_result = symbol_sets::upload_with_retry(
+        uploads,
+        *batch_size,
+        release.skip_release_on_fail,
+        conflict.force,
+        conflict.skip_on_conflict,
+    );
+    let duration_ms = started_at.elapsed().as_millis();
+
+    let mut props = vec![
+        ("type", json!("hermes")),
+        ("file_count", json!(file_count)),
+        ("total_bytes", json!(total_bytes)),
+        ("duration_ms", json!(duration_ms)),
+        ("success", json!(upload_result.is_ok())),
+    ];
+    if let Err(ref e) = upload_result {
+        props.push(("error", json!(format!("{:#}", e))));
+    }
+    context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
+
+    upload_result?;
     Ok(())
 }
 

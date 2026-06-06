@@ -7,8 +7,8 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -76,6 +76,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
                 action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 className="my-0"
+                mcpSurfaceKey="early_access_features.create"
             />
             {!shouldShowEmptyState && (
                 <>

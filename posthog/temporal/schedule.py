@@ -14,6 +14,8 @@ from temporalio.client import (
     ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
     ScheduleIntervalSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleRange,
     ScheduleSpec,
 )
@@ -21,31 +23,65 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
-from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
+from posthog.temporal.ai_observability.eval_reports.schedule import (
+    create_count_trigger_schedule,
+    create_eval_reports_schedule,
+)
+from posthog.temporal.ai_observability.evaluation_clustering.schedule import (
+    create_evaluation_clustering_schedule,
+    create_evaluation_sampler_schedule,
+)
+from posthog.temporal.ai_observability.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.ai_observability.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
+from posthog.temporal.alerts.schedule import (
+    create_cleanup_alert_checks_schedule,
+    create_run_investigation_safety_net_schedule,
+    create_schedule_due_alert_checks_schedule,
+)
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.data_imports.signals.conversations_schedule import (
+    create_conversations_signals_coordinator_schedule,
+)
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
-from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
 )
+from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
-from posthog.temporal.llm_analytics.trace_clustering.schedule import (
-    create_generation_clustering_coordinator_schedule,
-    create_trace_clustering_coordinator_schedule,
-)
-from posthog.temporal.llm_analytics.trace_summarization.schedule import (
-    create_batch_generation_summarization_schedule,
-    create_batch_trace_summarization_schedule,
-)
-from posthog.temporal.messaging.schedule import create_realtime_cohort_calculation_schedule
+from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
+from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
+from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
+from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
+from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
+from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
+from posthog.temporal.session_replay.summarization_sweep.reconciler import (
+    create_summarization_sweep_reconciler_schedule,
+)
+from posthog.temporal.usage_report.types import RunUsageReportsInputs
+from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
+    create_warehouse_sources_queue_partition_management_schedule,
+)
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
+
+from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
+from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
@@ -104,6 +140,10 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
+        # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
+        # Safe because child workflows use deterministic IDs (process-subscription-{id})
+        # and Temporal guarantees no two open workflows can share the same ID.
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
     if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
@@ -166,6 +206,79 @@ async def create_salesforce_enrichment_schedule(client: Client):
     else:
         await a_create_schedule(
             client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, trigger_immediately=False
+        )
+
+
+async def create_salesforce_usage_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce usage enrichment workflow.
+
+    This schedule runs every Sunday at 6 AM UTC to enrich Salesforce accounts with
+    PostHog usage signals.
+    """
+    salesforce_usage_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-usage-enrichment",
+            asdict(UsageEnrichmentInputs()),
+            id="salesforce-usage-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Sunday at 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    day_of_week=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "salesforce-usage-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-usage-enrichment-schedule", salesforce_usage_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-usage-enrichment-schedule",
+            salesforce_usage_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_salesforce_stripe_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce stripe enrichment workflow.
+
+    Runs daily at 4 AM UTC to push Stripe customer data and billing customer
+    names to Salesforce Accounts. The workflow is incremental via a Redis
+    watermark, so a long backfill run is only expected on the first execution;
+    ``SKIP`` prevents the next day's run from starting while a backfill is still
+    in progress.
+    """
+    salesforce_stripe_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-stripe-enrichment",
+            asdict(StripeEnrichmentInputs()),
+            id="salesforce-stripe-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 4 AM UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "salesforce-stripe-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-stripe-enrichment-schedule", salesforce_stripe_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-stripe-enrichment-schedule",
+            salesforce_stripe_enrichment_schedule,
+            trigger_immediately=False,
         )
 
 
@@ -242,6 +355,41 @@ async def create_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_wa_weekly_digest_schedule(client: Client):
+    """Create or update the schedule for the WA weekly digest workflow."""
+    wa_digest_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "wa-weekly-digest",
+            WAWeeklyDigestInput(),
+            id="wa-weekly-digest-schedule",
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Thursday 5 PM PT",
+                    hour=[ScheduleRange(start=17, end=17)],
+                    day_of_week=[ScheduleRange(start=4, end=4)],
+                )
+            ],
+            time_zone_name="America/Los_Angeles",
+        ),
+    )
+
+    if await a_schedule_exists(client, "wa-weekly-digest-schedule"):
+        await a_update_schedule(client, "wa-weekly-digest-schedule", wa_digest_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "wa-weekly-digest-schedule",
+            wa_digest_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_ducklake_compaction_schedule(client: Client):
     """Create or update the schedule for the DuckLake compaction workflow.
 
@@ -272,39 +420,162 @@ async def create_ducklake_compaction_schedule(client: Client):
         )
 
 
-async def create_delete_recording_metadata_schedule(client: Client):
-    """Create or update the schedule for the delete recording metadata workflow.
+async def create_purge_deleted_recording_metadata_schedule(client: Client):
+    """Create or update the schedule for the purge deleted recording metadata workflow.
 
-    This schedule runs daily at midnight UTC to delete queued recording metadata from ClickHouse.
+    This schedule runs daily at 3 AM UTC to permanently delete ClickHouse metadata
+    for recordings that have been deleted.
     """
-    delete_recording_metadata_schedule = Schedule(
+    purge_deleted_recording_metadata_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "delete-recording-metadata",
-            DeleteRecordingMetadataInput(dry_run=False),
-            id="delete-recording-metadata-schedule",
+            "purge-deleted-recording-metadata",
+            PurgeDeletedMetadataInput(),
+            id="purge-deleted-recording-metadata-schedule",
             task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
             ),
         ),
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Daily at midnight UTC",
-                    hour=[ScheduleRange(start=0, end=0)],
+                    comment="Daily at 3 AM UTC",
+                    hour=[ScheduleRange(start=3, end=3)],
                 )
             ]
         ),
     )
 
-    if await a_schedule_exists(client, "delete-recording-metadata-schedule"):
-        await a_update_schedule(client, "delete-recording-metadata-schedule", delete_recording_metadata_schedule)
+    if await a_schedule_exists(client, "purge-deleted-recording-metadata-schedule"):
+        await a_update_schedule(
+            client, "purge-deleted-recording-metadata-schedule", purge_deleted_recording_metadata_schedule
+        )
     else:
         await a_create_schedule(
             client,
-            "delete-recording-metadata-schedule",
-            delete_recording_metadata_schedule,
+            "purge-deleted-recording-metadata-schedule",
+            purge_deleted_recording_metadata_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_replay_count_metrics_schedule(client: Client):
+    """Create or update the schedule for the replay count metrics workflow.
+
+    This schedule runs hourly at minute 0, matching the previous Celery schedule.
+    """
+    replay_count_metrics_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "replay-count-metrics",
+            ReplayCountMetricsInput(),
+            id="replay-count-metrics-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))],
+        ),
+    )
+
+    if await a_schedule_exists(client, "replay-count-metrics-schedule"):
+        await a_update_schedule(client, "replay-count-metrics-schedule", replay_count_metrics_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "replay-count-metrics-schedule",
+            replay_count_metrics_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def cleanup_legacy_session_summarization_schedules(client: Client):
+    """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
+    legacy_schedule_ids = [
+        "video-segment-clustering-coordinator-schedule",
+        "session-summarization-sweep-schedule",
+    ]
+    for schedule_id in legacy_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
+async def create_run_usage_reports_schedule(client: Client):
+    """Daily Temporal-based usage report run at 04:45 UTC.
+
+    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
+    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
+    side. The workflow writes per-org usage data to S3 and sends a single SQS
+    pointer to the billing service.
+    """
+    run_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
+            # `dataclasses.asdict` would TypeError on registration.
+            RunUsageReportsInputs().model_dump(mode="json"),
+            id="run-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "run-usage-reports-schedule"):
+        await a_update_schedule(client, "run-usage-reports-schedule", run_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "run-usage-reports-schedule",
+            run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_count_all_playlists_schedule(client: Client):
+    """Create or update the schedule for the playlist counting workflow.
+
+    This schedule runs hourly at minute 30, matching the previous Celery schedule.
+    Uses SKIP overlap policy to prevent overlapping runs.
+    """
+    count_all_playlists_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "count-all-playlists",
+            None,
+            id="count-all-playlists-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        ),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=30)),
+            ],
+        ),
+        policy=SchedulePolicy(
+            overlap=ScheduleOverlapPolicy.SKIP,
+        ),
+    )
+
+    if await a_schedule_exists(client, "count-all-playlists-schedule"):
+        await a_update_schedule(client, "count-all-playlists-schedule", count_all_playlists_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "count-all-playlists-schedule",
+            count_all_playlists_schedule,
             trigger_immediately=False,
         )
 
@@ -313,25 +584,52 @@ schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
+    create_count_all_playlists_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
     create_batch_generation_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
     create_generation_clustering_coordinator_schedule,
-    create_video_segment_clustering_coordinator_schedule,
+    create_intent_clustering_coordinator_schedule,
+    create_eval_reports_schedule,
+    create_count_trigger_schedule,
+    create_evaluation_sampler_schedule,
+    create_evaluation_clustering_schedule,
+    cleanup_legacy_session_summarization_schedules,
+    create_summarization_sweep_reconciler_schedule,
     create_ducklake_compaction_schedule,
-    create_delete_recording_metadata_schedule,
+    create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
-    create_realtime_cohort_calculation_schedule,
+    create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
+    create_warehouse_sources_queue_partition_management_schedule,
+    create_health_check_schedules,
+    create_conversations_signals_coordinator_schedule,
+    create_business_knowledge_refresh_coordinator_schedule,
+    create_wa_weekly_digest_schedule,
+    create_logs_alert_check_schedule,
+    create_schedule_due_alert_checks_schedule,
+    create_run_investigation_safety_net_schedule,
+    create_cleanup_alert_checks_schedule,
+    create_signals_scout_coordinator_schedule,
+    create_replay_vision_reconciler_schedule,
 ]
+
+if settings.CLOUD_DEPLOYMENT:
+    # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
+    # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
+    schedules.append(create_gemini_cleanup_sweep_schedule)
+    schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
+        schedules.append(create_salesforce_usage_enrichment_schedule)
+        schedules.append(create_salesforce_stripe_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():

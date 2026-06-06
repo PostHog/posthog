@@ -47,15 +47,15 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add your PostHog API key and host to your environment variables:</Markdown>
+                    <Markdown>Add your PostHog project token and host to your environment variables:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_api_key>
-                                    VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
+                                    VITE_POSTHOG_PROJECT_TOKEN=<ph_project_token>
+                                    VITE_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },
                         ]}
@@ -82,16 +82,16 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                     import { createRoot } from 'react-dom/client'
                                     import './index.css'
                                     import App from './App.jsx'
-                                    import { PostHogProvider } from 'posthog-js/react'
+                                    import { PostHogProvider } from '@posthog/react'
 
                                     const options = {
-                                      api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
-                                      defaults: '2025-11-30',
+                                      api_host: import.meta.env.VITE_POSTHOG_HOST,
+                                      defaults: '2026-01-30',
                                     } as const
 
                                     createRoot(document.getElementById('root')).render(
                                       <StrictMode>
-                                        <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
+                                        <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
                                           <App />
                                         </PostHogProvider>
                                       </StrictMode>

@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { aiErrorNormalizationCounter } from '../metrics'
 import { normalizeError } from './normalize-error'
@@ -9,7 +9,7 @@ const UNKNOWN_ERROR = 'Unknown error'
  * Process error normalization for AI events.
  *
  * For all events with $ai_is_error = true, ensures $ai_error_normalized is set.
- * This guarantees errors can be grouped in the LLM analytics errors tab.
+ * This guarantees errors can be grouped in the AI observability errors tab.
  *
  * This is a non-blocking operation - if normalization fails for any reason,
  * a fallback value is used.

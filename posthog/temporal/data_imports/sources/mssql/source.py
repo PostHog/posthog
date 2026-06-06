@@ -11,19 +11,14 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
-from posthog.temporal.data_imports.sources.mssql.mssql import (
-    filter_mssql_incremental_fields,
-    get_schemas as get_mssql_schemas,
-    mssql_source,
-)
+from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 MSSQLErrors = {
     "Login failed for user": "Login failed for database",
@@ -31,9 +26,15 @@ MSSQLErrors = {
     "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
+_MSSQL_IMPLEMENTATION = MSSQLImplementation()
+
 
 @SourceRegistry.register
-class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    @property
+    def get_implementation(self) -> MSSQLImplementation:
+        return _MSSQL_IMPLEMENTATION
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MSSQL
@@ -41,8 +42,24 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Adaptive Server connection failed": None,
+            # pymssql DB-Lib error 20009 — the server host can't be reached for the whole
+            # connection attempt. On a managed instance this is a persistent connectivity issue
+            # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
+            # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
+            "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
             "Login failed for user": None,
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+            # Raised from the shared `_decimal_array_from_values` fallback in
+            # `pipelines/pipeline/utils.py` when a numeric/decimal/money value exceeds Delta
+            # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
+            # retrying won't help.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
+            # destination table was created with the narrower type. Delta Lake can't widen an
+            # existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     @property
@@ -57,11 +74,20 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="mssql://user:password@localhost:1433/database",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="host",
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="localhost",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -69,6 +95,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="1433",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -76,9 +103,15 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="msdb",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
-                        name="user", label="User", type=SourceFieldInputConfigType.TEXT, required=True, placeholder="sa"
+                        name="user",
+                        label="User",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="sa",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -86,6 +119,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -93,61 +127,24 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="dbo",
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
         )
 
-    def get_schemas(self, config: MSSQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        schemas = []
-
-        with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_mssql_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-            )
-
-        for table_name, columns in db_schemas.items():
-            column_info = [(col_name, col_type) for col_name, col_type in columns]
-
-            incremental_field_tuples = filter_mssql_incremental_fields(column_info)
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                }
-                for field_name, field_type in incremental_field_tuples
-            ]
-
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                )
-            )
-
-        return schemas
-
     def validate_credentials(
         self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         from pymssql import OperationalError
 
-        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
+        is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
         if not valid_host:
             return valid_host, host_errors
@@ -173,20 +170,3 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
             return False, "Could not connect to MS SQL. Please check all connection details are valid."
 
         return True, None
-
-    def source_for_pipeline(self, config: MSSQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
-
-        return mssql_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            schema=config.schema,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-        )

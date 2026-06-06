@@ -52,6 +52,7 @@ export function SqlVariablesTable(): JSX.Element {
             title: 'Code name',
             key: 'code_name',
             width: '25%',
+            tooltip: 'Use this to reference the variable in your SQL query',
             render: function RenderCodeName(_, variable: Variable): JSX.Element {
                 return <LemonTag className="font-mono">{formatVariableReference(variable.code_name)}</LemonTag>
             },
@@ -104,7 +105,7 @@ export function SqlVariablesTable(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="SQL variables"
-                description="Create reusable variables for your SQL queries. Use variables to parameterize your queries and make them more dynamic."
+                description="Create reusable variables for your SQL queries. Use variables to parameterize your queries and make them dynamic."
                 resourceType={{ type: 'variable' }}
                 actions={
                     <LemonButton type="primary" size="small" to={urls.variableEdit('new')}>
@@ -112,7 +113,7 @@ export function SqlVariablesTable(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <div className="flex flex-row items-center gap-2 justify-end mb-4">
+            <div className="flex flex-row items-center gap-2 justify-start mb-4">
                 <LemonInput
                     type="search"
                     placeholder="Search variables..."
@@ -132,6 +133,7 @@ export function SqlVariablesTable(): JSX.Element {
                     columnKey: 'name',
                     order: 1,
                 }}
+                pagination={{ pageSize: 25 }}
             />
         </SceneContent>
     )

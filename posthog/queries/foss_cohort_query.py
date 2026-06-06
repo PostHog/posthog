@@ -7,7 +7,6 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
 from posthog.models.filters.mixins.utils import cached_property
@@ -16,6 +15,8 @@ from posthog.models.property.util import parse_prop_grouped_clauses, prop_filter
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import relative_date_parse
+
+from products.actions.backend.models.action import Action
 
 Relative_Date = tuple[int, OperatorInterval]
 Event = tuple[str, Union[str, int]]
@@ -74,7 +75,7 @@ def relative_date_is_greater(date_1: Relative_Date, date_2: Relative_Date) -> bo
     return relative_date_to_seconds(date_1) > relative_date_to_seconds(date_2)
 
 
-def convert_to_entity_params(events: list[Event]) -> tuple[list, list]:
+def convert_to_entity_params(events: list[Event], team_id: int) -> tuple[list, list]:
     res_events = []
     res_actions = []
 
@@ -85,7 +86,7 @@ def convert_to_entity_params(events: list[Event]) -> tuple[list, list]:
         if event_type == "events":
             res_events.append({"id": event_val, "name": event_val, "order": idx, "type": event_type})
         elif event_type == "actions":
-            action = Action.objects.get(id=event_val)
+            action = Action.objects.get(id=event_val, team_id=team_id)
             res_actions.append({"id": event_val, "name": action.name, "order": idx, "type": event_type})
 
     return res_events, res_actions
@@ -149,7 +150,7 @@ class FOSSCohortQuery(EventQuery):
         self._cohort_pk = cohort_pk
 
         super().__init__(
-            filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk),
+            filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk, team),
             team=team,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,
@@ -169,9 +170,9 @@ class FOSSCohortQuery(EventQuery):
         self._outer_property_groups = property_groups.outer
 
     @staticmethod
-    def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
-        team: Optional[Team] = None
-
+    def unwrap_cohort(
+        filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None
+    ) -> Filter:
         def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
             nonlocal team
             if len(property_group.values):
@@ -205,11 +206,16 @@ class FOSSCohortQuery(EventQuery):
                         negation_value = not current_negation if negate_group else current_negation
                         if prop.type in ["cohort", "precalculated-cohort"]:
                             try:
-                                if team is None:  # This ensures we only fetch team if needed, but never more than once
-                                    team = Team.objects.get(pk=team_id)
-                                prop_cohort: Cohort = Cohort.objects.get(
-                                    pk=prop.value, team__project_id=team.project_id
-                                )
+                                # Use passed cohort object if it matches the requested cohort ID
+                                if cohort is not None and str(cohort.pk) == str(prop.value):
+                                    prop_cohort = cohort
+                                else:
+                                    # Use passed team object if available, otherwise fetch from database
+                                    if team is None:
+                                        team = Team.objects.get(pk=team_id)
+                                    prop_cohort = Cohort.objects.get(
+                                        pk=cast(str | int, prop.value), team__project_id=team.project_id
+                                    )
                                 new_property_group_list.append(
                                     PropertyGroup(
                                         type=PropertyOperatorType.AND,
@@ -477,7 +483,7 @@ class FOSSCohortQuery(EventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        cohort = Cohort.objects.get(pk=cast(int, prop.value), team_id=self._team_id)
         query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
@@ -533,7 +539,20 @@ class FOSSCohortQuery(EventQuery):
             relative_date = self._get_relative_interval_from_explicit_date(target_datetime, self._team.timezone_info)
             self._check_earliest_date(relative_date)
 
-            return f"timestamp > %({date_param})s", {f"{date_param}": target_datetime}
+            params: dict[str, Any] = {date_param: target_datetime}
+            clause = f"timestamp > %({date_param})s"
+
+            if prop.explicit_datetime_to:
+                date_to_param = f"{prepend}_explicit_date_to_{idx}"
+                target_datetime_to = relative_date_parse(prop.explicit_datetime_to, self._team.timezone_info)
+                # Upper bound is inclusive of the full to-date, matching the HogQL engine which
+                # compares a day-precision `date` column with `<= toDate(...)`. Normalising to
+                # end-of-day here keeps both engines producing identical cohort membership.
+                target_datetime_to = target_datetime_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+                params[date_to_param] = target_datetime_to
+                clause = f"{clause} AND timestamp <= %({date_to_param})s"
+
+            return clause, params
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
@@ -664,7 +683,7 @@ class FOSSCohortQuery(EventQuery):
         return res, params
 
     def _add_action(self, action_id: int) -> None:
-        action = Action.objects.get(id=action_id)
+        action = Action.objects.get(id=action_id, team_id=self._team_id)
         for step in action.steps:
             if step.event:
                 self._events.append(step.event)

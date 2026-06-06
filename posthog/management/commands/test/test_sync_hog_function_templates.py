@@ -9,7 +9,8 @@ from posthog.management.commands.sync_hog_function_templates import (
     TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
 )
-from posthog.models.hog_function_template import HogFunctionTemplate
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
 pytestmark = pytest.mark.django_db
 
@@ -145,7 +146,7 @@ class TestSyncHogFunctionTemplates:
         output = stdout.getvalue()
 
         # Just check that the command ran successfully
-        assert "Sync completed" in output
+        assert "Hog function template sync complete" in output
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_contents(self, mock_get_hog_function_templates):

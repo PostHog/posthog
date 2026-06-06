@@ -21,12 +21,8 @@ describe('useTerraformExport', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         ;(useValues as jest.Mock).mockReturnValue({ currentTeamId: 1 })
-        mockedApi.alerts = {
-            list: jest.fn().mockResolvedValue({ results: [] }),
-        } as any
-        mockedApi.hogFunctions = {
-            list: jest.fn().mockResolvedValue({ results: [] }),
-        } as any
+        jest.spyOn(mockedApi.alerts, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(mockedApi.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
     })
 
     describe('error handling', () => {

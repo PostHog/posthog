@@ -2,9 +2,11 @@ import re
 import json
 from typing import Optional
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from posthog.hogql import errors as hogql_errors
 from posthog.hogql.ai import (
     DESTINATION_LIMITATIONS_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
@@ -18,7 +20,9 @@ from posthog.hogql.ai import (
     INPUT_SCHEMA_TYPES_MESSAGE,
     PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
+    TRANSFORMATION_STRUCTURE_MESSAGE,
 )
+from posthog.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
 
@@ -56,6 +60,8 @@ class CreateHogTransformationFunctionTool(MaxTool):
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
         + "\n\n"
+        + TRANSFORMATION_STRUCTURE_MESSAGE
+        + "\n\n"
         + TRANSFORMATION_LIMITATIONS_MESSAGE
         + "\n\n"
         + DESTINATION_LIMITATIONS_MESSAGE
@@ -66,6 +72,9 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         system_content = (
             IDENTITY_MESSAGE_HOG
+            + "\n\n<transformation_structure>\n"
+            + TRANSFORMATION_STRUCTURE_MESSAGE
+            + "\n</transformation_structure>\n\n"
             + "\n\n<example_hog_code>\n"
             + HOG_EXAMPLE_MESSAGE
             + "\n</example_hog_code>\n\n"
@@ -82,10 +91,11 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
+                assert isinstance(result.content, str)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
@@ -94,12 +104,13 @@ class CreateHogTransformationFunctionTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         return "```hog\n" + parsed_result.hog_code + "\n```", parsed_result.hog_code
 
     @property
-    def _model(self):
+    def _model(self) -> BaseChatModel:
         return MaxChatOpenAI(
             model="gpt-4.1",
             temperature=0.3,
@@ -127,9 +138,18 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         try:
             compile_hog(hog_code, "transformation")
-        except Exception as e:
+        except Exception:
+            # Try to get a more specific error by parsing directly
+            try:
+                parse_program(hog_code)
+            except hogql_errors.SyntaxError as parse_err:
+                raise PydanticOutputParserException(
+                    llm_output=hog_code,
+                    validation_message=f"The Hog code failed to compile: {parse_err}",
+                )
             raise PydanticOutputParserException(
-                llm_output=hog_code, validation_message=f"The Hog code failed to compile: {str(e)}"
+                llm_output=hog_code,
+                validation_message="The Hog code failed to compile.",
             )
 
         return HogTransformationOutput(hog_code=hog_code)
@@ -169,10 +189,11 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
+                assert isinstance(result.content, str)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
@@ -181,14 +202,23 @@ class CreateHogFunctionFiltersTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
-        return f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```", json.dumps(parsed_result.filters)
+        return (
+            f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```",
+            json.dumps(parsed_result.filters),
+        )
 
     @property
-    def _model(self):
+    def _model(self) -> BaseChatModel:
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
         )
 
     def _parse_output(self, output: str) -> HogFunctionFiltersOutput:
@@ -247,10 +277,11 @@ class CreateHogFunctionInputsTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
+                assert isinstance(result.content, str)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
@@ -258,6 +289,7 @@ class CreateHogFunctionInputsTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         # Format the output for display
@@ -267,9 +299,14 @@ class CreateHogFunctionInputsTool(MaxTool):
         return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
 
     @property
-    def _model(self):
+    def _model(self) -> BaseChatModel:
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, billable=True
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            user=self._user,
+            team=self._team,
+            billable=True,
         )
 
     def _parse_output(self, output: str) -> HogFunctionInputsOutput:

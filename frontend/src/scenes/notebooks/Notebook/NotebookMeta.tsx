@@ -1,18 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconTerminal } from '@posthog/icons'
+import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
+import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -89,6 +89,28 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
     ) : null
 }
 
+/**
+ * Surfaces when the collab SSE is disconnected *and* no reconnect attempt is in flight,
+ * so the user only sees the warning when something is actually wrong — not during the
+ * initial connect or the brief gap on a normal reconnect.
+ */
+export const NotebookCollabStatus = (props: NotebookLogicProps): JSX.Element | null => {
+    const { collabEnabled } = useValues(notebookLogic(props))
+    const { streamConnected, isConnecting, streamError } = useValues(notebookCollabLogic({ shortId: props.shortId }))
+
+    if (!collabEnabled || streamConnected || isConnecting) {
+        return null
+    }
+
+    const tooltip = streamError ? `Live updates paused. Last error: ${streamError}` : 'Live updates paused.'
+
+    return (
+        <Tooltip title={tooltip} placement="left">
+            <LemonButton size="small" icon={<IconWarning className="text-warning" />} type="tertiary" />
+        </Tooltip>
+    )
+}
+
 interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
     inPanel: boolean
 }
@@ -96,9 +118,8 @@ interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'typ
 export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { setIsExpanded } = useActions(notebookSettingsLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
-    if (isRemovingSidePanelFlag && props.inPanel) {
+    if (props.inPanel) {
         return (
             <ButtonPrimitive
                 onClick={() => setIsExpanded(!isExpanded)}

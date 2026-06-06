@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
+import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -141,14 +141,9 @@ function ClipRecording_({ current, className }: { current: string; className?: s
 
     const tooltipContent = useMemo(
         () => (
-            <div className="flex items-center gap-2">
-                <span>
-                    Create clip around {current} <KeyboardShortcut x />
-                </span>
-                <LemonTag type="warning" size="small">
-                    BETA
-                </LemonTag>
-            </div>
+            <span>
+                Create clip around {current} <KeyboardShortcut x />
+            </span>
         ),
         [current]
     )

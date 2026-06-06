@@ -8,16 +8,19 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.helpers import mock_transpile
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization
-from posthog.models.plugin import TranspilerError
 from posthog.models.project import Project
 from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import TranspilerError
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -231,7 +234,7 @@ class TestSiteFunctions(TestCase):
         assert "https://example.com" in result
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
-    def test_get_transpiled_function_with_cohort_filter_raises_error(self, mock_transpile_fn):
+    def test_get_transpiled_function_with_person_property_cohort_filter_inlined(self, mock_transpile_fn):
         cohort = Cohort.objects.create(
             team=self.team,
             name="Internal users",
@@ -251,7 +254,7 @@ class TestSiteFunctions(TestCase):
         )
 
         self.team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": cohort.id, "negation": True},
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
         ]
         self.team.save()
 
@@ -261,7 +264,75 @@ class TestSiteFunctions(TestCase):
             "filter_test_accounts": True,
         }
 
-        # Cohorts can't be used in real-time site functions
+        # Person-property-only cohorts are inlined into bytecode filters
+        result = get_transpiled_function(self.hog_function)
+        assert result is not None
+
+    @parameterized.expand(
+        [
+            (
+                "behavioral",
+                False,
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"type": "behavioral", "value": "performed_event", "key": "$pageview"},
+                        ],
+                    }
+                },
+            ),
+            (
+                "static",
+                True,
+                None,
+            ),
+            (
+                "event_type_filters",
+                False,
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": "https://example.com",
+                                "operator": "icontains",
+                            },
+                        ],
+                    }
+                },
+            ),
+            (
+                "empty_properties",
+                False,
+                {"properties": {}},
+            ),
+        ]
+    )
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_get_transpiled_function_with_unsupported_cohort_raises_error(
+        self, _name, is_static, filters, mock_transpile_fn
+    ):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Unsupported cohort",
+            filters=filters,
+            is_static=is_static,
+        )
+
+        self.team.test_account_filters = [
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
+        ]
+        self.team.save()
+
+        self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
+        self.hog_function.filters = {
+            "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+            "filter_test_accounts": True,
+        }
+
         with pytest.raises(Exception, match="cohort"):
             get_transpiled_function(self.hog_function)
 

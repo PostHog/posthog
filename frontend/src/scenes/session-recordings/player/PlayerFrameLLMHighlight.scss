@@ -3,11 +3,12 @@
         .replayer-mouse.active::after {
             // Animation speed slower than 0.33s generates confusions, as the mouse moves (on the other element, but still red)
             // However, to properly catch it we need FPS 3 (1s/0.33)
-            animation: PlayerFrame__click--llm-highlight 0.33s ease-in-out 1;
+            // Duration scales with playback speed: 1/3s / speed (set by PlayerFrame.tsx)
+            animation: PlayerFrame__click--llm-highlight var(--player-frame-click-duration, 0.333s) ease-in-out 1;
         }
 
         .replayer-mouse.touch-device.active::after {
-            animation: PlayerFrame__touch-click--llm-highlight 0.33s ease-in-out 1;
+            animation: PlayerFrame__touch-click--llm-highlight var(--player-frame-click-duration, 0.333s) ease-in-out 1;
         }
 
         // Desktop

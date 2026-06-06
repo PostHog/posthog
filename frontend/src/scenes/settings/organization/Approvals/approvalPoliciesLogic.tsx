@@ -1,29 +1,33 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ApprovalPolicy } from '~/types'
+import { ApprovalPolicy, AvailableFeature } from '~/types'
 
 import type { approvalPoliciesLogicType } from './approvalPoliciesLogicType'
 
 export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
     path(['scenes', 'settings', 'organization', 'Approvals', 'approvalPoliciesLogic']),
+    connect(() => ({
+        values: [userLogic, ['hasAvailableFeature']],
+    })),
     actions({
         loadPolicies: true,
         createPolicy: (policy: Partial<ApprovalPolicy>) => ({ policy }),
         updatePolicy: (id: string, policy: Partial<ApprovalPolicy>) => ({ id, policy }),
         deletePolicy: (id: string) => ({ id }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         policies: [
             [] as ApprovalPolicy[],
             {
                 loadPolicies: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
+                    if (!teamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return []
                     }
                     const response = await api.get<{ results: ApprovalPolicy[] }>(

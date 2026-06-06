@@ -9,6 +9,8 @@ from posthog.schema import ArtifactContentType, ArtifactMessage, ArtifactSource,
 from posthog.models import User
 from posthog.models.team import Team
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact
+
 from ee.hogai.artifacts.handlers import (
     EnrichmentContext,
     NotebookArtifactManagerMixin,
@@ -20,7 +22,6 @@ from ee.hogai.artifacts.handlers import (
 from ee.hogai.artifacts.types import ArtifactContent, ContentT, StoredContent
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 
 class ArtifactManager(
@@ -74,7 +75,7 @@ class ArtifactManager(
         artifact = AgentArtifact(
             name=name[:400],
             type=db_type,
-            data=content.model_dump(exclude_none=True),
+            data=content.model_dump(mode="json", exclude_none=True),
             conversation=conversation,
             team=self._team,
         )
@@ -92,7 +93,7 @@ class ArtifactManager(
             artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self._team)
         except AgentArtifact.DoesNotExist:
             raise ValueError(f"Artifact with short_id={artifact_id} not found")
-        artifact.data = content.model_dump(exclude_none=True)
+        artifact.data = content.model_dump(mode="json", exclude_none=True)
         await artifact.asave()
         return artifact
 
@@ -128,7 +129,7 @@ class ArtifactManager(
 
         # Use handler for enrichment (generic for all types)
         handler = get_handler_for_content_class(type(stored_content))
-        context = EnrichmentContext(team=self._team)
+        context = EnrichmentContext(team=self._team, artifact_id=artifact_id)
         content: ArtifactContent = await handler.aenrich(stored_content, context)
 
         if expected_type is not None and not isinstance(content, expected_type):
@@ -208,7 +209,7 @@ class ArtifactManager(
             stored_content = handler.validate(artifact.data)
 
             # Use handler for enrichment (generic for all types)
-            context = EnrichmentContext(team=self._team)
+            context = EnrichmentContext(team=self._team, artifact_id=artifact.short_id)
             content: ArtifactContent = await handler.aenrich(stored_content, context)
 
             result.append(
@@ -294,7 +295,6 @@ class ArtifactManager(
 
         # Fetch and enrich using handlers
         result: dict[str, ArtifactContent] = {}
-        context = EnrichmentContext(team=self._team, state_messages=messages)
 
         for content_type, artifact_ids in ids_by_content_type.items():
             handler = get_handler_for_content_type(content_type)
@@ -306,7 +306,8 @@ class ArtifactManager(
             for artifact_id, fetch_result in zip(artifact_ids, fetch_results):
                 if fetch_result is None:
                     continue
-                enriched: ArtifactContent = await handler.aenrich(fetch_result.content, context)
+                enrich_ctx = EnrichmentContext(team=self._team, state_messages=messages, artifact_id=artifact_id)
+                enriched: ArtifactContent = await handler.aenrich(fetch_result.content, enrich_ctx)
                 agg_id = aggregation_map.get(artifact_id)
                 if agg_id is not None:
                     result[agg_id] = enriched

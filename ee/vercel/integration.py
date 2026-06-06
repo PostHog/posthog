@@ -23,8 +23,6 @@ from posthog.schema import ProductIntentContext, ProductKey
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -32,6 +30,9 @@ from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
+
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
@@ -157,6 +158,7 @@ class VercelIntegration:
     @staticmethod
     def _get_resource(resource_id: str) -> Integration:
         try:
+            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
             return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
             raise exceptions.NotFound("Resource not found")
@@ -274,16 +276,18 @@ class VercelIntegration:
 
         # Check if there's already an OrganizationIntegration for this installation_id
         # If there is, we don't need to do update anything besides OrganizationIntegration's config.
-        organization_integration_exists = OrganizationIntegration.objects.filter(
+        org_integration = OrganizationIntegration.objects.filter(
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=installation_id,
-        ).exists()
+        ).first()
 
-        if organization_integration_exists:
-            OrganizationIntegration.objects.filter(
-                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-                integration_id=installation_id,
-            ).update(config=asdict(config))
+        config_dict = asdict(config)
+        credentials = config_dict.pop("credentials", {})
+
+        if org_integration is not None:
+            org_integration.config = config_dict
+            org_integration.sensitive_config = {"credentials": credentials}
+            org_integration.save()
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
@@ -322,7 +326,8 @@ class VercelIntegration:
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=installation_id,
                     defaults={
-                        "config": asdict(config),
+                        "config": config_dict,
+                        "sensitive_config": {"credentials": credentials},
                         "created_by": user,
                     },
                 )
@@ -401,26 +406,30 @@ class VercelIntegration:
         installation = VercelIntegration._get_installation(installation_id)
         organization = installation.organization
 
-        # Notify billing service to cancel subscription and reset billing provider
         license = get_cached_instance_license()
-        if license:
-            try:
-                billing_manager = BillingManager(license)
-                billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
-                logger.info(
-                    "Deauthorized billing for Vercel installation",
-                    installation_id=installation_id,
-                    organization_id=str(organization.id),
-                )
-            except Exception as e:
-                logger.exception(
-                    "Failed to deauthorize billing for Vercel installation",
-                    installation_id=installation_id,
-                    organization_id=str(organization.id),
-                )
-                capture_exception(e)
-                # Continue with deletion even if billing deauthorization fails
-                # The billing service will handle the orphaned state gracefully
+        if not license:
+            raise RuntimeError("No license available to deauthorize billing")
+
+        org_membership = (
+            OrganizationMembership.objects.filter(
+                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+            )
+            .select_related("user")
+            .order_by("-level")
+            .first()
+        )
+        if not org_membership:
+            raise RuntimeError(
+                f"No admin or owner found for organization {organization.id} — cannot deauthorize billing"
+            )
+
+        billing_manager = BillingManager(license, user=org_membership.user)
+        billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+        logger.info(
+            "Deauthorized billing for Vercel installation",
+            installation_id=installation_id,
+            organization_id=str(organization.id),
+        )
 
         installation.delete()
         logger.info(
@@ -543,7 +552,7 @@ class VercelIntegration:
     def _build_secrets(team: Team) -> list[dict[str, str]]:
         return [
             {
-                "name": "NEXT_PUBLIC_POSTHOG_KEY",
+                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
                 "value": team.api_token,
             },
             {
@@ -570,7 +579,10 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.config.get("credentials", {}).get("access_token")
+        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
+        if not access_token:
+            # Fallback for installations not yet migrated
+            access_token = installation.config.get("credentials", {}).get("access_token")
         if not access_token:
             logger.exception(
                 "Missing access token for Vercel installation",
@@ -724,6 +736,20 @@ class VercelIntegration:
         )
 
     @staticmethod
+    def bulk_sync_feature_flags_to_vercel(team: Team) -> None:
+        flags = FeatureFlag.objects.filter(team=team, deleted=False)
+        for flag in flags:
+            try:
+                VercelIntegration.sync_feature_flag_to_vercel(flag, created=True)
+            except Exception:
+                logger.exception(
+                    "Failed to bulk sync feature flag to Vercel",
+                    flag_id=flag.pk,
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+
+    @staticmethod
     def _delete_item_from_vercel(team: Team, item_type: VercelItemType, item_id: str) -> None:
         setup_result = VercelIntegration._setup_vercel_client_for_team(team)
         if not setup_result:
@@ -811,9 +837,9 @@ class VercelIntegration:
     @staticmethod
     def _validate_client_credentials() -> tuple[str, str]:
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_ID", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
         return settings.VERCEL_CLIENT_INTEGRATION_ID, settings.VERCEL_CLIENT_INTEGRATION_SECRET
 
     @staticmethod
@@ -1010,6 +1036,7 @@ class VercelIntegration:
             return login_url
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
+            capture_exception(e)
             raise exceptions.AuthenticationFailed("Authentication failed")
 
     @staticmethod
@@ -1197,6 +1224,7 @@ class VercelIntegration:
 
     @staticmethod
     def set_active_project(user: User, resource_id: str):
+        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
         resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
         if not resource:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")
@@ -1260,7 +1288,36 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
     exceptions are caught and logged rather than bubbling up to the caller.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
-        return
+        installation = VercelIntegration._get_installation_for_organization(team.organization)
+        if not installation:
+            return
+        try:
+            resource, created = Integration.objects.get_or_create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                defaults={"config": {"type": "connectable"}},
+            )
+            if created:
+                logger.info(
+                    "Auto-created Vercel resource for connectable installation",
+                    team_id=team.pk,
+                    integration="vercel",
+                )
+                access_token = VercelIntegration._get_access_token(installation)
+                if access_token and installation.integration_id:
+                    client = VercelAPIClient(bearer_token=access_token)
+                    client.import_resource(
+                        integration_config_id=installation.integration_id,
+                        resource_id=str(resource.pk),
+                        product_id="posthog",
+                        name=team.name,
+                        secrets=VercelIntegration._build_secrets(team),
+                    )
+        except Exception as e:
+            logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
+            capture_exception(e)
+            return
 
     try:
         sync_func()

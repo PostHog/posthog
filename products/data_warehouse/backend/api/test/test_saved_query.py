@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
@@ -7,17 +8,75 @@ from unittest.mock import patch
 
 from posthog.models import ActivityLog
 
-from products.data_warehouse.backend.models import (
-    DataModelingJob,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-)
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestSavedQuery(APIBaseTest):
+    def test_create_with_folder(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Marketing", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(folder.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertEqual(saved_query["folder_id"], str(folder.id))
+        self.assertEqual(saved_query["folder_name"], "Marketing")
+
+    def test_create_with_other_team_folder_id_matches_nonexistent_folder_error(self):
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_team_folder = DataWarehouseSavedQueryFolder.objects.create(
+            team=other_team, name="Other team folder", created_by=self.user
+        )
+        missing_folder_id = uuid.uuid4()
+
+        other_team_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(other_team_folder.id),
+            },
+        )
+        missing_folder_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+                "folder_id": str(missing_folder_id),
+            },
+        )
+
+        self.assertEqual(other_team_response.status_code, 400, other_team_response.content)
+        self.assertEqual(missing_folder_response.status_code, 400, missing_folder_response.content)
+        self.assertEqual(other_team_response.json()["attr"], "folder_id")
+        self.assertEqual(missing_folder_response.json()["attr"], "folder_id")
+        self.assertEqual(other_team_response.json()["code"], "does_not_exist")
+        self.assertEqual(missing_folder_response.json()["code"], "does_not_exist")
+        self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
+        self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
+
     def test_create(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -236,6 +295,30 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_create_with_query_as_string_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view_bad_payload",
+                "query": '{"kind": "HogQLQuery", "query": "SELECT 1"}',
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.content
+        response_json = response.json()
+        assert "JSON object" in response_json.get("detail", "")
+
+    def test_create_with_query_missing_query_key_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view_missing_key",
+                "query": {"kind": "HogQLQuery"},
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.content
+
     def test_create_using_placeholders(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -305,6 +388,119 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query.deleted_at is not None
         assert saved_query.deleted_name == query_name
         assert saved_query.name.startswith("POSTHOG_DELETED_")
+
+        delete_activity = ActivityLog.objects.get(
+            item_id=str(saved_query.id), scope="DataWarehouseSavedQuery", activity="deleted"
+        )
+        assert cast(dict[str, Any], delete_activity.detail)["name"] == query_name
+
+    def test_update_folder_assignment(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(
+            team=self.team, name="Warehouse ops", created_by=self.user
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="test_query", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+            {"folder_id": str(folder.id), "soft_update": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.folder_id, folder.id)
+
+    def test_create_folder_and_list_view_count(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/",
+            {"name": "Finance"},
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        folder_id = response.json()["id"]
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="finance_view",
+            folder_id=folder_id,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()[0]["name"], "Finance")
+        self.assertEqual(response.json()[0]["view_count"], 1)
+
+    def test_delete_folder_deletes_views(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Deprecated", created_by=self.user)
+        first_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_a", folder=folder)
+        second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
+
+        with patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        ) as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
+            )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(mock_delete_saved_query_schedule.call_count, 2)
+        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+
+        first_view.refresh_from_db()
+        second_view.refresh_from_db()
+        self.assertTrue(first_view.deleted)
+        self.assertTrue(second_view.deleted)
+
+    def test_delete_folder_deletes_endpoint_views(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)
+        endpoint_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="endpoint_view",
+            folder=folder,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+
+        with patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+        ) as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
+            )
+
+        self.assertEqual(response.status_code, 204, response.content)
+        mock_delete_saved_query_schedule.assert_called_once()
+        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+
+        endpoint_view.refresh_from_db()
+        self.assertTrue(endpoint_view.deleted)
+
+    def test_rename_folder(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/",
+            {"name": "Revenue"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, "Revenue")
+
+    def test_rename_folder_rejects_duplicate_name(self):
+        DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Revenue", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/",
+            {"name": "Finance"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("A folder with this name already exists.", str(response.json()))
 
     def test_listing_deleted_queries(self):
         DataWarehouseSavedQuery.objects.create(
@@ -898,7 +1094,8 @@ class TestSavedQuery(APIBaseTest):
             ).order_by("-created_at")
             self.assertEqual(activity_logs.count(), 2)
             self.assertEqual(activity_logs[0].activity, "updated")
-            query_change = next(change for change in activity_logs[0].detail["changes"] if change["field"] == "query")
+            latest_detail = cast(dict[str, Any], activity_logs[0].detail)
+            query_change = next(change for change in latest_detail["changes"] if change["field"] == "query")
             self.assertEqual(
                 query_change["after"],
                 {
@@ -914,7 +1111,8 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(activity_logs[1].activity, "created")
-            query_change = next(change for change in activity_logs[1].detail["changes"] if change["field"] == "query")
+            created_detail = cast(dict[str, Any], activity_logs[1].detail)
+            query_change = next(change for change in created_detail["changes"] if change["field"] == "query")
             self.assertEqual(
                 query_change["after"],
                 {
@@ -1356,3 +1554,41 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Failed", returned_statuses)
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
+        api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="rate_limit_test_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+
+        with (
+            patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"),
+            patch(
+                "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            for action in ("materialize", "revert_materialization"):
+                # First 5 requests should succeed (rate is 5/hour)
+                for i in range(5):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/{action}",
+                    )
+                    assert response.status_code == 200, f"{action} request {i + 1} returned {response.status_code}"
+
+                # 6th request should be throttled
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/{action}",
+                )
+                assert response.status_code == 429, f"{action} should be throttled but got {response.status_code}"
+
+                # Clear the throttle cache so the next action starts fresh
+                from django.core.cache import cache
+
+                cache.clear()

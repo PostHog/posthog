@@ -1,20 +1,19 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '~/kafka/producer'
-
-import { GroupTypeIndex, Hub, TeamId } from '../../../types'
+import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
+import { GroupsOutput, IngestionWarningsOutput } from '../../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
+import { GroupTypeIndex, TeamId } from '../../../types'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
 import { FlushResult } from '../persons/persons-store'
-import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
-import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch.interface'
-import { GroupStore } from './group-store.interface'
+import { CacheMetrics, GroupStore } from './group-store.interface'
 import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
 import {
     groupCacheOperationsCounter,
@@ -26,8 +25,6 @@ import {
 import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
 import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
 import { GroupRepository } from './repositories/group-repository.interface'
-
-export type GroupHub = Pick<Hub, 'kafkaProducer' | 'groupRepository' | 'clickhouseGroupRepository'>
 
 class GroupCache {
     private cache: Map<string, GroupUpdate | null>
@@ -96,6 +93,15 @@ class GroupCache {
         return this.cache.entries()
     }
 
+    reset(): void {
+        this.cache.clear()
+        this.fetchPromises.clear()
+        this.metrics = {
+            cacheHits: 0,
+            cacheMisses: 0,
+        }
+    }
+
     private getCacheKey(teamId: TeamId, groupKey: string): string {
         return `${teamId}:${groupKey}`
     }
@@ -118,47 +124,34 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
     optimisticUpdateRetryInterval: 50,
 }
 
-export class BatchWritingGroupStore implements GroupStore {
-    private options: BatchWritingGroupStoreOptions
-
-    constructor(
-        private groupHub: GroupHub,
-        options?: Partial<BatchWritingGroupStoreOptions>
-    ) {
-        this.options = { ...DEFAULT_OPTIONS, ...options }
-    }
-
-    forBatch(): GroupStoreForBatch {
-        return new BatchWritingGroupStoreForBatch(
-            this.groupHub.kafkaProducer,
-            this.groupHub.groupRepository,
-            this.groupHub.clickhouseGroupRepository,
-            this.options
-        )
-    }
-}
-
 /**
  * This class is used to write groups to the database in batches.
  * It will use a cache to avoid reading the same group from the database multiple times.
  * And will accumulate all changes for the same group in a single batch. At the
  * end of the batch processing, it flushes all changes to the database.
+ *
+ * After each batch, call reset() to clear the cache and prepare for the next batch.
  */
-
-export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
+export class BatchWritingGroupStore implements GroupStore {
     private groupCache: GroupCache
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
+    private outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
+    private groupRepository: GroupRepository
+    private clickhouseGroupRepository: ClickhouseGroupRepository
 
     constructor(
-        private kafkaProducer: KafkaProducerWrapper,
-        private groupRepository: GroupRepository,
-        private clickhouseGroupRepository: ClickhouseGroupRepository,
+        outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>,
+        groupRepository: GroupRepository,
+        clickhouseGroupRepository: ClickhouseGroupRepository,
         options?: Partial<BatchWritingGroupStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
+        this.outputs = outputs
+        this.groupRepository = groupRepository
+        this.clickhouseGroupRepository = clickhouseGroupRepository
     }
 
     getGroupCache(): GroupCache {
@@ -212,7 +205,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         distinctId: string
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'group_upsert_message_size_too_large', {
+            await emitIngestionWarning(this.outputs, update.team_id, 'group_upsert_message_size_too_large', {
                 groupTypeIndex: update.group_type_index,
                 groupKey: update.group_key,
             })
@@ -498,7 +491,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const latestGroup = await this.groupRepository.fetchGroup(
             update.team_id,
             update.group_type_index,
-            update.group_key
+            update.group_key,
+            { callerTag: 'ingestion/group-update-conflict' }
         )
         if (latestGroup) {
             const propertiesUpdate = calculateUpdate(latestGroup.group_properties || {}, update.group_properties)
@@ -564,7 +558,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         timestamp: DateTime
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
+            await emitIngestionWarning(this.outputs, teamId, 'group_upsert_message_size_too_large', {
                 groupTypeIndex,
                 groupKey,
             })
@@ -594,5 +588,11 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         for (const [operation, count] of this.databaseOperationCounts.entries()) {
             groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
         }
+    }
+
+    reset(): void {
+        this.groupCache.reset()
+        this.databaseOperationCounts.clear()
+        groupOptimisticUpdateConflictsPerBatchCounter.reset()
     }
 }

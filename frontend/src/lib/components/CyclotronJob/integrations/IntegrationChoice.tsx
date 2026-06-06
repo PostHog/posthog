@@ -1,26 +1,25 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconExternal, IconTrash, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
-import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
-import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
-import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
-import { CyclotronJobInputSchemaType } from '~/types'
+import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 
-import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
+// Side-effect import: register all integration setups
+import './integrationSetups'
 
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
 }
@@ -33,12 +32,25 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
+    const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
+    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
+        useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+
+    // The stored value points to an integration that's no longer available (deleted, or
+    // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
+    // would silently mask the missing reference and let stale config keep flowing through
+    // saves. The UI surfaces a warning below instead so the user picks explicitly.
+    const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
+
+    useEffect(() => {
+        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+            onChange?.(integrationsOfKind[0].id)
+        }
+    }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
 
     if (!kind) {
         return null
@@ -50,7 +62,7 @@ export function IntegrationChoice({
 
     const kindName = getIntegrationNameFromKind(kind)
 
-    function uploadKey(kind: string): void {
+    function uploadKey(kindForUpload: string): void {
         const input = document.createElement('input')
         input.type = 'file'
         input.accept = '.json'
@@ -59,24 +71,43 @@ export function IntegrationChoice({
             if (!file) {
                 return
             }
-            newGoogleCloudKey(kind, file, (integration) => onChange?.(integration.id))
+            newGoogleCloudKey(kindForUpload, file, (integ) => onChange?.(integ.id))
         }
         input.click()
     }
 
-    const handleNewDatabricksIntegration = (integrationId: number | undefined): void => {
-        if (integrationId) {
+    const handleModalComplete = (integrationId?: number): void => {
+        if (typeof integrationId === 'number') {
             onChange?.(integrationId)
         }
         closeNewIntegrationModal()
     }
 
-    const handleNewAzureBlobIntegration = (integrationId: number | undefined): void => {
-        if (integrationId) {
-            onChange?.(integrationId)
-        }
-        closeNewIntegrationModal()
-    }
+    // Stripe sandboxes have a separate client_id from live installs. The Stripe app
+    // forwards is_sandbox=true on the URL it sends users to, so we forward it through
+    // to the authorize endpoint when it's present.
+    const isSandbox = new URLSearchParams(window.location.search).get('is_sandbox') === 'true'
+
+    const setupDef = getIntegrationSetup(kind)
+    // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
+    // 400s with "Kind not configured". Send users to the settings page instead.
+    const oauthUnavailable = kind === 'slack' && !slackAvailable
+    const setupMenuItem = setupDef
+        ? setupDef.menuItem({ kind, openModal: openNewIntegrationModal, uploadKey })
+        : oauthUnavailable
+          ? {
+                to: urls.settings('project-integrations'),
+                sideIcon: <IconExternal />,
+                label: `${kindName} is not configured on this instance`,
+            }
+          : {
+                to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
+                disableClientSideRouting: true,
+                onClick: beforeRedirect,
+                label: integrationsOfKind?.length
+                    ? `Connect to a different integration for ${kindName}`
+                    : `Connect to ${kindName}`,
+            }
 
     const button = (
         <LemonMenu
@@ -84,87 +115,22 @@ export function IntegrationChoice({
                 integrationsOfKind?.length
                     ? {
                           items: [
-                              ...(integrationsOfKind?.map((integration) => ({
-                                  icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
-                                  onClick: () => onChange?.(integration.id),
-                                  active: integration.id === value,
-                                  label: integration.display_name,
+                              ...(integrationsOfKind?.map((integ) => ({
+                                  icon: (
+                                      <img
+                                          src={integ.icon_url}
+                                          alt={`${integ.display_name} icon`}
+                                          className="w-6 h-6 rounded"
+                                      />
+                                  ),
+                                  onClick: () => onChange?.(integ.id),
+                                  active: integ.id === value,
+                                  label: integ.display_name,
                               })) || []),
                           ],
                       }
                     : null,
-                ['google-pubsub', 'google-cloud-storage', 'firebase'].includes(kind)
-                    ? {
-                          items: [
-                              {
-                                  onClick: () => uploadKey(kind),
-                                  label:
-                                      kind === 'firebase'
-                                          ? 'Upload Firebase service account .json key file'
-                                          : 'Upload Google Cloud .json key file',
-                              },
-                          ],
-                      }
-                    : ['email'].includes(kind)
-                      ? {
-                            items: [
-                                {
-                                    to: urls.workflows('channels'),
-                                    label: 'Configure new email sender domain',
-                                },
-                            ],
-                        }
-                      : ['twilio'].includes(kind)
-                        ? {
-                              items: [
-                                  {
-                                      label: 'Configure new Twilio account',
-                                      onClick: () => openNewIntegrationModal('twilio'),
-                                  },
-                              ],
-                          }
-                        : ['databricks'].includes(kind)
-                          ? {
-                                items: [
-                                    {
-                                        label: 'Configure new Databricks account',
-                                        onClick: () => openNewIntegrationModal('databricks'),
-                                    },
-                                ],
-                            }
-                          : ['gitlab'].includes(kind)
-                            ? {
-                                  items: [
-                                      {
-                                          label: 'Configure new GitLab account',
-                                          onClick: () => openNewIntegrationModal('gitlab'),
-                                      },
-                                  ],
-                              }
-                            : ['azure-blob'].includes(kind)
-                              ? {
-                                    items: [
-                                        {
-                                            label: 'Configure new Azure Blob Storage connection',
-                                            onClick: () => openNewIntegrationModal('azure-blob'),
-                                        },
-                                    ],
-                                }
-                              : {
-                                    items: [
-                                        {
-                                            to: api.integrations.authorizeUrl({
-                                                kind,
-                                                next: redirectUrl,
-                                            }),
-                                            disableClientSideRouting: true,
-                                            onClick: beforeRedirect,
-                                            label: integrationsOfKind?.length
-                                                ? `Connect to a different integration for ${kindName}`
-                                                : `Connect to ${kindName}`,
-                                        },
-                                    ],
-                                },
+                { items: [setupMenuItem] },
                 {
                     items: [
                         {
@@ -175,8 +141,18 @@ export function IntegrationChoice({
                         value
                             ? {
                                   onClick: () => onChange?.(null),
-                                  label: 'Clear',
+                                  label: 'Clear selection',
                                   sideIcon: <IconX />,
+                              }
+                            : null,
+                        integrationKind
+                            ? {
+                                  onClick: () => {
+                                      deleteIntegration(integrationKind.id)
+                                  },
+                                  label: 'Disconnect integration',
+                                  status: 'danger' as const,
+                                  sideIcon: <IconTrash />,
                               }
                             : null,
                     ],
@@ -195,28 +171,34 @@ export function IntegrationChoice({
         <>
             {integrationKind ? (
                 <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+            ) : valueIsMissing ? (
+                <div className="flex flex-col gap-2">
+                    <LemonBanner type="warning">
+                        The previously selected {kindName} connection (ID: {value}) is no longer available. Pick a
+                        different connection or clear the selection — this connection will fail at runtime otherwise.
+                    </LemonBanner>
+                    {button}
+                </div>
             ) : (
                 button
             )}
 
-            <ChannelSetupModal
-                isOpen={newIntegrationModalKind === 'twilio'}
-                channelType="twilio"
-                integration={integrationKind || undefined}
-                onClose={closeNewIntegrationModal}
-                onComplete={closeNewIntegrationModal}
-            />
-            <DatabricksSetupModal
-                isOpen={newIntegrationModalKind === 'databricks'}
-                integration={integrationKind || undefined}
-                onComplete={handleNewDatabricksIntegration}
-            />
-            <GitLabSetupModal isOpen={newIntegrationModalKind === 'gitlab'} onComplete={closeNewIntegrationModal} />
-            <AzureBlobSetupModal
-                isOpen={newIntegrationModalKind === 'azure-blob'}
-                integration={integrationKind || undefined}
-                onComplete={handleNewAzureBlobIntegration}
-            />
+            {getAllRegisteredIntegrationSetups()
+                .filter((def) => def.SetupModal)
+                .map((def) => {
+                    const modalKind = Array.isArray(def.kind) ? def.kind[0] : def.kind
+                    const SetupModalComponent = def.SetupModal!
+                    return (
+                        <SetupModalComponent
+                            key={modalKind}
+                            isOpen={newIntegrationModalKind === modalKind}
+                            kind={modalKind}
+                            integration={integrationKind || undefined}
+                            onComplete={handleModalComplete}
+                            onClose={closeNewIntegrationModal}
+                        />
+                    )
+                })}
         </>
     )
 }

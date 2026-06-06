@@ -11,16 +11,16 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exports.failure_handler import (
-    EXCEPTIONS_TO_RETRY,
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_USER,
     is_user_query_error_type,
 )
-from posthog.tasks.exports.image_exporter import get_driver
+from products.exports.backend.tasks.image_exporter import get_driver
 
 
 class TestIsUserQueryErrorType(TestCase):
@@ -60,7 +60,7 @@ class MockWebDriver(MagicMock):
         return None  # Never return anything for Spinner
 
 
-@patch("posthog.tasks.exports.image_exporter.uuid")
+@patch("products.exports.backend.tasks.image_exporter.uuid")
 class TestExporterTask(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
 
@@ -77,7 +77,7 @@ class TestExporterTask(APIBaseTest):
         with open("/tmp/posthog_test_exporter.png", "wb") as fh:
             fh.write(base64.decodebytes(example_png))
 
-    @patch("posthog.tasks.exports.image_exporter.get_driver")
+    @patch("products.exports.backend.tasks.image_exporter.get_driver")
     def test_exporter_runs(self, mock_get_driver: MagicMock, mock_uuid: MagicMock) -> None:
         mock_uuid.uuid4.return_value = "posthog_test_exporter"
         mock_get_driver.return_value = MockWebDriver()
@@ -102,7 +102,7 @@ class TestExporterTask(APIBaseTest):
         if driver:
             driver.close()
 
-    @patch("posthog.tasks.exports.image_exporter.export_image")
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
         mock_export.side_effect = QueryError("Unknown table 'foo'")
 
@@ -116,7 +116,7 @@ class TestExporterTask(APIBaseTest):
 
 
 class TestExportAssetFailureRecording(APIBaseTest):
-    @patch("posthog.tasks.exports.image_exporter.export_image")
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
         mock_export_direct.side_effect = QueryError("Invalid query syntax")
 
@@ -132,12 +132,9 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception_type == "QueryError"
         assert asset.failure_type == "user"
 
-    @patch("time.sleep")  # Avoid real tenacity backoff waits
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_retriable_error_retries_then_records(self, mock_export_direct: MagicMock, mock_sleep: MagicMock) -> None:
-        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
-        assert isinstance(e, EXCEPTIONS_TO_RETRY)
-        mock_export_direct.side_effect = e
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_transient_error_records_failure_without_retry(self, mock_export_direct: MagicMock) -> None:
+        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
 
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -146,36 +143,10 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
         exporter.export_asset(asset.id)
 
-        # Verify tenacity attempted multiple retries (4 attempts total)
-        assert mock_export_direct.call_count == 4
+        # No in-process retries — Temporal handles retries at the activity level
+        assert mock_export_direct.call_count == 1
 
         asset.refresh_from_db()
         assert asset.exception == "Code: None.\nToo many queries"
         assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
-
-    @patch("time.sleep")  # Avoid real tenacity backoff waits
-    @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_retriable_error_succeeds_on_retry(self, mock_export_direct: MagicMock, mock_sleep: MagicMock) -> None:
-        # Fail twice, then succeed
-        mock_export_direct.side_effect = [
-            CHQueryErrorTooManySimultaneousQueries("Too many queries"),
-            CHQueryErrorTooManySimultaneousQueries("Too many queries"),
-            None,  # Success on third attempt
-        ]
-
-        asset = ExportedAsset.objects.create(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
-        )
-
-        exporter.export_asset(asset.id)
-
-        # Verify 3 attempts were made
-        assert mock_export_direct.call_count == 3
-
-        asset.refresh_from_db()
-        # Should be cleared on success
-        assert asset.exception is None
-        assert asset.exception_type is None
-        assert asset.failure_type is None

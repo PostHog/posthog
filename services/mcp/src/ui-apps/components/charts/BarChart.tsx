@@ -2,16 +2,26 @@ import type { ReactElement } from 'react'
 
 import { formatDate, formatNumber } from '../utils'
 
+// TODO(quill): replace with a Quill chart primitive (e.g. `BarChart` /
+// `Charts.Bar`) once Quill ships one. Quill currently has no chart layer —
+// it stops at primitives/components/blocks, none of which render data viz.
+// This bespoke SVG renderer uses Quill design tokens (`--text-secondary`
+// via the host bridge, `--posthog-chart-*` palette declared in base.css)
+// so the visual language already matches.
+
 const CHART_HEIGHT = 200
 const CHART_WIDTH = 400
 const PADDING = { top: 20, right: 20, bottom: 40, left: 50 }
 
 const COLORS = [
-    'var(--posthog-chart-1, #1d4ed8)',
-    'var(--posthog-chart-2, #7c3aed)',
-    'var(--posthog-chart-3, #059669)',
-    'var(--posthog-chart-4, #dc2626)',
-    'var(--posthog-chart-5, #ea580c)',
+    'var(--posthog-chart-1, #1d4aff)',
+    'var(--posthog-chart-2, #621da6)',
+    'var(--posthog-chart-3, #42827e)',
+    'var(--posthog-chart-4, #ce0e74)',
+    'var(--posthog-chart-5, #f14f58)',
+    'var(--posthog-chart-6, #7c440e)',
+    'var(--posthog-chart-7, #529a0a)',
+    'var(--posthog-chart-8, #0476fb)',
 ]
 
 export interface DataPoint {
@@ -30,9 +40,10 @@ export interface BarChartProps {
     labels: string[]
     maxValue: number
     showLegend?: boolean
+    yAxisLabel?: string | undefined
 }
 
-export function BarChart({ series, labels, maxValue, showLegend = true }: BarChartProps): ReactElement {
+export function BarChart({ series, labels, maxValue, showLegend = true, yAxisLabel }: BarChartProps): ReactElement {
     const innerWidth = CHART_WIDTH - PADDING.left - PADDING.right
     const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom
 
@@ -45,6 +56,19 @@ export function BarChart({ series, labels, maxValue, showLegend = true }: BarCha
     return (
         <div>
             <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '400px' }}>
+                {yAxisLabel && (
+                    <text
+                        x={12}
+                        y={PADDING.top + innerHeight / 2}
+                        textAnchor="middle"
+                        fontSize="11"
+                        fill="var(--color-text-secondary, #6b7280)"
+                        transform={`rotate(-90, 12, ${PADDING.top + innerHeight / 2})`}
+                    >
+                        {yAxisLabel}
+                    </text>
+                )}
+
                 {/* Y-axis labels */}
                 {[0, 0.5, 1].map((ratio) => {
                     const value = maxValue * ratio

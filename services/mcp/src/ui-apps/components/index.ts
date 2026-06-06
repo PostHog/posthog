@@ -4,9 +4,9 @@ export { Component } from './Component'
 // Smart visualizers - transform structured data for rendering
 export { TrendsVisualizer } from './TrendsVisualizer'
 export { FunnelVisualizer } from './FunnelVisualizer'
+export { LifecycleVisualizer } from './LifecycleVisualizer'
+export { RetentionVisualizer } from './RetentionVisualizer'
 export { TableVisualizer } from './TableVisualizer'
-export { PostHogLink } from './PostHogLink'
-
 // Dumb chart components - receive pre-processed data
 export * from './charts'
 

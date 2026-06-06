@@ -1,21 +1,88 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonDivider, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { isNumeric } from 'lib/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils'
+import {
+    ReplayPlatform,
+    replayTriggersLogic,
+    TRIGGER_GROUPS_MIN_SDK_VERSION,
+} from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
-import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
-function LinkedFlagSelector(): JSX.Element | null {
-    const { selectedPlatform } = useValues(replayTriggersLogic)
+export { TRIGGER_GROUPS_MIN_SDK_VERSION }
 
+/** Convert the stored sample-rate string (decimal 0–1) to a display percentage (0–100). */
+function toDisplaySampleRate(rate: string | null | undefined): number {
+    return typeof rate === 'string' ? Math.floor(parseFloat(rate) * 100) : 100
+}
+
+function AnyWith100SamplingWarning({
+    currentTeam,
+    isV2TriggersEnabled,
+}: {
+    currentTeam: TeamType | TeamPublicType | null | undefined
+    isV2TriggersEnabled: boolean
+}): JSX.Element | null {
+    const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    const matchType = currentTeam?.session_recording_trigger_match_type_config || 'all'
+    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const hasOtherCondition =
+        (urlTriggerConfig?.length ?? 0) > 0 ||
+        (eventTriggerConfig?.length ?? 0) > 0 ||
+        !!currentTeam?.session_recording_linked_flag
+
+    if (matchType !== 'any' || sampleRate !== 100 || !hasOtherCondition) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="error">
+            <strong>100% sampling rate with "any" matching records every session.</strong> To fix this, either lower the
+            sample rate or switch to "all" matching.
+            {isV2TriggersEnabled && (
+                <>
+                    {' '}
+                    Consider using <strong>trigger groups</strong> above for more precise control over when sessions are
+                    recorded.
+                </>
+            )}
+        </LemonBanner>
+    )
+}
+
+function TriggerPanelHeader({
+    title,
+    status,
+    showMatchTag = false,
+}: {
+    title: string
+    status: string
+    showMatchTag?: boolean
+}): JSX.Element {
+    return (
+        <div className="flex items-center justify-between w-full">
+            <span className="font-semibold flex items-center gap-1">
+                {showMatchTag && <IngestionControls.MatchTypeTag />}
+                {title}
+            </span>
+            <span className="text-muted text-xs font-normal">{status}</span>
+        </div>
+    )
+}
+
+function LinkedFlagSelector(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -26,11 +93,10 @@ function LinkedFlagSelector(): JSX.Element | null {
                 flag={currentTeam?.session_recording_linked_flag ?? null}
                 onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
             >
-                <div className="flex flex-col deprecated-space-y-2 mt-2">
-                    <div className="flex justify-between">
+                <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
                         <LemonLabel className="text-base">
-                            {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
-                            recordings using feature flag
+                            Select feature flag{' '}
                             <Since
                                 web={{ version: '1.110.0' }}
                                 ios={{ version: '3.11.0' }}
@@ -150,10 +216,10 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-2">
+        <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Event emitted <Since web={{ version: '1.186.0' }} />
+                    Select events <Since web={{ version: '1.186.0' }} />
                 </LemonLabel>
                 <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
@@ -178,21 +244,84 @@ function Sampling(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-            <div className="flex flex-row justify-between mt-2">
-                <LemonLabel className="text-base">
-                    <IngestionControls.MatchTypeTag /> Sampling <Since web={{ version: '1.85.0' }} />
-                </LemonLabel>
-                <IngestionControls.SamplingTrigger
-                    initialSampleRate={
-                        typeof currentTeam?.session_recording_sample_rate === 'string'
-                            ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
-                            : 100
-                    }
-                    onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
-                />
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-row justify-between items-center">
+                    <LemonLabel className="text-base">
+                        Sample rate{' '}
+                        <Since
+                            web={{ version: '1.85.0' }}
+                            android={{ version: '3.34.0' }}
+                            ios={{ version: '3.42.0' }}
+                            reactNative={{ version: '4.37.0' }}
+                        />
+                    </LemonLabel>
+                    <IngestionControls.SamplingTrigger
+                        initialSampleRate={toDisplaySampleRate(currentTeam?.session_recording_sample_rate)}
+                        onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+                    />
+                </div>
+                <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
             </div>
-            <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
         </PayGateMini>
+    )
+}
+
+function MobileSampling(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row items-center gap-2">
+                <LemonLabel className="text-base">
+                    Sample rate{' '}
+                    <Since
+                        android={{ version: '3.34.0' }}
+                        ios={{ version: '3.42.0' }}
+                        reactNative={{ version: '4.37.0' }}
+                    />
+                </LemonLabel>
+                <Tooltip title="Sample rate is shared across web and mobile. Change it on the Web tab.">
+                    <span className="text-muted font-semibold">{sampleRate}%</span>
+                </Tooltip>
+            </div>
+            <p className="text-muted-alt">
+                Sample rate is shared across all platforms.{' '}
+                <span className="font-semibold">Change this setting on the Web tab.</span>
+            </p>
+        </div>
+    )
+}
+
+function MobileMinimumDuration(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
+    const minDurationSeconds = (minDurationMs ?? 0) / 1000
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row items-center gap-2">
+                <LemonLabel className="text-base">
+                    Duration threshold{' '}
+                    <Since
+                        ios={{ version: '3.53.0' }}
+                        android={{ version: '3.44.0' }}
+                        flutter={{ version: '5.24.3' }}
+                    />
+                </LemonLabel>
+                <Tooltip title="Minimum duration is shared across web and mobile. Change it on the Web tab.">
+                    <span className="text-muted font-semibold">
+                        {minDurationMs ? `${minDurationSeconds}s` : 'No minimum'}
+                    </span>
+                </Tooltip>
+            </div>
+            <p className="text-muted-alt">
+                Minimum duration is shared across Web, iOS, Android, and Flutter.{' '}
+                <span className="font-semibold">Change this setting on the Web tab.</span>
+            </p>
+        </div>
     )
 }
 
@@ -202,60 +331,237 @@ function MinimumDurationSetting(): JSX.Element | null {
 
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
-            <div className="flex flex-row justify-between">
-                <LemonLabel className="text-base">
-                    Minimum session duration (seconds) <Since web={{ version: '1.85.0' }} />
-                </LemonLabel>
-                <IngestionControls.MinDuration
-                    value={currentTeam?.session_recording_minimum_duration_milliseconds}
-                    onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
-                />
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-row justify-between items-center">
+                    <LemonLabel className="text-base">
+                        Duration threshold <Since web={{ version: '1.85.0' }} ios={{ version: '3.53.0' }} />
+                    </LemonLabel>
+                    <IngestionControls.MinDuration
+                        value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                        onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
+                    />
+                </div>
+                <Tooltip
+                    delayMs={200}
+                    docLink="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations"
+                    title="The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration control is best effort."
+                >
+                    Setting a minimum session duration will ensure that only sessions that last longer than that value
+                    are collected. This helps you avoid collecting sessions that are too short to be useful.
+                </Tooltip>
             </div>
-            <Tooltip
-                delayMs={200}
-                title={
-                    <>
-                        The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration
-                        control is best effort.{' '}
-                        <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
-                            Read more in our docs
-                        </Link>
-                    </>
-                }
-            >
-                Setting a minimum session duration will ensure that only sessions that last longer than that value are
-                collected. This helps you avoid collecting sessions that are too short to be useful.
-            </Tooltip>
         </PayGateMini>
     )
 }
 
-export function ReplayTriggers(): JSX.Element {
+function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
+    urlStatus: string
+    eventStatus: string
+    flagStatus: string
+    samplingStatus: string
+    minDurationStatus: string
+    blocklistStatus: string
+} {
+    const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    const urlCount = urlTriggerConfig?.length ?? 0
+    const eventCount = eventTriggerConfig?.length ?? 0
+    const flagKey = currentTeam?.session_recording_linked_flag?.key
+    const numericSampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
+    const blocklistCount = currentTeam?.session_recording_url_blocklist_config?.length ?? 0
+
+    return {
+        urlStatus: urlCount > 0 ? pluralize(urlCount, 'pattern') : 'Not configured',
+        eventStatus: eventCount > 0 ? pluralize(eventCount, 'event') : 'Not configured',
+        flagStatus: flagKey ? flagKey : 'Not configured',
+        samplingStatus: `${numericSampleRate}%${numericSampleRate === 100 ? ' (default)' : ''}`,
+        minDurationStatus: minDurationMs ? `${minDurationMs / 1000}s` : 'No minimum',
+        blocklistStatus: blocklistCount > 0 ? pluralize(blocklistCount, 'pattern') : 'Not configured',
+    }
+}
+
+function LegacyRecordingConditions(): JSX.Element {
     const { selectedPlatform } = useValues(replayTriggersLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const statuses = useHeaderStatuses(currentTeam)
+
+    const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
+
+    return (
+        <>
+            {currentTeam && <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />}
+
+            <IngestionControls.MatchTypeSelect />
+
+            <AnyWith100SamplingWarning currentTeam={currentTeam} isV2TriggersEnabled={!!isV2TriggersEnabled} />
+
+            <div>
+                <h3 className="text-sm font-semibold mb-2">Recording conditions</h3>
+                <LemonCollapse
+                    multiple
+                    panels={[
+                        {
+                            key: 'url',
+                            header: <TriggerPanelHeader title="URL matches" status={statuses.urlStatus} showMatchTag />,
+                            content: <UrlTriggerOptions />,
+                        },
+                        {
+                            key: 'event',
+                            header: (
+                                <TriggerPanelHeader title="Event emitted" status={statuses.eventStatus} showMatchTag />
+                            ),
+                            content: <EventTriggerOptions />,
+                        },
+                        {
+                            key: 'flag',
+                            header: (
+                                <TriggerPanelHeader title="Feature flag" status={statuses.flagStatus} showMatchTag />
+                            ),
+                            content: <LinkedFlagSelector />,
+                        },
+                    ]}
+                />
+            </div>
+
+            <div>
+                <h3 className="text-sm font-semibold mb-2">Recording limits</h3>
+                <LemonCollapse
+                    multiple
+                    panels={[
+                        {
+                            key: 'sampling',
+                            header: (
+                                <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} showMatchTag />
+                            ),
+                            content: <Sampling />,
+                        },
+                        {
+                            key: 'min-duration',
+                            header: <TriggerPanelHeader title="Minimum duration" status={statuses.minDurationStatus} />,
+                            content: <MinimumDurationSetting />,
+                        },
+                    ]}
+                />
+            </div>
+
+            <div>
+                <h3 className="text-base font-semibold mb-2">
+                    Recording exclusions <Since web={{ version: '1.171.0' }} />
+                </h3>
+                <LemonCollapse
+                    multiple
+                    panels={[
+                        {
+                            key: 'blocklist',
+                            header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
+                            content: <UrlBlocklistOptions />,
+                        },
+                    ]}
+                />
+            </div>
+        </>
+    )
+}
+
+function SdkCompatibilityBanner(): JSX.Element {
+    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk } = useValues(replayTriggersLogic)
+
+    if (shouldMinimizeLegacyConditions) {
+        return (
+            <LemonBanner type="success">
+                All your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups apply to
+                every session. The legacy recording conditions below are kept only as a fallback for older SDKs.
+            </LemonBanner>
+        )
+    }
+
+    if (hasOutdatedWebSdk) {
+        return (
+            <LemonBanner type="warning">
+                <strong>Some of your web traffic is on an older posthog-js</strong> (before v
+                {TRIGGER_GROUPS_MIN_SDK_VERSION}), which uses the legacy recording conditions below. Upgrade posthog-js
+                to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ so trigger groups apply to every session. Until then, both
+                configurations are sent for backward compatibility.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <strong>JavaScript SDK version compatibility</strong>
+            <ul className="list-disc ml-4 mt-2 space-y-1">
+                <li>
+                    SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION} use trigger groups if configured, otherwise
+                    fall back to the legacy recording conditions
+                </li>
+                <li>Both configurations are sent to ensure backward compatibility with all JavaScript SDK versions</li>
+            </ul>
+        </LemonBanner>
+    )
+}
+
+export function ReplayTriggers(): JSX.Element {
+    const { selectedPlatform, shouldMinimizeLegacyConditions } = useValues(replayTriggersLogic)
     const { selectPlatform } = useActions(replayTriggersLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
 
     const tabs: LemonTab<'web' | 'mobile'>[] = [
         {
             key: 'web',
             label: 'Web',
             content: (
-                <div className="flex flex-col gap-y-2">
-                    {currentTeam && (
-                        <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
+                <div className="flex flex-col gap-y-4">
+                    {isV2TriggersEnabled && (
+                        <>
+                            <SdkCompatibilityBanner />
+
+                            <TriggerGroupsEditor />
+                        </>
                     )}
-                    <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
-                        <IngestionControls.MatchTypeSelect />
-                        <LemonDivider />
-                        <UrlTriggerOptions />
-                        <EventTriggerOptions />
-                        <LinkedFlagSelector />
-                        <Sampling />
-                    </div>
-                    <MinimumDurationSetting />
-                    <LemonDivider />
-                    <UrlBlocklistOptions />
+
+                    {isV2TriggersEnabled && (
+                        <div className="mt-2">
+                            <LemonDivider className="mb-4" />
+                            <h3 className="text-base font-semibold mb-1">Legacy recording conditions</h3>
+                        </div>
+                    )}
+
+                    {isV2TriggersEnabled && shouldMinimizeLegacyConditions ? (
+                        <LemonCollapse
+                            panels={[
+                                {
+                                    key: 'legacy-recording-conditions',
+                                    header: (
+                                        <span className="text-muted text-sm font-normal">
+                                            Hidden because your web SDKs (v{TRIGGER_GROUPS_MIN_SDK_VERSION}+) use
+                                            trigger groups. Expand to configure fallbacks for older SDK versions.
+                                        </span>
+                                    ),
+                                    content: (
+                                        <div className="flex flex-col gap-y-4 pt-2">
+                                            <LegacyRecordingConditions />
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : (
+                        <>
+                            {isV2TriggersEnabled && (
+                                <LemonBanner type="warning">
+                                    Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for
+                                    newer versions if trigger groups are not configured.
+                                </LemonBanner>
+                            )}
+                            <LegacyRecordingConditions />
+                        </>
+                    )}
                 </div>
             ),
         },
@@ -267,7 +573,10 @@ export function ReplayTriggers(): JSX.Element {
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
+                    <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
                     <LinkedFlagSelector />
+                    <MobileSampling />
+                    <MobileMinimumDuration />
                 </div>
             ),
         },
@@ -323,8 +632,7 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
     const hasEventTriggers = (eventTriggerConfig?.length ?? 0) > 0
     const hasFeatureFlag = !!currentTeam.session_recording_linked_flag
     const sampleRate = currentTeam.session_recording_sample_rate
-    const numericSampleRate = sampleRate ? Math.floor(parseFloat(sampleRate) * 100) : null
-    const hasSampling = isNumeric(numericSampleRate) && numericSampleRate < 100
+    const hasSampling = toDisplaySampleRate(sampleRate) < 100
     const hasMinDuration = !!currentTeam.session_recording_minimum_duration_milliseconds
     const hasUrlBlocklist = (currentTeam.session_recording_url_blocklist_config?.length ?? 0) > 0
 
@@ -369,5 +677,17 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
         ]
     }
 
-    return [flagTrigger]
+    return [
+        flagTrigger,
+        {
+            type: TriggerType.SAMPLING,
+            enabled: hasSampling,
+            sampleRate: sampleRate ? parseFloat(sampleRate) : null,
+        },
+        {
+            type: TriggerType.MIN_DURATION,
+            enabled: hasMinDuration,
+            minDurationMs: hasMinDuration ? (currentTeam.session_recording_minimum_duration_milliseconds ?? 0) : null,
+        },
+    ]
 }

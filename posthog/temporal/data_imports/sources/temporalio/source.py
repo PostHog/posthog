@@ -8,14 +8,16 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
 from posthog.temporal.data_imports.sources.temporalio.temporalio import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     TemporalIOResource,
+    TemporalIOResumeConfig,
     temporalio_source,
 )
 
@@ -23,15 +25,20 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
+class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TEMPORALIO
 
     def get_schemas(
-        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False
+        self,
+        config: TemporalIOSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -40,15 +47,29 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
             )
             for endpoint in ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
-    def source_for_pipeline(self, config: TemporalIOSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TemporalIOResumeConfig]:
+        return ResumableSourceManager[TemporalIOResumeConfig](inputs, TemporalIOResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: TemporalIOSourceConfig,
+        resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return temporalio_source(
             config,
             TemporalIOResource(inputs.schema_name),
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
+            should_use_incremental_field=inputs.should_use_incremental_field,
         )
 
     @property
@@ -62,10 +83,20 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="host", label="Host", type=SourceFieldInputConfigType.TEXT, required=True, placeholder=""
+                        name="host",
+                        label="Host",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
-                        name="port", label="Port", type=SourceFieldInputConfigType.TEXT, required=True, placeholder=""
+                        name="port",
+                        label="Port",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="namespace",
@@ -73,13 +104,15 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="encryption_key",
                         label="Encryption key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="server_client_root_ca",
@@ -87,6 +120,7 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_certificate",
@@ -94,6 +128,7 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_private_key",
@@ -101,6 +136,7 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

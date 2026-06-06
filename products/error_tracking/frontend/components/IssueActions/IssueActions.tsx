@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
-import { sceneLogic } from 'scenes/sceneLogic'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -25,7 +26,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
     const { setSelectedIssueIds } = useActions(bulkSelectLogic)
-    const { newTab } = useActions(sceneLogic)
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti()
 
     const hasAtLeastTwoIssues = selectedIds.length >= 2
 
@@ -33,7 +34,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
         selectedIds.forEach((id) => {
             const issue = issues.find((issue) => issue.id === id)
             if (issue) {
-                newTab(urls.errorTrackingIssue(id, { timestamp: issue.last_seen }))
+                newInternalTab(urls.errorTrackingIssue(id, { timestamp: issue.last_seen }))
             }
         })
     }
@@ -75,6 +76,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
 
     return (
         <div className="flex gap-x-2 justify-between">
+            <HogfettiComponent />
             <div className="flex gap-x-2">
                 <LemonButton type="secondary" size="small" onClick={openInNewTabs}>
                     Open all
@@ -107,6 +109,7 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
                         switch (value) {
                             case 'resolved':
                                 resolveIssues(selectedIds)
+                                ;[0, 400, 800].forEach((delay) => setTimeout(triggerHogfetti, delay))
                                 break
                             case 'suppressed':
                                 suppressIssues(selectedIds)
@@ -133,6 +136,11 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
                         </LemonButton>
                     )}
                 </AssigneeSelect>
+                {issues.some((issue) => selectedIds.includes(issue.id) && issue.assignee != null) && (
+                    <LemonButton type="secondary" size="small" onClick={() => assignIssues(selectedIds, null)}>
+                        Unassign
+                    </LemonButton>
+                )}
             </div>
             <LemonButton type="secondary" size="small" onClick={excludeSelectedIssues}>
                 Hide from search

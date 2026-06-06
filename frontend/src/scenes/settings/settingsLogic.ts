@@ -6,21 +6,54 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Realm } from '~/types'
-
-import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
+import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
+// Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
+const FUSE_THRESHOLD = 0.2
+
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface SettingsFuse extends FuseClass<Setting> {}
-export interface SectionsFuse extends FuseClass<SettingSection> {}
+export interface SettingsFuse extends FuseClass<Setting & { searchValue: string }> {}
+export interface SectionsFuse extends FuseClass<
+    SettingSection & { searchValue: string; settingsSearchValues: string }
+> {}
+
+export interface SearchIndexEntry {
+    settingId: SettingId
+    settingTitle: string
+    sectionId: SettingSectionId
+    sectionTitle: string
+    level: SettingLevelId
+    keywords: string
+    description: string
+}
+
+export interface SearchResult {
+    settingId: SettingId
+    settingTitle: string
+    sectionId: SettingSectionId
+    sectionTitle: string
+    level: SettingLevelId
+}
+
+export interface SearchResultGroup {
+    sectionId: SettingSectionId
+    sectionTitle: string
+    level: SettingLevelId
+    results: SearchResult[]
+}
+
+export interface GlobalSearchFuse extends FuseClass<SearchIndexEntry> {}
 
 const getSettingStringValue = (setting: Setting): string => {
     if (setting.searchTerm) {
@@ -42,6 +75,43 @@ const getSectionStringValue = (section: SettingSection): string => {
     return section.id
 }
 
+export const matchesFlagDefinition = (
+    flagKey: Pick<Setting, 'flag'>['flag'],
+    featureFlags: FeatureFlagsSet
+): boolean => {
+    // No flag condition
+    if (!flagKey) {
+        return true
+    }
+
+    const flagsArray = Array.isArray(flagKey) ? flagKey : [flagKey]
+    for (const flagCondition of flagsArray) {
+        // Tuple flag condition ([flag, value])
+        if (Array.isArray(flagCondition)) {
+            const [flag, value] = flagCondition
+            const isConditionMet = featureFlags[FEATURE_FLAGS[flag]] === value
+            if (!isConditionMet) {
+                return false
+            }
+            // Negated flag condition (`!${FeatureFlagKey}`)
+        } else if (flagCondition.startsWith('!')) {
+            const flag = flagCondition.slice(1) as keyof typeof FEATURE_FLAGS
+            const isConditionMet = !featureFlags[FEATURE_FLAGS[flag]]
+            if (!isConditionMet) {
+                return false
+            }
+            // Normal flag condition (FeatureFlagKey)
+        } else {
+            const flag = flagCondition as keyof typeof FEATURE_FLAGS
+            const isConditionMet = !!featureFlags[FEATURE_FLAGS[flag]]
+            if (!isConditionMet) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
     key((props) => props.logicKey ?? 'global'),
@@ -56,8 +126,12 @@ export const settingsLogic = kea<settingsLogicType>([
             ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
+            organizationLogic,
+            ['currentOrganization', 'isAdminOrOwner'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
+            billingLogic,
+            ['canAccessBilling'],
         ],
     })),
 
@@ -70,7 +144,9 @@ export const settingsLogic = kea<settingsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
         toggleGroupCollapse: (group: string) => ({ group }),
+        expandGroup: (group: string) => ({ group }),
         loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
+        navigateToSetting: (sectionId: SettingSectionId, settingId: SettingId) => ({ sectionId, settingId }),
     }),
 
     reducers(({ props }) => ({
@@ -142,6 +218,11 @@ export const settingsLogic = kea<settingsLogicType>([
                     ...state,
                     [group]: !state[group],
                 }),
+                // Auto-expand the group that contains a freshly selected section
+                expandGroup: (state, { group }) => ({
+                    ...state,
+                    [group]: false,
+                }),
             },
         ],
     })),
@@ -166,8 +247,14 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
     })),
 
-    listeners({
-        selectSection: () => {
+    listeners(({ actions, values }) => ({
+        selectSection: ({ section, level }) => {
+            // Expand the collapsible group containing the selected section so it's visible
+            // (e.g. when navigating via URL or settings search into a collapsed group)
+            const sectionObj = values.sections.find((s) => s.id === section)
+            if (sectionObj?.group) {
+                actions.expandGroup(`${level}-${sectionObj.group}`)
+            }
             setTimeout(() => {
                 const mainElement = document.querySelector('main')
                 if (mainElement) {
@@ -175,7 +262,24 @@ export const settingsLogic = kea<settingsLogicType>([
                 }
             }, 100)
         },
-    }),
+        navigateToSetting: ({ sectionId, settingId }) => {
+            const section = values.sections.find((s) => s.id === sectionId)
+            if (section) {
+                actions.setSearchTerm('')
+                if (section.to) {
+                    router.actions.push(section.to)
+                } else {
+                    actions.selectSection(sectionId, section.level)
+                    setTimeout(() => {
+                        const element = document.getElementById(settingId)
+                        if (element) {
+                            element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }
+                    }, 200)
+                }
+            }
+        },
+    })),
 
     selectors({
         levels: [
@@ -190,8 +294,39 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations],
-            (doesMatchFlags, isCloudOrDev, currentTeam, organizationIntegrations): SettingSection[] => {
+            (s) => [
+                s.doesMatchFlags,
+                s.isCloudOrDev,
+                s.currentTeam,
+                s.currentOrganization,
+                s.organizationIntegrations,
+                s.preflight,
+                s.canAccessBilling,
+                s.isAdminOrOwner,
+            ],
+            (
+                doesMatchFlags,
+                isCloudOrDev,
+                currentTeam,
+                currentOrganization,
+                organizationIntegrations,
+                preflight,
+                canAccessBilling,
+                isAdminOrOwner
+            ): SettingSection[] => {
+                const isSettingVisible = (setting: Setting): boolean => {
+                    if (!doesMatchFlags(setting)) {
+                        return false
+                    }
+                    if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
+                        return false
+                    }
+                    if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
+                        return false
+                    }
+                    return true
+                }
+
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
@@ -203,8 +338,21 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
 
+                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
+                    if (section.id === 'organization-billing' && !canAccessBilling) {
+                        return false
+                    }
+                    if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
+                        return false
+                    }
+
                     return true
                 })
+
+                // If there's no current organization, hide everything except user sections
+                if (!currentOrganization) {
+                    return sections.filter((section) => section.level === 'user')
+                }
 
                 // If there's no current team, hide project and environment sections entirely
                 if (!currentTeam) {
@@ -227,6 +375,10 @@ export const settingsLogic = kea<settingsLogicType>([
                             id: setting.id.replace('environment-', 'project-') as SettingId,
                         })),
                     }))
+                    .filter(
+                        (section) =>
+                            section.to || section.settings.length === 0 || section.settings.some(isSettingVisible)
+                    )
             },
         ],
         selectedLevel: [
@@ -259,19 +411,45 @@ export const settingsLogic = kea<settingsLogicType>([
                 return selectedSectionIdRaw
             },
         ],
+        defaultSectionId: [
+            (s) => [s.sections, s.selectedLevel],
+            (sections, selectedLevel): SettingSectionId | null => {
+                const firstSection = sections.find((s) => s.level === selectedLevel)
+                return firstSection?.id ?? null
+            },
+        ],
         selectedSection: [
-            (s) => [s.sections, s.selectedSectionId],
-            (sections, selectedSectionId): SettingSection | null => {
-                return sections.find((x) => x.id === selectedSectionId) ?? null
+            (s) => [s.sections, s.selectedSectionId, s.defaultSectionId],
+            (sections, selectedSectionId, defaultSectionId): SettingSection | null => {
+                const effectiveId = selectedSectionId ?? defaultSectionId
+                return sections.find((x) => x.id === effectiveId) ?? null
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
-            (selectedLevel, selectedSectionId, sections, doesMatchFlags, preflight, currentTeam): Setting[] => {
+            (s) => [
+                s.selectedLevel,
+                s.selectedSectionId,
+                s.defaultSectionId,
+                s.sections,
+                s.doesMatchFlags,
+                s.preflight,
+                s.currentTeam,
+            ],
+            (
+                selectedLevel,
+                selectedSectionId,
+                defaultSectionId,
+                sections,
+                doesMatchFlags,
+                preflight,
+                currentTeam
+            ): Setting[] => {
+                const effectiveSectionId = selectedSectionId ?? defaultSectionId
+
                 let settings: Setting[] = []
 
-                if (selectedSectionId) {
-                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
+                if (effectiveSectionId) {
+                    settings = sections.find((x) => x.id === effectiveSectionId)?.settings || []
                 } else {
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
@@ -282,10 +460,10 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (!doesMatchFlags(x)) {
                         return false
                     }
-                    if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                    if (preflight?.realm && x.hideOn?.includes(preflight.realm)) {
                         return false
                     }
-                    if (x.hideWhenNoSection && !selectedSectionId) {
+                    if (x.hideWhenNoSection && !effectiveSectionId) {
                         return false
                     }
                     if (x.allowForTeam) {
@@ -304,26 +482,8 @@ export const settingsLogic = kea<settingsLogicType>([
         doesMatchFlags: [
             (s) => [s.featureFlags],
             (featureFlags) => {
-                return (x: Pick<Setting, 'flag'>) => {
-                    if (!x.flag) {
-                        // No flag condition
-                        return true
-                    }
-                    const flagsArray = Array.isArray(x.flag) ? x.flag : [x.flag]
-                    for (const flagCondition of flagsArray) {
-                        const flag = (
-                            flagCondition.startsWith('!') ? flagCondition.slice(1) : flagCondition
-                        ) as keyof typeof FEATURE_FLAGS
-                        let isConditionMet = featureFlags[FEATURE_FLAGS[flag]]
-                        if (flagCondition.startsWith('!')) {
-                            isConditionMet = !isConditionMet // Negated flag condition (!-prefixed)
-                        }
-                        if (!isConditionMet) {
-                            return false
-                        }
-                    }
-                    return true
-                }
+                return (flagDefinition: Pick<Setting, 'flag'>) =>
+                    matchesFlagDefinition(flagDefinition.flag, featureFlags)
             },
         ],
 
@@ -335,9 +495,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     searchValue: getSettingStringValue(setting),
                 }))
 
-                return new FuseClass(settingsWithSearchValues || [], {
+                return createFuse(settingsWithSearchValues || [], {
                     keys: ['searchValue', 'id'],
-                    threshold: 0.3,
+                    threshold: FUSE_THRESHOLD,
                 })
             },
         ],
@@ -351,58 +511,143 @@ export const settingsLogic = kea<settingsLogicType>([
                     settingsSearchValues: section.settings.map(getSettingStringValue).join(' '),
                 }))
 
-                return new FuseClass(sectionsWithSearchValues || [], {
+                return createFuse(sectionsWithSearchValues || [], {
                     keys: ['searchValue', 'settingsSearchValues', 'id'],
-                    threshold: 0.3,
+                    threshold: FUSE_THRESHOLD,
                 })
+            },
+        ],
+
+        isSearching: [(s) => [s.searchTerm], (searchTerm: string): boolean => searchTerm.trim().length > 0],
+
+        globalSearchIndex: [
+            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
+            (sections, doesMatchFlags, preflight, currentTeam): GlobalSearchFuse => {
+                const entries: SearchIndexEntry[] = []
+
+                for (const section of sections.filter((s) => !s.hideFromNavigation)) {
+                    const sectionTitle =
+                        typeof section.title === 'string' ? section.title : section.id.replace(/[-]/g, ' ')
+
+                    for (const setting of section.settings) {
+                        if (!doesMatchFlags(setting)) {
+                            continue
+                        }
+                        if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
+                            continue
+                        }
+                        if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
+                            continue
+                        }
+
+                        const settingTitle =
+                            typeof setting.title === 'string' ? setting.title : setting.id.replace(/[-]/g, ' ')
+
+                        entries.push({
+                            settingId: setting.id,
+                            settingTitle,
+                            sectionId: section.id,
+                            sectionTitle,
+                            level: section.level,
+                            keywords: (setting.keywords ?? []).join(' '),
+                            description:
+                                setting.searchDescription ??
+                                (typeof setting.description === 'string' ? setting.description : ''),
+                        })
+                    }
+                }
+
+                // Index sections that are top-level links with no settings (e.g. Billing)
+                for (const section of sections.filter((s) => !s.hideFromNavigation)) {
+                    if (section.settings.length === 0) {
+                        const sectionTitle =
+                            typeof section.title === 'string' ? section.title : section.id.replace(/[-]/g, ' ')
+
+                        entries.push({
+                            settingId: section.id as SettingId,
+                            settingTitle: sectionTitle,
+                            sectionId: section.id,
+                            sectionTitle,
+                            level: section.level,
+                            keywords: '',
+                            description: '',
+                        })
+                    }
+                }
+
+                return createFuse(entries, {
+                    keys: [
+                        { name: 'settingTitle', weight: 2 },
+                        { name: 'keywords', weight: 1.5 },
+                        { name: 'sectionTitle', weight: 1 },
+                        { name: 'description', weight: 0.5 },
+                        { name: 'settingId', weight: 0.5 },
+                    ],
+                    threshold: FUSE_THRESHOLD,
+                    includeScore: true,
+                })
+            },
+        ],
+
+        searchResults: [
+            (s) => [s.searchTerm, s.globalSearchIndex],
+            (searchTerm, globalSearchIndex): SearchResultGroup[] => {
+                if (!searchTerm.trim()) {
+                    return []
+                }
+
+                const results = globalSearchIndex.search(searchTerm, { limit: 30 })
+                const groupMap = new Map<SettingSectionId, SearchResultGroup>()
+
+                for (const result of results) {
+                    const { sectionId, sectionTitle, level, settingId, settingTitle } = result.item
+                    let group = groupMap.get(sectionId)
+                    if (!group) {
+                        group = { sectionId, sectionTitle, level, results: [] }
+                        groupMap.set(sectionId, group)
+                    }
+                    group.results.push({ settingId, settingTitle, sectionId, sectionTitle, level })
+                }
+
+                return Array.from(groupMap.values())
             },
         ],
 
         filteredLevels: [
-            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse],
-            (
-                levels: SettingLevelId[],
-                sections: SettingSection[],
-                searchTerm: string,
-                sectionsFuse: SectionsFuse
-            ): SettingLevelId[] => {
-                if (!searchTerm.trim()) {
+            (s) => [s.levels, s.searchResults, s.isSearching],
+            (levels, searchResults, isSearching): SettingLevelId[] => {
+                if (!isSearching) {
                     return levels
                 }
 
-                return levels.filter((level: SettingLevelId) => {
-                    // Check if level name matches
-                    if (level.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        return true
-                    }
-
-                    // Check if any section in this level matches using FuseJS
-                    const levelSections = sections.filter((section: SettingSection) => section.level === level)
-                    const matchingSections = sectionsFuse.search(searchTerm)
-
-                    return matchingSections.some((result) =>
-                        levelSections.some((section) => section.id === result.item.id)
-                    )
-                })
+                const levelsWithResults = new Set(searchResults.map((g) => g.level))
+                return levels.filter((level) => levelsWithResults.has(level))
             },
         ],
 
         filteredSections: [
-            (s) => [s.sections, s.searchTerm, s.sectionsFuse],
-            (sections: SettingSection[], searchTerm: string, sectionsFuse: SectionsFuse): SettingSection[] => {
-                if (!searchTerm.trim()) {
-                    return sections
+            (s) => [s.sections, s.searchResults, s.isSearching],
+            (sections, searchResults, isSearching): SettingSection[] => {
+                const visibleSections = sections.filter((section) => !section.hideFromNavigation)
+
+                if (!isSearching) {
+                    return visibleSections
                 }
 
-                const matchingResults = sectionsFuse.search(searchTerm)
-                const matchingIds = new Set(matchingResults.map((result) => result.item.id))
-
-                return sections.filter((section) => matchingIds.has(section.id))
+                const sectionIds = new Set(searchResults.map((g) => g.sectionId))
+                return visibleSections.filter((section) => sectionIds.has(section.id))
             },
         ],
     }),
-    actionToUrl(() => ({
+    actionToUrl(({ props }) => ({
+        // Skip the URL update in the full settings scene — settingsSceneLogic already pushes
+        // the canonical URL with the section path + setting hash. Without this guard, both
+        // subscriptions fire on selectSetting and produce two history entries per click.
+        // Embedded usages (replay, logs) keep the `selectedSetting` hash for deep-linking.
         selectSetting: ({ setting }) => {
+            if (props.logicKey === 'settingsScene') {
+                return
+            }
             return [
                 router.values.location.pathname,
                 router.values.searchParams,
@@ -418,6 +663,19 @@ export const settingsLogic = kea<settingsLogicType>([
             if (!selectedSettingId) {
                 return
             }
+
+            if (values.selectedSettingId !== selectedSettingId) {
+                actions.selectSetting(selectedSettingId)
+            }
+        },
+        ['*/logs']: (_, searchParams, hashParams) => {
+            const fromHash = hashParams.selectedSetting as string | undefined
+            const fromQuery = typeof searchParams?.setting === 'string' ? searchParams.setting : undefined
+            const raw = fromHash ?? fromQuery
+            if (!raw) {
+                return
+            }
+            const selectedSettingId = (raw === 'logs-sampling' ? 'logs-drop-rules' : raw) as SettingId
 
             if (values.selectedSettingId !== selectedSettingId) {
                 actions.selectSetting(selectedSettingId)

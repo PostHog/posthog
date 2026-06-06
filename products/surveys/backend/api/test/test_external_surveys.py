@@ -1,0 +1,426 @@
+import re
+import json
+import uuid
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qsl
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.core.cache import cache
+from django.test import TestCase
+
+from parameterized import parameterized
+
+from products.surveys.backend.models import Survey
+
+
+class TestExternalSurveys(APIBaseTest):
+    """
+    Test suite for external survey functionality including the public_survey_page view.
+    Focuses on security, performance, and proper survey rendering.
+    """
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def get_json_script_value(self, content: str, script_id: str) -> object:
+        script_match = re.search(rf'<script[^>]*id="{script_id}"[^>]*>(.*?)</script>', content, re.DOTALL)
+        assert script_match is not None
+
+        return json.loads(script_match.group(1))
+
+    def create_external_survey(self, **kwargs):
+        """Helper method to create external surveys for testing"""
+        # Generate unique name to avoid constraint violations
+        unique_name = kwargs.get("name", f"Test External Survey {uuid.uuid4().hex[:8]}")
+        default_data = {
+            "team": self.team,
+            "name": unique_name,
+            "type": Survey.SurveyType.EXTERNAL_SURVEY,
+            "questions": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": "What do you think of our product?",
+                }
+            ],
+            "appearance": {
+                "backgroundColor": "#1d4ed8",
+                "submitButtonColor": "#2563eb",
+            },
+            "start_date": datetime.now(UTC) - timedelta(days=1),
+            "end_date": None,
+            "archived": False,
+        }
+        default_data.update(kwargs)
+        return Survey.objects.create(**default_data)
+
+    # SECURITY TESTS
+
+    def test_xss_prevention_in_survey_data(self):
+        xss_payload = "</script><script>alert(1)</script>"
+        survey = self.create_external_survey(
+            name=xss_payload,
+            questions=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": xss_payload,
+                    "description": xss_payload,
+                }
+            ],
+            appearance={
+                "backgroundColor": xss_payload,
+                "submitButtonText": xss_payload,
+            },
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+
+        assert xss_payload not in content
+        assert "\\u003C/script\\u003E" in content or "\\u003c/script\\u003e" in content
+
+    def test_valid_survey_id_required(self):
+        """Test that invalid survey IDs are rejected"""
+        # Invalid UUID format
+        response = self.client.get(f"/external_surveys/invalid-id/")
+        assert response.status_code == 400
+        assert "Invalid request" in response.content.decode()
+
+        # Valid UUID format but non-existent survey
+        fake_uuid = str(uuid.uuid4())
+        response = self.client.get(f"/external_surveys/{fake_uuid}/")
+        assert response.status_code == 404
+        assert "Survey not available" in response.content.decode()
+
+    def test_only_external_surveys_accessible(self):
+        """Test that only external survey types can be accessed via public URL"""
+        # Create non-external survey
+        popover_survey = self.create_external_survey(type=Survey.SurveyType.POPOVER, name="Popover Survey")
+
+        response = self.client.get(f"/external_surveys/{popover_survey.id}/")
+        assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
+
+    def test_archived_surveys_not_accessible(self):
+        """Test that archived surveys return 404"""
+        survey = self.create_external_survey(archived=True)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
+
+    def test_error_page_includes_survey_appearance(self):
+        survey = self.create_external_survey(
+            archived=True,
+            appearance={"backgroundColor": "#1a1a2e", "textColor": "#e0e0e0"},
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 404
+        content = response.content.decode()
+        assert "#1a1a2e" in content
+        assert "#e0e0e0" in content
+
+    def test_survey_must_be_running(self):
+        """Test survey availability based on start/end dates"""
+        # Survey not started yet
+        future_survey = self.create_external_survey(start_date=datetime.now(UTC) + timedelta(days=1))
+        response = self.client.get(f"/external_surveys/{future_survey.id}/")
+        assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
+
+        # Survey ended
+        ended_survey = self.create_external_survey(
+            start_date=datetime.now(UTC) - timedelta(days=2), end_date=datetime.now(UTC) - timedelta(days=1)
+        )
+        response = self.client.get(f"/external_surveys/{ended_survey.id}/")
+        assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
+
+        # Survey never started
+        never_started_survey = self.create_external_survey(start_date=None)
+        response = self.client.get(f"/external_surveys/{never_started_survey.id}/")
+        assert response.status_code == 404
+        assert "Feels quiet in here" in response.content.decode()
+
+    def test_security_headers_present(self):
+        """Test that proper security headers are set"""
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # Check security headers - iframe embedding disabled by default
+        assert response["X-Frame-Options"] == "DENY"
+        assert "Cache-Control" in response
+        assert "Vary" in response
+
+    def test_iframe_embedding_enabled_removes_x_frame_options(self):
+        """Test that X-Frame-Options is removed when iframe embedding is enabled"""
+        survey = self.create_external_survey(enable_iframe_embedding=True)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # X-Frame-Options should not be present when iframe embedding is enabled
+        assert "X-Frame-Options" not in response
+        assert "Cache-Control" in response
+        assert "Vary" in response
+
+    def test_no_sensitive_data_exposed(self):
+        """Test that sensitive survey data is not exposed in the template"""
+        survey = self.create_external_survey(description="SENSITIVE: Internal team feedback for Q4 planning")
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # Description should not be in the response
+        assert "SENSITIVE" not in response.content.decode()
+        assert "Internal team feedback" not in response.content.decode()
+
+    def test_safe_translations_are_exposed_without_survey_description(self):
+        survey = self.create_external_survey(
+            description="SENSITIVE: Internal default description",
+            translations={
+                "es": {
+                    "name": "Encuesta traducida",
+                    "description": "SENSITIVE: Internal translated description",
+                    "thankYouMessageHeader": "Gracias",
+                    "thankYouMessageDescription": "Agradecemos tus comentarios",
+                    "thankYouMessageCloseButtonText": "Cerrar",
+                },
+                "fr": {
+                    "description": "SENSITIVE: Description interne uniquement",
+                },
+            },
+            questions=[
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "open",
+                    "question": "What do you think of our product?",
+                    "description": "Question description",
+                    "translations": {
+                        "es": {
+                            "question": "¿Qué opinas de nuestro producto?",
+                            "description": "Descripción de la pregunta",
+                        }
+                    },
+                }
+            ],
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert "SENSITIVE" not in content
+
+        survey_match = re.search(r'<script[^>]*id="survey-data"[^>]*>(.*?)</script>', content, re.DOTALL)
+        assert survey_match is not None
+
+        survey_data = json.loads(survey_match.group(1))
+        assert "description" not in survey_data
+        assert survey_data["translations"] == {
+            "es": {
+                "name": "Encuesta traducida",
+                "thankYouMessageHeader": "Gracias",
+                "thankYouMessageDescription": "Agradecemos tus comentarios",
+                "thankYouMessageCloseButtonText": "Cerrar",
+            }
+        }
+        assert survey_data["questions"][0]["translations"]["es"] == {
+            "question": "¿Qué opinas de nuestro producto?",
+            "description": "Descripción de la pregunta",
+        }
+
+    # FUNCTIONALITY TESTS
+
+    def test_successful_survey_rendering(self):
+        """Test that a valid external survey renders correctly"""
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # Check that essential elements are present
+        content = response.content.decode()
+        assert survey.name in content
+        assert str(survey.id) in content
+        assert "posthog-survey-container" in content
+
+        # Check PostHog configuration is injected
+        assert "projectConfig" in content
+        assert survey.team.api_token in content
+
+    def test_survey_appearance_configuration(self):
+        """Test that survey appearance settings are properly injected"""
+        survey = self.create_external_survey(
+            appearance={"backgroundColor": "#ff0000", "submitButtonColor": "#00ff00", "borderRadius": "12px"}
+        )
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # Check appearance data is injected
+        content = response.content.decode()
+        assert "survey.appearance" in content
+        assert "#ff0000" in content
+        assert "#00ff00" in content
+
+    def test_project_config_injection(self):
+        """Test that project configuration is properly injected"""
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # Verify project config contains required fields
+        content = response.content.decode()
+        assert "projectConfig" in content
+        assert survey.team.api_token in content
+
+        # Extract and validate project config JSON from json_script tag
+        import re
+
+        config_match = re.search(r'<script[^>]*id="project-config"[^>]*>(.*?)</script>', content, re.DOTALL)
+        assert config_match is not None
+
+        project_config = json.loads(config_match.group(1))
+        assert "api_host" in project_config
+        assert "token" in project_config
+
+    @parameterized.expand(
+        [
+            ("base_locale", "es", "es"),
+            ("locale_with_region", "en-US", "en-US"),
+            ("locale_with_script_and_region", "zh-Hant-TW", "zh-Hant-TW"),
+        ]
+    )
+    def test_valid_display_language_query_param_configures_sdk_override(
+        self, _name: str, locale: str, expected_display_language: str
+    ):
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/?display_language={locale}&campaign=spring")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert f'<html lang="{expected_display_language}">' in content
+        assert self.get_json_script_value(content, "display-language") == expected_display_language
+        assert "config.override_display_language = displayLanguage" in content
+
+    @parameterized.expand(
+        [
+            ("javascript_url", "javascript:alert(1)"),
+            ("empty_value", ""),
+            ("overlong_value", "x" * 36),
+            ("numeric_base", "1234"),
+            ("underscore_separator", "pt_BR"),
+        ]
+    )
+    def test_invalid_display_language_query_param_is_ignored(self, _name: str, locale: str):
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/?display_language={locale}")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        assert '<html lang="en">' in content
+        assert self.get_json_script_value(content, "display-language") is None
+
+    def test_display_language_query_param_is_not_added_to_survey_event_properties(self):
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/?display_language=es&campaign=spring")
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        ignored_params_match = re.search(r"const URL_PARAMS_TO_IGNORE = \[(.*?)\];", content)
+        assert ignored_params_match is not None
+        ignored_params = re.findall(r"'([^']+)'", ignored_params_match.group(1))
+
+        survey_event_properties = {}
+        for key, value in parse_qsl("display_language=es&campaign=spring"):
+            if key.lower() not in ignored_params and not re.match(r"^q\d+$", key.lower()):
+                survey_event_properties[key] = value
+
+        assert survey_event_properties == {"campaign": "spring"}
+
+    # PERFORMANCE & CACHING TESTS
+
+    def test_caching_headers(self):
+        """Test that appropriate caching headers are set"""
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        cache_control = response.get("Cache-Control", "")
+        assert "public" in cache_control
+        assert "max-age=300" in cache_control  # 5 minutes as per CACHE_TIMEOUT_SECONDS
+
+    # ERROR HANDLING TESTS
+
+    @patch("products.surveys.backend.api.survey.logger")
+    def test_database_error_handling(self, mock_logger):
+        """Test proper error handling for database errors"""
+        with patch("products.surveys.backend.models.Survey.objects.select_related") as mock_select:
+            mock_select.side_effect = Exception("Database connection error")
+
+            fake_uuid = str(uuid.uuid4())
+            response = self.client.get(f"/external_surveys/{fake_uuid}/")
+
+            assert response.status_code == 503
+            assert "Service unavailable" in response.content.decode()
+            mock_logger.exception.assert_called_once()
+
+    @patch("products.surveys.backend.api.survey.capture_exception")
+    def test_exception_reporting(self, mock_capture):
+        """Test that exceptions are properly reported to error tracking"""
+        with patch("products.surveys.backend.models.Survey.objects.select_related") as mock_select:
+            test_exception = Exception("Test error")
+            mock_select.side_effect = test_exception
+
+            fake_uuid = str(uuid.uuid4())
+            self.client.get(f"/external_surveys/{fake_uuid}/")
+
+            mock_capture.assert_called_once_with(test_exception)
+
+    # INTEGRATION TESTS
+
+    def test_cors_options_request(self):
+        """Test that OPTIONS requests are handled for CORS"""
+        survey = self.create_external_survey()
+
+        response = self.client.options(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+    def test_csrf_exemption(self):
+        """Test that the view is properly exempt from CSRF protection"""
+        survey = self.create_external_survey()
+
+        # This should work without CSRF token
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+
+class TestExternalSurveysURLs(TestCase):
+    """Test URL routing for external surveys"""
+
+    def test_survey_url_pattern(self):
+        """Test that survey URLs are properly routed"""
+        from django.test import Client
+
+        survey_id = str(uuid.uuid4())
+        client = Client()
+
+        # Test that the URL pattern matches correctly (should return 404 for non-existent survey)
+        response = client.get(f"/external_surveys/{survey_id}/")
+        # We expect 404 since survey doesn't exist, but URL should be routed correctly
+        assert response.status_code == 404

@@ -37,6 +37,7 @@ import {
     AnyResponseType,
     DashboardFilter,
     DataNode,
+    DataVisualizationNode,
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
     EventsQuery,
@@ -65,6 +66,7 @@ import {
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
+    isDataVisualizationNode,
     isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
@@ -106,6 +108,8 @@ export interface DataNodeLogicProps {
     autoLoad?: boolean
     /** Override the maximum pagination limit. */
     maxPaginationLimit?: number
+    /** Limit context sent to the /query endpoint */
+    limitContext?: 'posthog_ai'
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -114,16 +118,21 @@ const LOAD_MORE_ROWS_LIMIT = 10000
 const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(3)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(5)
+const marketingAnalyticsConcurrencyController = new ConcurrencyController(5)
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
+
+    if (activeScene === Scene.MarketingAnalytics) {
+        return marketingAnalyticsConcurrencyController
+    }
+
     if (
         [
             Scene.WebAnalytics,
             Scene.WebAnalyticsWebVitals,
             Scene.WebAnalyticsPageReports,
-            Scene.WebAnalyticsMarketing,
             Scene.WebAnalyticsHealth,
             Scene.WebAnalyticsLive,
         ].includes(activeScene as Scene) &&
@@ -147,17 +156,35 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
     return concurrencyController
 }
 
-function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
+function addModifiers<T extends Record<string, any>, N extends DataNode<T> | DataVisualizationNode>(
+    query: N,
+    modifiers?: HogQLQueryModifiers
+): N {
     if (!modifiers) {
         return query
     }
+    if (isDataVisualizationNode(query)) {
+        // for DataVisualizationNodes, add the modifier to the source query instead
+        return {
+            ...query,
+            source: addModifiers(query.source, modifiers),
+        }
+    }
     return {
         ...query,
-        modifiers: { ...query.modifiers, ...modifiers },
+        modifiers: { ...('modifiers' in query ? query.modifiers : {}), ...modifiers },
     }
 }
 
-function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T> {
+function addTags<T extends Record<string, any>, N extends DataNode<T> | DataVisualizationNode>(query: N): N {
+    if (isDataVisualizationNode(query)) {
+        // for DataVisualizationNodes, add the tags to the source query instead
+        return {
+            ...query,
+            source: addTags(query.source),
+        }
+    }
+
     // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
     // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
     const mountedSceneLogic = sceneLogic.findMounted()
@@ -174,7 +201,7 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
     if (result.tags && Object.keys(result.tags).length === 0) {
         delete result.tags // Remove empty tags object
     }
-    return result
+    return result as N
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
@@ -272,7 +299,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
-                    const query = addTags(overrideQuery ?? props.query)
+                    const rawQuery = overrideQuery ?? props.query
+                    if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
+                        return null
+                    }
+                    const query = addTags(rawQuery)
 
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
@@ -313,11 +344,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (query === undefined || Object.keys(query).length === 0) {
-                        // no need to try and load a query before properly initialized
-                        return null
-                    }
-
                     if (!validateQuery(query)) {
                         return null
                     }
@@ -348,7 +374,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             actions.setPollResponse,
                                             props.filtersOverride,
                                             props.variablesOverride,
-                                            pollOnly
+                                            pollOnly,
+                                            props.limitContext
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -388,7 +415,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.limitContext
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (values.response === null) {
@@ -428,7 +461,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.limitContext
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as
@@ -456,7 +495,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.limitContext
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {
@@ -829,9 +874,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(
-                                    100,
-                                    Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                limit: Math.min(
+                                    effectivePaginationLimit,
+                                    Math.max(100, 2 * (typedResults?.length || 100))
                                 ),
                             } as
                                 | EventsQuery
@@ -946,11 +991,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if (!response) {
                     return null
                 }
-                const fields = ['result', 'results']
-                for (const field of fields) {
-                    if (field in response && Array.isArray(response[field])) {
-                        return response[field].length
-                    }
+                if ('result' in response && Array.isArray(response['result'])) {
+                    return response['result'].length
+                }
+                if ('results' in response && Array.isArray(response['results'])) {
+                    return response['results'].length
                 }
                 return null
             },

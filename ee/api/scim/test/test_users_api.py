@@ -1,3 +1,4 @@
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -5,6 +6,7 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
+from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import RoleMembership
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
@@ -867,3 +869,239 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
         assert user.email == "primary@example.com"
+
+    # ── Pagination tests ──
+
+    def _create_users(self, count: int) -> list[User]:
+        users = []
+        for i in range(count):
+            user = User.objects.create_user(
+                email=f"paguser{i}@example.com",
+                password=None,
+                first_name=f"PagUser{i}",
+                is_email_verified=True,
+            )
+            OrganizationMembership.objects.create(
+                user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+            )
+            users.append(user)
+        return users
+
+    def test_users_list_pagination_with_count(self):
+        self._create_users(5)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"count": "2"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 6  # 5 created + setUp user
+        assert data["itemsPerPage"] == 2
+        assert data["startIndex"] == 1
+        assert len(data["Resources"]) == 2
+
+    def test_users_list_pagination_with_start_index(self):
+        self._create_users(5)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"startIndex": "3", "count": "2"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 6
+        assert data["itemsPerPage"] == 2
+        assert data["startIndex"] == 3
+        assert len(data["Resources"]) == 2
+
+    def test_users_list_pagination_count_zero(self):
+        self._create_users(3)
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"count": "0"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 4  # 3 created + setUp user
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+
+    def test_users_list_pagination_start_index_beyond_total(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"startIndex": "999"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] >= 1
+        assert data["itemsPerPage"] == 0
+        assert data["Resources"] == []
+        assert data["startIndex"] == 999
+
+    def test_users_list_pagination_count_capped_at_max(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", {"count": "500"})
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["itemsPerPage"] <= MAX_ITEMS_PER_PAGE
+
+    @parameterized.expand(
+        [
+            ("start_index_zero", {"startIndex": "0"}, status.HTTP_400_BAD_REQUEST),
+            ("start_index_negative", {"startIndex": "-1"}, status.HTTP_400_BAD_REQUEST),
+            ("start_index_non_integer", {"startIndex": "abc"}, status.HTTP_400_BAD_REQUEST),
+            ("count_negative", {"count": "-1"}, status.HTTP_400_BAD_REQUEST),
+            ("count_non_integer", {"count": "abc"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_users_list_pagination_invalid_values(self, _name: str, params: dict, expected_status: int):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", params)
+        assert response.status_code == expected_status
+
+    def test_users_list_pagination_with_filter(self):
+        self._create_users(3)
+        for i in range(3):
+            SCIMProvisionedUser.objects.create(
+                user=User.objects.get(email=f"paguser{i}@example.com"),
+                organization_domain=self.domain,
+                username=f"paguser{i}@example.com",
+                identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+                active=True,
+            )
+
+        response = self.client.get(
+            f"/scim/v2/{self.domain.id}/Users",
+            {"filter": 'userName eq "paguser0@example.com"', "count": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["totalResults"] == 1
+        assert data["itemsPerPage"] == 1
+        assert data["Resources"][0]["userName"] == "paguser0@example.com"
+
+    def test_users_list_pagination_page_through_all(self):
+        self._create_users(5)
+        total = 6  # 5 created + setUp user
+
+        all_ids: list[str] = []
+        start_index = 1
+        page_size = 2
+        while True:
+            response = self.client.get(
+                f"/scim/v2/{self.domain.id}/Users",
+                {"startIndex": str(start_index), "count": str(page_size)},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["totalResults"] == total
+            if not data["Resources"]:
+                break
+            all_ids.extend(r["id"] for r in data["Resources"])
+            start_index += len(data["Resources"])
+
+        assert len(all_ids) == total
+        assert len(set(all_ids)) == total
+
+    def test_patch_replace_email_with_multi_at_domain_is_rejected(self):
+        # A multi-"@" address whose second segment is a verified domain must not pass the
+        # domain-ownership guard: the real delivery domain is the final segment.
+        user = User.objects.create_user(
+            email="multiat@example.com", password=None, first_name="Multi", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="multiat@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "attacker@example.com@evil.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "multiat@example.com"
+
+    def test_patch_replace_email_case_collision_rejected(self):
+        # A case-variant of an existing account's email collides at login time (email__iexact),
+        # so SCIM must reject it even though the unique index is case-sensitive.
+        user_a = User.objects.create_user(
+            email="existing@example.com", password=None, first_name="A", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        user_b = User.objects.create_user(
+            email="userb@example.com", password=None, first_name="B", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user_b,
+            organization_domain=self.domain,
+            username="userb@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "EXISTING@example.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user_b.refresh_from_db()
+        assert user_b.email == "userb@example.com"
+
+    def test_deactivate_owner_is_blocked(self):
+        # Deprovisioning must run the canonical User.leave path, which protects an
+        # organization from being left without an owner.
+        owner = User.objects.create_user(
+            email="owner2@example.com", password=None, first_name="Owner", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=owner,
+            organization_domain=self.domain,
+            username="owner2@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "value": {"active": False}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{owner.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert OrganizationMembership.objects.filter(
+            user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        ).exists()

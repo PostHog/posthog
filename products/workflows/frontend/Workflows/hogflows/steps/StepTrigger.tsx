@@ -1,6 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useMemo, useState } from 'react'
 
 import {
     IconBolt,
@@ -10,14 +11,15 @@ import {
     IconPeople,
     IconPlusSmall,
     IconTarget,
+    IconWarning,
     IconWebhooks,
 } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCalendarSelectInput,
-    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
+    LemonDropdown,
+    LemonInput,
     LemonLabel,
     LemonSelect,
     LemonTag,
@@ -30,109 +32,295 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { createFuse } from 'lib/utils/fuseSearch'
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
 
-import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters } from '../filters/HogFlowFilters'
-import { HogFlowAction } from '../types'
-import { batchTriggerLogic } from './batchTriggerLogic'
-import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+// Side-effect imports: register product-specific trigger types
+import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
-export function StepTriggerConfiguration({
-    node,
+import { workflowLogic } from '../../workflowLogic'
+import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
+import { HogFlowAction } from '../types'
+import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './batchTriggerLogic'
+import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
+import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+
+type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+type EventTriggerConfig = {
+    type: 'event'
+    filters: {
+        events?: any[]
+        properties?: any[]
+        actions?: any[]
+        filter_test_accounts?: boolean
+    }
+}
+
+type TriggerOptionItem = {
+    label: string
+    description: string
+    value: string
+    icon: JSX.Element
+    group?: string
+    tag?: JSX.Element
+}
+
+function getTriggerDisplayType(type: string, config: any): string {
+    if (type !== 'event') {
+        return type
+    }
+    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
+    return match ? match.value : type
+}
+
+function TriggerTypeDropdown({
+    items,
+    selectedItem,
+    onSelect,
 }: {
-    node: Node<Extract<HogFlowAction, { type: 'trigger' }>>
+    items: TriggerOptionItem[]
+    selectedItem: TriggerOptionItem | undefined
+    onSelect: (value: string) => void
 }): JSX.Element {
+    const [popoverOpen, setPopoverOpen] = useState(false)
+    const [search, setSearch] = useState('')
+
+    const filteredItems = useMemo(() => {
+        if (!search) {
+            return items
+        }
+        const fuse = createFuse(items, { keys: ['label', 'description'], threshold: 0.3 })
+        return fuse.search(search).map((result) => result.item)
+    }, [items, search])
+
+    // Group items for display
+    const ungrouped = filteredItems.filter((item) => !item.group)
+    const grouped: Record<string, TriggerOptionItem[]> = {}
+    for (const item of filteredItems) {
+        if (item.group) {
+            if (!grouped[item.group]) {
+                grouped[item.group] = []
+            }
+            grouped[item.group].push(item)
+        }
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            visible={popoverOpen}
+            onClickOutside={() => {
+                setPopoverOpen(false)
+                setSearch('')
+            }}
+            placement="bottom-start"
+            matchWidth
+            overlay={
+                <div className="flex flex-col max-h-120 flex-1 overflow-hidden gap-1">
+                    <LemonInput placeholder="Search..." value={search} onChange={setSearch} autoFocus />
+                    <ul className="overflow-y-auto flex-1">
+                        {ungrouped.map((item) => (
+                            <TriggerTypeDropdownItem
+                                key={item.value}
+                                item={item}
+                                selected={item.value === selectedItem?.value}
+                                onSelect={() => {
+                                    onSelect(item.value)
+                                    setPopoverOpen(false)
+                                    setSearch('')
+                                }}
+                            />
+                        ))}
+                        {Object.entries(grouped).map(([group, groupItems]) => (
+                            <li key={group}>
+                                <div className="text-xs font-semibold text-muted px-2 pt-2 pb-1">{group}</div>
+                                <ul>
+                                    {groupItems.map((item) => (
+                                        <TriggerTypeDropdownItem
+                                            key={item.value}
+                                            item={item}
+                                            selected={item.value === selectedItem?.value}
+                                            onSelect={() => {
+                                                onSelect(item.value)
+                                                setPopoverOpen(false)
+                                                setSearch('')
+                                            }}
+                                        />
+                                    ))}
+                                </ul>
+                            </li>
+                        ))}
+                        {filteredItems.length === 0 && (
+                            <li className="text-muted text-sm px-2 py-4 text-center">No matching trigger types</li>
+                        )}
+                    </ul>
+                </div>
+            }
+        >
+            <LemonButton type="secondary" fullWidth onClick={() => setPopoverOpen(!popoverOpen)}>
+                {selectedItem ? (
+                    <span className="flex items-center gap-2">
+                        {selectedItem.icon}
+                        <span>{selectedItem.label}</span>
+                        {selectedItem.tag}
+                    </span>
+                ) : (
+                    'Select trigger type'
+                )}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function TriggerTypeDropdownItem({
+    item,
+    selected,
+    onSelect,
+}: {
+    item: TriggerOptionItem
+    selected: boolean
+    onSelect: () => void
+}): JSX.Element {
+    return (
+        <li>
+            <LemonButton fullWidth active={selected} onClick={onSelect} icon={item.icon}>
+                <div className="flex flex-col my-1">
+                    <div className="flex items-baseline font-semibold">
+                        <span>{item.label}</span>
+                        {item.tag}
+                    </div>
+                    <p className="text-xs text-muted">{item.description}</p>
+                </div>
+            </LemonButton>
+        </li>
+    )
+}
+
+export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
+    const displayType = getTriggerDisplayType(type, node.data.config)
     const validationResult = actionValidationErrorsById[node.id]
 
-    const triggerOptions = [
-        {
-            label: 'Event',
-            value: 'event',
-            icon: <IconBolt />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Event</div>
-                    <p className="text-xs text-muted">
-                        Trigger your workflow based on incoming realtime PostHog events
-                    </p>
-                </div>
-            ),
-        },
-        {
-            label: 'Webhook',
-            value: 'webhook',
-            icon: <IconWebhooks />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Webhook</div>
-                    <p className="text-xs text-muted">Trigger your workflow using an incoming HTTP webhook</p>
-                </div>
-            ),
-        },
-        {
-            label: 'Manual',
-            value: 'manual',
-            icon: <IconButton />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Manual</div>
-                    <p className="text-xs text-muted">Trigger your workflow manually... with a button!</p>
-                </div>
-            ),
-        },
-        {
-            label: 'Schedule',
-            value: 'schedule',
-            icon: <IconClock />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Schedule</div>
-                    <p className="text-xs text-muted">Schedule your workflow to run at a specific time in the future</p>
-                </div>
-            ),
-        },
-        {
-            label: 'Tracking pixel',
-            value: 'tracking_pixel',
-            icon: <IconAdsClick />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Tracking pixel</div>
-                    <p className="text-xs text-muted">Trigger your workflow using a 1x1 tracking pixel</p>
-                </div>
-            ),
-        },
-    ]
+    const allTriggerItems = useMemo(() => {
+        const items: TriggerOptionItem[] = [
+            {
+                label: 'Event',
+                description: 'Trigger your workflow based on incoming realtime PostHog events',
+                value: 'event',
+                icon: <IconBolt />,
+            },
+            {
+                label: 'Webhook',
+                description: 'Trigger your workflow using an incoming HTTP webhook',
+                value: 'webhook',
+                icon: <IconWebhooks />,
+            },
+            ...(type === 'manual'
+                ? [
+                      {
+                          label: 'Manual',
+                          description: 'Trigger your workflow manually... with a button!',
+                          value: 'manual',
+                          icon: <IconButton />,
+                      },
+                  ]
+                : []),
+            // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
+            // current trigger is already a schedule, so existing workflows still render and can be
+            // switched to a different trigger type without crashing.
+            ...(type === 'schedule'
+                ? [
+                      {
+                          label: 'Schedule',
+                          description: 'Run your workflow on a schedule',
+                          value: 'schedule',
+                          icon: <IconClock />,
+                      },
+                  ]
+                : []),
+            {
+                label: 'Tracking pixel',
+                description: 'Trigger your workflow using a 1x1 tracking pixel',
+                value: 'tracking_pixel',
+                icon: <IconAdsClick />,
+            },
+            {
+                label: 'Batch',
+                description: 'Trigger your workflow to run for each person in an audience you define.',
+                value: 'batch',
+                icon: <IconPeople />,
+                tag: (
+                    <LemonTag type="completion" className="ml-1">
+                        Beta
+                    </LemonTag>
+                ),
+            },
+            ...getRegisteredTriggerTypes()
+                .filter((t) => !t.featureFlag || featureFlags[t.featureFlag])
+                .map((t) => ({
+                    label: t.label,
+                    description: t.description,
+                    value: t.value,
+                    icon: t.icon,
+                    group: t.group,
+                })),
+        ]
+        return items
+    }, [type, featureFlags])
 
-    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_BATCH_TRIGGERS]) {
-        triggerOptions.splice(4, 0, {
-            label: 'Batch',
-            value: 'batch',
-            icon: <IconPeople />,
-            labelInMenu: (
-                <div className="flex flex-col my-1">
-                    <div className="font-semibold">Batch</div>
-                    <p className="text-xs text-muted">
-                        Trigger or schedule your workflow to run for each person in a group you define.
-                    </p>
-                </div>
-            ),
-        })
+    const selectedItem = allTriggerItems.find((item) => item.value === displayType)
+
+    const handleSelect = (value: string): void => {
+        const registered = getRegisteredTriggerTypes().find((t) => t.value === value)
+        if (registered) {
+            setWorkflowActionConfig(node.id, registered.buildConfig())
+        } else if (value === 'event') {
+            setWorkflowActionConfig(node.id, { type: 'event', filters: {} })
+        } else if (value === 'webhook') {
+            setWorkflowActionConfig(node.id, {
+                type: 'webhook',
+                template_id: 'template-source-webhook',
+                inputs: {},
+            })
+        } else if (value === 'manual') {
+            setWorkflowActionConfig(node.id, {
+                type: 'manual',
+                template_id: 'template-source-webhook',
+                inputs: {
+                    event: { order: 0, value: '$workflow_triggered' },
+                    distinct_id: { order: 1, value: '{request.body.user_id}' },
+                    method: { order: 2, value: 'POST' },
+                },
+            })
+        } else if (value === 'schedule') {
+            setWorkflowActionConfig(node.id, { type: 'schedule' })
+        } else if (value === 'batch') {
+            setWorkflowActionConfig(node.id, {
+                type: 'batch',
+                filters: { properties: [] },
+            })
+        } else if (value === 'tracking_pixel') {
+            setWorkflowActionConfig(node.id, {
+                type: 'tracking_pixel',
+                template_id: 'template-source-webhook-pixel',
+                inputs: {},
+            })
+        }
     }
 
     return (
@@ -142,85 +330,34 @@ export function StepTriggerConfiguration({
                 <span className="text-md font-semibold">Trigger type</span>
             </span>
             <span>What causes this workflow to begin?</span>
-            <LemonField.Pure error={validationResult?.errors?.type}>
-                <LemonSelect
-                    options={triggerOptions}
-                    value={type}
-                    placeholder="Select trigger type"
-                    onChange={(value) => {
-                        value === 'event'
-                            ? setWorkflowActionConfig(node.id, { type: 'event', filters: {} })
-                            : value === 'webhook'
-                              ? setWorkflowActionConfig(node.id, {
-                                    type: 'webhook',
-                                    template_id: 'template-source-webhook',
-                                    inputs: {},
-                                })
-                              : value === 'manual'
-                                ? setWorkflowActionConfig(node.id, {
-                                      type: 'manual',
-                                      template_id: 'template-source-webhook',
-                                      inputs: {
-                                          event: {
-                                              order: 0,
-                                              value: '$workflow_triggered',
-                                          },
-                                          distinct_id: {
-                                              order: 1,
-                                              value: '{request.body.user_id}',
-                                          },
-                                          method: {
-                                              order: 2,
-                                              value: 'POST',
-                                          },
-                                      },
-                                  })
-                                : value === 'schedule'
-                                  ? setWorkflowActionConfig(node.id, {
-                                        type: 'schedule',
-                                        template_id: 'template-source-webhook',
-                                        inputs: {
-                                            event: {
-                                                order: 0,
-                                                value: '$workflow_triggered',
-                                            },
-                                            distinct_id: {
-                                                order: 1,
-                                                value: '{request.body.user_id}',
-                                            },
-                                            method: {
-                                                order: 2,
-                                                value: 'POST',
-                                            },
-                                        },
-                                        scheduled_at: undefined,
-                                    })
-                                  : value === 'batch'
-                                    ? setWorkflowActionConfig(node.id, {
-                                          type: 'batch',
-                                          filters: {
-                                              properties: [],
-                                          },
-                                          scheduled_at: undefined,
-                                      })
-                                    : value === 'tracking_pixel'
-                                      ? setWorkflowActionConfig(node.id, {
-                                            type: 'tracking_pixel',
-                                            template_id: 'template-source-webhook-pixel',
-                                            inputs: {},
-                                        })
-                                      : null
-                    }}
-                />
-            </LemonField.Pure>
+            <div className="flex items-center gap-2">
+                <LemonField.Pure error={validationResult?.errors?.type}>
+                    <TriggerTypeDropdown items={allTriggerItems} selectedItem={selectedItem} onSelect={handleSelect} />
+                </LemonField.Pure>
+                {type === 'schedule' && <ScheduleStatusBadge />}
+            </div>
             {node.data.config.type === 'event' ? (
-                <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
+                (() => {
+                    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
+                    if (match?.ConfigComponent) {
+                        return <match.ConfigComponent node={node} />
+                    }
+                    return <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
+                })()
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'manual' ? (
                 <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'schedule' ? (
-                <StepTriggerConfigurationSchedule action={node.data} config={node.data.config} />
+                <div className="flex flex-col gap-2 w-full">
+                    <p className="text-xs text-muted mb-0">
+                        Schedule triggers run without a person or event. If your workflow needs to target specific
+                        users, use a batch trigger instead.
+                    </p>
+                    <LemonField.Pure error={validationResult?.errors?.schedule}>
+                        <RecurringSchedulePicker />
+                    </LemonField.Pure>
+                </div>
             ) : node.data.config.type === 'batch' ? (
                 <StepTriggerConfigurationBatch action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
@@ -234,8 +371,8 @@ function StepTriggerConfigurationEvents({
     action,
     config,
 }: {
-    action: Extract<HogFlowAction, { type: 'trigger' }>
-    config: Extract<HogFlowAction['config'], { type: 'event' }>
+    action: TriggerAction
+    config: EventTriggerConfig
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -297,7 +434,7 @@ function StepTriggerConfigurationWebhook({
     const webhookUrl = workflow.id === 'new' ? null : publicWebhooksHostOrigin() + '/public/webhooks/' + workflow.id
 
     return (
-        <>
+        <div className="w-full">
             <LemonCollapse
                 className="shrink-0"
                 defaultActiveKey="instructions"
@@ -339,7 +476,7 @@ function StepTriggerConfigurationWebhook({
                 }
                 errors={validationResult?.errors}
             />
-        </>
+        </div>
     )
 }
 
@@ -359,76 +496,66 @@ function StepTriggerConfigurationManual(): JSX.Element {
     )
 }
 
-function StepTriggerConfigurationSchedule({
-    action,
-    config,
-}: {
-    action: Extract<HogFlowAction, { type: 'trigger' }>
-    config: Extract<HogFlowAction['config'], { type: 'schedule' }>
-}): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
-
-    const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
-
-    return (
-        <>
-            <div className="flex flex-col gap-2">
-                <p className="mb-0">Schedule this workflow to run at a specific time in the future.</p>
-                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
-                    <div className="flex flex-col gap-2">
-                        <LemonCalendarSelectInput
-                            value={scheduledDateTime}
-                            onChange={(date) => {
-                                setWorkflowActionConfig(action.id, {
-                                    type: 'schedule',
-                                    template_id: config.template_id,
-                                    template_uuid: config.template_uuid,
-                                    inputs: config.inputs,
-                                    scheduled_at: date ? date.toISOString() : undefined,
-                                })
-                            }}
-                            granularity="minute"
-                            selectionPeriod="upcoming"
-                            showTimeToggle={false}
-                        />
-                        {scheduledDateTime && (
-                            <div className="text-xs text-muted">
-                                Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
-                                {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
-                            </div>
-                        )}
-                    </div>
-                </LemonField.Pure>
-            </div>
-        </>
-    )
-}
-
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const logic = batchTriggerLogic({ id: actionId, filters })
-    const { blastRadiusLoading, blastRadius } = useValues(logic)
+    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
-        return <Spinner />
+        return <Spinner className="mt-1" />
+    }
+
+    if (blastRadiusError) {
+        return (
+            <div className="text-warning text-xs flex items-start gap-1 mt-1">
+                <IconWarning className="text-base shrink-0 mt-0.5" />
+                <div>
+                    <div className="font-semibold">
+                        Couldn't validate audience size — this batch will likely fail to run.
+                    </div>
+                    <div>
+                        Your filters could not be evaluated against the audience. Review and adjust them before saving,
+                        otherwise the batch is likely to error when it executes.
+                    </div>
+                    <div className="mt-1 text-muted">Details: {blastRadiusError}</div>
+                </div>
+            </div>
+        )
     }
 
     if (!blastRadius) {
         return null
     }
 
-    const { users_affected, total_users } = blastRadius
+    const { affected, total } = blastRadius
 
-    if (users_affected != null && total_users != null) {
+    if (affected != null && total != null) {
+        const exceeded = affected > BLAST_RADIUS_LIMIT
         return (
             <div className="text-muted">
-                approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
+                <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
+                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
+                </div>
+                {exceeded && (
+                    <div className="text-danger text-xs">
+                        Batch size exceeds the limit of {humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to
+                        narrow your audience. This limit will be loosened in the future.
+                    </div>
+                )}
             </div>
         )
     }
 
     return null
+}
+
+function BatchScheduleSection(): JSX.Element {
+    return (
+        <>
+            <LemonDivider />
+            <LemonLabel showOptional>Schedule</LemonLabel>
+            <RecurringSchedulePicker />
+        </>
+    )
 }
 
 function StepTriggerConfigurationBatch({
@@ -439,14 +566,10 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
-
-    const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
 
     return (
-        <div className="flex flex-col gap-2 my-2">
-            <div className="flex gap-1">
+        <div className="flex flex-col gap-2 my-2 w-full">
+            <div>
                 <span className="font-semibold">This batch will include</span>{' '}
                 <StepTriggerAffectedUsers actionId={action.id} filters={config.filters} />
             </div>
@@ -458,7 +581,7 @@ function StepTriggerConfigurationBatch({
                     orFiltering
                     sendAllKeyUpdates
                     allowRelativeDateOptions
-                    exactMatchFeatureFlagCohortOperators
+                    {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                     hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>
@@ -480,43 +603,11 @@ function StepTriggerConfigurationBatch({
                         ],
                     }}
                     hasRowOperator={false}
+                    operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                 />
             </div>
-            <LemonDivider />
-            <div className="flex gap-2">
-                <span className="font-semibold">Schedule for later?</span>
-                <LemonCheckbox
-                    checked={Boolean(config.scheduled_at)}
-                    onChange={(checked) =>
-                        partialSetWorkflowActionConfig(action.id, {
-                            scheduled_at: checked ? dayjs().add(5, 'minutes').toISOString() : undefined,
-                        })
-                    }
-                />
-            </div>
-            {config.scheduled_at && (
-                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
-                    <div className="flex flex-col gap-2">
-                        <LemonCalendarSelectInput
-                            value={scheduledDateTime}
-                            onChange={(date) => {
-                                partialSetWorkflowActionConfig(action.id, {
-                                    scheduled_at: date ? date.toISOString() : undefined,
-                                })
-                            }}
-                            granularity="minute"
-                            selectionPeriod="upcoming"
-                            showTimeToggle={false}
-                        />
-                        {scheduledDateTime && (
-                            <div className="text-xs text-muted">
-                                Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
-                                {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
-                            </div>
-                        )}
-                    </div>
-                </LemonField.Pure>
-            )}
+
+            <BatchScheduleSection />
         </div>
     )
 }
@@ -599,9 +690,13 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+
 const FREQUENCY_OPTIONS = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day' },
 ]
 
 const TTL_OPTIONS = [
@@ -660,13 +755,17 @@ function FrequencySection(): JSX.Element {
                                 val
                                     ? {
                                           hash: val,
-                                          ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
+                                          ttl:
+                                              val === MASKING_HASH_PER_PERSON_PER_DAY
+                                                  ? CALENDAR_DAY_TTL
+                                                  : (workflow.trigger_masking?.ttl ?? 60 * 30),
                                       }
                                     : null
                             )
                         }
                     />
-                    {workflow.trigger_masking?.hash ? (
+                    {workflow.trigger_masking?.hash &&
+                    workflow.trigger_masking.hash !== MASKING_HASH_PER_PERSON_PER_DAY ? (
                         <TTLSelect
                             value={workflow.trigger_masking.ttl}
                             onChange={(val) =>
@@ -683,6 +782,10 @@ function FrequencySection(): JSX.Element {
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const waitUntilEventEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_WAIT_UNTIL_EVENT]
+    const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -690,32 +793,51 @@ function ConversionGoalSection(): JSX.Element {
                 <IconTarget className="text-lg" />
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
             </span>
-            <p>Define what a user must do to be considered converted.</p>
+            <p>
+                Define what a user must do to be considered converted. All conditions must be met for the user to be
+                considered converted.
+            </p>
 
-            <div className="flex gap-1 max-w-240">
-                <div className="flex flex-col flex-2 gap-4">
-                    <LemonField.Pure label="Detect conversion from property changes">
-                        <PropertyFilters
-                            buttonText="Add property conversion"
-                            propertyFilters={workflow.conversion?.filters ?? []}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
-                            pageKey="workflow-conversion-properties"
-                            hideBehavioralCohorts
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1 items-start">
+                    <LemonLabel>Detect conversion from property changes</LemonLabel>
+                    <PropertyFilters
+                        buttonText="Add property conversion"
+                        buttonClassName="grow-0"
+                        propertyFilters={workflow.conversion?.filters ?? []}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                        ]}
+                        onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
+                        pageKey="workflow-conversion-properties"
+                        hideBehavioralCohorts
+                        operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+                        logicalRowDivider
+                    />
+                </div>
+
+                <div className="flex flex-col gap-1 items-start w-full">
+                    <LemonLabel>
+                        Detect conversion from events
+                        {!waitUntilEventEnabled && <LemonTag>Coming soon</LemonTag>}
+                    </LemonLabel>
+                    {waitUntilEventEnabled ? (
+                        <HogFlowEventFilters
+                            filtersKey="workflow-conversion-events"
+                            filters={conversionEventFilters}
+                            setFilters={(newFilters) =>
+                                setWorkflowValue('conversion', {
+                                    ...workflow.conversion,
+                                    events: newFilters ? [{ filters: newFilters }] : undefined,
+                                })
+                            }
+                            typeKey="workflow-conversion-event"
+                            buttonCopy="Add event"
                         />
-                    </LemonField.Pure>
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>
-                            Detect conversion from events
-                            <LemonTag>Coming soon</LemonTag>
-                        </LemonLabel>
+                    ) : (
                         <LemonButton
                             type="secondary"
-                            size="small"
                             icon={<IconPlusSmall />}
                             onClick={() => {
                                 posthog.capture('workflows workflow event conversion clicked')
@@ -724,32 +846,7 @@ function ConversionGoalSection(): JSX.Element {
                         >
                             Add event conversion
                         </LemonButton>
-                    </div>
-                </div>
-                <LemonDivider vertical />
-                <div className="flex-1">
-                    <LemonField.Pure
-                        label="Conversion window"
-                        info="How long after entering the workflow should we check for conversion? After this window, users will be considered for conversion."
-                    >
-                        <LemonSelect
-                            value={workflow.conversion?.window_minutes}
-                            onChange={(value) =>
-                                setWorkflowValue('conversion', {
-                                    ...workflow.conversion,
-                                    window_minutes: value,
-                                })
-                            }
-                            placeholder="No conversion window"
-                            allowClear
-                            options={[
-                                { value: 24 * 60 * 60, label: '24 hours' },
-                                { value: 7 * 24 * 60 * 60, label: '7 days' },
-                                { value: 14 * 24 * 60 * 60, label: '14 days' },
-                                { value: 30 * 24 * 60 * 60, label: '30 days' },
-                            ]}
-                        />
-                    </LemonField.Pure>
+                    )}
                 </div>
             </div>
         </div>

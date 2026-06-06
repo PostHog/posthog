@@ -6,19 +6,25 @@ on:
         paths:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
+            - '.github/workflows/release-cli.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-    check-lockfile:
-        name: Check lockfile is up to date
+    tests:
+        name: Run tests
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         defaults:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
@@ -27,34 +33,21 @@ jobs:
                   cargo update --workspace --locked
                   git diff --exit-code Cargo.lock
 
-    tests:
-        name: Run tests
-        runs-on: ubuntu-latest
-        defaults:
-            run:
-                working-directory: cli
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
-              with:
-                  toolchain: 1.91.1
-
             - name: Run tests
               run: cargo test --all-features
 
     clippy:
         name: Clippy
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         defaults:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: clippy
@@ -65,14 +58,15 @@ jobs:
     format:
         name: Format
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         defaults:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: rustfmt

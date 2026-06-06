@@ -2,7 +2,7 @@ import tk from 'timekeeper'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
+import { ElementType, EventType, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
@@ -38,6 +38,7 @@ import {
     is12HoursOrLess,
     isExternalLink,
     isLessThan2Days,
+    isOperatorMulti,
     isURL,
     median,
     midEllipsis,
@@ -230,6 +231,12 @@ describe('lib/utils', () => {
             expect(wordPluralize('child')).toEqual('children')
             expect(wordPluralize('knife')).toEqual('knives')
         })
+
+        it('returns falsy input unchanged without throwing', () => {
+            expect(wordPluralize('')).toEqual('')
+            expect(wordPluralize(null as unknown as string)).toEqual('')
+            expect(wordPluralize(undefined as unknown as string)).toEqual('')
+        })
     })
 
     describe('endWithPunctation()', () => {
@@ -252,6 +259,13 @@ describe('lib/utils', () => {
     })
 
     describe('dateFilterToText()', () => {
+        beforeEach(() => {
+            tk.freeze(new Date('2026-06-15T12:00:00.000Z'))
+        })
+        afterEach(() => {
+            tk.reset()
+        })
+
         describe('not formatted', () => {
             it('handles dayjs dates', () => {
                 const from = dayjs('2018-04-04T16:00:00.000Z')
@@ -269,6 +283,69 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
                 expect(dateFilterToText('-1dStart', '-1dEnd', 'default')).toEqual('Yesterday')
                 expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
+            })
+
+            // The frontend DateFilter emits YYYY-MM-DD (without allowTimePrecision) or
+            // YYYY-MM-DDTHH:mm:ss (with allowTimePrecision, used by recordings).
+            // The AI agent (filter_session_recordings) emits YYYY-MM-DDTHH:mm:ss.SSS.
+            // All cross-combinations must display correctly.
+
+            it('handles ISO datetime without milliseconds (frontend DateFilter format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // Non-midnight times
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04T18:45:00', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 18:45'
+                )
+            })
+
+            it('handles ISO datetime with milliseconds (AI agent format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss.SSS
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles mixed datetime formats (frontend × AI agent)', () => {
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles plain date + datetime (either direction)', () => {
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // Non-midnight datetime from + YYYY-MM-DD to
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 00:00'
+                )
+            })
+
+            it('handles same-day datetime range', () => {
+                expect(dateFilterToText('2026-02-01T09:00:00', '2026-02-01T17:00:00', 'default')).toEqual(
+                    'February 1, 09:00 - 17:00'
+                )
             })
 
             it('can have overridden date options', () => {
@@ -330,6 +407,40 @@ describe('lib/utils', () => {
                 expect(dateFilterToText(from, to, 'custom', dateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
                     '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
                 )
+            })
+        })
+
+        describe('week formatting respects weekStartDay', () => {
+            // 2012-03-02 is a Friday
+            beforeEach(() => {
+                tk.freeze(new Date(1330688329321))
+            })
+            afterEach(() => {
+                tk.reset()
+            })
+
+            it('This week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 26 - March 2, 2012')
+            })
+
+            it('This week with Monday start', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 27 - March 2, 2012')
+            })
+
+            it('Last week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 19 - February 25, 2012')
+            })
+
+            it('Last week with Monday start', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 20 - February 26, 2012')
             })
         })
     })
@@ -424,6 +535,10 @@ describe('lib/utils', () => {
 
         it('should return days for month to date', () => {
             expect(getDefaultInterval('mStart', null)).toEqual('day')
+        })
+
+        it('should return days for week to date', () => {
+            expect(getDefaultInterval('wStart', null)).toEqual('day')
         })
 
         it('should return month for year to date', () => {
@@ -718,6 +833,25 @@ describe('lib/utils', () => {
             ).toEqual('/bye')
         })
 
+        it('handles screen events using $screen_name', () => {
+            expect(
+                eventToDescription({ ...baseEvent, event: '$screen', properties: { $screen_name: 'CartScreen' } })
+            ).toEqual('CartScreen')
+        })
+
+        it('falls back to event name when the primary property is missing', () => {
+            // Old behaviour fell back to $current_url for $pageview without $pathname; the new
+            // single-property contract returns the event name instead so the change is explicit
+            // and consistent with $screen / $feature_flag_called.
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$pageview',
+                    properties: { $current_url: 'https://example.com/' },
+                })
+            ).toEqual('$pageview')
+        })
+
         it('handles no text autocapture as expected', () => {
             expect(
                 eventToDescription({
@@ -751,6 +885,19 @@ describe('lib/utils', () => {
                     true
                 )
             ).toEqual('clicked "hello"')
+        })
+
+        it.each([
+            ['with a flag key', { $feature_flag: 'my-flag-key' }, 'my-flag-key'],
+            ['without the flag key property', {}, '$feature_flag_called'],
+        ])('handles feature flag called events %s', (_, properties, expected) => {
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$feature_flag_called',
+                    properties,
+                })
+            ).toEqual(expected)
         })
 
         it('handles unknown event/action', () => {
@@ -1064,6 +1211,16 @@ describe('lib/utils', () => {
 
         it('returns null for encoded protocol-relative URL', () => {
             expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+
+        it.each([
+            ['/\\evil.com/path', '/-then-backslash'],
+            ['/\\\\evil.com/path', '/-then-two-backslashes'],
+            ['%2F%5Cevil.com%2Fpath', 'encoded /-then-backslash'],
+        ])('returns null for backslash external bypass (%s — %s)', (input) => {
+            // Browsers normalize backslashes in special-scheme URLs per WHATWG, so /\\evil.com
+            // resolves to //evil.com and escapes the origin.
+            expect(getRelativeNextPath(input, location)).toBeNull()
         })
     })
 
@@ -1465,6 +1622,25 @@ describe('lib/utils', () => {
                 'test-error'
             )
             expect(shouldRetry).toHaveBeenCalledWith(testError)
+        })
+    })
+
+    describe('isOperatorMulti', () => {
+        it('returns true for operators that support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IsNot)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IContainsMulti)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.NotIContainsMulti)).toBe(true)
+        })
+
+        it('returns false for operators that do not support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.GreaterThan)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.LessThan)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
         })
     })
 })

@@ -17,6 +17,7 @@ import { EndpointType, EndpointVersionType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
+import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
@@ -46,10 +47,11 @@ export const endpointLogic = kea<endpointLogicType>([
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
         openCreateFromInsightModal: true,
+        closeCreateFromInsightModal: true,
         setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
-        createEndpointFailure: (isHogQLError?: boolean) => ({ isHogQLError }),
+        createEndpointFailure: (queryError?: string | null) => ({ queryError }),
         updateEndpoint: (
             name: string,
             request: Partial<EndpointRequest>,
@@ -68,12 +70,13 @@ export const endpointLogic = kea<endpointLogicType>([
             endpointName,
             options,
         }),
-        updateEndpointFailure: (isHogQLError?: boolean) => ({ isHogQLError }),
+        updateEndpointFailure: (queryError?: string | null) => ({ queryError }),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         clearMaterializationStatus: true,
         deleteEndpointFailure: () => ({}),
         confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
+        saveTagsInline: (tags: string[]) => ({ tags }),
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -98,10 +101,33 @@ export const endpointLogic = kea<endpointLogicType>([
                 setSelectedEndpointName: (_, { selectedEndpointName }) => selectedEndpointName,
             },
         ],
+        createFromInsightModalOpen: [
+            false,
+            {
+                openCreateFromInsightModal: () => true,
+                setDuplicateEndpoint: (_, { endpoint }) => !!endpoint,
+                closeCreateFromInsightModal: () => false,
+                createEndpointSuccess: () => false,
+            },
+        ],
         duplicateEndpoint: [
             null as EndpointType | null,
             {
                 setDuplicateEndpoint: (_, { endpoint }) => endpoint,
+                createEndpointSuccess: () => null,
+            },
+        ],
+        // Clear stale endpoint data immediately when loading a new endpoint
+        endpoint: [
+            null as EndpointVersionType | null,
+            {
+                loadEndpoint: () => null,
+            },
+        ],
+        versions: [
+            [] as EndpointVersionType[],
+            {
+                loadEndpoint: () => [],
             },
         ],
         // Extend the loader reducer to clear on action
@@ -120,19 +146,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    const endpoint = await api.endpoint.get(name)
-
-                    // Fetch last execution time
-                    try {
-                        const executionTimes = await api.endpoint.getLastExecutionTimes({ names: [name] })
-                        if (executionTimes[name]) {
-                            endpoint.last_executed_at = executionTimes[name]
-                        }
-                    } catch (error) {
-                        console.error('Failed to fetch last execution time:', error)
-                    }
-
-                    return endpoint
+                    return await api.endpoint.get(name)
                 },
             },
         ],
@@ -168,18 +182,23 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
-                    return await api.endpoint.listVersions(name)
+                    const response = await api.endpoint.listVersions(name)
+                    return response.results
                 },
             },
         ],
     })),
-    listeners(({ actions }) => {
+    listeners(({ actions, values }) => {
         const reloadMaterializationStatus = debounce((name: string, version?: number): void => {
             actions.loadMaterializationStatus({ name, version })
         }, 2000)
         return {
             openCreateFromInsightModal: () => {
                 actions.loadEndpoints()
+            },
+            closeCreateFromInsightModal: () => {
+                actions.setDuplicateEndpoint(null)
+                insightPickerEndpointModalLogic.findMounted()?.actions.clearSelectedInsight()
             },
             createEndpoint: async ({ request }) => {
                 try {
@@ -190,14 +209,14 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    const isHogQLError = error.attr === 'query' && error.detail?.startsWith('Invalid HogQL query')
-                    actions.createEndpointFailure(isHogQLError)
+                    actions.createEndpointFailure(error.detail || null)
                 }
             },
             createEndpointSuccess: ({ response }) => {
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
                 actions.loadEndpoints()
+                insightPickerEndpointModalLogic.findMounted()?.actions.closeModal()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
@@ -223,11 +242,9 @@ export const endpointLogic = kea<endpointLogicType>([
                     intent_context: intentContext,
                 })
             },
-            createEndpointFailure: ({ isHogQLError }) => {
-                if (isHogQLError) {
-                    lemonToast.error(
-                        'Invalid HogQL query. Try running it first and fix any errors before creating an endpoint.'
-                    )
+            createEndpointFailure: ({ queryError }) => {
+                if (queryError) {
+                    lemonToast.error(`Failed to create endpoint: ${queryError}`)
                 } else {
                     lemonToast.error('Failed to create endpoint')
                 }
@@ -238,8 +255,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.updateEndpointSuccess(response, name, options)
                 } catch (error: any) {
                     console.error('Failed to update endpoint:', error)
-                    const isHogQLError = error.attr === 'query' && error.detail?.startsWith('Invalid HogQL query')
-                    actions.updateEndpointFailure(isHogQLError)
+                    const queryError = error.attr === 'query' ? error.detail : null
+                    actions.updateEndpointFailure(queryError)
                 }
             },
             updateEndpointSuccess: ({ response, endpointName, options }) => {
@@ -268,13 +285,34 @@ export const endpointLogic = kea<endpointLogicType>([
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
                 }
             },
-            updateEndpointFailure: ({ isHogQLError }) => {
-                if (isHogQLError) {
-                    lemonToast.error(
-                        'Invalid HogQL query. Try running it first and fix any errors before updating the endpoint.'
-                    )
+            updateEndpointFailure: ({ queryError }) => {
+                if (queryError) {
+                    lemonToast.error(`Failed to update endpoint: ${queryError}`)
                 } else {
                     lemonToast.error('Failed to update endpoint')
+                }
+            },
+            saveTagsInline: async ({ tags }, breakpoint) => {
+                const endpoint = values.endpoint
+                if (!endpoint) {
+                    return
+                }
+                actions.loadEndpointSuccess({ ...endpoint, tags } as EndpointVersionType)
+
+                await breakpoint(250)
+
+                try {
+                    const saved = await api.endpoint.update(endpoint.name, { tags } as Partial<EndpointRequest>)
+                    breakpoint()
+
+                    actions.loadEndpointSuccess(saved as EndpointVersionType)
+                    actions.loadEndpoints()
+                } catch (error: any) {
+                    if (error.isBreakpoint) {
+                        throw error
+                    }
+                    actions.loadEndpointSuccess(endpoint)
+                    lemonToast.error('Failed to save tags')
                 }
             },
             deleteEndpoint: async ({ name }) => {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { CampaignFieldPreferencesConfiguration } from './CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
@@ -18,6 +18,8 @@ export interface IntegrationSettingsModalProps {
     initialTab?: IntegrationSettingsTab
     /** Initial UTM value to pre-populate in the mappings tab */
     initialUtmValue?: string
+    /** Initial campaign name to pre-populate in the mappings tab */
+    initialCampaignName?: string
 }
 
 export function IntegrationSettingsModal({
@@ -26,6 +28,7 @@ export function IntegrationSettingsModal({
     onClose,
     initialTab,
     initialUtmValue,
+    initialCampaignName,
 }: IntegrationSettingsModalProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<IntegrationSettingsTab>(initialTab || 'field')
 
@@ -42,7 +45,7 @@ export function IntegrationSettingsModal({
             onClose={onClose}
             title={
                 <div className="flex items-center gap-3">
-                    <DataWarehouseSourceIcon type={integrationName} size="small" disableTooltip />
+                    <SourceIcon type={integrationName} size="small" disableTooltip />
                     <span>{integrationName} settings</span>
                 </div>
             }
@@ -96,6 +99,7 @@ export function IntegrationSettingsModal({
                                     sourceFilter={integrationName}
                                     compact
                                     initialUtmValue={initialUtmValue}
+                                    initialCampaignName={initialCampaignName}
                                 />
                             </div>
                         ),

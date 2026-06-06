@@ -20,7 +20,7 @@ class ProxyRecord(UUIDTModel):
         TIMED_OUT = "timed_out"
 
     status = models.CharField(
-        choices=Status.choices,
+        choices=Status,
         default=Status.WAITING,
     )
 

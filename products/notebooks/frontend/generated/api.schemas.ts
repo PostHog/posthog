@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,14 +59,20 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface NotebookMinimalApi {
+    /** UUID of the notebook. */
     readonly id: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id: string
-    /** @nullable */
+    /**
+     * Title of the notebook.
+     * @nullable
+     */
     readonly title: string | null
+    /** Whether the notebook has been soft-deleted. */
     readonly deleted: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -93,22 +95,40 @@ export interface PaginatedNotebookMinimalListApi {
     results: NotebookMinimalApi[]
 }
 
-export interface NotebookApi {
+/**
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+ * @nullable
+ */
+export type NotebookApiParentResource = {
+    readonly type: 'account'
     readonly id: string
+} | null
+
+export interface NotebookApi {
+    /** UUID of the notebook. */
+    readonly id: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id: string
     /**
+     * Title of the notebook.
      * @maxLength 256
      * @nullable
      */
     title?: string | null
-    content?: unknown | null
-    /** @nullable */
+    /** Notebook content as a ProseMirror JSON document structure. */
+    content?: unknown
+    /**
+     * Plain text representation of the notebook content for search.
+     * @nullable
+     */
     text_content?: string | null
     /**
+     * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     version?: number
+    /** Whether the notebook has been soft-deleted. */
     deleted?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -119,25 +139,48 @@ export interface NotebookApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    readonly parent_resource: NotebookApiParentResource
     _create_in_folder?: string
 }
 
+/**
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+ * @nullable
+ */
+export type PatchedNotebookApiParentResource = {
+    readonly type: 'account'
+    readonly id: string
+} | null
+
 export interface PatchedNotebookApi {
+    /** UUID of the notebook. */
     readonly id?: string
+    /** Short alphanumeric identifier used in URLs and API lookups. */
     readonly short_id?: string
     /**
+     * Title of the notebook.
      * @maxLength 256
      * @nullable
      */
     title?: string | null
-    content?: unknown | null
-    /** @nullable */
+    /** Notebook content as a ProseMirror JSON document structure. */
+    content?: unknown
+    /**
+     * Plain text representation of the notebook content for search.
+     * @nullable
+     */
     text_content?: string | null
     /**
+     * Version number for optimistic concurrency control. Must match the current version when updating content.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     version?: number
+    /** Whether the notebook has been soft-deleted. */
     deleted?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -148,7 +191,32 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    readonly parent_resource?: PatchedNotebookApiParentResource
     _create_in_folder?: string
+}
+
+export interface NotebookCollabSaveApi {
+    /** Unique identifier for the client session. */
+    client_id: string
+    /** The collab version the client's steps are based on. */
+    version: number
+    /** List of ProseMirror step JSON objects to apply. */
+    steps: unknown[]
+    /** The resulting ProseMirror document after applying the steps locally. */
+    content: unknown
+    /** Plain text for search indexing. */
+    text_content?: string
+    /** Updated notebook title. */
+    title?: string
+    /**
+     * ProseMirror cursor head position after applying steps.
+     * @nullable
+     */
+    cursor_head?: number | null
 }
 
 export type NotebooksListParams = {

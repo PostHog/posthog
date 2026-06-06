@@ -1,18 +1,22 @@
 import './PropertyKeyInfo.scss'
 
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
-interface PropertyKeyInfoProps {
+const SURVEY_RESPONSE_PREFIX = '$survey_response_'
+
+export interface PropertyKeyInfoProps {
     value: PropertyKey
     type?: TaxonomicFilterGroupType
     displayText?: string
@@ -24,7 +28,7 @@ interface PropertyKeyInfoProps {
     className?: string
 }
 
-export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfo(
+const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfoBase(
     {
         value,
         type = TaxonomicFilterGroupType.EventProperties,
@@ -38,7 +42,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
 ): JSX.Element {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
-    value = value?.toString() ?? '' // convert to string
+    value = value?.toString() ?? ''
 
     const coreDefinition = getCoreFilterDefinition(value, type)
     const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
@@ -115,3 +119,27 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
         </Popover>
     )
 })
+
+// Mounted only when the value is a `$survey_response_<question-id>` key. Two
+// jobs: (1) trigger the `surveyQuestionLabelsLogic` mount so its `afterMount`
+// fires the slim labels endpoint, and (2) subscribe to the resulting state so
+// this component re-renders when the labels land, picking up the enriched
+// label via `getCoreFilterDefinition`. The enrichment itself lives in the
+// helper so non-React consumers (popovers, chart legends, definitions admin
+// page) benefit too.
+const PropertyKeyInfoWithSurveyMount = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(
+    function PropertyKeyInfoWithSurveyMount(props, ref): JSX.Element {
+        useValues(surveyQuestionLabelsLogic)
+        return <PropertyKeyInfoBase {...props} ref={ref} />
+    }
+)
+
+export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(
+    function PropertyKeyInfo(props, ref): JSX.Element {
+        const value = props.value?.toString() ?? ''
+        if (value.startsWith(SURVEY_RESPONSE_PREFIX)) {
+            return <PropertyKeyInfoWithSurveyMount {...props} ref={ref} />
+        }
+        return <PropertyKeyInfoBase {...props} ref={ref} />
+    }
+)

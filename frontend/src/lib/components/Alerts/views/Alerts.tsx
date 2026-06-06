@@ -1,20 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
+import { AlertsFiltersBar } from '../AlertsFiltersBar'
 import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -28,7 +29,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
-    const { alertsSortedByState, alertsLoading } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, pagination, alertsCount, isFiltering } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
 
@@ -67,18 +68,34 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         {
             title: 'Last checked',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_checked_at',
-            render: function renderLastChecked(last_checked_at: any) {
-                return <div className="whitespace-nowrap">{last_checked_at && <TZLabel time={last_checked_at} />}</div>
+            render: function renderLastChecked(_, alert: AlertType) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {alert.last_checked_at ? (
+                            <TZLabel time={alert.last_checked_at} />
+                        ) : (
+                            <span className="text-muted">N/A</span>
+                        )}
+                    </div>
+                )
             },
         },
         {
             title: 'Last notified',
             sorter: true,
+            defaultSortOrder: -1,
             dataIndex: 'last_notified_at',
-            render: function renderLastModified(last_notified_at: any) {
+            render: function renderLastModified(_, alert: AlertType) {
                 return (
-                    <div className="whitespace-nowrap">{last_notified_at && <TZLabel time={last_notified_at} />}</div>
+                    <div className="whitespace-nowrap">
+                        {alert.last_notified_at ? (
+                            <TZLabel time={alert.last_notified_at} />
+                        ) : (
+                            <span className="text-muted">N/A</span>
+                        )}
+                    </div>
                 )
             },
         },
@@ -109,25 +126,25 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
+    const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
     // TODO: add info here to sign up for alerts early access
     return (
         <>
-            {alertsSortedByState.length === 0 && !alertsLoading && (
+            {isEmpty && (
                 <ProductIntroduction
                     productName="Alerts"
                     productKey={ProductKey.ALERTS}
                     thingName="alert"
-                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met. Please note that alerts are in alpha and may not be fully reliable."
-                    // TODO: update docs link when ready
-                    // docsURL="https://posthog.com/docs/data/annotations"
-                    isEmpty={alertsSortedByState.length === 0 && !alertsLoading}
+                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met."
+                    isEmpty
                     customHog={DetectiveHog}
                     actionElementOverride={
                         <span className="italic">
-                            To get started, visit a trends insight, expand options in the header and click 'Manage
-                            Alerts'
+                            To get started, visit a <Link to={urls.insights()}>trends insight</Link>, visit the
+                            'Actions' in the sidebar and click 'Alerts'
                         </span>
                     }
+                    mcpSurfaceKey="alerts.create"
                 />
             )}
 
@@ -146,16 +163,27 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                 />
             )}
 
-            <LemonTable
-                loading={alertsLoading}
-                columns={columns}
-                dataSource={alertsSortedByState}
-                noSortingCancellation
-                rowKey="id"
-                loadingSkeletonRows={5}
-                nouns={['alert', 'alerts']}
-                rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
-            />
+            {isEmpty ? null : (
+                <>
+                    <AlertsFiltersBar />
+                    <LemonTable
+                        loading={alertsResponseLoading}
+                        columns={columns}
+                        dataSource={alertsSortedByState}
+                        noSortingCancellation
+                        rowKey="id"
+                        loadingSkeletonRows={5}
+                        nouns={['alert', 'alerts']}
+                        pagination={pagination}
+                        rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
+                        emptyState={
+                            isFiltering ? (
+                                <div className="py-8 text-center text-secondary">No alerts match your filters</div>
+                            ) : undefined
+                        }
+                    />
+                </>
+            )}
         </>
     )
 }

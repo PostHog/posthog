@@ -1,17 +1,37 @@
-from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock, patch
+from datetime import timedelta
+
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    get_index_from_explain,
+    get_inner_person_subquery_clickhouse_sql,
+    materialized,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
 
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 from rest_framework import status
+
+from posthog.schema import HogQLQueryModifiers, MaterializationMode
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
+from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 from products.conversations.backend.models import Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 
+from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.role import Role
 
 
@@ -20,37 +40,8 @@ def immediate_on_commit(func):
     func()
 
 
-class BaseConversationsAPITest(APIBaseTest):
-    feature_flag_patcher: MagicMock
-    mock_feature_flag: MagicMock
-
-    def setUp(self):
-        super().setUp()
-        # Enable conversations feature flag by default
-        self.set_conversations_feature_flag(True)
-
-    def tearDown(self):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-        super().tearDown()
-
-    def set_conversations_feature_flag(self, enabled=True):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-
-        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]
-        self.mock_feature_flag = self.feature_flag_patcher.start()
-
-        def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "product-support":
-                return enabled
-            return False
-
-        self.mock_feature_flag.side_effect = check_flag
-
-
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestTicketAPI(BaseConversationsAPITest):
+class TestTicketAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -87,6 +78,33 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
 
+    def test_retrieve_ticket_by_ticket_number(self, mock_on_commit):
+        """Test retrieving a ticket by ticket_number instead of UUID."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.ticket_number}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+        self.assertEqual(response.json()["ticket_number"], self.ticket.ticket_number)
+
+    def test_retrieve_ticket_by_uuid_still_works(self, mock_on_commit):
+        """Test that UUID lookup still works for backward compatibility."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
+    def test_retrieve_ticket_invalid_identifier_returns_404(self, mock_on_commit):
+        """Test that invalid identifier returns 404."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/invalid/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_ticket_by_ticket_number(self, mock_on_commit):
+        """Test updating a ticket using ticket_number."""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.ticket_number}/",
+            {"status": "resolved"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "resolved")
+
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
         self.ticket.save()
@@ -97,61 +115,6 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.unread_team_count, 0)
-
-    def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
-        """Test that retrieve includes person data when person exists."""
-        person = Person.objects.create(
-            team=self.team,
-            distinct_ids=["user-123", "user@example.com", "another-id"],
-            properties={"email": "test@example.com", "name": "Test User"},
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("person", response.json())
-        self.assertIsNotNone(response.json()["person"])
-        self.assertEqual(response.json()["person"]["id"], str(person.uuid))
-        self.assertEqual(response.json()["person"]["properties"]["email"], "test@example.com")
-        # Verify all distinct_ids are returned, not just the ticket's
-        self.assertCountEqual(
-            response.json()["person"]["distinct_ids"],
-            ["user-123", "user@example.com", "another-id"],
-        )
-
-    def test_retrieve_ticket_person_null_when_no_person(self, mock_on_commit):
-        """Test that person is null when no person exists for distinct_id."""
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("person", response.json())
-        self.assertIsNone(response.json()["person"])
-
-    def test_list_tickets_includes_person_data(self, mock_on_commit):
-        """Test that list includes person data for tickets with persons."""
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["user-123", "user@example.com"],
-            properties={"email": "test@example.com"},
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertIn("person", response.json()["results"][0])
-        self.assertIsNotNone(response.json()["results"][0]["person"])
-        self.assertEqual(response.json()["results"][0]["person"]["properties"]["email"], "test@example.com")
-        # Verify all distinct_ids are returned, not just the ticket's
-        self.assertCountEqual(
-            response.json()["results"][0]["person"]["distinct_ids"],
-            ["user-123", "user@example.com"],
-        )
-
-    def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
-        """Test that person is null in list when no person exists."""
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertIn("person", response.json()["results"][0])
-        self.assertIsNone(response.json()["results"][0]["person"])
 
     def test_retrieve_ticket_includes_anonymous_traits(self, mock_on_commit):
         """Test that retrieve includes anonymous_traits."""
@@ -176,20 +139,40 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["results"][0]["anonymous_traits"]["name"], "Jane Doe")
         self.assertEqual(response.json()["results"][0]["anonymous_traits"]["company"], "ACME")
 
-    def test_person_data_scoped_to_team(self, mock_on_commit):
-        """Test that person lookup is scoped to team (no cross-team leakage)."""
-        # Create person in different team
-        other_team = self.organization.teams.create(name="Other Team")
-        Person.objects.create(
-            team=other_team,
-            distinct_ids=["user-123"],  # Same distinct_id as ticket
-            properties={"email": "other@example.com"},
+    def test_update_sla_due_at(self, mock_on_commit):
+        sla_time = timezone.now() + timedelta(hours=5)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"sla_due_at": sla_time.isoformat()},
         )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Should be null because person is in different team
-        self.assertIsNone(response.json()["person"])
+        self.assertIsNotNone(response.json()["sla_due_at"])
+
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+
+    def test_update_sla_due_at_logs_activity(self, mock_on_commit):
+        sla_time = timezone.now() + timedelta(hours=5)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"sla_due_at": sla_time.isoformat()},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            item_id=str(self.ticket.id),
+            activity="updated",
+        ).first()
+
+        assert activity is not None
+        assert activity.detail is not None
+        changes = activity.detail.get("changes", [])
+        sla_change = next((c for c in changes if c["field"] == "sla_due_at"), None)
+        assert sla_change is not None
+        self.assertIsNone(sla_change["before"])
+        self.assertIsNotNone(sla_change["after"])
 
     @parameterized.expand(
         [
@@ -219,7 +202,14 @@ class TestTicketAPI(BaseConversationsAPITest):
                 Channel.WIDGET,
                 {"channel_source": Channel.EMAIL},
             ),
-            ("distinct_id=user-123", "user-123", "distinct_id", "user-123", {}),
+            (
+                f"channel_detail={ChannelDetail.WIDGET_EMBEDDED}",
+                ChannelDetail.WIDGET_EMBEDDED,
+                "channel_detail",
+                ChannelDetail.WIDGET_EMBEDDED,
+                {"channel_detail": ChannelDetail.WIDGET_API},
+            ),
+            ("distinct_ids=user-123", "user-123", "distinct_id", "user-123", {}),
         ]
     )
     def test_filter_tickets(
@@ -411,6 +401,79 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
 
+    def test_filter_sla_breached(self, mock_on_commit):
+        """Test filtering tickets by breached SLA."""
+        self.ticket.sla_due_at = timezone.now() - timedelta(hours=1)
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="on-track-session",
+            distinct_id="on-track-user",
+            sla_due_at=timezone.now() + timedelta(hours=5),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?sla=breached")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_sla_at_risk(self, mock_on_commit):
+        """Test filtering tickets by at-risk SLA (within 1 hour)."""
+        self.ticket.sla_due_at = timezone.now() + timedelta(minutes=30)
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="on-track-session",
+            distinct_id="on-track-user",
+            sla_due_at=timezone.now() + timedelta(hours=5),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?sla=at-risk")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_sla_on_track(self, mock_on_commit):
+        """Test filtering tickets by on-track SLA (more than 1 hour remaining)."""
+        self.ticket.sla_due_at = timezone.now() + timedelta(hours=5)
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="breached-session",
+            distinct_id="breached-user",
+            sla_due_at=timezone.now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?sla=on-track")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_order_by_sla_due_at(self, mock_on_commit):
+        """Test ordering tickets by SLA deadline."""
+        self.ticket.sla_due_at = timezone.now() + timedelta(hours=5)
+        self.ticket.save()
+
+        urgent_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="urgent-session",
+            distinct_id="urgent-user",
+            sla_due_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?order_by=sla_due_at")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(results[0]["id"], str(urgent_ticket.id))
+        self.assertEqual(results[1]["id"], str(self.ticket.id))
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW
@@ -437,6 +500,89 @@ class TestTicketAPI(BaseConversationsAPITest):
         ticket_ids = {t["id"] for t in response.json()["results"]}
         self.assertIn(str(self.ticket.id), ticket_ids)
         self.assertIn(str(high_ticket.id), ticket_ids)
+
+    def test_search_by_ticket_number(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search={self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand(
+        [
+            ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
+            ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
+            ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
+        ]
+    )
+    def test_search_by_field(self, mock_on_commit, _name, field_overrides, query):
+        for field, value in field_overrides.items():
+            setattr(self.ticket, field, value)
+        self.ticket.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_by_comment_content(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="I need help with the API integration",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=API+integration")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_matches_older_comment_not_just_last(self, mock_on_commit):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="First message about passwords",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Thanks, all sorted now",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=passwords")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_search_excludes_deleted_comments(self, mock_on_commit):
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Secret deleted message",
+        )
+        comment.deleted = True
+        comment.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=secret+deleted")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_search_no_match_returns_empty(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=nonexistent_query_xyzzy"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_search_ignores_too_long_query(self, mock_on_commit):
+        long_query = "a" * 201
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={long_query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
 
     @parameterized.expand(
         [
@@ -519,8 +665,9 @@ class TestTicketAPI(BaseConversationsAPITest):
             )
 
         # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
-        # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
+        # Includes: session, user, org, team, permissions, feature flag permission org lookup,
+        # count query, tickets query, persons query (batch), distinct_ids prefetch,
+        # tagged_items prefetch
         # Note: message stats are denormalized, no subqueries needed
         with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
@@ -535,28 +682,129 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("assignee", ticket_data)
                 self.assertIn("person", ticket_data)
 
-    def test_feature_flag_required(self, mock_on_commit):
-        """Verify that product-support feature flag is required for API access."""
-        self.set_conversations_feature_flag(False)
 
-        endpoints = [
-            (f"/api/projects/{self.team.id}/conversations/tickets/", "GET"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "GET"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/", "POST"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "PATCH"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "DELETE"),
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestBulkUpdateStatus(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
         ]
 
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Failed for {method} {url}: expected 403, got {response.status_code}",
-            )
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_status/"
+
+    def test_bulk_update_status(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["updated"], 3)
+        self.assertEqual(set(data["ids"]), set(ids))
+        for t in self.tickets:
+            t.refresh_from_db()
+            self.assertEqual(t.status, Status.OPEN)
+
+    def test_skips_tickets_already_in_target_status(self, mock_on_commit):
+        self.tickets[0].status = Status.OPEN
+        self.tickets[0].save(update_fields=["status"])
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 2)
+        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+
+    def test_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        ids = [str(self.tickets[0].id), str(other_ticket.id)]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 1)
+        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        other_ticket.refresh_from_db()
+        self.assertEqual(other_ticket.status, Status.NEW)
+
+    def test_creates_activity_log_entries(self, mock_on_commit):
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id,
+            scope="Ticket",
+            activity="updated",
+        )
+        self.assertEqual(logs.count(), 2)
+        logged_ids = {log.item_id for log in logs}
+        self.assertEqual(logged_ids, set(ids))
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_invalidates_cache_on_resolved_transition(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "resolved"},
+            format="json",
+        )
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_no_cache_invalidation_without_resolved(self, mock_invalidate, mock_on_commit):
+        ids = [str(self.tickets[0].id)]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        mock_invalidate.assert_not_called()
+
+    def test_rejects_empty_ids(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [], "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_invalid_status(self, mock_on_commit):
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id)], "status": "bogus"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestTicketAssignment(BaseConversationsAPITest):
+class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -771,7 +1019,7 @@ class TestTicketAssignment(BaseConversationsAPITest):
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestUnreadCountEndpoint(BaseConversationsAPITest):
+class TestUnreadCountEndpoint(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
@@ -921,7 +1169,7 @@ class TestUnreadCountEndpoint(BaseConversationsAPITest):
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestPrivateMessageAppAPI(BaseConversationsAPITest):
+class TestPrivateMessageAppAPI(APIBaseTest):
     """Test that authenticated App API users can create private messages."""
 
     def setUp(self):
@@ -1003,3 +1251,407 @@ class TestTicketManager(BaseTest):
 
         self.assertEqual(ticket1.ticket_number, 1)
         self.assertEqual(ticket2.ticket_number, 2)
+
+
+@parameterized_class(("personhog",), [(False,), (True,)])
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
+    """Tests that ticket person enrichment produces identical results
+    via the ORM and personhog paths."""
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session-123",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+
+    def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=["user-123", "user@example.com", "another-id"],
+            properties={"email": "test@example.com", "name": "Test User"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["person"]
+        assert person_data is not None
+        assert person_data["id"] == str(person.uuid)
+        assert person_data["properties"]["email"] == "test@example.com"
+        assert set(person_data["distinct_ids"]) == {"user-123", "user@example.com", "another-id"}
+
+    def test_retrieve_ticket_person_null_when_no_person(self, mock_on_commit):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["person"] is None
+
+    def test_list_tickets_includes_person_data(self, mock_on_commit):
+        self._seed_person(
+            team=self.team,
+            distinct_ids=["user-123", "user@example.com"],
+            properties={"email": "test@example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["properties"]["email"] == "test@example.com"
+        assert set(person_data["distinct_ids"]) == {"user-123", "user@example.com"}
+        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
+
+    def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["person"] is None
+
+    def test_person_data_scoped_to_team(self, mock_on_commit):
+        other_team = self.organization.teams.create(name="Other Team")
+        self._seed_person(
+            team=other_team,
+            distinct_ids=["user-123"],
+            properties={"email": "other@example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["person"] is None
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
+    """Tests the email-property fallback in _attach_persons_to_tickets.
+
+    When an email-channel ticket's distinct_id doesn't match any person,
+    the fallback queries ClickHouse for persons whose properties.email
+    matches the ticket's email_from field.
+    """
+
+    def _create_email_ticket(self, email_from, distinct_id=None):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id=distinct_id or email_from,
+            email_from=email_from,
+            status=Status.NEW,
+        )
+
+    def test_email_fallback_matches_person_by_email_property(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["some-other-id"],
+            properties={"email": "alice@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["properties"]["email"] == "alice@example.com"
+
+    def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["alice@example.com"],
+            properties={"email": "alice@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        person_data = response.json()["results"][0]["person"]
+        assert person_data is not None
+        assert person_data["id"] == str(person.uuid)
+
+    def test_email_fallback_no_match_returns_null_person(self, mock_on_commit):
+        self._create_email_ticket(email_from="nobody@example.com", distinct_id="nobody@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    def test_email_fallback_batch_multiple_tickets(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-a"],
+            properties={"email": "a@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-b"],
+            properties={"email": "b@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="a@example.com", distinct_id="a@example.com")
+        self._create_email_ticket(email_from="b@example.com", distinct_id="b@example.com")
+        self._create_email_ticket(email_from="c@example.com", distinct_id="c@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        person_emails = {
+            r["email_from"]: r["person"]["properties"]["email"] for r in results if r["person"] is not None
+        }
+        assert person_emails == {
+            "a@example.com": "a@example.com",
+            "b@example.com": "b@example.com",
+        }
+        no_person = [r for r in results if r["person"] is None]
+        assert len(no_person) == 1
+        assert no_person[0]["email_from"] == "c@example.com"
+
+    def test_email_fallback_scoped_to_team(self, mock_on_commit):
+        other_team = self.organization.teams.create(name="Other Team")
+        _create_person(
+            team=other_team,
+            distinct_ids=["uid-other"],
+            properties={"email": "scoped@example.com"},
+            immediate=True,
+        )
+        self._create_email_ticket(email_from="scoped@example.com", distinct_id="scoped@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    def test_email_fallback_skipped_for_non_email_channels(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["uid-widget"],
+            properties={"email": "widget@example.com"},
+            immediate=True,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            distinct_id="unmatched-did",
+            status=Status.NEW,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["person"] is None
+
+    @snapshot_clickhouse_queries
+    def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
+        _create_person(
+            team=self.team,
+            distinct_ids=["idx-test-id"],
+            properties={"email": "indexed@example.com"},
+            immediate=True,
+        )
+
+        with materialized("person", "email", create_bloom_filter_lower_index=True) as mat_col:
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO)
+
+            assert "indexed@example.com" in _get_persons_by_email(
+                self.team, ["indexed@example.com"], modifiers=modifiers
+            )
+
+            # EXPLAIN the person-filter subquery of the exact query that ran, not a hand-written approximation
+            result = execute_hogql_query(
+                PERSON_EMAIL_LOOKUP_QUERY,
+                placeholders={"emails": ast.Constant(value=["indexed@example.com"])},
+                team=self.team,
+                modifiers=modifiers,
+            )
+            assert result.clickhouse
+            subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
+            index_info = get_index_from_explain(subquery, index_name)
+            assert index_info is not None, f"Expected skip index {index_name} to be used:\n{subquery}"
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestComposeTicketAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        from products.conversations.backend.models import EmailChannel
+
+        self.email_config = EmailChannel.objects.create(
+            team=self.team,
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            inbound_token="test-token-compose",
+        )
+
+    def _compose(self, data):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/compose/",
+            data,
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "matching_email",
+                ["user-abc"],
+                {"email": "customer@test.com"},
+                "customer@test.com",
+                "user-abc",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "mismatched_email_rejected",
+                ["user-abc"],
+                {"email": "real@test.com"},
+                "fake@other.com",
+                "user-abc",
+                status.HTTP_400_BAD_REQUEST,
+                "does not match",
+            ),
+            (
+                "person_has_no_email_allows_any",
+                ["user-no-email"],
+                {"name": "No Email User"},
+                "anything@test.com",
+                "user-no-email",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "person_not_found_allows_any",
+                None,
+                None,
+                "someone@test.com",
+                "nonexistent-user",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "no_distinct_id_no_validation",
+                ["someone@test.com"],
+                {"email": "someone@test.com"},
+                "someone@test.com",
+                None,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "case_insensitive_email_match",
+                ["user-case"],
+                {"email": "Customer@Test.COM"},
+                "customer@test.com",
+                "user-case",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+        ]
+    )
+    def test_compose_email_validation(
+        self,
+        mock_on_commit,
+        _name,
+        distinct_ids,
+        person_props,
+        recipient_email,
+        recipient_distinct_id,
+        expected_status,
+        expected_detail,
+    ):
+        if distinct_ids is not None:
+            _create_person(
+                team=self.team,
+                distinct_ids=distinct_ids,
+                properties=person_props or {},
+                immediate=True,
+            )
+
+        data = {
+            "recipient_email": recipient_email,
+            "email_config_id": str(self.email_config.id),
+            "message": "Hello!",
+        }
+        if recipient_distinct_id:
+            data["recipient_distinct_id"] = recipient_distinct_id
+
+        response = self._compose(data)
+
+        assert response.status_code == expected_status
+        if expected_detail:
+            assert expected_detail in response.json()["detail"]
+
+
+class TestTicketPersonalAPIKeyScopes(APIBaseTest):
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+    @parameterized.expand(
+        [
+            ("list_with_read", "list", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("list_with_write", "list", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("retrieve_with_read", "retrieve", "get", True, ["ticket:read"], status.HTTP_200_OK),
+            ("retrieve_with_write", "retrieve", "get", True, ["ticket:write"], status.HTTP_200_OK),
+            ("unread_count_with_read", "unread_count", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("unread_count_with_write", "unread_count", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("list_wrong_scope", "list", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("retrieve_wrong_scope", "retrieve", "get", True, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("unread_count_wrong_scope", "unread_count", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_read_actions(self, _name, action, method, use_detail, scopes, expected_status):
+        self._auth_with_pak(scopes)
+
+        base = f"/api/projects/{self.team.id}/conversations/tickets/"
+        if use_detail:
+            url = f"{base}{self.ticket.id}/"
+        elif action in ("list",):
+            url = base
+        else:
+            url = f"{base}{action}/"
+
+        response = getattr(self.client, method)(url)
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_write_actions(self, _name, action, scopes, expected_status):
+        self._auth_with_pak(scopes)
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{action}/"
+        response = self.client.post(url, {}, format="json")
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"

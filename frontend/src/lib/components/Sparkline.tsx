@@ -1,17 +1,33 @@
+import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
 import { useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 
-import { ScaleOptions, TooltipModel } from 'lib/Chart'
+import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { humanFriendlyNumber } from 'lib/utils'
+import { hexToRGBA, humanFriendlyNumber } from 'lib/utils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
+
+// Register once at module load. Chart.register is idempotent so re-registers (eg. by
+// AlertHistoryChart, which also uses the annotation plugin) are safe.
+Chart.register(annotationPlugin)
+
+export interface SparklineReferenceLine {
+    /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
+    value: number
+    /** Color name from `vars.scss` (e.g. 'danger'). @default 'danger' */
+    color?: string
+    /** Optional label to anchor at the end of the line (shown only when provided). */
+    label?: string
+    /** Where to anchor the optional label. @default 'end' */
+    labelPosition?: 'start' | 'center' | 'end'
+}
 
 export interface SparklineTimeSeries {
     name: string
@@ -23,7 +39,7 @@ export interface SparklineTimeSeries {
 
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
 
-interface SparklineProps {
+export interface SparklineProps {
     /** Either a list of numbers for a muted graph or an array of time series */
     data: number[] | SparklineTimeSeries[]
     /** Check vars.scss for available colors. @default 'muted' */
@@ -54,6 +70,17 @@ interface SparklineProps {
     hideZerosInTooltip?: boolean
     /** Sort tooltip items by count (descending). @default false */
     sortTooltipByCount?: boolean
+    /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
+    referenceLines?: SparklineReferenceLine[]
+    /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
+    renderTooltipValue?: (value: number) => string
+    /**
+     * Inclusive label-index range to highlight as a translucent box behind the bars.
+     * Used to mirror an external selection (e.g. the rows currently visible in a
+     * paired virtualized list) onto the chart. Out-of-range or inverted ranges are
+     * clamped; pass `null`/`undefined` to clear.
+     */
+    highlightedRange?: { startIndex: number; endIndex: number } | null
 }
 
 export function Sparkline({
@@ -74,6 +101,9 @@ export function Sparkline({
     tooltipRowCutoff,
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
+    referenceLines,
+    renderTooltipValue,
+    highlightedRange,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -137,12 +167,19 @@ export function Sparkline({
                 alignToPixels: true,
             }
 
+            // Make sure reference lines always fit on the chart — Chart.js would otherwise
+            // auto-scale to the data only and a threshold above the peak would be clipped.
+            const referenceLineMax =
+                referenceLines && referenceLines.length > 0 ? Math.max(...referenceLines.map((l) => l.value)) : 0
+
             const defaultYScale: AnyScaleOptions = {
                 // We use the Y axis for the maximum indicator
                 display: maximumIndicator,
                 bounds: 'data',
                 min: 0, // Always starting at 0
-                suggestedMax: 1,
+                // Headroom above whichever is taller — data or a reference line — so a threshold
+                // sitting near the chart top still has room for its label without clipping.
+                suggestedMax: referenceLineMax > 0 ? referenceLineMax * 1.2 : 1,
                 stacked: true,
                 ticks: {
                     includeBounds: true,
@@ -213,6 +250,69 @@ export function Sparkline({
                                 setTooltip({ ...tooltip } as TooltipModel<'bar'>)
                             },
                         },
+                        ...(() => {
+                            const annotations: Record<string, any> = {}
+
+                            if (referenceLines && referenceLines.length > 0) {
+                                referenceLines.forEach((line, i) => {
+                                    const lineColor = getColorVar(line.color || 'danger')
+                                    annotations[`referenceLine${i}`] = {
+                                        type: 'line',
+                                        yMin: line.value,
+                                        yMax: line.value,
+                                        borderColor: lineColor,
+                                        borderWidth: 1.5,
+                                        borderDash: [5, 4],
+                                        ...(line.label
+                                            ? {
+                                                  label: {
+                                                      display: true,
+                                                      content: line.label,
+                                                      position: line.labelPosition || 'end',
+                                                      font: { size: 9 },
+                                                      color: lineColor,
+                                                      backgroundColor: 'transparent',
+                                                      // Sit the label just above the line so it doesn't render on top of it.
+                                                      // The 20% y-axis headroom set above guarantees it stays inside the chart.
+                                                      yAdjust: -8,
+                                                  },
+                                              }
+                                            : {}),
+                                    }
+                                })
+                            }
+
+                            if (highlightedRange && labels && labels.length > 0) {
+                                const lastIdx = labels.length - 1
+                                const lo = Math.max(0, Math.min(highlightedRange.startIndex, highlightedRange.endIndex))
+                                const hi = Math.min(
+                                    lastIdx,
+                                    Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
+                                )
+                                if (lo <= hi) {
+                                    // Match the cursor-row highlight hue (`--primary-highlight`):
+                                    // orange in light mode, amber in dark. Read the concrete
+                                    // per-theme token since the semantic var is a nested `var()`
+                                    // that doesn't resolve off-DOM (e.g. on the chart canvas).
+                                    const isDark = document.body.getAttribute('theme') === 'dark'
+                                    const primary = getColorVar(isDark ? 'primary-3000-dark' : 'primary-3000-light')
+                                    annotations.highlightedRange = {
+                                        type: 'box',
+                                        xMin: labels[lo],
+                                        // Extend to the next bucket's start so the last bar is fully enclosed.
+                                        xMax: labels[hi + 1] ?? labels[hi],
+                                        // Drawn under the bars so the data stays legible.
+                                        drawTime: 'beforeDatasetsDraw',
+                                        // 10% fill mirrors the cursor row; a stronger border marks the window edges.
+                                        backgroundColor: hexToRGBA(primary, 0.1),
+                                        borderColor: hexToRGBA(primary, 0.8),
+                                        borderWidth: 1,
+                                    }
+                                }
+                            }
+
+                            return Object.keys(annotations).length > 0 ? { annotation: { annotations } } : {}
+                        })(),
                     },
                     maintainAspectRatio: false,
                     interaction: {
@@ -223,7 +323,18 @@ export function Sparkline({
                 },
             }
         },
-        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
+        deps: [
+            labels,
+            adjustedData,
+            withXScale,
+            withYScale,
+            renderLabel,
+            data,
+            maximumIndicator,
+            type,
+            referenceLines,
+            highlightedRange,
+        ],
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
@@ -347,7 +458,7 @@ export function Sparkline({
                                 .filter((item) => !hideZerosInTooltip || item.count > 0)
                                 .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
                             renderSeries={(value) => value}
-                            renderCount={(count) => humanFriendlyNumber(count)}
+                            renderCount={(count) => (renderTooltipValue ?? humanFriendlyNumber)(count)}
                             rowCutoff={tooltipRowCutoff}
                         />
                     }

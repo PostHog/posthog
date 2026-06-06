@@ -20,9 +20,10 @@ export function SceneAddToNotebookDropdownMenu({
     dataAttrKey,
     disabledReasons,
 }: SceneNotebookDropdownMenuProps): JSX.Element {
+    const isDisabled = disabledReasons ? Object.values(disabledReasons).some(Boolean) : false
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild disabled={isDisabled}>
                 <ButtonPrimitive
                     menuItem
                     data-attr={`${dataAttrKey}-add-to-dropdown-menu`}

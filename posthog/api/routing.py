@@ -1,3 +1,4 @@
+import sys
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -7,11 +8,13 @@ from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
-from rest_framework_extensions.routers import ExtendedDefaultRouter
+from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -19,9 +22,10 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
@@ -49,10 +53,110 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
         self.trailing_slash = r"/?"
 
 
+class RouterRegistry:
+    """Named handles onto the shared API routers.
+
+    Passed to each product's ``register_routes(routers)`` so products register
+    their endpoints from their own folder without importing core router globals.
+    The shared parents (``projects``, ``environments``, ``organizations``) are
+    nested routers feeding a single OpenAPI schema, so a product can't own them
+    independently — it looks them up here by name and nests onto them.
+
+    Core-owned parents are the one invariant
+    ----------------------------------------
+    Core registers all four parents (root + ``projects``/``environments``/
+    ``organizations``) before discovering and invoking product
+    ``register_routes`` (see the auto-discovery loop in
+    ``posthog/api/__init__.py``). Products only ever nest onto those parents and
+    never onto each other, so discovery order does not affect the resolved route
+    set. ``add()`` rejects callers from under ``products.`` to keep "parents stay
+    core-owned" an enforced invariant rather than a convention — a product that
+    tried to publish a parent would reintroduce ordering coupling.
+    """
+
+    def __init__(self) -> None:
+        self._named: dict[str, NestedRegistryItem] = {}
+        self._root: Optional[DefaultRouterPlusPlus] = None
+
+    @staticmethod
+    def _reject_product_caller(method: str) -> None:
+        # frame 0 = here, 1 = the public method, 2 = its caller
+        caller_module = sys._getframe(2).f_globals.get("__name__", "")
+        if caller_module.startswith("products."):
+            raise RuntimeError(
+                f"Parent routers are core-owned; {caller_module} must not call RouterRegistry.{method}(). "
+                "Products nest onto existing parents via routers.projects/environments/organizations/root."
+            )
+
+    def add(self, name: str, item: NestedRegistryItem) -> NestedRegistryItem:
+        self._reject_product_caller("add")
+        if name in self._named:
+            raise ValueError(f"Router {name!r} is already registered")
+        self._named[name] = item
+        return item
+
+    def get(self, name: str) -> NestedRegistryItem:
+        try:
+            return self._named[name]
+        except KeyError:
+            raise KeyError(f"Unknown parent router {name!r}. Known: {sorted(self._named)}") from None
+
+    @property
+    def projects(self) -> NestedRegistryItem:
+        return self.get("projects")
+
+    @property
+    def environments(self) -> NestedRegistryItem:
+        return self.get("environments")
+
+    @property
+    def organizations(self) -> NestedRegistryItem:
+        return self.get("organizations")
+
+    def set_root(self, router: "DefaultRouterPlusPlus") -> "DefaultRouterPlusPlus":
+        self._root = router
+        return router
+
+    @property
+    def root(self) -> "DefaultRouterPlusPlus":
+        """The top-level (non-nested) router, for endpoints registered at /api/ root."""
+        if self._root is None:
+            raise KeyError("Root router not registered — call routers.set_root(router) first")
+        return self._root
+
+    def register_legacy_dual_route(
+        self,
+        prefix: str,
+        viewset: type[GenericViewSet],
+        basename: str,
+        parents_query_lookups: list[str],
+    ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
+        """Register a team-nested viewset under BOTH /api/projects/ and /api/environments/.
+
+        The product-callable form of ``register_legacy_dual_route_team_nested_viewset``
+        in ``posthog/api/__init__.py`` (which delegates here). Only for preserving
+        already-shipped dual-route surfaces — NOT for new endpoints, which should
+        register directly under ``routers.projects``. Returns (project, environment).
+        """
+        if not parents_query_lookups:
+            raise ValueError("parents_query_lookups must be non-empty, with team_id as the first lookup")
+        if parents_query_lookups[0] != "team_id":
+            raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
+        if basename.startswith("project_"):
+            stem = basename.removeprefix("project_")
+        elif basename.startswith("environment_"):
+            stem = basename.removeprefix("environment_")
+        else:
+            raise ValueError("basename must start with `project_` or `environment_`")
+        project_nested = self.projects.register(prefix, viewset, "project_" + stem, parents_query_lookups)
+        environment_nested = self.environments.register(prefix, viewset, "environment_" + stem, parents_query_lookups)
+        return project_nested, environment_nested
+
+
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
+class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -86,6 +190,76 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
 
+    def dispatch(self, request, *args, **kwargs):
+        """
+        Outermost wrapper for the request lifecycle. The try/finally below
+        ensures cleanup across the standard `initial`/`finalize_response`
+        override surface — a subclass that customizes either of those without
+        calling super() would otherwise leak the token.
+
+        Note: a subclass that overrides `dispatch` itself without super() would
+        also bypass this cleanup; in this codebase only `query_coalescer.py`
+        overrides dispatch and it does call super().
+
+        ContextVars in sync Django are thread-local and the same worker thread
+        is reused across requests, so a leaked token would let scope from one
+        request bleed into the next.
+
+        Setting the scope still happens in initial() (where authentication has
+        completed and self.team is loaded by permission checks for free).
+        """
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            token = getattr(self, "_team_scope_token", None)
+            if token is not None:
+                reset_current_team_id(token)
+                self._team_scope_token = None
+
+    def initial(self, request, *args, **kwargs):
+        """
+        Set team scope context to the canonical team_id (parent if the URL
+        team is a child environment, the URL team itself otherwise). This is
+        the single source of truth for team scoping in DRF request flows —
+        any code path that reads through TeamScopedManager (used by both
+        main-DB models and ProductTeamModel-based product models) during
+        this request filters by this id.
+
+        Sourcing from the URL (not user.current_team_id) avoids the org-level
+        bug from #50899: user.current_team_id is a UI preference that can
+        drift from the team being acted on.
+
+        Runs after super().initial() so authentication has completed and
+        permission checks have already loaded self.team for free.
+
+        If a subclass overrides initial() without calling super(), context is
+        simply never set — scoped queries raise TeamScopeError, which is the
+        correct fail-closed behavior. dispatch() above guarantees cleanup
+        regardless.
+        """
+        super().initial(request, *args, **kwargs)
+        self._team_scope_token = None
+        if self._is_team_view or self._is_project_view:
+            try:
+                team_id = self.team_id
+            except (KeyError, ValidationError, AuthenticationFailed):
+                # Resolution failed — leave context unset; downstream code that
+                # touches a scoped model will get TeamScopeError, which is the
+                # correct fail-closed behavior.
+                return
+            # Compute canonical team_id. self.team is a @cached_property
+            # (line ~297) usually loaded by the permission checks above, so
+            # this is free. Reading via __dict__ rather than attribute access
+            # avoids triggering the lookup if it hasn't fired yet; if it
+            # hasn't, fall back to the raw URL team_id (correct for root
+            # teams, which are the common case). If self.team ever stops
+            # being a @cached_property this still degrades safely.
+            if "team" in self.__dict__:
+                canonical_team_id = self.team.parent_team_id or team_id
+            else:
+                canonical_team_id = team_id
+            self._team_scope_token = set_current_team_id(canonical_team_id)
+
     def dangerously_get_permissions(self):
         """
         WARNING: This should be used very carefully. It is only for endpoints with very specific permission needs.
@@ -100,6 +274,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             return self.dangerously_get_permissions()
         except NotImplementedError:
             pass
+
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
 
         if isinstance(
             self.request.successful_authenticator,
@@ -130,7 +307,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             authentication_classes.append(SharingAccessTokenAuthentication)
 
         authentication_classes.extend(
-            [JwtAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+            [
+                # IDJagAccessTokenAuthentication runs before JwtAuthentication because the latter
+                # decodes with HS256+SECRET_KEY and treats algorithm mismatches as hard auth
+                # failures (401) rather than "not my token". ID-JAG uses RS256, so it would be
+                # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
+                # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
+                IDJagAccessTokenAuthentication,
+                JwtAuthentication,
+                OAuthAccessTokenAuthentication,
+                PersonalAPIKeyAuthentication,
+                SessionAuthentication,
+            ]
         )
 
         return [auth() for auth in authentication_classes]
@@ -186,8 +374,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
 
-        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-        if self.scope_object == "project":
+        # Projects, dashboards, feature flags: org admins have implicit access; list must match retrieve (see issue #44364).
+        if self.scope_object in ("project", "dashboard", "feature_flag"):
             include_all_if_admin = True
 
         # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
@@ -262,7 +450,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if team_from_token := self._get_team_from_request():
             team = team_from_token
         elif self._is_project_view:
-            team = Team.objects.get(
+            team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
@@ -271,13 +459,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             team = user.team
         else:
             try:
-                team = Team.objects.get(id=self.team_id)
+                team = Team.objects.select_related("organization").get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
-        tag_queries(team_id=team.pk)
+        tag_queries(**get_team_query_tags(team))
         return team
 
     @cached_property
@@ -305,6 +493,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             assert team.project is not None
             return team.project
         try:
+            # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")

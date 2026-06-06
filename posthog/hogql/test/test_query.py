@@ -11,6 +11,8 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -22,7 +24,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -35,10 +39,13 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -111,6 +118,63 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(2, "random event")])
+
+    def test_cte_with_unaliased_expression_and_outer_star(self):
+        response = execute_hogql_query(
+            """
+            WITH blah AS (
+                SELECT
+                    1 AS customer_id,
+                    dateTrunc('month', toDate('2026-08-03')) AS month,
+                    toDate('2026-08-03'),
+                    '2026-08-03' AS period_end
+            )
+            SELECT *, toDate(period_end)
+            FROM blah
+            WHERE month < '2027-01-01'
+            LIMIT 1000
+            """,
+            self.team,
+            pretty=False,
+        )
+
+        self.assertEqual(
+            response.columns,
+            ["customer_id", "month", "toDate('2026-08-03')", "period_end", "toDate(period_end)"],
+        )
+        self.assertEqual(
+            response.results,
+            [(1, datetime.date(2026, 8, 1), datetime.date(2026, 8, 3), "2026-08-03", datetime.date(2026, 8, 3))],
+        )
+
+    def test_cte_with_duplicate_unaliased_expression_names(self):
+        response = execute_hogql_query(
+            """
+            WITH blah AS (
+                SELECT
+                    1 AS customer_id,
+                    dateTrunc('month', toDate(period_end)) AS month,
+                    toDate(period_end),
+                    period_end
+                FROM (SELECT '2026-08-03' AS period_end)
+            )
+            SELECT *, toDate(period_end)
+            FROM blah
+            WHERE month < '2027-01-01'
+            LIMIT 1000
+            """,
+            self.team,
+            pretty=False,
+        )
+
+        self.assertEqual(
+            response.columns,
+            ["customer_id", "month", "toDate(period_end)", "period_end", "toDate(period_end)"],
+        )
+        self.assertEqual(
+            response.results,
+            [(1, datetime.date(2026, 8, 1), datetime.date(2026, 8, 3), "2026-08-03", datetime.date(2026, 8, 3))],
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_distinct(self):
@@ -232,6 +296,48 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+
+    def test_execute_hogql_query_rejects_non_direct_connection_id(self):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
+
+        self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
+
+        self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
+        mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
@@ -645,14 +751,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
-            # Reverse join order (right table column before left table column in ON clause)
-            # is not supported with enable_analyzer=0. See PR #45000.
-            with self.assertRaises(InternalCHQueryError):
-                execute_hogql_query(
-                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
-                    team=self.team,
-                    pretty=False,
-                )
+            response = execute_hogql_query(
+                "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
+                team=self.team,
+                pretty=False,
+            )
+            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
@@ -690,14 +794,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
-            # Reverse join order (right table column before left table column in ON clause)
-            # is not supported with enable_analyzer=0. See PR #45000.
-            with self.assertRaises(InternalCHQueryError):
-                execute_hogql_query(
-                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
-                    team=self.team,
-                    pretty=False,
-                )
+            response = execute_hogql_query(
+                "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
+                team=self.team,
+                pretty=False,
+            )
+            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_lambdas(self):
@@ -1193,7 +1295,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -1468,10 +1570,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
 
-        # Complex subqueries are not supported with `enable_analyzer=0` (see: https://github.com/PostHog/posthog/pull/45000)
         query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
-        with self.assertRaises(InternalCHQueryError):
-            execute_hogql_query(query, team=self.team)
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            response.results,
+            [
+                (0,),
+                (1,),
+                (2,),
+                (3,),
+            ],
+        )
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
         response = execute_hogql_query(query, team=self.team)
@@ -1774,32 +1883,95 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             create_for_mock.assert_called_once()
 
     def test_sortable_semver(self):
-        query = "SELECT arrayJoin(['0.0.0.0.1000', '0.9', '0.2354.2', '1.0.0', '1.1.0', '1.2.0', '1.9.233434.10', '1.10.0', '1.1000.0', '2.0.0', '2.2.0.betabac', '2.2.1']) AS semver ORDER BY sortableSemVer(semver) DESC"
+        # Only strict X.Y.Z versions sort by their numeric value. Invalid inputs
+        # (leading zeros, wrong arity, trailing garbage) become NULL and sort
+        # together — see test_sortable_semver_rejects_invalid for explicit checks.
+        query = "SELECT arrayJoin(['0.2354.2', '1.0.0', '1.1.0', '1.2.0', '1.10.0', '1.1000.0', '2.0.0', '2.2.1']) AS semver ORDER BY sortableSemVer(semver) DESC"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(
             response.results,
             [
                 ("2.2.1",),
-                ("2.2.0.betabac",),
                 ("2.0.0",),
                 ("1.1000.0",),
                 ("1.10.0",),
-                ("1.9.233434.10",),
                 ("1.2.0",),
                 ("1.1.0",),
                 ("1.0.0",),
                 ("0.2354.2",),
-                ("0.9",),
-                ("0.0.0.0.1000",),
             ],
         )
 
-    def test_sortable_semver_output(self):
-        query = "SELECT sortableSemVer('1.2.3.4.15bac.16')"
-        response = execute_hogql_query(query, team=self.team)
+    @parameterized.expand(
+        [
+            ("plain", "1.2.3", [1, 2, 3]),
+            ("v_prefix", "v1.2.3", [1, 2, 3]),
+            ("prerelease_suffix", "1.2.3-alpha.1", [1, 2, 3]),
+            ("build_metadata_suffix", "1.2.3+build.42", [1, 2, 3]),
+            ("all_zero", "0.0.0", [0, 0, 0]),
+            ("large_minor", "1.1000.0", [1, 1000, 0]),
+            ("whitespace_padded", "  1.2.3  ", [1, 2, 3]),
+        ]
+    )
+    def test_sortable_semver_output_valid(self, _name: str, version: str, expected: list[int]) -> None:
+        response = execute_hogql_query(f"SELECT sortableSemVer({version!r})", team=self.team)
+        self.assertEqual(response.results, [(expected,)])
 
-        # Ignore everything after string, return as array of ints
-        self.assertEqual(response.results, [([1, 2, 3, 4, 15],)])
+    @parameterized.expand(
+        [
+            ("leading_zero_in_minor", "3.07"),  # the user-reported bug
+            ("leading_zero_in_major", "01.2.3"),
+            ("leading_zero_in_patch", "1.2.03"),
+            ("leading_zeros_all_components", "01.02.03"),
+            ("two_part_simple", "3.7"),
+            ("two_part_with_zero", "3.0"),
+            ("two_part_large", "0.9"),
+            ("four_parts", "1.2.3.4"),
+            ("four_parts_large", "1.9.233434.10"),
+            ("five_parts", "0.0.0.0.1000"),
+            ("trailing_garbage", "2.2.0.betabac"),
+            ("empty_component", "1..2.3"),
+            ("leading_dot", ".1.2.3"),
+            ("trailing_dot", "1.2.3."),
+            ("negative_component", "1.-2.3"),
+            ("non_numeric", "not-a-version"),
+            ("empty_string", ""),
+        ]
+    )
+    def test_sortable_semver_rejects_invalid(self, _name: str, version: str) -> None:
+        # All inputs match the Rust `semver` crate's rejection behavior — blast
+        # radius now mirrors what flag evaluation does at runtime. Invalid input
+        # becomes [NULL] (Array(Nullable(Int64))), so any element-wise comparison
+        # in WHERE evaluates to NULL — falsy — and the row is excluded from semver
+        # filters. We can't use `IS NULL` on the array itself (ClickHouse forbids
+        # Nullable(Array(...))), so probe for a NULL element instead.
+        response = execute_hogql_query(
+            f"SELECT arrayExists(x -> x IS NULL, sortableSemVer({version!r})) AS is_invalid",
+            team=self.team,
+        )
+        self.assertEqual(response.results, [(True,)], f"expected {version!r} to parse as [NULL]")
+
+    @parameterized.expand(
+        [
+            # Valid versions compare exactly as you'd expect.
+            ("gte_true", ">=", "3.7.1", "3.7.0", True),
+            ("gte_false", ">=", "3.6.9", "3.7.0", False),
+            ("lt_true", "<", "3.6.9", "3.7.0", True),
+            ("eq_true", "=", "3.7.0", "3.7.0", True),
+            ("eq_false", "=", "3.6.9", "3.7.0", False),
+        ]
+    )
+    def test_sortable_semver_valid_comparison(self, _name: str, op: str, lhs: str, rhs: str, expected: bool) -> None:
+        # Raw sortableSemVer-to-sortableSemVer comparisons of valid versions behave
+        # like ordinary array comparisons. Behaviour with an *invalid* version is
+        # delegated to the caller — see property.py's `_gate_on_valid_semver` for
+        # the WHERE-clause path used by blast radius and feature-flag filters, which
+        # excludes invalid versions before this comparison ever runs.
+        response = execute_hogql_query(
+            f"SELECT sortableSemVer({lhs!r}) {op} sortableSemVer({rhs!r})",
+            team=self.team,
+        )
+        self.assertEqual(response.results, [(expected,)])
 
     def test_exchange_rate_table(self):
         query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"
@@ -1868,3 +2040,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
         assert response and response.metadata and response.metadata.ch_table_names
         assert any("sessions" in name for name in response.metadata.ch_table_names)
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_debug_mode_preserves_prepare_error_without_executing_clickhouse(self, mock_sync_execute):
+        def prepare_ast_for_printing_side_effect(*args, **kwargs):
+            if kwargs.get("dialect") == "clickhouse":
+                raise ExposedHogQLError("debug failure")
+            return unmocked_prepare_ast_for_printing(*args, **kwargs)
+
+        with patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=prepare_ast_for_printing_side_effect):
+            response = execute_hogql_query("SELECT 1", team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+
+        self.assertEqual(response.error, "debug failure")
+        self.assertEqual(response.clickhouse, "")
+        mock_sync_execute.assert_not_called()

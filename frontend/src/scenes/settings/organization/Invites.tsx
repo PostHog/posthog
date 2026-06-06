@@ -12,13 +12,13 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'
 
-import { EmailUnavailableForInvitesBanner } from './InviteModal'
 import { inviteLogic } from './inviteLogic'
+import { EmailUnavailableForInvitesBanner } from './InviteModal'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -151,7 +151,7 @@ export function Invites(): JSX.Element {
                 type="primary"
                 onClick={showInviteModal}
                 data-attr="invite-teammate-button"
-                disabledReason={userCannotInvite && "You don't have permissions to invite others."}
+                disabledReason={userCannotInvite && "You can't invite other members or view invites"}
             >
                 Invite team member
             </LemonButton>

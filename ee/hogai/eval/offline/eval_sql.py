@@ -7,13 +7,15 @@ from braintrust import EvalCase, Score
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantHogQLQuery, HumanMessage
+from posthog.schema import AssistantHogQLQuery, DataVisualizationNode, HumanMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
@@ -26,7 +28,6 @@ from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.hogai.utils.warehouse import serialize_database_schema
-from ee.models import Conversation
 
 
 class EvalOutput(BaseModel):
@@ -39,9 +40,9 @@ class EvalMetadata(TypedDict):
     team_id: int
 
 
-async def serialize_database(team: Team):
-    database = await database_sync_to_async(Database.create_for)(team=team)
-    context = HogQLContext(team=team, database=database, enable_select_queries=True)
+async def serialize_database(team: Team, user: User):
+    database = await database_sync_to_async(Database.create_for)(team=team, user=user)
+    context = HogQLContext(team=team, user=user, database=database, enable_select_queries=True)
     return await serialize_database_schema(database, context)
 
 
@@ -50,7 +51,7 @@ async def call_graph(entry: DatasetInput, *args):
     team = await Team.objects.aget(id=entry.team_id)
     conversation, database_schema = await asyncio.gather(
         Conversation.objects.acreate(team=team, user=eval_ctx.user),
-        serialize_database(team),
+        serialize_database(team=team, user=eval_ctx.user),
     )
     graph = AssistantGraph(team, eval_ctx.user).compile_full_graph()
 
@@ -77,7 +78,11 @@ async def call_graph(entry: DatasetInput, *args):
         return EvalOutput(
             database_schema=database_schema,
             query_kind=content.query.kind,
-            sql_query=content.query.query if isinstance(content.query, AssistantHogQLQuery) else None,
+            sql_query=content.query.source.query
+            if isinstance(content.query, DataVisualizationNode)
+            else content.query.query
+            if isinstance(content.query, AssistantHogQLQuery)
+            else None,
         )
     return EvalOutput(database_schema=database_schema, query_kind=None, sql_query=None)
 
@@ -85,7 +90,7 @@ async def call_graph(entry: DatasetInput, *args):
 @capture_score
 async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSemanticsCorrectness(client=get_eval_context().get_openai_client_for_tracing(input.trace_id))
-    return await metric.eval_async(
+    return await metric.eval_async(  # ty: ignore[invalid-return-type]
         output.sql_query,
         expected=expected,
         input=input.input["query"],
@@ -96,7 +101,7 @@ async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalO
 @capture_score
 async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSyntaxCorrectness()
-    return await metric.eval_async(
+    return await metric.eval_async(  # ty: ignore[invalid-return-type]
         output.sql_query,
         expected=expected,
         input=input.input["query"],

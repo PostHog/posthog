@@ -18,13 +18,12 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
-import { userActivityDescriber } from 'scenes/authentication/activityDescriptions'
+import { userActivityDescriber } from 'scenes/authentication/shared/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
 import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
-import { externalDataSourceActivityDescriber } from 'scenes/data-warehouse/external-data-sources/activityDescriptions'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
 import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
@@ -35,7 +34,12 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
-import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import {
+    legalDocumentActivityDescriber,
+    organizationActivityDescriber,
+    organizationDomainActivityDescriber,
+} from 'scenes/settings/organization/activityDescriptions'
+import { projectSecretAPIKeyActivityDescriber } from 'scenes/settings/project/activityDescriptions'
 import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
@@ -43,7 +47,10 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
+import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
+import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
+import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -134,6 +141,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return personActivityDescriber
         case ActivityScope.PERSONAL_API_KEY:
             return personalAPIKeyActivityDescriber
+        case ActivityScope.PROJECT_SECRET_API_KEY:
+            return projectSecretAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
@@ -147,6 +156,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.ORGANIZATION_MEMBERSHIP:
         case ActivityScope.ORGANIZATION_INVITE:
             return organizationActivityDescriber
+        case ActivityScope.ORGANIZATION_DOMAIN:
+            return organizationDomainActivityDescriber
+        case ActivityScope.LEGAL_DOCUMENT:
+            return legalDocumentActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:
@@ -172,6 +185,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return endpointActivityDescriber
         case ActivityScope.PRODUCT_TOUR:
             return productTourActivityDescriber
+        case ActivityScope.TICKET:
+            return ticketActivityDescriber
+        case ActivityScope.SIGNAL_SCOUT_CONFIG:
+            return signalScoutConfigActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
@@ -181,6 +198,8 @@ export type ActivityLogLogicProps = {
     scope: ActivityScope | ActivityScope[]
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
+    // page to load on mount (callers that deep-link into a paginated activity feed)
+    startingPage?: number
 }
 
 export const activityLogLogic = kea<activityLogLogicType>([
@@ -189,6 +208,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     path((key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key]),
     actions({
         setPage: (page: number) => ({ page }),
+        setHighlightedActivityId: (id: string | null) => ({ id }),
     }),
     loaders(({ values, props }) => ({
         activity: [
@@ -202,11 +222,17 @@ export const activityLogLogic = kea<activityLogLogicType>([
             },
         ],
     })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         page: [
-            1,
+            props.startingPage ?? 1,
             {
                 setPage: (_, { page }) => page,
+            },
+        ],
+        highlightedActivityId: [
+            null as string | null,
+            {
+                setHighlightedActivityId: (_, { id }) => id,
             },
         ],
     })),
@@ -244,12 +270,23 @@ export const activityLogLogic = kea<activityLogLogicType>([
         },
     })),
     urlToAction(({ values, actions, props }) => {
+        const syncActivityHighlight = (searchParams: Record<string, any>): void => {
+            const activityId = searchParams?.activity
+            if (activityId && activityId !== values.highlightedActivityId) {
+                actions.setHighlightedActivityId(activityId)
+            } else if (!activityId && values.highlightedActivityId !== null) {
+                actions.setHighlightedActivityId(null)
+            }
+        }
+
         const onPageChange = (
             searchParams: Record<string, any>,
             hashParams: Record<string, any>,
             pageScope: ActivityScope,
             forceUsePageParam?: boolean
         ): void => {
+            syncActivityHighlight(searchParams)
+
             const pageInURL = searchParams['page']
             const firstScope = Array.isArray(props.scope) ? props.scope[0] : props.scope
 
@@ -285,6 +322,9 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            // Catch-all for pages that don't need pagination handling (surveys, product
+            // tours, experiments, etc.) but still support ?activity= deep linking.
+            '*': (_, searchParams) => syncActivityHighlight(searchParams),
         }
     }),
     events(({ actions, values }) => ({

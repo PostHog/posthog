@@ -13,9 +13,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { isObject, isURL } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { isObject, isURL, isKeyOf } from 'lib/utils'
 import { NewProperty } from 'scenes/persons/NewProperty'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -25,7 +25,7 @@ import {
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
     isPostHogProperty,
 } from '~/taxonomy/taxonomy'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
+import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -56,7 +56,20 @@ function EditTextValueComponent({
     initialValue: any
     onChange: (newValue: any) => void
 }): JSX.Element {
-    const [value, setValue] = useState(initialValue)
+    const isText =
+        typeof initialValue === 'string' || typeof initialValue === 'number' || typeof initialValue === 'bigint'
+    const [value, setValue] = useState(isText ? String(initialValue) : '')
+
+    const save = (raw: string): void => {
+        if (typeof initialValue === 'number' && raw.trim() !== '') {
+            const asNumber = Number(raw)
+            if (Number.isFinite(asNumber)) {
+                onChange(asNumber)
+                return
+            }
+        }
+        onChange(raw)
+    }
 
     return (
         <LemonInput
@@ -64,7 +77,7 @@ function EditTextValueComponent({
             value={value}
             onChange={setValue}
             onBlur={() => onChange(initialValue)}
-            onPressEnter={() => onChange(value)}
+            onPressEnter={() => save(value)}
             autoComplete="off"
             autoCapitalize="off"
             size="xsmall"
@@ -107,7 +120,7 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
@@ -146,6 +159,10 @@ function ValueDisplay({
                                     label: 'null',
                                     onClick: () => handleValueChange(null),
                                     status: 'danger',
+                                },
+                                {
+                                    label: 'Type as text…',
+                                    onClick: () => setEditing(true),
                                 },
                             ]}
                         >
@@ -187,7 +204,7 @@ function ValueDisplay({
     )
 }
 
-interface PropertiesTableType extends BasePropertyType {
+export interface PropertiesTableProps extends BasePropertyType {
     properties?: Record<string, any> | Array<Record<string, any>>
     sortProperties?: boolean
     searchable?: boolean
@@ -200,6 +217,8 @@ interface PropertiesTableType extends BasePropertyType {
     useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
+    /** Controls the highlight style for highlighted rows. Default: 'default' uses var(--mark), 'subtle' uses a more subtle background. */
+    highlightVariant?: 'default' | 'subtle'
     type: PropertyDefinitionType
     /**
      * The container for these properties e.g. the event name of the event the properties are on
@@ -222,9 +241,10 @@ export function PropertiesTable({
     useDetectedPropertyType,
     tableProps,
     highlightedKeys,
+    highlightVariant = 'default',
     type,
     parent,
-}: PropertiesTableType): JSX.Element {
+}: PropertiesTableProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
@@ -236,31 +256,35 @@ export function PropertiesTable({
             return []
         }
 
+        // Map the property definition type to its taxonomic group so labels (e.g. "Latest city name"
+        // for person properties vs "City name" for event properties) resolve correctly when sorting and searching.
+        const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
+            [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+            [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+            [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+            [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+            [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+            [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
+            [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+            [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
+            [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+            [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
+            [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
+            [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+            [PropertyDefinitionType.Span]: TaxonomicFilterGroupType.Spans,
+            [PropertyDefinitionType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
+            [PropertyDefinitionType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
+            [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
+            [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
+        }
+        const propertyGroupType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
+
         let entries = Object.entries(properties)
         if (sortProperties) {
             entries = entries.sort((a, b) => {
                 // if this is a posthog property we want to sort by its label
-                const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
-                    [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
-                    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
-                    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-                    [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
-                    [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
-                    [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
-                    [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
-                    [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
-                    [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
-                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
-                    [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
-                    [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
-                    [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
-                    [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
-                }
-
-                const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
-
-                const left = getCoreFilterDefinition(a[0], propertyType)?.label || a[0]
-                const right = getCoreFilterDefinition(b[0], propertyType)?.label || b[0]
+                const left = getCoreFilterDefinition(a[0], propertyGroupType)?.label || a[0]
+                const right = getCoreFilterDefinition(b[0], propertyGroupType)?.label || b[0]
 
                 if (left < right) {
                     return -1
@@ -287,7 +311,7 @@ export function PropertiesTable({
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
             entries = entries.filter(([key, value]) => {
-                const label = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.label?.toLowerCase()
+                const label = getCoreFilterDefinition(key, propertyGroupType)?.label?.toLowerCase()
                 return (
                     key.toLowerCase().includes(normalizedSearchTerm) ||
                     (label && label.includes(normalizedSearchTerm)) ||
@@ -316,7 +340,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (Array.isArray(properties)) {
         return (
@@ -406,7 +430,9 @@ export function PropertiesTable({
                                 type={
                                     rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
                                         ? TaxonomicFilterGroupType.PersonProperties
-                                        : PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                        : isKeyOf(type, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE)
+                                          ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                          : undefined
                                 }
                             />
                         </div>
@@ -486,6 +512,7 @@ export function PropertiesTable({
                                 icon={<IconTrash />}
                                 status="danger"
                                 size="small"
+                                data-attr="delete-prop-button"
                                 onClick={() => onClickDelete(item[0])}
                             />
                         )
@@ -564,7 +591,9 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark)' },
+                                  style: {
+                                      background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)',
+                                  },
                               }
                             : {}
                     }

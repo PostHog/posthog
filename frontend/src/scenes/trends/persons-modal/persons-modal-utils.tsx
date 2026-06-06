@@ -2,7 +2,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pluralize } from 'lib/utils'
 
-import { InsightActorsQuery, InsightActorsQueryOptionsResponse } from '~/queries/schema/schema-general'
+import {
+    InsightActorsQuery,
+    InsightActorsQueryOptionsResponse,
+    insightActorsQueryOptionsResponseKeys,
+} from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { StepOrderValue } from '~/types'
@@ -54,30 +58,47 @@ export const pathsTitle = (props: { mode: pathModes; label: string }): React.Rea
     )
 }
 
+// `InsightActorsQueryOptionsResponse` also carries non-option fields (e.g. `warnings` inherited
+// from analytics-response semantics) that must not be rendered as UI option lists. Exclude them
+// from the option-key union, and iterate the explicit allowlist at runtime rather than Object.keys.
+type InsightActorsQueryOptionKey = Exclude<keyof InsightActorsQueryOptionsResponse, 'warnings'>
+type InsightActorsQueryOptionTuple = {
+    [K in InsightActorsQueryOptionKey]: [K, NonNullable<InsightActorsQueryOptionsResponse[K]>]
+}[InsightActorsQueryOptionKey]
+
 export const cleanedInsightActorsQueryOptions = (
     insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null,
     query: InsightActorsQuery
-): [string, any[]][] => {
-    const cleanedOptions = Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
-        return Array.isArray(value) && !!value.length
-    })
+): InsightActorsQueryOptionTuple[] => {
+    const cleanedOptions: InsightActorsQueryOptionTuple[] = []
+    for (const key of insightActorsQueryOptionsResponseKeys as InsightActorsQueryOptionKey[]) {
+        const value = insightActorsQueryOptions?.[key]
+        if (Array.isArray(value) && value.length > 0) {
+            cleanedOptions.push([key, value] as InsightActorsQueryOptionTuple)
+        }
+    }
+
     const source = query?.source
     const seriesNames = isTrendsQuery(source) ? source.series.map((s: any) => s.custom_name) : []
-    const cleanedOptionsWithAdjustedSeriesNames: [string, any[]][] = cleanedOptions.map(([key, value]) => {
+
+    const transformed: InsightActorsQueryOptionTuple[] = []
+    for (const option of cleanedOptions) {
+        const [key, value] = option
         if (key === 'series') {
-            return [
-                key,
-                value.map((v: any, index: number) => ({
+            transformed.push([
+                'series',
+                value.map((v, index) => ({
                     ...v,
                     label:
                         seriesNames[index] ??
                         getCoreFilterDefinition(v.label, TaxonomicFilterGroupType.Events)?.label ??
                         v.label,
                 })),
-            ]
+            ])
+            continue
         }
-        return [key, value]
-    })
+        transformed.push(option)
+    }
 
-    return cleanedOptionsWithAdjustedSeriesNames
+    return transformed
 }

@@ -8,7 +8,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
@@ -17,11 +16,15 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { EventConfigurationModal } from './EventConfigurationModal'
 import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'
+import { EventConfigurationModal } from './EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
-export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
+export function EventConfiguration({
+    onOpenEventModal,
+}: {
+    onOpenEventModal?: (event?: RevenueAnalyticsEventItem) => void
+}): JSX.Element {
     const { events } = useValues(revenueAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { views, eventName: eventToBeDeleted } = useValues(deleteRevenueEventModalLogic)
@@ -32,10 +35,13 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
 
-    const [modalState, setModalState] = useState<{
+    const [localModalState, setLocalModalState] = useState<{
         isOpen: boolean
         event?: RevenueAnalyticsEventItem
     }>({ isOpen: false })
+
+    const openModalForEvent = onOpenEventModal ?? ((event) => setLocalModalState({ isOpen: true, event }))
+    const closeLocalModal = (): void => setLocalModalState({ isOpen: false, event: undefined })
 
     const onDeleteEvent = async (): Promise<boolean> => {
         if (!eventToBeDeleted) {
@@ -66,12 +72,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         resourceType={AccessControlResourceType.RevenueAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={() => setModalState({ isOpen: true })}
-                            ref={buttonRef}
-                        >
+                        <LemonButton type="primary" icon={<IconPlus />} onClick={() => openModalForEvent()}>
                             Add Revenue Event
                         </LemonButton>
                     </AccessControlAction>
@@ -193,7 +194,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                         size="small"
                                         type="secondary"
                                         icon={<IconGear />}
-                                        onClick={() => setModalState({ isOpen: true, event: item })}
+                                        onClick={() => openModalForEvent(item)}
                                         tooltip="Edit event configuration"
                                     />
                                 </AccessControlAction>
@@ -229,14 +230,6 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                 ]}
             />
 
-            {modalState.isOpen &&
-                userHasAccess(AccessControlResourceType.RevenueAnalytics, AccessControlLevel.Editor) && (
-                    <EventConfigurationModal
-                        event={modalState.event}
-                        onClose={() => setModalState({ isOpen: false, event: undefined })}
-                    />
-                )}
-
             {managedViewsetsEnabled && (
                 <DataWarehouseManagedViewsetImpactModal
                     type="EventConfiguration"
@@ -258,6 +251,10 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                     viewsActionText="will be removed"
                     confirmButtonText="Yes, remove event"
                 />
+            )}
+
+            {!onOpenEventModal && localModalState.isOpen && (
+                <EventConfigurationModal event={localModalState.event} onClose={closeLocalModal} />
             )}
         </SceneSection>
     )

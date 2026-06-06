@@ -13,8 +13,8 @@ import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
-import { NotebookTableOfContents } from './NotebookTableOfContents'
 import { notebookLogic } from './notebookLogic'
+import { NotebookTableOfContents } from './NotebookTableOfContents'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
     const { editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =

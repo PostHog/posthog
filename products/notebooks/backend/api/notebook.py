@@ -1,7 +1,7 @@
 import math
 import hashlib
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -11,12 +11,20 @@ from django.utils.timezone import now
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -33,12 +41,16 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
+from products.notebooks.backend import collab
+from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.tasks.backend.services.sandbox import SandboxStatus
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
+from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
@@ -78,6 +90,29 @@ def log_notebook_activity(
     )
 
 
+_NOTEBOOK_FIELD_HELP_TEXTS = {
+    "id": {"help_text": "UUID of the notebook."},
+    "short_id": {"help_text": "Short alphanumeric identifier used in URLs and API lookups."},
+    "title": {"help_text": "Title of the notebook."},
+    "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
+}
+
+_PARENT_RESOURCE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "description": (
+        "Parent resource this notebook is attached to, if any. Used by the notebook scene "
+        "to render context-aware breadcrumbs (e.g. account notebooks link back to the "
+        "Customer analytics accounts list)."
+    ),
+    "properties": {
+        "type": {"type": "string", "enum": ["account"]},
+        "id": {"type": "string", "format": "uuid"},
+    },
+    "required": ["type", "id"],
+}
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -98,9 +133,18 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "_create_in_folder",
         ]
         read_only_fields = fields
+        extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    parent_resource = serializers.SerializerMethodField(
+        help_text=(
+            "Parent resource this notebook is attached to, or `null`. Returns "
+            "`{type: 'account', id: <uuid>}` for account-linked notebooks; used by the "
+            "frontend to route breadcrumbs back to the resource's list."
+        ),
+    )
+
     class Meta:
         model = Notebook
         fields = [
@@ -116,6 +160,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -126,11 +171,37 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "parent_resource",
         ]
+        extra_kwargs = {
+            **_NOTEBOOK_FIELD_HELP_TEXTS,
+            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "text_content": {"help_text": "Plain text representation of the notebook content for search."},
+            "version": {
+                "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
+            },
+        }
+
+    @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
+    def get_parent_resource(self, obj: Notebook) -> dict | None:
+        # Group parents are skipped: ResourceNotebook stores group PK but personhog has no get-by-pk RPC.
+        link = obj.resources.filter(account_id__isnull=False).only("account_id").first()
+        if link is None:
+            return None
+        return {"type": "account", "id": str(link.account_id)}
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        # short_id is read-only in the serializer but can be provided on create
+        short_id = request.data.get("short_id")
+        if short_id:
+            if not isinstance(short_id, str) or not short_id.isalnum() or len(short_id) > 12:
+                raise serializers.ValidationError(
+                    {"short_id": "short_id must be an alphanumeric string up to 12 characters."}
+                )
+            validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
         content = validated_data.get("content")
@@ -199,11 +270,23 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         return updated_notebook
 
+    def validate_content(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        try:
+            return normalize_notebook_query_nodes(value)
+        except InvalidNotebookQueryError as err:
+            raise serializers.ValidationError(str(err))
+
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
+class NotebookHogQLExecuteSerializer(serializers.Serializer):
+    query = serializers.CharField(allow_blank=True)
 
 
 class NotebookKernelDataframeSerializer(serializers.Serializer):
@@ -247,6 +330,42 @@ class NotebookKernelConfigSerializer(serializers.Serializer):
         if not attrs:
             raise serializers.ValidationError("Provide at least one kernel configuration option.")
         return attrs
+
+
+class NotebookCollabSaveSerializer(serializers.Serializer):
+    client_id = serializers.CharField(help_text="Unique identifier for the client session.")
+    version = serializers.IntegerField(help_text="The collab version the client's steps are based on.")
+    steps = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="List of ProseMirror step JSON objects to apply.",
+    )
+    content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
+    cursor_head = serializers.IntegerField(
+        required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
+    )
+
+    def validate_content(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        try:
+            return normalize_notebook_query_nodes(value)
+        except InvalidNotebookQueryError as err:
+            raise serializers.ValidationError(str(err))
+
+
+def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
+    if hasattr(response, "model_dump"):
+        response_payload = response.model_dump(exclude_none=True)
+    else:
+        response_payload = response.dict(exclude_none=True)
+    for key in ("clickhouse", "hogql", "timings", "modifiers"):
+        response_payload.pop(key, None)
+    return response_payload
 
 
 @extend_schema(
@@ -316,13 +435,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
-            return Notebook(
+            notebook = Notebook(
                 short_id="scratchpad",
                 team=self.team,
                 created_by=self.request.user,
                 last_modified_by=self.request.user,
                 visibility=Notebook.Visibility.INTERNAL,
             )
+            self.check_object_permissions(self.request, notebook)
+            return notebook
 
         return self.get_object()
 
@@ -362,7 +483,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "search":
+            elif key == "search" and value:
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
@@ -378,7 +499,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 for match_pair in match_pairs:
                     splat = match_pair.split(":")
                     target = depluralize(splat[0])
-                    match = splat[1] if len(splat) > 1 else None
+                    match_value: str | int | None = splat[1] if len(splat) > 1 else None
 
                     if target:
                         # the JSONB query requires a specific structure
@@ -390,31 +511,31 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         try:
                             # We try to parse the match as a number, as query params are always strings,
                             # but an id could be an integer and wouldn't match
-                            if isinstance(match, str):  # because mypy
-                                match = int(match)
+                            if isinstance(match_value, str):  # because mypy
+                                match_value = int(match_value)
                         except (ValueError, TypeError):
                             pass
 
-                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
-                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match_value}}]}]
                         elif target == "query":
                             id_match_structure = [
                                 {
                                     "attrs": {
                                         "query": {
                                             "kind": "SavedInsightNode",
-                                            "shortId": match,
+                                            "shortId": match_value,
                                         }
                                     }
                                 }
                             ]
 
-                        if match == "true" or match is None:
+                        if match_value == "true" or match_value is None:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)
-                        elif match == "false":
+                        elif match_value == "false":
                             queryset = queryset.exclude(content__content__contains=presence_match_structure)
                         else:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)
@@ -586,6 +707,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(execution.as_dict())
 
+    @action(methods=["POST"], url_path="hogql/execute", detail=True)
+    def hogql_execute(self, request: Request, **kwargs):
+        serializer = NotebookHogQLExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            response = execute_hogql_query(query=serializer.validated_data["query"], team=self.team)
+        except Exception as err:
+            logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"error": str(err)}, status=400)
+
+        return Response(_format_hogql_response_payload(response))
+
     @action(
         methods=["POST"],
         url_path="kernel/execute/stream",
@@ -662,13 +797,128 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
+    @extend_schema(request=NotebookCollabSaveSerializer)
+    @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])
+    def collab_save(self, request: Request, **kwargs):
+        serializer = NotebookCollabSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        notebook = self.get_object()
+
+        user = cast(User, request.user)
+        user_name = user.get_full_name() or "Wandering Hog"
+
+        result = submit_steps(
+            team_id=notebook.team_id,
+            notebook_id=str(notebook.short_id),
+            client_id=data["client_id"],
+            steps_json=data["steps"],
+            last_seen_version=data["version"],
+            last_saved_version=notebook.version,
+            user_id=user.pk,
+            user_name=user_name,
+            cursor_head=data.get("cursor_head"),
+        )
+
+        content = data["content"]
+
+        if result.status == "accepted":
+            notebook_before = Notebook.objects.get(pk=notebook.pk)
+            Notebook.objects.filter(pk=notebook.pk).update(
+                content=annotate_python_nodes(content) if isinstance(content, dict) else content,
+                text_content=data.get("text_content", ""),
+                title=data.get("title", notebook.title),
+                version=result.version,
+                last_modified_at=now(),
+                last_modified_by=request.user,
+            )
+            notebook.refresh_from_db()
+
+            # Snapshot diffs into the activity logs for history
+            changes = changes_between("Notebook", previous=notebook_before, current=notebook)
+            log_notebook_activity(
+                activity="updated",
+                notebook=notebook,
+                organization_id=cast(UUIDT, user.current_organization_id),
+                team_id=notebook.team_id,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                changes=changes,
+            )
+
+            return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
+
+        # Snapshot the rejected save attempt so user has a recovery path
+        log_notebook_activity(
+            activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
+            notebook=notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=[
+                Change(
+                    type="Notebook",
+                    field="content",
+                    action="changed",
+                    before=notebook.content,
+                    after=content,
+                ),
+            ],
+        )
+
+        if result.status == "stale":
+            # Stream was trimmed (MAXLEN/TTL).
+            return Response({"code": "conflict_stale"}, status=410)
+
+        # Carries the missed steps so the client can reconcile without depending on SSE
+        assert result.steps_since is not None  # status == "conflict" guarantees this
+        return Response(
+            {
+                "code": "conflict",
+                "steps": [e.step for e in result.steps_since],
+                "client_ids": [e.client_id for e in result.steps_since],
+                "version": result.version,
+            },
+            status=409,
+        )
+
+    @action(
+        methods=["GET"],
+        url_path="collab/stream",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+        required_scopes=["notebook:read"],
+    )
+    def collab_stream(self, request: Request, **kwargs):
+        """SSE stream of accepted prosemirror-collab steps for this notebook."""
+        notebook = self.get_object()
+        team_id = notebook.team_id
+        notebook_id = str(notebook.short_id)
+        last_event_id = request.headers.get("Last-Event-ID")
+
+        # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
+        # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
+        response = StreamingHttpResponse(
+            streaming_content=(
+                collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                if SERVER_GATEWAY_INTERFACE == "ASGI"
+                else async_to_sync(lambda: collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id))
+            ),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):
         recording_id = request.GET.get("recording_id")
         if not recording_id:
             return Response({"detail": "recording_id is required"}, status=400)
 
-        queryset = self.safely_get_queryset(self.queryset)
+        queryset = self.get_queryset()
         queryset = self._filter_list_request(request, queryset, {"contains": f"recording:{recording_id}"})
         notebooks = queryset.all()
         comments = []
@@ -696,6 +946,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         )
         return JsonResponse({"results": comments})
 
+    @extend_schema(operation_id="notebooks_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

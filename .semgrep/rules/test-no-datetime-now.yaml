@@ -1,0 +1,58 @@
+# Flags datetime.now() and similar time-dependent calls in test methods that lack
+# @freeze_time protection. These cause flaky failures when CI runs near midnight UTC
+# because events land in a different day bucket than the assertion expects.
+#
+# See: https://github.com/PostHog/posthog/pull/48675 for context
+rules:
+    - id: test-datetime-now-without-freeze
+      patterns:
+          - pattern-either:
+                - pattern: datetime.now(...)
+                - pattern: datetime.utcnow(...)
+                - pattern: datetime.today(...)
+                - pattern: dt.datetime.now(...)
+                - pattern: dt.datetime.utcnow(...)
+                - pattern: dt.datetime.today(...)
+                - pattern: date.today()
+                - pattern: dt.date.today()
+                - pattern: timezone.now(...)
+                - pattern: django_timezone.now(...)
+          - pattern-inside: |
+                def $FUNC(...):
+                    ...
+          - metavariable-regex:
+                metavariable: $FUNC
+                regex: ^test_
+          - pattern-not-inside: |
+                @freeze_time(...)
+                def $F(...):
+                    ...
+          - pattern-not-inside: |
+                @freeze_time(...)
+                class $C(...):
+                    ...
+          - pattern-not-inside: |
+                @freeze_time(...)
+                class $C:
+                    ...
+          - pattern-not-inside: |
+                with freeze_time(...):
+                    ...
+          - pattern-not-inside: |
+                with freeze_time(...) as $FT:
+                    ...
+      message: |
+          `datetime.now()` (or similar) in a test without `@freeze_time` causes
+          flaky failures when CI runs near midnight UTC. Wrap the test method or
+          class with `@freeze_time("...")` or use `with freeze_time("..."):`.
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '**/test_*.py'
+              - '**/test/**/*.py'
+              - '**/tests/**/*.py'

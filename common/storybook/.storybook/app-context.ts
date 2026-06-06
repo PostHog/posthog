@@ -11,6 +11,8 @@ export const getStorybookAppContext = (): AppContext => ({
     current_project: MOCK_DEFAULT_PROJECT,
     current_user: undefined as any, // `undefined` triggers a fetch and lets us mock the data
     default_event_name: '$pageview',
+    has_pageview: true,
+    has_screen: true,
     persisted_feature_flags: [],
     commit_sha: undefined,
     preflight: null as any, // `null` triggers a fetch and lets us mock the data
@@ -62,10 +64,17 @@ export const getStorybookAppContext = (): AppContext => ({
             updated_at: new Date().toISOString(),
         },
     ],
+    oauth_application: {
+        client_id: 'storybook-client-id',
+        name: 'Storybook OAuth App',
+        is_verified: false,
+        logo_uri: null,
+    },
     resource_access_control: {
         action: 'manager',
         feature_flag: 'manager',
         dashboard: 'manager',
+        dashboard_template: 'manager',
         insight: 'manager',
         notebook: 'manager',
         session_recording: 'manager',
@@ -75,6 +84,7 @@ export const getStorybookAppContext = (): AppContext => ({
         external_data_source: 'manager',
         web_analytics: 'manager',
         activity_log: 'viewer',
+        customer_analytics: 'manager',
         llm_analytics: 'manager',
     },
 })

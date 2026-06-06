@@ -1,16 +1,17 @@
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, uuid } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene, SceneTab } from 'scenes/sceneTypes'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,7 +20,14 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { AgentMode, RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
-import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
+import {
+    Breadcrumb,
+    Conversation,
+    ConversationDetail,
+    ConversationStatus,
+    RecordingUniversalFilters,
+    SidePanelTab,
+} from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -50,6 +58,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 export interface SuggestionItem {
     content: string
+    requiresUserInput?: boolean
 }
 
 export interface SuggestionGroup {
@@ -109,28 +118,61 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
     }
 }
 
+const CHAT_TITLE_NEW = 'New chat'
+const CHAT_TITLE_HISTORY = 'Chat history'
+
+function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
+    const scene = sceneLogic.findMounted()
+    if (!scene) {
+        return
+    }
+    const { tabs } = scene.values
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab && !tab.active) {
+        scene.actions.setTabs(tabs.map((t) => (t.id === tabId ? { ...t, ...props } : t)))
+    }
+}
+
 export const maxLogic = kea<maxLogicType>([
-    path(['scenes', 'max', 'maxLogic']),
-    props({} as { tabId: string | 'sidepanel' }),
-    tabAwareScene(),
+    props(
+        {} as { tabId?: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }
+    ),
+    key((props) => props.tabId || 'scene'),
+    path((key) => ['scenes', 'max', 'maxLogic', key]),
 
     connect(() => ({
         values: [
             router,
             ['searchParams'],
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools', 'toolSuggestions', 'conversationHistory', 'conversationHistoryLoading'],
+            [
+                'dataProcessingAccepted',
+                'dataProcessingApprovalDisabledReason',
+                'tools',
+                'toolSuggestions',
+                'conversationHistory',
+                'conversationHistoryLoading',
+            ],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
+            tabUiStateLogic,
+            ['chatDraftFor'],
         ],
         actions: [
             maxContextLogic,
             ['resetContext'],
             maxGlobalLogic,
-            ['loadConversationHistory', 'prependOrReplaceConversation', 'loadConversationHistorySuccess'],
+            [
+                'loadConversationHistory',
+                'prependOrReplaceConversation',
+                'loadConversationHistorySuccess',
+                'deleteConversation',
+            ],
+            tabUiStateLogic,
+            ['setChatDraftForTab'],
         ],
     })),
 
@@ -234,6 +276,13 @@ export const maxLogic = kea<maxLogicType>([
 
     selectors({
         tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
+        onAcceptSessionFilters: [
+            () => [
+                (_, props) =>
+                    (props?.onAcceptSessionFilters ?? null) as ((filters: RecordingUniversalFilters) => void) | null,
+            ],
+            (cb: ((filters: RecordingUniversalFilters) => void) | null) => cb,
+        ],
         conversation: [
             (s) => [s.conversationHistory, s.conversationId],
             (conversationHistory, conversationId) => {
@@ -252,8 +301,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         headline: [
-            (s) => [s.conversation, s.toolHeadlines],
-            (conversation, toolHeadlines) => {
+            (s) => [s.conversation, s.toolHeadlines, s.frontendConversationId],
+            (conversation, toolHeadlines, frontendConversationId) => {
                 if (process.env.STORYBOOK) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
@@ -261,7 +310,8 @@ export const maxLogic = kea<maxLogicType>([
                 return toolHeadlines.length > 0
                     ? toolHeadlines[0]
                     : HEADLINES[
-                          parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                          parseInt((conversation?.id || frontendConversationId).split('-').at(-1) as string, 16) %
+                              HEADLINES.length
                       ]
             },
             // It's important we use a deep equality check for outputs, because we want to avoid needless re-renders
@@ -272,6 +322,13 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
                 return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+            },
+        ],
+
+        messagesLoading: [
+            (s) => [s.conversation, s.conversationId],
+            (conversation, conversationId) => {
+                return !!conversationId && !!conversation && conversation.messages === undefined
             },
         ],
 
@@ -288,12 +345,12 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
             (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
-                    return 'Chat history'
+                    return CHAT_TITLE_HISTORY
                 }
 
                 // Existing conversation or the first generation is in progress
                 if (conversationId || conversation) {
-                    return conversation?.title ?? 'New chat'
+                    return conversation?.title ?? CHAT_TITLE_NEW
                 }
 
                 return null
@@ -320,12 +377,26 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.conversationId, s.chatTitle, s.conversationHistoryVisible, s.searchParams],
-            (conversationId, chatTitle, conversationHistoryVisible, searchParams): Breadcrumb[] => {
+            (s) => [
+                s.conversationId,
+                s.chatTitle,
+                s.conversationHistoryVisible,
+                s.searchParams,
+                s.activeStreamingThreads,
+            ],
+            (
+                conversationId,
+                chatTitle,
+                conversationHistoryVisible,
+                searchParams,
+                activeStreamingThreads
+            ): Breadcrumb[] => {
+                const isStreaming = activeStreamingThreads > 0
+                const hasConversationBreadcrumb = !conversationHistoryVisible && conversationId
                 return [
                     {
                         key: Scene.Max,
-                        name: 'AI',
+                        name: hasConversationBreadcrumb ? 'AI' : CHAT_TITLE_NEW,
                         path: urls.ai(),
                         iconType: 'chat',
                     },
@@ -333,19 +404,19 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: 'Chat history',
+                                  name: CHAT_TITLE_HISTORY,
                                   path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
                         : []),
-                    ...(!conversationHistoryVisible && conversationId
+                    ...(hasConversationBreadcrumb
                         ? [
                               {
                                   key: Scene.Max,
                                   name: chatTitle || 'Chat',
                                   path: urls.ai(conversationId),
-                                  iconType: 'chat' as const,
+                                  iconType: isStreaming ? ('loading' as const) : ('chat' as const),
                               },
                           ]
                         : []),
@@ -354,7 +425,30 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        setQuestion: ({ question }) => {
+            // Side panel Max stays mounted across the whole app, so its question reducer
+            // already survives navigation — and there's no removeTab cleanup for it,
+            // which would turn the persisted draft into a memory leak.
+            if (props.tabId && props.tabId !== 'sidepanel') {
+                actions.setChatDraftForTab(props.tabId, question)
+            }
+        },
+        incrActiveStreamingThreads: () => {
+            if (props.tabId) {
+                updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
+            }
+        },
+        decrActiveStreamingThreads: () => {
+            // Reducer runs before listener, so activeStreamingThreads is already decremented.
+            // If still > 0, other streams are active — don't show badge yet.
+            if (values.activeStreamingThreads > 0) {
+                return
+            }
+            if (props.tabId) {
+                updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+            }
+        },
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
@@ -475,10 +569,32 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
+            if (props.tabId && props.tabId !== 'sidepanel') {
+                actions.setChatDraftForTab(props.tabId, '')
+            }
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
+    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
+    subscriptions(({ props }) => ({
+        chatTitle: (title: string | null) => {
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY && props.tabId) {
+                updateInactiveTab(props.tabId, { title })
+            }
+        },
+    })),
+
+    afterMount(({ actions, values, props }) => {
+        // Restore per-tab chat draft (typed but unsent input that should survive scene unmount).
+        // Side panel Max is excluded — it stays mounted globally, doesn't go through removeTab cleanup.
+        if (!values.question && props.tabId && props.tabId !== 'sidepanel') {
+            const draft = values.chatDraftFor(props.tabId)
+            if (draft) {
+                actions.setQuestion(draft)
+            }
+        }
+
         // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
         if (!values.question) {
             try {
@@ -511,7 +627,7 @@ export const maxLogic = kea<maxLogicType>([
         actions.loadConversationHistory()
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiHistory()]: () => {
             if (!values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
@@ -519,6 +635,11 @@ export const maxLogic = kea<maxLogicType>([
         },
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
+                // Clear any existing conversation so the tab title updates
+                if (values.conversationId && values.activeStreamingThreads === 0) {
+                    actions.startNewConversation()
+                }
+
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
@@ -537,7 +658,8 @@ export const maxLogic = kea<maxLogicType>([
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
                     // Pass context directly to askMax to avoid timing issues
-                    actions.askMax(search.ask, true, uiContext)
+                    // kea-router coerces numeric-looking URL params to numbers
+                    actions.askMax(String(search.ask), true, uiContext)
                 }, 100)
                 return
             }
@@ -552,7 +674,7 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         toggleConversationHistory: () => {
             if (values.conversationHistoryVisible) {
                 return [urls.aiHistory(), {}, router.values.location.hash]
@@ -582,21 +704,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
+    // Walk up the DOM and find the nearest ancestor that is actually scrollable.
+    // This is more robust than checking for specific tags or attributes, because
+    // wrapper components like ScrollableShadows place attributes on a non-scrollable
+    // root while the actual scrollable element is a child (ScrollArea.Viewport).
     let current = element.parentElement
     while (current) {
-        if (current.classList.contains('SidePanel3000__content')) {
-            return current
-        }
-        if (current.tagName === 'MAIN') {
-            return current
-        }
-        // New side panel layout (UX_REMOVE_SIDEPANEL flag)
-        if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
-            return current
-        }
-        // Full screen Max with UX_REMOVE_SIDEPANEL flag (AiFirstMaxInstance)
-        if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
-            return current
+        if (current instanceof HTMLElement) {
+            const { overflowY } = getComputedStyle(current)
+            if (overflowY === 'auto' || overflowY === 'scroll') {
+                return current
+            }
         }
         current = current.parentElement
     }
@@ -622,6 +740,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
             {
                 content: 'Calculate a conversion rate for <events or actions>…',
+                requiresUserInput: true,
             },
         ],
         tooltip: 'PostHog AI can generate insights from natural language and tweak existing ones.',
@@ -632,6 +751,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Write an SQL query to…',
+                requiresUserInput: true,
             },
         ],
         url: urls.sqlEditor(),
@@ -643,6 +763,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Find recordings for…',
+                requiresUserInput: true,
             },
         ],
         url: productUrls.replay(),
@@ -654,24 +775,31 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'How can I set up the session replay in <a framework or language>…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the feature flags in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the experiments in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the data warehouse in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the error tracking in…',
+                requiresUserInput: true,
             },
             {
-                content: 'How can I set up the LLM analytics in…',
+                content: 'How can I set up AI observability in…',
+                requiresUserInput: true,
             },
             {
                 content: 'How can I set up the product analytics in…',
+                requiresUserInput: true,
             },
         ],
         tooltip: 'PostHog AI can help you set up PostHog SDKs in your stack.',
@@ -683,15 +811,22 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a flag that starts at 10% rollout for…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a multivariate flag for…',
+                requiresUserInput: true,
             },
             {
                 content: 'Create a beta testing flag for…',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Audit my feature flags for issues',
             },
         ],
     },
@@ -702,9 +837,14 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         suggestions: [
             {
                 content: 'Create an experiment to test…',
+                requiresUserInput: true,
             },
             {
                 content: 'Set up an A/B test with a 70/30 split between control and test for…',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Check if my running experiments are set up correctly',
             },
         ],
     },
@@ -752,6 +892,83 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     },
 ]
 
+export const RESEARCH_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
+    {
+        label: 'User behavior',
+        icon: iconForType('product_analytics'),
+        suggestions: [
+            {
+                content: 'Investigate how retained users behave differently from churned ones',
+            },
+            {
+                content: 'Map the most common user journeys from sign-up to first value moment',
+            },
+            {
+                content: 'Compare behavior patterns between power users and casual users',
+            },
+        ],
+    },
+    {
+        label: 'Growth analysis',
+        icon: iconForType('product_analytics'),
+        suggestions: [
+            {
+                content: 'What are the strongest drivers of user activation?',
+            },
+            {
+                content: 'Compare funnel conversion rates across acquisition channels',
+            },
+            {
+                content: 'Which features correlate most with long-term retention?',
+            },
+        ],
+    },
+    {
+        label: 'Root cause analysis',
+        icon: iconForType('error_tracking'),
+        suggestions: [
+            {
+                content: 'Investigate why <metric> dropped last week',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Find what caused the spike in <event> on <date>',
+                requiresUserInput: true,
+            },
+            {
+                content: 'Analyze where and why users drop off in the onboarding funnel',
+            },
+        ],
+    },
+    {
+        label: 'UX research',
+        icon: iconForType('session_replay'),
+        suggestions: [
+            {
+                content: 'Find session replays showing common user pain points or confusion',
+            },
+            {
+                content: 'Analyze how errors and crashes impact user experience and retention',
+            },
+        ],
+    },
+    {
+        label: 'Data deep dive',
+        icon: iconForType('insight/hog'),
+        suggestions: [
+            {
+                content: 'Build a comprehensive report on power user behavior and characteristics',
+            },
+            {
+                content: 'Run a cohort analysis comparing users by sign-up month',
+            },
+            {
+                content: 'Analyze AI usage patterns and costs across features',
+            },
+        ],
+    },
+]
+
 /**
  * Merges a new conversation into the conversation history.
  */
@@ -773,8 +990,8 @@ export function mergeConversationHistory(
 }
 
 /**
- * Stream returns a `Conversation` object, which doesn't have a `messages` property.
- * However, when we load the conversation history, we get `ConversationDetail` objects.
+ * Streaming and history list responses return `Conversation` objects, which don't have a `messages` property.
+ * Full thread loads return `ConversationDetail` objects.
  * This function merges the two types so that we can use the same logic for both.
  */
 export function mergeConversations(
@@ -786,7 +1003,8 @@ export function mergeConversations(
     }
 
     return {
+        ...oldObj,
         ...newObj,
-        messages: oldObj?.messages ?? [],
+        messages: oldObj?.messages,
     }
 }

@@ -29,15 +29,7 @@
  * }
  * ```
  */
-import {
-    type App,
-    McpUiHostContextChangedNotificationSchema,
-    McpUiToolCancelledNotificationSchema,
-    McpUiToolInputNotificationSchema,
-    McpUiToolResultNotificationSchema,
-    useApp,
-    useHostStyleVariables,
-} from '@modelcontextprotocol/ext-apps/react'
+import { type App, useApp, useHostStyles } from '@modelcontextprotocol/ext-apps/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -61,6 +53,13 @@ export interface UseToolResultOptions {
     appVersion?: string
 }
 
+export interface ContainerDimensions {
+    height?: number
+    maxHeight?: number
+    width?: number
+    maxWidth?: number
+}
+
 export interface UseToolResultReturn<T> {
     /** The parsed tool result data, or null if not yet received */
     data: T | null
@@ -68,12 +67,18 @@ export interface UseToolResultReturn<T> {
     isConnected: boolean
     /** Connection or parsing error, if any */
     error: Error | null
+    /** Whether the tool call was cancelled by the user or host */
+    isCancelled: boolean
     /** The App instance for advanced usage (e.g., opening links) */
     app: App | null
     /** Callback to open a link via the host */
     openLink: (url: string) => void
     /** Capture a custom analytics event */
     capture: typeof capture
+    /** Container dimensions from the host, updated on context changes */
+    containerDimensions: ContainerDimensions | null
+    /** Re-read container dimensions from the host context */
+    refreshContainerDimensions: () => void
 }
 
 /**
@@ -86,6 +91,29 @@ function parseToolResultContent<T>(structuredContent: unknown): T | null {
     }
 
     return null
+}
+
+function extractContainerDimensions(ctx: Record<string, unknown> | undefined | null): ContainerDimensions | null {
+    const dims = ctx?.containerDimensions as Record<string, unknown> | undefined
+    if (!dims) {
+        return null
+    }
+
+    // Need this because TS doesn't want us to set keys with `undefined`
+    const result: ContainerDimensions = {}
+    if (typeof dims.height === 'number') {
+        result.height = dims.height
+    }
+    if (typeof dims.maxHeight === 'number') {
+        result.maxHeight = dims.maxHeight
+    }
+    if (typeof dims.width === 'number') {
+        result.width = dims.width
+    }
+    if (typeof dims.maxWidth === 'number') {
+        result.maxWidth = dims.maxWidth
+    }
+    return result
 }
 
 function log(...args: any[]): void {
@@ -104,6 +132,8 @@ export function useToolResult<T = unknown>({
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
+    const [isCancelled, setIsCancelled] = useState(false)
+    const [containerDimensions, setContainerDimensions] = useState<ContainerDimensions | null>(null)
     const hasLoggedConnection = useRef(false)
 
     // Initialize PostHog on first render
@@ -123,43 +153,40 @@ export function useToolResult<T = unknown>({
             log('App created', { appInstance })
 
             // Register tool input handler
-            appInstance.setNotificationHandler(McpUiToolInputNotificationSchema, (notification) => {
-                // Extract toolName from params if available (may be in extended params)
-                const params = notification.params as Record<string, unknown>
+            appInstance.ontoolinput = (params) => {
                 captureToolInput({
-                    toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
+                    toolName: 'toolName' in params && params.toolName ? (params.toolName as string) : undefined, // toolName is not defined in the type
                     hasArguments: !!params.arguments,
                 })
-            })
+            }
 
             // Do NOT register partial tool input handler (streaming)
             // This is too noisy, happens for each chunk of input we get from the server
-            // appInstance.setNotificationHandler(McpUiToolInputPartialNotificationSchema, () => {})
+            // appInstance.ontoolinputpartial = () => {}
 
             // Register tool cancelled handler
-            appInstance.setNotificationHandler(McpUiToolCancelledNotificationSchema, (notification) => {
-                const params = notification.params as Record<string, unknown>
+            appInstance.ontoolcancelled = (params) => {
+                setIsCancelled(true)
                 captureToolCancelled({
-                    toolName: typeof params.toolName === 'string' ? params.toolName : undefined,
+                    toolName: 'toolName' in params && params.toolName ? (params.toolName as string) : undefined, // toolName is not defined in the type
                     reason: typeof params.reason === 'string' ? params.reason : undefined,
                 })
-            })
+            }
 
             // Register host context changed handler
-            appInstance.setNotificationHandler(McpUiHostContextChangedNotificationSchema, (notification) => {
-                // Cast to access theme which may be in notification params directly
-                const params = notification.params as typeof notification.params & { theme?: string }
+            appInstance.onhostcontextchanged = (params) => {
                 captureHostContextChanged({
-                    hasStyles: !!notification.params.styles,
-                    hasFonts: false, // fonts not available in current SDK schema
-                    theme: params.theme,
+                    hasStyles: !!params.styles,
+                    hasFonts: !!params.styles?.css?.fonts,
+                    theme: typeof params.theme === 'string' ? params.theme : undefined,
                 })
-            })
+                setContainerDimensions(extractContainerDimensions(params))
+            }
 
             // Register tool result handler
-            appInstance.setNotificationHandler(McpUiToolResultNotificationSchema, (notification) => {
+            appInstance.ontoolresult = (params) => {
                 try {
-                    const parsed = parseToolResultContent<T>(notification.params.structuredContent)
+                    const parsed = parseToolResultContent<T>(params.structuredContent)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
@@ -168,8 +195,8 @@ export function useToolResult<T = unknown>({
                     }
 
                     captureToolResult({
-                        hasStructuredContent: !!notification.params.structuredContent,
-                        contentLength: notification.params.content?.length,
+                        hasStructuredContent: !!params.structuredContent,
+                        contentLength: params.content?.length,
                     })
 
                     if (parsed !== null) {
@@ -185,12 +212,12 @@ export function useToolResult<T = unknown>({
                     console.error('[PostHog MCP App UI] Exception:', err)
                     setParseError(err)
                 }
-            })
+            }
         },
     })
 
-    // Apply host styles
-    useHostStyleVariables(app)
+    // Apply host styles (CSS variables, theme, and fonts)
+    useHostStyles(app, app?.getHostContext())
 
     // Track connection state and errors
     useEffect(() => {
@@ -212,6 +239,7 @@ export function useToolResult<T = unknown>({
                 hasFonts: !!hostContextExtended?.fonts,
                 availableDisplayModes: hostContext?.availableDisplayModes,
             })
+            setContainerDimensions(extractContainerDimensions(hostContext as unknown as Record<string, unknown>))
             hasLoggedConnection.current = true
         }
     }, [isConnected, app])
@@ -229,6 +257,15 @@ export function useToolResult<T = unknown>({
         [app]
     )
 
+    // Re-read container dimensions from the current host context
+    const refreshContainerDimensions = useCallback(() => {
+        if (!app) {
+            return
+        }
+        const ctx = app.getHostContext()
+        setContainerDimensions(extractContainerDimensions(ctx as unknown as Record<string, unknown>))
+    }, [app])
+
     // Combine connection and parse errors
     const error = connectionError || parseError
 
@@ -236,8 +273,11 @@ export function useToolResult<T = unknown>({
         data,
         isConnected,
         error,
+        isCancelled,
         app,
         openLink,
         capture,
+        containerDimensions,
+        refreshContainerDimensions,
     }
 }

@@ -9,6 +9,9 @@ from posthog.schema import ArtifactContentType, ErrorBlock, NotebookArtifactCont
 
 from posthog.models import Team
 
+from products.notebooks.backend.models import Notebook
+from products.posthog_ai.backend.models.assistant import AgentArtifact
+
 from ee.hogai.artifacts.handlers.base import (
     ArtifactHandler,
     EnrichmentContext,
@@ -24,7 +27,6 @@ from ee.hogai.artifacts.types import (
 )
 from ee.hogai.context.insight.query_executor import is_supported_query
 from ee.hogai.utils.types.base import AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 
 @register_handler
@@ -121,9 +123,14 @@ class NotebookHandler(ArtifactHandler[StoredNotebookArtifactContent, NotebookArt
                 # Pass through other block types unchanged
                 enriched_blocks.append(block)
 
+        is_saved = False
+        if context.artifact_id:
+            is_saved = await Notebook.objects.filter(team=context.team, short_id=context.artifact_id).aexists()
+
         return NotebookArtifactContent(
             blocks=enriched_blocks,
             title=content.title,
+            is_saved=is_saved,
         )
 
     def get_metadata(self, content: StoredNotebookArtifactContent) -> dict[str, Any]:

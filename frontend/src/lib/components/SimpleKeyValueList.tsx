@@ -1,5 +1,5 @@
 // A React component that renders a list of key-value pairs in a simple way.
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -18,6 +18,41 @@ export interface SimpleKeyValueListProps {
      */
     promotedKeys?: string[]
     sortItems?: boolean
+    /**
+     * Optional action rendered at the end of each row. The second argument is whether the row is
+     * currently hovered, so the action can reveal itself on hover without reaching for a CSS class.
+     */
+    rowActions?: (key: string, isRowHovered: boolean) => ReactNode
+}
+
+function SimpleKeyValueRow({
+    name,
+    value,
+    rowActions,
+}: {
+    name: string
+    value: any
+    rowActions?: (key: string, isRowHovered: boolean) => ReactNode
+}): JSX.Element {
+    const [isHovered, setIsHovered] = useState(false)
+    const isComplexStructure = Array.isArray(value) || isObject(value)
+    return (
+        <div
+            className="flex gap-4 items-start justify-between overflow-hidden"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <span className="font-semibold flex items-center gap-1 min-w-0">
+                <PropertyKeyInfo value={name} />
+                {rowActions ? rowActions(name, isHovered) : null}
+            </span>
+            {isComplexStructure ? (
+                <JSONViewer src={value} collapsed={1} />
+            ) : (
+                <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
+            )}
+        </div>
+    )
 }
 
 export function SimpleKeyValueList({
@@ -26,13 +61,11 @@ export function SimpleKeyValueList({
     promotedKeys,
     header,
     sortItems = true,
+    rowActions,
 }: SimpleKeyValueListProps): JSX.Element {
-    const [sortedItemsPromotedFirst, setSortedItemsPromotedFirst] = useState<[string, any][]>([])
-
-    useEffect(() => {
+    const sortedItemsPromotedFirst = useMemo(() => {
         const sortedItems = sortItems
             ? Object.entries(item).sort((a, b) => {
-                  // if this is a posthog property we want to sort by its label
                   const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
                   const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
 
@@ -46,38 +79,24 @@ export function SimpleKeyValueList({
               })
             : Object.entries(item)
 
-        // promoted items are shown in the order provided
         const promotedItems = promotedKeys?.length
             ? Object.entries(item)
                   .filter(([key]) => promotedKeys.includes(key))
                   .sort((a, b) => promotedKeys.indexOf(a[0]) - promotedKeys.indexOf(b[0]))
             : []
-        // all other keys are provided sorted by key
         const nonPromotedItems = promotedKeys?.length
             ? sortedItems.filter(([key]) => !promotedKeys.includes(key))
             : sortedItems
 
-        setSortedItemsPromotedFirst([...promotedItems, ...nonPromotedItems])
+        return [...promotedItems, ...nonPromotedItems]
     }, [item, promotedKeys, sortItems])
 
     return (
         <div className="text-xs deprecated-space-y-1 max-w-full">
             {header}
-            {sortedItemsPromotedFirst.map(([key, value]) => {
-                const isComplexStructure = Array.isArray(value) || isObject(value)
-                return (
-                    <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
-                        <span className="font-semibold">
-                            <PropertyKeyInfo value={key} />
-                        </span>
-                        {isComplexStructure ? (
-                            <JSONViewer src={value} collapsed={1} />
-                        ) : (
-                            <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
-                        )}
-                    </div>
-                )
-            })}
+            {sortedItemsPromotedFirst.map(([key, value]) => (
+                <SimpleKeyValueRow key={key} name={key} value={value} rowActions={rowActions} />
+            ))}
             {Object.keys(item).length === 0 && emptyMessage}
         </div>
     )

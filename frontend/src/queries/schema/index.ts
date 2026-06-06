@@ -12,6 +12,7 @@ export * from './schema-assistant-replay'
 export * from './schema-assistant-revenue-analytics'
 export * from './schema-assistant-web-analytics'
 export * from './schema-general'
+export * from './schema-signals'
 export * from './schema-surveys'
 // Must be kept after schema-general.
 export * from './schema-assistant-messages'

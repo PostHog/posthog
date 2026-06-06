@@ -39,10 +39,15 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Error message")
 
 
 class PaginationMode(Enum):
@@ -288,7 +293,7 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)
+        UUID(str(key))
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
@@ -303,6 +308,20 @@ INSIGHT_KINDS = {
     "StickinessQuery",
     "LifecycleQuery",
 }
+
+# Queries that should be granted an extended ClickHouse timeout via LimitContext.QUERY_ASYNC.
+# Superset of INSIGHT_KINDS — includes expensive non-insight queries like TracesQuery
+# whose two-phase GROUP BY over the events table can exceed the default 60s limit.
+# Experiment queries are also here: they run synchronously in the web request but can be
+# expensive enough to need the longer timeout.
+ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
+    "TracesQuery",
+    "ExperimentQuery",
+    "ExperimentTrendsQuery",
+    "ExperimentFunnelsQuery",
+    "ExperimentExposureQuery",
+}
+_EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
@@ -325,6 +344,33 @@ def is_insight_query(query: dict) -> bool:
             return True
     if kind == "DataVisualizationNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+    if kind == "InsightVizNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_async_query(query: dict) -> bool:
+    """Check if a query should be granted the extended ClickHouse timeout (LimitContext.QUERY_ASYNC).
+
+    Name is historical: originally these queries all ran via the async/Celery path, but membership
+    now just signals "expensive, needs the longer timeout" regardless of whether execution is sync
+    or async. Superset of is_insight_query — also covers expensive non-insight queries like traces
+    and experiments.
+    """
+    if is_insight_query(query):
+        return True
+
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in _EXTRA_ASYNC_KINDS:
+        return True
+    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+        source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
+        if source_kind in _EXTRA_ASYNC_KINDS:
             return True
 
     return False
@@ -387,13 +433,17 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):
@@ -419,9 +469,16 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
 
 
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    if hostname and has_authority_bypass_chars(hostname):
+        return False
     # if the browser url encodes the hostname, we need to decode it first
     hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
+
+
+def _strip_www(host: str) -> str:
+    """Treat www.domain.com and domain.com as equivalent."""
+    return host[4:] if host.startswith("www.") else host
 
 
 def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
@@ -440,7 +497,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
             pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
             if re.search(pattern, hostname):
                 return True
-        elif permitted_domain == hostname:
+        elif _strip_www(permitted_domain) == _strip_www(hostname):
             return True
 
     return False
@@ -589,12 +646,23 @@ ACTIVITY_TYPES = {
 }
 
 
-def log_activity_from_viewset(viewset, instance, activity=None, name=None, previous=None) -> None:
+def log_activity_from_viewset(
+    viewset, instance, activity=None, name=None, previous=None, detail_type=None, short_id=None
+) -> None:
     try:
         model_class = instance.__class__.__name__
         name = name or model_class
         activity = activity or ACTIVITY_TYPES.get(viewset.action, ACTIVITY_TYPES["default"])
-        changes = changes_between(model_class, previous=previous, current=instance)
+
+        detail_kwargs = {"name": name}
+        if previous is not None:
+            changes = changes_between(model_class, previous=previous, current=instance)
+            detail_kwargs["changes"] = changes
+        if detail_type is not None:
+            detail_kwargs["type"] = detail_type
+        if short_id is not None:
+            detail_kwargs["short_id"] = short_id
+
         log_activity(
             organization_id=viewset.organization.id,
             team_id=viewset.team.id,
@@ -603,7 +671,7 @@ def log_activity_from_viewset(viewset, instance, activity=None, name=None, previ
             item_id=str(instance.id),
             scope=model_class,
             activity=activity,
-            detail=Detail(name=name, changes=changes),
+            detail=Detail(**detail_kwargs),
         )
     except:
         pass

@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
+import type { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -13,23 +14,69 @@ import { settingsLogic } from './settingsLogic'
 import type { settingsSceneLogicType } from './settingsSceneLogicType'
 import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 
+const AI_OBSERVABILITY_SETTINGS_SECTION: SettingSectionId = 'project-ai-observability'
+const AI_OBSERVABILITY_BYOK_SETTING: SettingId = 'ai-observability-byok'
+const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
+
+const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
+    'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
+    'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
+}
+
+const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)
+
+const canonicalSettingsSection = (section: string): string => {
+    if (LEGACY_SETTINGS_SECTIONS[section]) {
+        return LEGACY_SETTINGS_SECTIONS[section]
+    }
+
+    if (section.startsWith('environment') && !section.endsWith('-details') && !section.endsWith('-danger-zone')) {
+        return section.replace(/^environment/, 'project')
+    }
+
+    return section
+}
+
+const canonicalSettingsHashParams = (hashParams: Params): [Params, boolean] => {
+    const nextHashParams = { ...hashParams }
+    let changed = false
+
+    if (hasHashParam(nextHashParams, LEGACY_LLM_ANALYTICS_BYOK_SETTING)) {
+        delete nextHashParams[LEGACY_LLM_ANALYTICS_BYOK_SETTING]
+        nextHashParams[AI_OBSERVABILITY_BYOK_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.setting === LEGACY_LLM_ANALYTICS_BYOK_SETTING) {
+        nextHashParams.setting = AI_OBSERVABILITY_BYOK_SETTING
+        nextHashParams[AI_OBSERVABILITY_BYOK_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.selectedSetting === LEGACY_LLM_ANALYTICS_BYOK_SETTING) {
+        nextHashParams.selectedSetting = AI_OBSERVABILITY_BYOK_SETTING
+        nextHashParams[AI_OBSERVABILITY_BYOK_SETTING] = null
+        changed = true
+    }
+
+    return [nextHashParams, changed]
+}
+
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
     connect(() => ({
         values: [
             settingsLogic({ logicKey: 'settingsScene' }),
-            ['selectedLevel', 'selectedSectionId', 'sections', 'settings', 'sections'],
+            ['selectedLevel', 'selectedSectionId', 'selectedSection', 'sections', 'settings'],
         ],
         actions: [settingsLogic({ logicKey: 'settingsScene' }), ['selectLevel', 'selectSection', 'selectSetting']],
     })),
 
     selectors({
         breadcrumbs: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
-            (selectedLevel, selectedSectionId, sections): Breadcrumb[] => {
-                const sectionName = selectedSectionId
-                    ? sections.find((x) => x.id === selectedSectionId)?.title
-                    : capitalizeFirstLetter(selectedLevel)
+            (s) => [s.selectedLevel, s.selectedSectionId, s.selectedSection],
+            (selectedLevel, selectedSectionId, selectedSection): Breadcrumb[] => {
+                const sectionName = selectedSection?.title ?? capitalizeFirstLetter(selectedLevel)
 
                 return [
                     {
@@ -72,14 +119,28 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 return
             }
 
-            // Redirect environment URLs to project URLs
-            if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
-                section = section.replace(/^environment/, 'project')
+            const canonicalSection = canonicalSettingsSection(section)
+            const [hashParams, didCanonicalizeHashParams] = canonicalSettingsHashParams(router.values.hashParams)
+
+            // Use `replace` so legacy settings URLs don't become dead back-button entries.
+            if (canonicalSection !== section || didCanonicalizeHashParams) {
+                router.actions.replace(
+                    urls.settings(canonicalSection as SettingSectionId),
+                    router.values.searchParams,
+                    hashParams
+                )
+                return
             }
 
             if (SettingLevelIds.includes(section as SettingLevelId)) {
-                if (section !== values.selectedLevel || values.selectedSectionId) {
-                    actions.selectLevel(section as SettingLevelId)
+                // Redirect level-only URLs to the first section at that level
+                const level = section as SettingLevelId
+                const effectiveLevel = level === 'environment' ? 'project' : level
+                const firstSection = values.sections.find((s) => s.level === effectiveLevel)
+                if (firstSection) {
+                    router.actions.replace(urls.settings(firstSection.id))
+                } else {
+                    actions.selectLevel(effectiveLevel)
                 }
             } else if (section !== values.selectedSectionId) {
                 actions.selectSection(
@@ -91,19 +152,19 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        // Replacing history item instead of pushing, so that the environments<>project redirect doesn't affect history
+        // Replace history for level changes, so the environments<>project redirect doesn't leave dead history entries.
+        // Section/setting changes push real history entries so the back button works between settings.
         selectLevel({ level }) {
             return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams, { replace: true }]
+            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
         },
         selectSetting({ setting }) {
             return [
                 urls.settings(values.selectedSectionId ?? values.selectedLevel),
                 router.values.searchParams,
                 { ...router.values.hashParams, setting },
-                { replace: true },
             ]
         },
     })),

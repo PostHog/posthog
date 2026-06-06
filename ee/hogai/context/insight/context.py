@@ -2,8 +2,10 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.models import Insight, Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -36,8 +38,10 @@ class InsightContext:
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
+        user: User | None = None,
     ):
         self.team = team
+        self.user = user
         self.query = query
         self.name = name
         self.description = description
@@ -73,6 +77,7 @@ class InsightContext:
         self,
         prompt_template: str = INSIGHT_RESULT_TEMPLATE,
         return_exceptions: bool = False,
+        truncate_results: bool = True,
     ) -> str:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
@@ -83,6 +88,8 @@ class InsightContext:
                 self.team,
                 effective_query,
                 insight_id=self.insight_model_id,
+                truncate_results=truncate_results,
+                user=self.user,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"

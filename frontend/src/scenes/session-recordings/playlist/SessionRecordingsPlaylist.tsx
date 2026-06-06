@@ -1,18 +1,21 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
+import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -20,21 +23,29 @@ export function SessionRecordingsPlaylist({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
+        onlyPinned: props.type === 'collection',
     }
 
-    const { isWindowLessThan } = useWindowSize()
-    const isVerticalLayout = isWindowLessThan('xl')
+    const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
+    const windowSaysVertical = isWindowLessThan('xl')
+
+    // Don't switch layout while in fullscreen — it would unmount the fullscreen element
+    const layoutRef = useRef(windowSaysVertical)
+    if (!document.fullscreenElement) {
+        layoutRef.current = windowSaysVertical
+    }
+    const isVerticalLayout = layoutRef.current
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="w-full h-full flex flex-col xl:flex-row xl:gap-2">
+            <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
                 {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
             </div>
         </BindLogic>
@@ -45,7 +56,6 @@ function HorizontalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -53,7 +63,6 @@ function HorizontalLayout({
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
-
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
         containerRef: playlistRef,
@@ -70,18 +79,26 @@ function HorizontalLayout({
         <>
             <div
                 ref={playlistRef}
-                className={clsx('relative flex flex-col shrink-0', {
+                className={cn('relative flex flex-col shrink-0', {
                     'w-3': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 265, maxWidth: '50%' }}
+                style={
+                    isPlaylistCollapsed
+                        ? {}
+                        : {
+                              width: desiredSize ?? 320,
+                              minWidth: 'min-content',
+                              maxWidth: '50%',
+                          }
+                }
             >
                 <Playlist {...props} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
             </div>
-            <PlayerWrapper {...props} className="h-full flex-1 shrink min-w-96" />
+            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
         </>
     )
 }
@@ -90,7 +107,6 @@ function VerticalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -129,63 +145,10 @@ function VerticalLayout({
                     ) : null
                 }
             />
-            <div className={clsx('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
+            <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
                 <Playlist {...props} />
             </div>
         </>
-    )
-}
-
-function AttachedPlayer({
-    playlistProps,
-    activeSessionRecording,
-    matchingEventsMatchType,
-    pinnedRecordings,
-    onPlayNextRecording,
-}: {
-    playlistProps: SessionRecordingPlaylistLogicProps
-    activeSessionRecording: any
-    matchingEventsMatchType: any
-    pinnedRecordings: any[]
-    onPlayNextRecording: () => void
-}): JSX.Element {
-    const playerKey = playlistProps.logicKey ?? 'playlist'
-
-    // Attach player logic to playlist logic so it persists across tab switches
-    // Pass autoPlay from playlistProps to match what the component will use
-    useAttachedLogic(
-        sessionRecordingPlayerLogic({
-            playerKey,
-            sessionRecordingId: activeSessionRecording.id,
-            matchingEventsMatchType,
-            autoPlay: playlistProps.autoPlay,
-        }),
-        sessionRecordingsPlaylistLogic(playlistProps)
-    )
-
-    return (
-        <SessionRecordingPlayer
-            playerKey={playerKey}
-            sessionRecordingId={activeSessionRecording.id}
-            matchingEventsMatchType={matchingEventsMatchType}
-            autoPlay={playlistProps.autoPlay}
-            onRecordingDeleted={() => {
-                sessionRecordingsPlaylistLogic.actions.loadAllRecordings()
-                sessionRecordingsPlaylistLogic.actions.setSelectedRecordingId(null)
-            }}
-            pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-            setPinned={
-                playlistProps.onPinnedChange
-                    ? (pinned) => {
-                          if (!activeSessionRecording.id) {
-                              return
-                          }
-                          playlistProps.onPinnedChange?.(activeSessionRecording, pinned)
-                      }
-                    : undefined
-            }
-            playNextRecording={onPlayNextRecording}
-        />
     )
 }
 
@@ -208,48 +171,93 @@ function PlayerWrapper({
 }): JSX.Element {
     const {
         filters,
-        pinnedRecordings,
+        visiblePinnedRecordings: pinnedRecordings,
         matchingEventsMatchType,
         activeSessionRecording,
         allowHogQLFilters,
         totalFiltersCount,
         nextSessionRecording,
+        pinnedFilters,
+        sessionRecordingsResponseLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+        useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
 
     const onPlayNextRecording = useCallback(() => {
-        if (nextSessionRecording?.id) {
+        if (nextSessionRecording?.id && !isFiltersExpanded) {
             setSelectedRecordingId(nextSessionRecording.id)
         }
-    }, [nextSessionRecording, setSelectedRecordingId])
+    }, [nextSessionRecording, setSelectedRecordingId, isFiltersExpanded])
 
     return (
         <div
             ref={containerRef}
-            className={clsx('Playlist__main relative overflow-hidden', className, 'min-h-96')}
+            className={cn('Playlist__main relative overflow-hidden', className, 'min-h-96')}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
-            {isFiltersExpanded ? (
-                <div className="h-full rounded border">
+            {isFiltersExpanded && (
+                <div className="h-full overflow-y-auto rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
                         filters={filters}
                         setFilters={setFilters}
                         totalFiltersCount={totalFiltersCount}
                         allowReplayHogQLFilters={allowHogQLFilters}
+                        pinnedFilters={pinnedFilters}
                     />
                 </div>
-            ) : showContent && activeSessionRecording ? (
-                <AttachedPlayer
-                    playlistProps={props}
-                    activeSessionRecording={activeSessionRecording}
-                    matchingEventsMatchType={matchingEventsMatchType}
-                    pinnedRecordings={pinnedRecordings}
-                    onPlayNextRecording={onPlayNextRecording}
-                />
+            )}
+            {showContent && activeSessionRecording ? (
+                <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
+                    <SessionRecordingPlayer
+                        playerKey={props.logicKey ?? 'playlist'}
+                        sessionRecordingId={activeSessionRecording.id}
+                        matchingEventsMatchType={matchingEventsMatchType}
+                        autoPlay={props.autoPlay}
+                        onRecordingDeleted={() => {
+                            loadAllRecordings()
+                            setSelectedRecordingId(null)
+                        }}
+                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                        setPinned={
+                            props.onPinnedChange
+                                ? (pinned) => {
+                                      if (!activeSessionRecording.id) {
+                                          return
+                                      }
+                                      props.onPinnedChange?.(activeSessionRecording, pinned)
+                                  }
+                                : undefined
+                        }
+                        playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                    />
+                </div>
+            ) : sessionRecordingsResponseLoading ? (
+                <div className="relative flex flex-col h-full p-4">
+                    {/* Player skeleton background */}
+                    <div className="flex-1 flex flex-col gap-2">
+                        {/* Video area skeleton */}
+                        <LemonSkeleton className="flex-1 w-full rounded" />
+                        {/* Controller bar skeleton */}
+                        <div className="flex gap-2">
+                            <LemonSkeleton className="h-10 w-20" />
+                            <LemonSkeleton className="h-10 flex-1" />
+                            <LemonSkeleton className="h-10 w-32" />
+                        </div>
+                    </div>
+
+                    {/* Centered hedgehog overlay */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <FilmCameraHog className="w-60 h-60" />
+                        <div className="mt-4 flex items-center gap-2">
+                            <Spinner textColored />
+                            <span className="text-secondary">Loading recordings...</span>
+                        </div>
+                    </div>
+                </div>
             ) : (
                 <div className="mt-20">
                     <EmptyMessage

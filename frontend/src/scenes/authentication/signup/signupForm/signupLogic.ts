@@ -1,5 +1,4 @@
 import { startRegistration } from '@simplewebauthn/browser'
-import { isString } from '@tiptap/core'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
@@ -13,8 +12,8 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
-import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import { urls } from 'scenes/urls'
 
 import type { signupLogicType } from './signupLogicType'
@@ -40,12 +39,18 @@ export interface SignupPanelOnboardingForm {
     organization_name: string
     role_at_organization: string
     referral_source: string
+    referral_source_ai_prompt: string
+}
+
+export interface PendingInvite {
+    organization_name: string
 }
 
 interface SignupEmailPrecheckResponse {
     email_exists: boolean
     code?: string
     detail?: string
+    pending_invite?: PendingInvite | null
 }
 
 // Keep SignupForm for backwards compatibility
@@ -70,6 +75,18 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
         setError: (error: string | null) => ({ error }),
+        // Turnstile challenge actions
+        setChallengeRequired: (required: boolean) => ({ required }),
+        setChallengeNonce: (nonce: string | null) => ({ nonce }),
+        setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        resetChallenge: true,
+        // Pending-invite banner actions
+        setPendingInvite: (invite: PendingInvite | null) => ({ invite }),
+        dismissPendingInvite: true,
+        resendPendingInvite: (email: string) => ({ email }),
+        setPendingInviteResent: (resent: boolean) => ({ resent }),
+        setPendingInviteResending: (resending: boolean) => ({ resending }),
     })),
     reducers(() => ({
         panel: [
@@ -109,6 +126,54 @@ export const signupLogic = kea<signupLogicType>([
                 setError: (_, { error }) => error,
             },
         ],
+        challengeRequired: [
+            false,
+            {
+                setChallengeRequired: (_, { required }) => required,
+                resetChallenge: () => false,
+            },
+        ],
+        challengeNonce: [
+            null as string | null,
+            {
+                setChallengeNonce: (_, { nonce }) => nonce,
+                resetChallenge: () => null,
+            },
+        ],
+        turnstileSiteKey: [
+            null as string | null,
+            {
+                setTurnstileSiteKey: (_, { siteKey }) => siteKey,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetChallenge: () => null,
+            },
+        ],
+        pendingInvite: [
+            null as PendingInvite | null,
+            {
+                setPendingInvite: (_, { invite }) => invite,
+                dismissPendingInvite: () => null,
+            },
+        ],
+        pendingInviteResent: [
+            false,
+            {
+                setPendingInviteResent: (_, { resent }) => resent,
+                setPendingInvite: () => false,
+                dismissPendingInvite: () => false,
+            },
+        ],
+        isPendingInviteResending: [
+            false,
+            {
+                setPendingInviteResending: (_, { resending }) => resending,
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         signupPanelEmail: {
@@ -129,8 +194,9 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
                 actions.setError(null)
+                let precheckResponse: SignupEmailPrecheckResponse
                 try {
-                    await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                    precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
                         email,
                     })
                 } catch (e: any) {
@@ -148,6 +214,12 @@ export const signupLogic = kea<signupLogicType>([
                     })
                     return
                 }
+                const pendingInvite = precheckResponse.pending_invite ?? null
+                if (pendingInvite && (router.values.searchParams as Record<string, string>).skip_invite_check !== '1') {
+                    actions.setPendingInvite(pendingInvite)
+                    return
+                }
+                actions.setPendingInvite(null)
                 actions.setPanel(1)
             },
         },
@@ -178,6 +250,7 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: '',
                 role_at_organization: '',
                 referral_source: '',
+                referral_source_ai_prompt: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name ? 'Please enter your name' : undefined,
@@ -195,12 +268,18 @@ export const signupLogic = kea<signupLogicType>([
                         organization_name: payload.organization_name || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
+                        referral_source_ai_prompt: payload.referral_source_ai_prompt,
                         next_url: nextUrl ?? undefined,
                     }
 
                     // Only include password for password-based signup
                     if (!values.passkeyRegistered && values.signupPanelAuth.password) {
                         signupData.password = values.signupPanelAuth.password
+                    }
+
+                    if (values.turnstileToken && values.challengeNonce) {
+                        signupData.turnstile_token = values.turnstileToken
+                        signupData.challenge_nonce = values.challengeNonce
                     }
 
                     const res = await api.create('api/signup/', signupData)
@@ -218,6 +297,16 @@ export const signupLogic = kea<signupLogicType>([
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanelOnboardingManualErrors({
@@ -286,6 +375,12 @@ export const signupLogic = kea<signupLogicType>([
                     actions.setPanel(0)
                     return
                 }
+                const pendingInvite = precheckResponse.pending_invite ?? null
+                if (pendingInvite && (router.values.searchParams as Record<string, string>).skip_invite_check !== '1') {
+                    actions.setPendingInvite(pendingInvite)
+                    return
+                }
+                actions.setPendingInvite(null)
                 actions.setPanel(1)
             },
         },
@@ -297,6 +392,7 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: '',
                 role_at_organization: '',
                 referral_source: '',
+                referral_source_ai_prompt: '',
             } as SignupForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name ? 'Please enter your name' : undefined,
@@ -307,14 +403,21 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
-                    const res = await api.create('api/signup/', {
+                    const signupData: Record<string, any> = {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
                         next_url: nextUrl ?? undefined,
-                    })
+                    }
+
+                    if (values.turnstileToken && values.challengeNonce) {
+                        signupData.turnstile_token = values.turnstileToken
+                        signupData.challenge_nonce = values.challengeNonce
+                    }
+
+                    const res = await api.create('api/signup/', signupData)
 
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
@@ -325,6 +428,16 @@ export const signupLogic = kea<signupLogicType>([
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanel2ManualErrors({
@@ -351,8 +464,7 @@ export const signupLogic = kea<signupLogicType>([
             (s) => [s.signupPanelAuth, s.signupPanel1],
             (signupPanelAuth, signupPanel1): ValidatedPasswordResult => {
                 // Use new form if available, fallback to legacy
-                const password = signupPanelAuth.password || signupPanel1.password
-                return validatePassword(password)
+                return validatePassword(signupPanelAuth.password || signupPanel1.password)
             },
         ],
         emailCaseNotice: [
@@ -375,8 +487,11 @@ export const signupLogic = kea<signupLogicType>([
             },
         ],
         panelTitle: [
-            (s) => [s.panel, s.passkeySignupEnabled, s.preflight],
-            (panel: number, passkeySignupEnabled: boolean, preflight): string => {
+            (s) => [s.panel, s.passkeySignupEnabled, s.preflight, s.pendingInvite],
+            (panel: number, passkeySignupEnabled: boolean, preflight, pendingInvite): string => {
+                if (panel === 0 && pendingInvite) {
+                    return ''
+                }
                 if (preflight?.demo) {
                     return 'Explore PostHog yourself'
                 }
@@ -399,6 +514,22 @@ export const signupLogic = kea<signupLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        dismissPendingInvite: () => {
+            // User chose to proceed with creating a new organization despite the pending invite.
+            actions.setPanel(1)
+        },
+        resendPendingInvite: async ({ email }, breakpoint) => {
+            actions.setPendingInviteResending(true)
+            try {
+                await api.create('api/signup/resend-invite', { email })
+                breakpoint()
+                actions.setPendingInviteResent(true)
+            } catch {
+                lemonToast.error('Could not resend the invite email. Please try again.')
+            } finally {
+                actions.setPendingInviteResending(false)
+            }
+        },
         normalizeEmailWithDelay: async ({ email }, breakpoint) => {
             await breakpoint(500)
 
@@ -430,6 +561,15 @@ export const signupLogic = kea<signupLogicType>([
             if (registered) {
                 // Advance to onboarding panel after successful passkey registration
                 actions.setPanel(2)
+            }
+        },
+        setTurnstileToken: ({ token }) => {
+            if (token && values.challengeNonce) {
+                if (values.passkeySignupEnabled) {
+                    actions.submitSignupPanelOnboarding()
+                } else {
+                    actions.submitSignupPanel2()
+                }
             }
         },
         registerPasskey: async () => {
@@ -475,7 +615,9 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setPasskeyRegistered(true)
                 actions.setSignupPanelAuthValue('password', '') // Clear password since we're using passkey
             } catch (e: any) {
-                actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                if (!isWebAuthnCancellation(e)) {
+                    actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                }
             } finally {
                 actions.setPasskeyRegistering(false)
             }
@@ -488,7 +630,7 @@ export const signupLogic = kea<signupLogicType>([
                 const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
                 const regionsAllowList = ['eu', 'us']
                 const isRegionOverrideValid =
-                    isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
+                    typeof regionOverrideFlag === 'string' && regionsAllowList.includes(regionOverrideFlag)
                 // KLUDGE: the backend can technically return null
                 // and, we don't want to redirect to the app unless the preflight region is valid
                 const isPreflightRegionValid =

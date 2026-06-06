@@ -4,9 +4,10 @@ OAuth 2.0 Dynamic Client Registration (RFC 7591)
 Allows MCP clients to register themselves without prior authentication.
 This is required by the MCP OAuth specification for seamless client onboarding.
 
-Note: We only support PUBLIC clients (token_endpoint_auth_method: "none").
-MCP clients run on user devices and cannot securely store a client_secret.
-Security is provided by PKCE (required for all OAuth flows).
+Supports both public clients (token_endpoint_auth_method: "none") and
+confidential clients (token_endpoint_auth_method: "client_secret_post").
+Public clients rely on PKCE for security. Confidential clients (e.g. claude.ai)
+can securely store a client_secret server-side.
 """
 
 from typing import Any
@@ -16,6 +17,8 @@ from django.core.validators import RegexValidator
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
+from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import AbstractApplication
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -25,6 +28,7 @@ from rest_framework.views import APIView
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
+from posthog.scopes import UNPRIVILEGED_SCOPES
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +36,26 @@ logger = structlog.get_logger(__name__)
 # These prevent malicious apps from impersonating official PostHog applications
 BLOCKED_CLIENT_NAME_PREFIXES = ["posthog"]  # Block names starting with these
 BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names containing these
+
+
+def filter_dcr_scopes(scope: str) -> list[str]:
+    """Parse an RFC 7591 space-delimited `scope` string into a deduped list,
+    keeping only scopes in `UNPRIVILEGED_SCOPES`. Order is preserved so the
+    response echo matches what the client kept.
+
+    Allow-list, not deny-list: a self-serve DCR client may only register safe
+    scopes. `UNPRIVILEGED_SCOPES` excludes privileged (`llm_gateway:*`), internal
+    (`signal_scout_internal`, ...), hidden (`metrics`, `wizard_session`), and any
+    unknown/junk string — none of which may reach the per-app ceiling, since
+    `/authorize` would otherwise grant them on a user-consented token."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in scope.split():
+        if token not in UNPRIVILEGED_SCOPES or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
 
 
 def validate_client_name(value: str) -> None:
@@ -94,10 +118,15 @@ class DCRRequestSerializer(serializers.Serializer):
         help_text="OAuth response types the client will use",
     )
     token_endpoint_auth_method = serializers.ChoiceField(
-        choices=["none"],
+        choices=["none", "client_secret_post"],
         required=False,
         default="none",
-        help_text="How the client authenticates at the token endpoint (only 'none' supported for public clients)",
+        help_text="How the client authenticates at the token endpoint: 'none' for public clients, 'client_secret_post' for confidential clients",
+    )
+    scope = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Space-delimited OAuth scopes (RFC 7591). Sets the client's scope ceiling; privileged scopes are stripped, and a set that strips to nothing is rejected. Omit to use the default scope set.",
     )
 
 
@@ -128,20 +157,46 @@ class DynamicClientRegistrationView(APIView):
         data = serializer.validated_data
         now = timezone.now()
 
-        # Create the OAuth application
-        # Model's clean() validates redirect URIs (HTTPS, loopback, custom schemes)
+        is_confidential = data.get("token_endpoint_auth_method") == "client_secret_post"
+        client_type = AbstractApplication.CLIENT_CONFIDENTIAL if is_confidential else AbstractApplication.CLIENT_PUBLIC
+
+        # Generate the secret before create() so we can return the plaintext
+        # for confidential clients. The model's ClientSecretField.pre_save()
+        # hashes it automatically on save. Public clients also get a secret
+        # (via the model default) but we generate it explicitly here to keep
+        # the create() call simple -- we just don't return it in the response.
+        plaintext_secret = generate_client_secret()
+
+        requested_scope = data.get("scope")
+        app_scopes = filter_dcr_scopes(requested_scope) if requested_scope else []
+
+        # A non-empty `scope` that filters to nothing means the client asked only for
+        # scopes it can't self-register (privileged/internal/hidden/unknown). Reject
+        # rather than store an empty ceiling: an empty ceiling resolves to the broad
+        # default at /authorize, so silently accepting would widen the client beyond
+        # what it requested. Absent / "" / null `scope` is the legitimate "use default"
+        # path and falls through to an empty ceiling below.
+        if requested_scope and not app_scopes:
+            return Response(
+                {
+                    "error": "invalid_client_metadata",
+                    "error_description": "None of the requested scopes are available to self-registered clients. Omit `scope` to register with the default scope set.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             app = OAuthApplication.objects.create(
                 name=data.get("client_name", "MCP Client"),
                 redirect_uris=" ".join(data["redirect_uris"]),
-                client_type=AbstractApplication.CLIENT_PUBLIC,
+                client_type=client_type,
+                client_secret=plaintext_secret,
                 authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
                 algorithm="RS256",
                 skip_authorization=False,
-                # DCR-specific fields
                 is_dcr_client=True,
                 dcr_client_id_issued_at=now,
-                # No organization or user - DCR clients are anonymous
+                scopes=app_scopes,
                 organization=None,
                 user=None,
             )
@@ -178,17 +233,39 @@ class DynamicClientRegistrationView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Build response
+        posthoganalytics.capture(
+            distinct_id=str(app.client_id),
+            event="dcr_application_created",
+            properties={
+                "client_name": data.get("client_name", "MCP Client"),
+                "app_id": str(app.pk),
+                "client_type": "confidential" if is_confidential else "public",
+                "redirect_uris_count": len(data["redirect_uris"]),
+            },
+        )
+
+        auth_method = data.get("token_endpoint_auth_method", "none")
+
+        # Build response per RFC 7591 Section 3.2
         response_data: dict[str, Any] = {
             "client_id": str(app.client_id),
             "redirect_uris": data["redirect_uris"],
             "grant_types": data.get("grant_types", ["authorization_code"]),
             "response_types": data.get("response_types", ["code"]),
-            "token_endpoint_auth_method": "none",
+            "token_endpoint_auth_method": auth_method,
             "client_id_issued_at": int(now.timestamp()),
         }
 
+        if is_confidential:
+            response_data["client_secret"] = plaintext_secret
+            response_data["client_secret_expires_at"] = 0  # 0 = never expires per RFC 7591
+
         if data.get("client_name"):
             response_data["client_name"] = data["client_name"]
+
+        # RFC 7591 Section 3.2.1: when the server modifies requested scopes, it
+        # returns the registered `scope` so the client sees the privileged-strip.
+        if app_scopes:
+            response_data["scope"] = " ".join(app_scopes)
 
         return Response(response_data, status=status.HTTP_201_CREATED)

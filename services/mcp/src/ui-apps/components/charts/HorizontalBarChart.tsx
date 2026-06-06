@@ -1,6 +1,13 @@
 import type { ReactElement } from 'react'
 
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+
 import { formatNumber } from '../utils'
+
+// TODO(quill): replace with a Quill chart primitive (e.g. `HorizontalBarChart`
+// / `Charts.HorizontalBar`) once Quill ships one. Quill currently has no
+// chart layer. Empty state already routes through Quill's `Empty` primitive.
 
 const BAR_HEIGHT = 32
 const BAR_GAP = 8
@@ -27,15 +34,12 @@ const DEFAULT_COLOR = 'var(--posthog-chart-1, #1d4ed8)'
 export function HorizontalBarChart({ bars, maxValue, color = DEFAULT_COLOR }: HorizontalBarChartProps): ReactElement {
     if (bars.length === 0) {
         return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No data available
-            </div>
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
+                    <EmptyDescription>No data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
         )
     }
 

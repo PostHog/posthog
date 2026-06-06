@@ -1,21 +1,19 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
-import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { makeLogger } from 'scenes/session-recordings/player/rrweb'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { RecordingSegment } from '~/types'
 
+import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
     BLOB_SOURCE_V2,
@@ -23,9 +21,210 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
+import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
+jest.mock('./utils/playerUtils', () => ({
+    ...jest.requireActual('./utils/playerUtils'),
+    deleteRecording: jest.fn().mockResolvedValue(undefined),
+}))
+
+const makeEvent = (timestamp: number, type: number = EventType.IncrementalSnapshot): eventWithTime =>
+    ({ timestamp, type, data: { source: IncrementalSource.MouseMove } }) as unknown as eventWithTime
+
+describe('findNewEvents', () => {
+    it.each([
+        {
+            description: 'forward-only: new events appended at end',
+            all: [100, 200, 300, 400, 500],
+            current: [100, 200, 300],
+            expected: [400, 500],
+        },
+        {
+            description: 'backward: new events inserted before existing',
+            all: [100, 200, 300, 400, 500],
+            current: [300, 400, 500],
+            expected: [100, 200],
+        },
+        {
+            description: 'mixed: new events at both ends',
+            all: [100, 200, 300, 400, 500],
+            current: [200, 300, 400],
+            expected: [100, 500],
+        },
+        {
+            description: 'equal timestamps: correctly counts duplicates',
+            all: [100, 100, 100, 200],
+            current: [100, 100],
+            expected: [100, 200],
+        },
+        {
+            description: 'no new events',
+            all: [100, 200, 300],
+            current: [100, 200, 300],
+            expected: [],
+        },
+        {
+            description: 'empty current: all events are new',
+            all: [100, 200, 300],
+            current: [],
+            expected: [100, 200, 300],
+        },
+        {
+            description: 'interleaved: new events fill gaps',
+            all: [100, 150, 200, 250, 300],
+            current: [100, 200, 300],
+            expected: [150, 250],
+        },
+    ])('$description', ({ all, current, expected }) => {
+        const allSnapshots = all.map((ts) => makeEvent(ts))
+        const currentEvents = current.map((ts) => makeEvent(ts))
+        const result = findNewEvents(allSnapshots, currentEvents)
+        expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('stripRrwebScriptShims', () => {
+    const countTag = (html: string, tag: string): number => (html.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+
+    it.each([
+        { description: 'empty string', input: '' },
+        { description: 'no noscript tags', input: '<head></head><body><div>hello</div></body>' },
+    ])('passes through unchanged when there is nothing to strip ($description)', ({ input }) => {
+        expect(stripRrwebScriptShims(input)).toBe(input)
+    })
+
+    it('removes inline-script shims (noscript with SCRIPT_PLACEHOLDER body)', () => {
+        const input = '<head></head><body><p>real</p><noscript>SCRIPT_PLACEHOLDER</noscript></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).not.toContain('SCRIPT_PLACEHOLDER')
+        expect(output).not.toContain('<noscript')
+        expect(output).toContain('<p>real</p>')
+    })
+
+    it('removes external-script shims (noscript with src/type/async attrs)', () => {
+        const input =
+            '<head><noscript type="text/javascript" async="" src="https://cdn.example.com/array.js"></noscript></head><body></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).not.toContain('<noscript')
+        expect(output).not.toContain('cdn.example.com/array.js')
+    })
+
+    it('removes every noscript when many appear in a row (the reported repro)', () => {
+        const input =
+            '<head>' +
+            '<noscript type="text/javascript" async="" src="https://pcdn.example.com/array.js"></noscript>' +
+            '<noscript>SCRIPT_PLACEHOLDER</noscript>' +
+            '<noscript>SCRIPT_PLACEHOLDER</noscript>' +
+            '</head><body><h1>page</h1></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(countTag(output, 'noscript')).toBe(0)
+        expect(output).not.toContain('SCRIPT_PLACEHOLDER')
+        expect(output).toContain('<h1>page</h1>')
+    })
+
+    it('preserves surrounding DOM structure (head + body content)', () => {
+        const input =
+            '<head><title>t</title><noscript>SCRIPT_PLACEHOLDER</noscript></head>' +
+            '<body><main><p>kept</p></main></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).toContain('<title>t</title>')
+        expect(output).toContain('<main><p>kept</p></main>')
+        expect(countTag(output, 'noscript')).toBe(0)
+    })
+})
+
+describe('findSegmentForTimestamp', () => {
+    const makeSegment = (
+        overrides: Partial<RecordingSegment> & Pick<RecordingSegment, 'startTimestamp' | 'endTimestamp'>
+    ): RecordingSegment => ({
+        kind: 'window',
+        isActive: true,
+        durationMs: overrides.endTimestamp - overrides.startTimestamp,
+        windowId: 1,
+        ...overrides,
+    })
+
+    const segments: RecordingSegment[] = [
+        makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: 1 }),
+        makeSegment({ kind: 'gap', startTimestamp: 2000, endTimestamp: 3000, windowId: 1, isActive: false }),
+        makeSegment({ startTimestamp: 3000, endTimestamp: 5000, windowId: 2 }),
+    ]
+
+    it('returns null for undefined timestamp', () => {
+        expect(findSegmentForTimestamp(segments, undefined)).toBeNull()
+    })
+
+    it('returns null for empty segments', () => {
+        expect(findSegmentForTimestamp([], 1500)).toBeNull()
+    })
+
+    it('returns the matching segment when timestamp is in range', () => {
+        const result = findSegmentForTimestamp(segments, 1500)
+        expect(result).toEqual(segments[0])
+    })
+
+    it('returns the matching segment at exact start boundary', () => {
+        expect(findSegmentForTimestamp(segments, 1000)).toEqual(segments[0])
+    })
+
+    it('returns the matching segment at exact end boundary', () => {
+        expect(findSegmentForTimestamp(segments, 2000)).toEqual(segments[0])
+    })
+
+    it('returns gap segment when timestamp is in a gap', () => {
+        const result = findSegmentForTimestamp(segments, 2500)
+        expect(result).toEqual(segments[1])
+    })
+
+    it('falls back to first segment with windowId when timestamp is before all segments', () => {
+        const result = findSegmentForTimestamp(segments, 500)
+        expect(result).toEqual(segments[0])
+        expect(result?.windowId).toBe(1)
+    })
+
+    it('falls back to last segment with windowId when timestamp is after all segments', () => {
+        const result = findSegmentForTimestamp(segments, 9999)
+        expect(result).toEqual(segments[2])
+        expect(result?.windowId).toBe(2)
+    })
+
+    it('skips segments without windowId when falling back', () => {
+        const segmentsWithLeadingGap: RecordingSegment[] = [
+            makeSegment({ kind: 'gap', startTimestamp: 0, endTimestamp: 1000, windowId: undefined, isActive: false }),
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: 1 }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithLeadingGap, -500)
+        expect(result?.windowId).toBe(1)
+    })
+
+    it('returns synthetic buffer as last resort when no segment has windowId and timestamp is before', () => {
+        const segmentsWithoutWindowId: RecordingSegment[] = [
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: undefined }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithoutWindowId, 500)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.windowId).toBe(undefined)
+        expect(result?.startTimestamp).toBe(500)
+        expect(result?.endTimestamp).toBe(999)
+    })
+
+    it('returns synthetic buffer as last resort when no segment has windowId and timestamp is after', () => {
+        const segmentsWithoutWindowId: RecordingSegment[] = [
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: undefined }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithoutWindowId, 3000)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.windowId).toBe(undefined)
+        expect(result?.startTimestamp).toBe(3000)
+        expect(result?.endTimestamp).toBe(2001)
+    })
+})
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -49,6 +248,28 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('currentPlayerTime clamping', () => {
+        // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
+        const START = 1682952380877
+        const DURATION = 11868
+
+        it.each([
+            { description: 'before start', timestamp: START - 1000, expected: 0 },
+            { description: 'at start', timestamp: START, expected: 0 },
+            { description: 'at midpoint', timestamp: START + 5000, expected: 5000 },
+            { description: 'at end', timestamp: START + DURATION, expected: DURATION },
+            { description: 'beyond end', timestamp: START + DURATION + 5000, expected: DURATION },
+        ])('clamps to [$expected] when $description', async ({ timestamp, expected }) => {
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            logic.actions.setCurrentTimestamp(timestamp)
+
+            expect(logic.values.currentPlayerTime).toBe(expected)
         })
     })
 
@@ -153,9 +374,47 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             expect(logic.cache.hasInitialized).toBeFalsy()
         })
+
+        // Seeking past the end of a recording should not leave the player
+        // stuck buffering. See #53686, #53893.
+        it('handles out-of-range ?t= parameter without getting stuck', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: '999' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // The player must have a valid timestamp and not be stuck in
+            // an unrecoverable state. endReached may legitimately be true
+            // here — updateAnimation detects end-of-recording after the
+            // normal BUFFER → load cycle completes. The important thing
+            // is the player initialized (didn't get stuck before
+            // tryInitReplayer) and isn't permanently buffering.
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
+            expect(logic.values.isBuffering).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {
+        const mockedDeleteRecording = deleteRecordingMock as jest.MockedFunction<typeof deleteRecordingMock>
+
+        beforeEach(() => {
+            mockedDeleteRecording.mockResolvedValue(undefined)
+        })
+
         it('calls onRecordingDeleted callback when provided', async () => {
             silenceKeaLoadersErrors()
             const onRecordingDeleted = jest.fn()
@@ -166,7 +425,6 @@ describe('sessionRecordingPlayerLogic', () => {
                 onRecordingDeleted,
             })
             logic.mount()
-            jest.spyOn(api, 'delete')
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -174,12 +432,12 @@ describe('sessionRecordingPlayerLogic', () => {
                 .toDispatchActions(['deleteRecording'])
                 .toFinishAllListeners()
 
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(mockedDeleteRecording).toHaveBeenCalledWith('3')
             expect(onRecordingDeleted).toHaveBeenCalled()
             resumeKeaLoadersErrors()
         })
 
-        it('on a single recording page', async () => {
+        it('does not navigate away after delete', async () => {
             silenceKeaLoadersErrors()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
@@ -187,46 +445,39 @@ describe('sessionRecordingPlayerLogic', () => {
                 blobV2PollingDisabled: true,
             })
             logic.mount()
-            jest.spyOn(api, 'delete')
             router.actions.push(urls.replaySingle('3'))
+            const pathBefore = router.values.location.pathname
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
                 .toDispatchActions(['deleteRecording'])
-                .toNotHaveDispatchedActions([
-                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
-                ])
                 .toFinishAllListeners()
 
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replay())
-
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(router.values.location.pathname).toEqual(pathBefore)
+            expect(mockedDeleteRecording).toHaveBeenCalledWith('3')
             resumeKeaLoadersErrors()
         })
 
-        it('on a single recording modal', async () => {
+        it('does not mark recording as deleted when API call fails', async () => {
             silenceKeaLoadersErrors()
+            mockedDeleteRecording.mockRejectedValue(new Error('API error'))
+
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
                 blobV2PollingDisabled: true,
             })
             logic.mount()
-            jest.spyOn(api, 'delete')
+            deletedRecordingsLogic.mount()
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
                 .toDispatchActions(['deleteRecording'])
-                .toNotHaveDispatchedActions([
-                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
-                ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual('/project/997')
-
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(deletedRecordingsLogic.values.deletedRecordingIds.has('3')).toBe(false)
             resumeKeaLoadersErrors()
         })
     })
@@ -296,11 +547,9 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('the logger override', () => {
-        it('captures replayer warnings', async () => {
-            jest.useFakeTimers()
-
-            let warningCounts = 0
-            const logger = makeLogger((x) => (warningCounts += x))
+        it('captures replayer warnings and logs to window stores', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
 
             logger.logger.warn('[replayer]', 'test')
             logger.logger.warn('[replayer]', 'test2')
@@ -311,14 +560,33 @@ describe('sessionRecordingPlayerLogic', () => {
                 ['[replayer]', 'test2'],
             ])
             expect((window as any).__posthog_player_logs).toEqual([['[replayer]', 'test3']])
+            expect(categories).toEqual(['test', 'test2'])
+        })
 
-            jest.runOnlyPendingTimers()
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 2 warnings (window.__posthog_player_warnings to safely log them)'
-            )
-            expect(mockWarn).toHaveBeenCalledWith(
-                '[PostHog Replayer] 1 logs (window.__posthog_player_logs to safely log them)'
-            )
+        it('calls onWarning with categorized message per warning', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+            logger.logger.warn('[replayer]', 'Mutation target not found')
+
+            expect(categories).toEqual([
+                'Unknown tag: custom-element',
+                'Unknown tag: custom-element',
+                'Mutation target not found',
+            ])
+        })
+
+        it('filters out ignored warnings', () => {
+            const categories: string[] = []
+            const logger = makeLogger((category) => categories.push(category))
+
+            logger.logger.warn('[replayer]', 'Could not find node with id 42. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Could not find node with id 99. Skipping mutation.')
+            logger.logger.warn('[replayer]', 'Unknown tag: custom-element')
+
+            expect(categories).toEqual(['Unknown tag: custom-element'])
         })
     })
 
@@ -482,7 +750,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
-                logic.actions.incrementWarningCount(2)
+                logic.cache.rrwebWarningCount = 2
                 logic.actions.incrementErrorCount()
 
                 logic.unmount()

@@ -4,7 +4,7 @@ import { IconCheckCircle, IconCopy, IconInfo, IconWarning } from '@posthog/icons
 import { LemonButton, LemonModal, LemonSwitch, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -106,11 +106,6 @@ export function TwoFactorSettings(): JSX.Element {
             )}
 
             <div className="space-y-1">
-                <p className="text-muted mb-4">
-                    Enable two-factor authentication (2FA) to add an extra layer of security to your account. You can
-                    use one or both methods below.
-                </p>
-
                 {/* 2FA Status Indicator */}
                 <div className="mb-4 flex items-center deprecated-space-x-2">
                     {status?.is_enabled ? (

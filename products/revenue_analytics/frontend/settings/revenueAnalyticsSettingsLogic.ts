@@ -9,7 +9,6 @@ import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -23,6 +22,8 @@ import {
     SubscriptionDropoffMode,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
 
@@ -65,7 +66,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             databaseTableListLogic,
             ['database'],
@@ -73,7 +74,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         actions: [
             teamLogic,
             ['updateCurrentTeam'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['updateSourceRevenueAnalyticsConfig', 'deleteJoin'],
             eventUsageLogic,
             [
@@ -247,8 +248,9 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 if (!changesMade) {
                     return 'No changes to save'
                 }
-                if (config.events.some((event) => !event.revenueProperty)) {
-                    return 'Revenue property must be set'
+                const eventMissingRevenueProperty = config.events.find((event) => !event.revenueProperty)
+                if (eventMissingRevenueProperty) {
+                    return `Select a numeric revenue property for "${eventMissingRevenueProperty.eventName}". If you don't see your property, make sure it's marked as numeric in Property Definitions.`
                 }
 
                 return null
@@ -309,22 +311,51 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         ],
     }),
     listeners(({ actions, values }) => {
-        const updateCurrentTeam = (): void => {
-            if (values.revenueAnalyticsConfig) {
-                actions.updateCurrentTeam({ revenue_analytics_config: values.revenueAnalyticsConfig })
-                lemonToast.success('Revenue analytics config saved')
-            }
-        }
-
         return {
             addGoal: () => {
-                updateCurrentTeam()
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: {
+                            ...values.revenueAnalyticsConfig,
+                            goals: values.revenueAnalyticsConfig.goals,
+                        },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpRevenueGoal)
             },
-            deleteGoal: updateCurrentTeam,
-            updateGoal: updateCurrentTeam,
+            deleteGoal: () => {
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: {
+                            ...values.revenueAnalyticsConfig,
+                            goals: values.revenueAnalyticsConfig.goals,
+                        },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
+            },
+            updateGoal: () => {
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: {
+                            ...values.revenueAnalyticsConfig,
+                            goals: values.revenueAnalyticsConfig.goals,
+                        },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
+            },
             save: () => {
-                updateCurrentTeam()
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: {
+                            ...values.revenueAnalyticsConfig,
+                            events: values.revenueAnalyticsConfig.events,
+                        },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                }
 
                 // Mark ConnectRevenueSource as completed when saving with events configured
                 if ((values.revenueAnalyticsConfig?.events?.length ?? 0) > 0) {
@@ -332,8 +363,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 }
             },
             updateFilterTestAccounts: ({ filterTestAccounts }) => {
-                updateCurrentTeam()
-                actions.reportRevenueAnalyticsTestAccountFilterUpdated(filterTestAccounts)
+                if (values.revenueAnalyticsConfig) {
+                    actions.updateCurrentTeam({
+                        revenue_analytics_config: {
+                            ...values.revenueAnalyticsConfig,
+                            filter_test_accounts: filterTestAccounts,
+                        },
+                    })
+                    lemonToast.success('Revenue analytics config saved')
+                    actions.reportRevenueAnalyticsTestAccountFilterUpdated(filterTestAccounts)
+                }
             },
             deleteEvent: ({ eventName }) => actions.reportRevenueAnalyticsEventDeleted(eventName),
             updateSourceRevenueAnalyticsConfig: ({ source, config }) => {

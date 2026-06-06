@@ -1,46 +1,48 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
 import { HogFlow } from '~/schema/hogflow'
 
-import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
+import {
+    createOrganization,
+    createTeam,
+    getFirstTeam,
+    getTeam,
+    resetTestDatabase,
+    updateOrganizationAvailableFeatures,
+} from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
     createIncomingEvent,
-    createInternalEvent,
     createKafkaMessage,
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
-import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 jest.setTimeout(1000)
 
-/**
- * NOTE: The internal and normal events consumers are very similar so we can test them together
- */
-describe.each([
-    [CdpEventsConsumer.name, CdpEventsConsumer, 'destination' as const],
-    [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
-])('%s', (_name, Consumer, hogType) => {
-    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+describe('CdpEventsConsumer', () => {
+    let processor: CdpEventsConsumer
     let hub: Hub
     let team: Team
     let team2: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const teamId = hogFunction.team_id ?? team.id
         const item = await _insertHogFunction(hub.postgres, teamId, {
             ...hogFunction,
-            type: hogType,
+            type: 'destination',
         })
         // Trigger the reload that django would do
         processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
@@ -50,17 +52,22 @@ describe.each([
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub) // This team has data_pipelines feature by default (legacy addon)
+        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))! // This team does NOT have data_pipelines
+        team2 = (await getTeam(hub.postgres, team2Id))! // This team does NOT have data_pipelines
 
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new Consumer(hub)
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockJobQueue,
+            hogflowQueue: mockJobQueue,
+        })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -69,13 +76,7 @@ describe.each([
             isHealthy: jest.fn(),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })
@@ -99,16 +100,10 @@ describe.each([
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const events =
-                processor instanceof CdpInternalEventsConsumer
-                    ? [
-                          createKafkaMessage(createInternalEvent(team.id, {})),
-                          createKafkaMessage(createInternalEvent(team2.id, {})),
-                      ]
-                    : [
-                          createKafkaMessage(createIncomingEvent(team.id, {})),
-                          createKafkaMessage(createIncomingEvent(team2.id, {})),
-                      ]
+            const events = [
+                createKafkaMessage(createIncomingEvent(team.id, {})),
+                createKafkaMessage(createIncomingEvent(team2.id, {})),
+            ]
             const invocations = await processor._parseKafkaBatch(events)
             expect(invocations).toHaveLength(1)
             expect(invocations[0].project.id).toBe(team.id)
@@ -221,7 +216,7 @@ describe.each([
                 )
 
                 // Billing is per-event, not per-destination: 1 event → 2 destinations = 1 billable_invocation
-                if (hogType === 'destination') {
+                {
                     const billingMetrics = metrics.filter((m: any) => m.value.metric_name === 'billable_invocation')
                     expect(billingMetrics).toHaveLength(1)
                     expect(billingMetrics[0].value).toMatchObject({
@@ -251,7 +246,7 @@ describe.each([
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 ).toMatchObject([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -264,7 +259,7 @@ describe.each([
                         },
                     },
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -277,24 +272,20 @@ describe.each([
                         },
                     },
                     // Billing is per-event: 1 event → 1 destination = 1 billable_invocation
-                    ...(hogType !== 'destination'
-                        ? []
-                        : [
-                              {
-                                  key: expect.any(String),
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: '_event_trigger',
-                                      instance_id: globals.event.uuid,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                          ]),
+                    {
+                        key: null,
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: '_event_trigger',
+                            instance_id: globals.event.uuid,
+                            count: 1,
+                            metric_kind: 'billing',
+                            metric_name: 'billable_invocation',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
                 ])
             })
 
@@ -333,7 +324,7 @@ describe.each([
                 ])
             })
 
-            if (hogType === 'destination') {
+            {
                 it('should bill once per event, not per destination (multiple events)', async () => {
                     // Create a second event with different UUID
                     const globals2 = createHogExecutionGlobals({
@@ -534,7 +525,7 @@ describe.each([
                 await processor.processBatch([globals])
                 expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -560,7 +551,7 @@ describe.each([
 })
 
 describe('hog flow processing', () => {
-    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+    let processor: CdpEventsConsumer
     let hub: Hub
     let team: Team
 
@@ -576,8 +567,13 @@ describe('hog flow processing', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
-        processor = new CdpEventsConsumer(hub)
+        team = await getFirstTeam(hub.postgres)
+        const mockQueue = createMockJobQueue()
+
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockQueue,
+            hogflowQueue: mockQueue,
+        })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -585,12 +581,6 @@ describe('hog flow processing', () => {
             disconnect: jest.fn(),
             isHealthy: jest.fn(),
         } as any
-
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
 
         await processor.start()
     })
@@ -629,7 +619,7 @@ describe('hog flow processing', () => {
             hogFlow.trigger = {} as any
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -646,7 +636,7 @@ describe('hog flow processing', () => {
                 .build()
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -663,7 +653,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const noInvocations = await processor['createHogFlowInvocations']([
+            const noInvocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([
                 {
                     ...globals,
                     event: {
@@ -675,7 +665,7 @@ describe('hog flow processing', () => {
 
             expect(noInvocations).toHaveLength(0)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
                 functionId: hogFlow.id,
@@ -706,7 +696,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            await processor['createHogFlowInvocations']([globals])
+            await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             const producedMetrics =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
@@ -743,7 +733,7 @@ describe('hog flow processing', () => {
 
         it('should not process workflows with email actions when team has email quota limit', async () => {
             // Mock quota limiting for email
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
                     return resource === 'workflow_emails'
@@ -783,17 +773,17 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should have no invocations returned due to quota limiting
             expect(invocations).toHaveLength(0)
 
             // Should have checked quota limits
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_emails'
             )
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_destinations_dispatched'
             )
@@ -820,7 +810,7 @@ describe('hog flow processing', () => {
 
         it('should not process workflows with destination actions when team has destination quota limit', async () => {
             // Mock quota limiting for destinations
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
                     return resource === 'workflow_destinations_dispatched'
@@ -860,10 +850,10 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(0)
-            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+            expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
                 'workflow_destinations_dispatched'
             )
@@ -871,7 +861,7 @@ describe('hog flow processing', () => {
 
         it('should process workflows without limited action types even when quotas exist', async () => {
             // Mock quota limiting for both
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
 
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
@@ -907,7 +897,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should process the workflow since it doesn't have email or destination actions
             expect(invocations).toHaveLength(1)
@@ -921,7 +911,7 @@ describe('hog flow processing', () => {
 
         it('should process workflows when team has no quota limits', async () => {
             // No quota limits
-            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
+            ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
 
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
@@ -957,7 +947,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
@@ -966,6 +956,207 @@ describe('hog flow processing', () => {
                     id: hogFlow.id,
                 },
             })
+        })
+
+        it('should load group properties before building invocations', async () => {
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const spy = jest.spyOn(processor['groupsManager'], 'addGroupsToGlobalsList')
+
+            await processor.processBatch([globals])
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            expect(spy).toHaveBeenCalledWith([globals])
+        })
+    })
+
+    describe('group properties enrichment', () => {
+        let globals: HogFunctionInvocationGlobals
+
+        const setupGroups = async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, team.organization_id, [
+                { key: 'data_pipelines', name: 'Data Pipelines' },
+                { key: 'group_analytics', name: 'Group Analytics' },
+            ])
+            hub.teamManager['lazyLoader'].clear()
+
+            const mockGroupRepo: GroupReadRepository = {
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                    {
+                        team_id: team.id,
+                        group_type_index: 0,
+                        group_key: 'acme-inc',
+                        group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                    },
+                    {
+                        team_id: team.id,
+                        group_type_index: 1,
+                        group_key: 'project-alpha',
+                        group_properties: { name: 'Project Alpha', status: 'active' },
+                    },
+                ]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                    const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
+                    for (const id of teamIds) {
+                        result[id.toString()] = [
+                            { group_type: 'company', group_type_index: 0 },
+                            { group_type: 'project', group_type_index: 1 },
+                        ]
+                    }
+                    return Promise.resolve(result)
+                }),
+                fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
+            }
+
+            processor['groupsManager'] = new GroupsManagerService(hub.teamManager, mockGroupRepo)
+        }
+
+        beforeEach(() => {
+            globals = createHogExecutionGlobals({
+                groups: undefined, // Must be undefined so addGroupsToGlobals actually enriches
+                project: {
+                    id: team.id,
+                } as any,
+                event: {
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                        $groups: { company: 'acme-inc', project: 'project-alpha' },
+                    },
+                } as any,
+            })
+        })
+
+        it('should enrich globals with group properties for hogflow invocations', async () => {
+            await setupGroups()
+
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].functionId).toBe(hogFlow.id)
+
+            // Verify the globals were enriched with group properties
+            expect(globals.groups).toEqual({
+                company: expect.objectContaining({
+                    id: 'acme-inc',
+                    type: 'company',
+                    index: 0,
+                    properties: { name: 'Acme Inc', industry: 'Tech' },
+                }),
+                project: expect.objectContaining({
+                    id: 'project-alpha',
+                    type: 'project',
+                    index: 1,
+                    properties: { name: 'Project Alpha', status: 'active' },
+                }),
+            })
+        })
+
+        it('should include group properties in hogflow filterGlobals', async () => {
+            await setupGroups()
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+
+            // filterGlobals should have group keys and properties populated
+            const filterGlobals = (invocations[0] as any).filterGlobals
+            expect(filterGlobals.$group_0).toBe('acme-inc')
+            expect(filterGlobals.$group_1).toBe('project-alpha')
+            expect(filterGlobals.group_0).toEqual({
+                properties: { name: 'Acme Inc', industry: 'Tech' },
+            })
+            expect(filterGlobals.group_1).toEqual({
+                properties: { name: 'Project Alpha', status: 'active' },
+            })
+        })
+
+        it('should have empty groups when event has no $groups property', async () => {
+            await setupGroups()
+
+            globals.event.properties = {
+                $current_url: 'https://posthog.com',
+                $lib_version: '1.0.0',
+            }
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(globals.groups).toEqual({})
+
+            // filterGlobals should have null group keys and empty properties
+            const filterGlobals = (invocations[0] as any).filterGlobals
+            expect(filterGlobals.$group_0).toBeNull()
+            expect(filterGlobals.group_0).toEqual({ properties: {} })
+        })
+
+        it('should have empty groups when team lacks group_analytics feature', async () => {
+            // Don't call setupGroups - team only has data_pipelines by default
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(globals.groups).toEqual({})
         })
     })
 })

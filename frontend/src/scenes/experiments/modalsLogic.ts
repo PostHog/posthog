@@ -4,8 +4,8 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import type { modalsLogicType } from './modalsLogicType'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 export const modalsLogic = kea<modalsLogicType>([
     path(['scenes', 'experiments', 'modalsLogic']),
@@ -18,10 +18,8 @@ export const modalsLogic = kea<modalsLogicType>([
         closeExperimentCollectionGoalModal: true,
         openExposureCriteriaModal: true,
         closeExposureCriteriaModal: true,
-        openShipVariantModal: true,
-        closeShipVariantModal: true,
-        openStopExperimentModal: true,
-        closeStopExperimentModal: true,
+        openFinishExperimentModal: true,
+        closeFinishExperimentModal: true,
         openPauseExperimentModal: true,
         closePauseExperimentModal: true,
         openResumeExperimentModal: true,
@@ -36,6 +34,8 @@ export const modalsLogic = kea<modalsLogicType>([
         closeDescriptionModal: true,
         openStatsEngineModal: true,
         closeStatsEngineModal: true,
+        openCupedModal: true,
+        closeCupedModal: true,
         openPrimaryMetricModal: (uuid: string) => ({ uuid }),
         closePrimaryMetricModal: true,
         openSecondaryMetricModal: (uuid: string) => ({ uuid }),
@@ -50,8 +50,6 @@ export const modalsLogic = kea<modalsLogicType>([
         closeSecondarySharedMetricModal: true,
         openVariantDeltaTimeseriesModal: true,
         closeVariantDeltaTimeseriesModal: true,
-        openCalculateRunningTimeModal: true,
-        closeCalculateRunningTimeModal: true,
         openPrimaryMetricsReorderModal: true,
         closePrimaryMetricsReorderModal: true,
         openSecondaryMetricsReorderModal: true,
@@ -74,18 +72,11 @@ export const modalsLogic = kea<modalsLogicType>([
                 closeExposureCriteriaModal: () => false,
             },
         ],
-        isShipVariantModalOpen: [
+        isFinishExperimentModalOpen: [
             false,
             {
-                openShipVariantModal: () => true,
-                closeShipVariantModal: () => false,
-            },
-        ],
-        isStopExperimentModalOpen: [
-            false,
-            {
-                openStopExperimentModal: () => true,
-                closeStopExperimentModal: () => false,
+                openFinishExperimentModal: () => true,
+                closeFinishExperimentModal: () => false,
             },
         ],
         isPauseExperimentModalOpen: [
@@ -172,13 +163,6 @@ export const modalsLogic = kea<modalsLogicType>([
                 closeVariantDeltaTimeseriesModal: () => false,
             },
         ],
-        isCalculateRunningTimeModalOpen: [
-            false,
-            {
-                openCalculateRunningTimeModal: () => true,
-                closeCalculateRunningTimeModal: () => false,
-            },
-        ],
         isPrimaryMetricsReorderModalOpen: [
             false,
             {
@@ -205,6 +189,13 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openStatsEngineModal: () => true,
                 closeStatsEngineModal: () => false,
+            },
+        ],
+        isCupedModalOpen: [
+            false,
+            {
+                openCupedModal: () => true,
+                closeCupedModal: () => false,
             },
         ],
         isRunningTimeConfigModalOpen: [

@@ -10,6 +10,9 @@ from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
 
+REDACTED_HEADERS = {"cookie", "set-cookie"}
+MASKED_HEADERS = {"authorization"}
+
 
 def _looks_like_email(value: str) -> bool:
     return "@" in value and "." in value.rpartition("@")[2]
@@ -71,6 +74,19 @@ def mask_scim_payload(data: Any, depth: int = 0) -> Any:
             return data
 
 
+def mask_headers(headers: dict[str, str]) -> dict[str, str]:
+    result = {}
+    for key, value in headers.items():
+        normalized = key.lower().strip()
+        if normalized in REDACTED_HEADERS:
+            continue
+        if normalized in MASKED_HEADERS:
+            result[key] = "***"
+        else:
+            result[key] = value
+    return result
+
+
 def enable_scim_for_domain(domain: OrganizationDomain) -> str:
     """
     Enable SCIM for an OrganizationDomain and generate a new bearer token.
@@ -121,7 +137,7 @@ def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityPr
     """
     Detect identity provider from request User-Agent header.
     """
-    user_agent = request.META.get("HTTP_USER_AGENT", "").lower()
+    user_agent = request.headers.get("user-agent", "").lower()
 
     if "okta" in user_agent:
         return SCIMProvisionedUser.IdentityProvider.OKTA

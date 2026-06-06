@@ -5,18 +5,20 @@ import { useMemo } from 'react'
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { TZLabel } from 'lib/components/TZLabel'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -29,11 +31,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus } from '~/types'
+import {
+    EventDefinition,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionVerificationStatus,
+} from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -77,6 +84,43 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
     },
 })
 
+function PrimaryPropertyDetail({ definition }: { definition: EventDefinition }): JSX.Element {
+    const taxonomyPrimary = getPrimaryPropertyForEvent(definition.name)
+    const teamOverride = definition.primary_property
+    const effective = taxonomyPrimary ?? teamOverride
+    const isBuiltIn = !!taxonomyPrimary
+
+    return (
+        <div className="flex flex-col flex-1 basis-48 min-w-48">
+            <h5>Primary property</h5>
+            <b>
+                {effective ? (
+                    <span className="flex items-center gap-1">
+                        <PropertyKeyInfo
+                            value={effective}
+                            type={TaxonomicFilterGroupType.EventProperties}
+                            disableIcon
+                        />
+                        {isBuiltIn && (
+                            <Tooltip title="This is a built-in default for this event. Team overrides are not applied to events with a built-in primary property.">
+                                <LemonTag type="muted" size="small">
+                                    Built-in
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </span>
+                ) : (
+                    '-'
+                )}
+            </b>
+            <p className="italic text-secondary text-xs mt-1 mb-0">
+                If set, this property's value is shown alongside the event name in surfaces like the session replay
+                inspector.
+            </p>
+        </div>
+    )
+}
+
 export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
@@ -118,10 +162,15 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
     const statusProps = getStatusProps(isProperty)
 
+    const formattedName = getFilterLabel(
+        definition.name,
+        isEvent ? TaxonomicFilterGroupType.Events : TaxonomicFilterGroupType.EventProperties
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
-                name={definition.name}
+                name={formattedName}
                 resourceType={
                     isEvent
                         ? {
@@ -235,53 +284,72 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
-                <EditableField
-                    multiline
-                    name="description"
-                    markdown
-                    value={definition.description || ''}
-                    placeholder="Description (optional)"
-                    mode="view"
-                    data-attr="definition-description-view"
-                    className="definition-description"
-                    compactButtons
-                    maxLength={600}
-                />
-                <ObjectTags
-                    tags={definition.tags ?? []}
-                    data-attr="definition-tags-view"
-                    className="definition-tags"
-                    saving={definitionLoading}
-                />
-
-                <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap gap-2 items-center text-secondary">
-                    <div>{isProperty ? 'Property' : 'Event'} name:</div>
-                    <LemonTag className="font-mono">{definition.name}</LemonTag>
+                {formattedName !== definition.name && (
+                    <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div>{isProperty ? 'Property' : 'Event'} name:</div>
+                        <LemonTag className="font-mono">{definition.name}</LemonTag>
+                    </div>
+                )}
+                <h5>Description</h5>
+                <div className="definition-description my-2" data-attr="definition-description-view">
+                    {definition.description || (
+                        <span className="text-muted italic">Add a description for this {singular}</span>
+                    )}
                 </div>
+                {definition.tags && definition.tags.length > 0 && (
+                    <ObjectTags
+                        tags={definition.tags}
+                        data-attr="definition-tags-view"
+                        className="definition-tags"
+                        saving={definitionLoading}
+                    />
+                )}
+
+                {!!(definition as EventDefinition).media_preview_urls?.length && (
+                    <div className="mt-4">
+                        <h5 className="mb-2">
+                            Preview{' '}
+                            <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
+                        <ImageCarousel imageUrls={(definition as EventDefinition).media_preview_urls!} />
+                    </div>
+                )}
+                <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
             </div>
 
             <SceneDivider />
 
-            <div className="flex flex-wrap">
+            <div className="flex flex-wrap gap-4">
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
-                        <h5>First seen</h5>
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>
+                            First seen{' '}
+                            <Tooltip title="This is the first time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the earliest event.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
                         <b>{definition.created_at ? <TZLabel time={definition.created_at} /> : '-'}</b>
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
-                        <h5>Last seen</h5>
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>
+                            Last seen{' '}
+                            <Tooltip title="This is the last time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the latest event.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
                             <Tooltip title="Number of times this event has been queried in the last 30 days">
-                                <IconInfo />
+                                <IconInfo className="text-sm" />
                             </Tooltip>
                         </h5>
                         <b>
@@ -295,24 +363,31 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 )}
 
                 {definitionStatus && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>Verification status</h5>
                         <div>
-                            <Tooltip title={statusProps[definitionStatus].tooltip}>
-                                <LemonTag type={statusProps[definitionStatus].tagType}>
-                                    {statusProps[definitionStatus].icon}
-                                    {statusProps[definitionStatus].label}
-                                </LemonTag>
-                            </Tooltip>
+                            <LemonTag type={statusProps[definitionStatus].tagType}>
+                                {statusProps[definitionStatus].icon}
+                                {statusProps[definitionStatus].label}
+                            </LemonTag>
                         </div>
+                        <p className="italic text-secondary text-xs mt-1 mb-0">
+                            {statusProps[definitionStatus].tooltip}
+                        </p>
                     </div>
                 )}
 
                 {isProperty && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>Property type</h5>
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
+                )}
+
+                {isEvent && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                        <PrimaryPropertyDetail definition={definition as EventDefinition} />
+                    </FlaggedFeature>
                 )}
             </div>
 

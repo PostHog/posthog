@@ -37,6 +37,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
+import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -69,7 +70,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             groupsModel,
             ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
-            ['sceneConfig'],
+            ['sceneConfig', 'activeSceneId'],
             navigationLogic,
             ['mobileLayout'],
             sessionRecordingSavedFiltersLogic,
@@ -355,19 +356,39 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
-            (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
+            (s) => [
+                s.sceneConfig,
+                s.isCurrentOrganizationUnavailable,
+                s.zenMode,
+                s.activeSceneId,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (
+                sceneConfig,
+                isCurrentOrganizationUnavailable,
+                zenMode,
+                activeSceneId,
+                featureFlags
+            ): Navigation3000Mode => {
                 if (zenMode) {
                     return 'zen'
                 }
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
                 }
-                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
-                    ? 'minimal'
-                    : sceneConfig?.layout !== 'plain'
-                      ? 'full'
-                      : 'none'
+                if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
+                    if (activeSceneId === Scene.Onboarding) {
+                        // A flow variant can opt to own the whole viewport (no navbar); the
+                        // existing ONBOARDING_NAVBAR='hide' flag stays as a separate override.
+                        const variantHidesNavbar =
+                            onboardingVariantChrome(resolveOnboardingFlowVariant(featureFlags)) === 'none'
+                        if (variantHidesNavbar || featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide') {
+                            return 'none'
+                        }
+                    }
+                    return 'minimal'
+                }
+                return sceneConfig?.layout !== 'plain' ? 'full' : 'none'
             },
         ],
         isNavShown: [
@@ -483,14 +504,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        {
-                            identifier: Scene.RevenueAnalytics,
-                            label: 'Revenue analytics',
-                            icon: <IconPiggyBank />,
-                            to: urls.revenueAnalytics(),
-                            tag: 'beta' as const,
-                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                        },
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -578,19 +601,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
                             ? {
                                   identifier: Scene.UserInterviews,
-                                  label: 'User interviews',
+                                  label: 'User research',
                                   icon: <IconChat />,
                                   tag: 'alpha' as const,
                                   to: urls.userInterviews(),
                               }
                             : null,
                         {
-                            identifier: 'LLMAnalytics',
-                            label: 'LLM analytics',
+                            identifier: 'AIObservability',
+                            label: 'AI observability',
                             icon: <IconLlmAnalytics />,
-                            to: urls.llmAnalyticsDashboard(),
-                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                            to: urls.aiObservabilityDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/ai-observability/dashboard',
                         },
+                        featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]
+                            ? {
+                                  identifier: 'MCPAnalytics',
+                                  label: 'MCP analytics',
+                                  icon: <IconLlmAnalytics />,
+                                  to: urls.mcpAnalyticsDashboard(),
+                                  tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
+                              }
+                            : null,
                         {
                             identifier: Scene.Logs,
                             label: 'Logs',
@@ -615,10 +647,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Apps,
-                            label: 'Apps',
+                            identifier: Scene.WebScripts,
+                            label: 'Web scripts',
                             icon: <IconPlug />,
-                            to: urls.apps(),
+                            to: urls.webScripts(),
                             tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {

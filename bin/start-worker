@@ -4,11 +4,11 @@ set -e
 # this kills all processes when the last one terminates
 trap 'kill $(jobs -p)' EXIT
 
-export CLICKHOUSE_API_USER="api"
-export CLICKHOUSE_API_PASSWORD="apipass"
-export CLICKHOUSE_APP_USER="app"
-export CLICKHOUSE_APP_PASSWORD="apppass"
-
+# Service connection defaults (CLICKHOUSE_*, DATABASE_URL, KAFKA_HOSTS, …)
+# live in .env.services and are loaded by the parent process — bin/start
+# sources them directly, hogli loads them via config.env.files, and the
+# hobby docker stack injects them via docker-compose env_file. Do not
+# re-export them here.
 source ./bin/celery-queues.env
 
 # start celery worker with heartbeat (-B)
@@ -16,7 +16,17 @@ python manage.py run_autoreload_celery --type=worker &
 python manage.py run_autoreload_celery --type=beat &
 
 if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
-  ./bin/posthog-node
+  # Runs separate node processes for each server class:
+  # - default: CDP, logs, evaluation scheduler (PluginServer)
+  # - ingestion-v2-combined: event ingestion (IngestionGeneralServer)
+  # - recordings-blob-ingestion-v2: session replay ingestion (IngestionSessionReplayServer)
+  # - recording-api: session replay API (RecordingApiServer)
+  # - ingestion-errortracking: error tracking ingestion (ErrorTrackingServer)
+  ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node &
+  PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node &
 fi
 
 wait

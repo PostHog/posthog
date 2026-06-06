@@ -11,7 +11,7 @@ const DUMMIES: ProfileBubblesProps['people'] = [
     { email: 'joe@posthog.com', name: 'Joe' },
 ]
 
-const meta: Meta<typeof ProfileBubblesComponent> = {
+const meta: Meta<ProfileBubblesProps> = {
     title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
     parameters: {

@@ -1,29 +1,34 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
-import { IconBalance, IconFlag } from '@posthog/icons'
+import { IconFlag, IconLock } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
-    LemonInput,
     LemonModal,
+    LemonSwitch,
     LemonTable,
     LemonTableColumns,
+    LemonTag,
+    Link,
 } from '@posthog/lemon-ui'
 
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-
+import { AuthorizedUrlList } from '~/lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from '~/lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
+import { IconOpenInApp } from '~/lib/lemon-ui/icons'
+import {
+    useVariantDistributionValidation,
+    VariantDistributionEditor,
+} from '~/scenes/experiments/ExperimentForm/VariantDistributionEditor'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { modalsLogic } from '~/scenes/experiments/modalsLogic'
 import { MultivariateFlagVariant } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
-import { isEvenlyDistributed } from '../utils'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
-import { VariantTag } from './components'
+import { VariantTag } from './VariantTag'
 
 export function DistributionModal(): JSX.Element {
     const { experiment, experimentLoading } = useValues(experimentLogic)
@@ -31,46 +36,45 @@ export function DistributionModal(): JSX.Element {
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
 
-    const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
-    const { setFeatureFlagFilters, distributeVariantsEqually } = useActions(_featureFlagLogic)
+    const [variants, setVariants] = useState<MultivariateFlagVariant[]>([])
+    const [rolloutPercentage, setRolloutPercentage] = useState(100)
+    const { areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
-    const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
-        if (!featureFlag?.filters?.multivariate) {
-            return
+    // Initialize local state only when the modal transitions from closed to open.
+    // Intentionally omit experiment data from deps so auto-refresh doesn't clobber edits.
+    useEffect(() => {
+        if (isDistributionModalOpen) {
+            setVariants(experiment.feature_flag?.filters?.multivariate?.variants || [])
+            setRolloutPercentage(experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100)
         }
+    }, [
+        isDistributionModalOpen,
+        experiment.feature_flag?.filters?.multivariate?.variants,
+        experiment.feature_flag?.filters?.groups,
+    ])
 
-        const numericValue = value || 0
+    const handleClose = (): void => {
+        closeDistributionModal()
+    }
 
-        const updatedVariants = featureFlag.filters.multivariate.variants.map((variant, i) =>
-            i === index ? { ...variant, rollout_percentage: numericValue } : variant
-        )
-
-        setFeatureFlagFilters(
-            {
-                ...featureFlag.filters,
-                multivariate: { ...featureFlag.filters.multivariate, variants: updatedVariants },
-            },
-            null
-        )
+    const handleSave = (): void => {
+        updateDistribution(variants, rolloutPercentage)
+        closeDistributionModal()
     }
 
     return (
         <LemonModal
             isOpen={isDistributionModalOpen}
-            onClose={closeDistributionModal}
+            onClose={handleClose}
             width={600}
             title="Change experiment distribution"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={closeDistributionModal}>
+                    <LemonButton type="secondary" onClick={handleClose}>
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        onClick={() => {
-                            updateDistribution(featureFlag)
-                            closeDistributionModal()
-                        }}
+                        onClick={handleSave}
                         type="primary"
                         loading={experimentLoading}
                         disabled={!areVariantRolloutsValid}
@@ -80,61 +84,22 @@ export function DistributionModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="deprecated-space-y-4">
+            <div className="flex flex-col gap-4">
                 <LemonBanner type="info">
                     Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
-                    of how changes will affect your experiment.
+                    of how changes will affect your experiment.{' '}
+                    <Link to="https://posthog.com/docs/experiments/changing-distribution-after-rollout" target="_blank">
+                        Read more
+                    </Link>
                 </LemonBanner>
 
-                <div>
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-semibold mb-0">Variant distribution</h3>
-                        <LemonButton
-                            size="small"
-                            onClick={distributeVariantsEqually}
-                            tooltip="Distribute split evenly"
-                            icon={<IconBalance />}
-                            className={
-                                isEvenlyDistributed(featureFlag?.filters?.multivariate?.variants || [])
-                                    ? 'invisible'
-                                    : ''
-                            }
-                        >
-                            Distribute evenly
-                        </LemonButton>
-                    </div>
+                <VariantDistributionEditor
+                    variants={variants}
+                    onVariantsChange={setVariants}
+                    rolloutPercentage={rolloutPercentage}
+                    onRolloutPercentageChange={setRolloutPercentage}
+                />
 
-                    <LemonTable
-                        dataSource={featureFlag?.filters?.multivariate?.variants || []}
-                        columns={[
-                            {
-                                title: 'Variant',
-                                dataIndex: 'key',
-                                render: (value) => <span className="font-semibold">{value}</span>,
-                            },
-                            {
-                                title: 'Split',
-                                dataIndex: 'rollout_percentage',
-                                render: (_, record, index) => (
-                                    <LemonInput
-                                        type="number"
-                                        value={record.rollout_percentage}
-                                        onChange={(value) => handleRolloutPercentageChange(index, value)}
-                                        min={0}
-                                        max={100}
-                                        suffix={<span>%</span>}
-                                    />
-                                ),
-                            },
-                        ]}
-                    />
-
-                    {!areVariantRolloutsValid && (
-                        <p className="text-danger mt-2">
-                            Percentage splits must sum to 100 (currently {variantRolloutSum}).
-                        </p>
-                    )}
-                </div>
                 <HoldoutSelector />
             </div>
         </LemonModal>
@@ -143,8 +108,25 @@ export function DistributionModal(): JSX.Element {
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(modalsLogic)
-    const { experiment } = useValues(experimentLogic)
-    const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
+    const { experiment, excludedVariants, experimentUpdateLoading } = useValues(experimentLogic)
+    const { reportExperimentReleaseConditionsViewed, setVariantExcluded } = useActions(experimentLogic)
+
+    const excludedVariantsEnabled = useFeatureFlag('EXPERIMENTS_EXCLUDED_VARIANTS')
+
+    /**
+     * This is future-proofing to match the experiment query runner backend, that uses
+     * the baseline variant key to determine the baseline variant.
+     */
+    const baselineKey = experiment.stats_config?.baseline_variant_key || 'control'
+    const variants = experiment.feature_flag?.filters.multivariate?.variants || []
+
+    /**
+     * We use this check to disable the toggle if there's only one test variant left.
+     * - not the baseline variant
+     * - not excluded
+     */
+    const hasOnlyOneTestVariant =
+        variants.filter(({ key }) => key !== baselineKey && !excludedVariants.includes(key)).length <= 1
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
@@ -183,6 +165,55 @@ export function DistributionTable(): JSX.Element {
                 return <div>{`${item.rollout_percentage}%`}</div>
             },
         },
+        ...(excludedVariantsEnabled
+            ? [
+                  {
+                      className,
+                      key: 'analysis',
+                      title: 'Analysis',
+                      render: function Analysis(_, { key }): JSX.Element {
+                          /**
+                           * bail early for holdouts
+                           */
+                          if (key === `holdout-${experiment.holdout?.id}`) {
+                              return <span className="text-muted">-</span>
+                          }
+                          /**
+                           * bail early for baseline variant
+                           */
+                          if (key === baselineKey) {
+                              return (
+                                  <LemonTag type="muted" icon={<IconLock />}>
+                                      Baseline
+                                  </LemonTag>
+                              )
+                          }
+                          const excluded = excludedVariants.includes(key)
+                          /**
+                           * we disable the toggle if:
+                           * - the variant is not excluded: we have to allow re-including it
+                           * - there's only one variant left when we remove the baseline
+                           */
+                          const disableToggle = !excluded && hasOnlyOneTestVariant
+                          return (
+                              <div className="flex items-center gap-2">
+                                  <LemonSwitch
+                                      checked={!excluded}
+                                      onChange={(checked) => setVariantExcluded(key, !checked)}
+                                      disabledReason={
+                                          disableToggle
+                                              ? 'At least one test variant must remain in analysis'
+                                              : undefined
+                                      }
+                                      loading={experimentUpdateLoading}
+                                  />
+                                  {excluded && <LemonTag type="warning">Excluded</LemonTag>}
+                              </div>
+                          )
+                      },
+                  } as LemonTableColumns<MultivariateFlagVariant>[number],
+              ]
+            : []),
         {
             className: className,
             key: 'variant_screenshot',
@@ -272,13 +303,24 @@ export function DistributionTable(): JSX.Element {
                     variants are modified to show their relative rollout percentage.
                 </LemonBanner>
             )}
+            {excludedVariants.length > 0 && hasOnlyOneTestVariant && (
+                <LemonBanner type="warning" className="mb-4">
+                    At least one test variant must remain in analysis. Re-include a variant to exclude others.
+                </LemonBanner>
+            )}
             <LemonTable
                 loading={false}
                 columns={columns}
                 dataSource={tableData}
-                rowClassName={(item) =>
-                    item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-fill-primary bg-mid' : ''
-                }
+                rowClassName={(item) => {
+                    if (item.key === `holdout-${experiment.holdout?.id}`) {
+                        return 'dark:bg-fill-primary bg-mid'
+                    }
+                    if (excludedVariants.includes(item.key)) {
+                        return 'bg-fill-tertiary'
+                    }
+                    return ''
+                }}
             />
         </div>
     )

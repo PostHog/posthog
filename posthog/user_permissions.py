@@ -3,7 +3,11 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 
 class UserPermissions:
@@ -157,6 +161,7 @@ class UserPermissions:
             return None
 
         dashboard_ids = {tile.dashboard_id for tile in self._tiles}
+        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
     def reset_insights_dashboard_cached_results(self):
@@ -190,8 +195,8 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
-        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
-            return organization_membership.level
+        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Use prefetched data to check team privacy and access
         access_controls = self.p._prefetched_access_controls.get(self.team.id, [])
@@ -221,10 +226,13 @@ class UserTeamPermissions:
             for ac in access_controls
         )
 
-        # Check role-based access before returning any member level
+        # Role-backed project AccessControl rows only take effect if the organization has
+        # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
+        # project access settings page (and as resource-level role overrides).
+        role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
-        if user_roles:
+        if user_roles and role_based_access_supported:
             role_has_admin_access = any(
                 ac["resource_id"] == str(self.team.id) and ac["role_id"] in user_roles and ac["access_level"] == "admin"
                 for ac in access_controls
@@ -247,21 +255,30 @@ class UserTeamPermissions:
         if user_has_member_access:
             return OrganizationMembership.Level.MEMBER
 
-        # Check if the team is private
-        team_is_private = any(
-            ac["resource_id"] == str(self.team.id)
-            and ac["organization_member_id"] is None
-            and ac["role_id"] is None
-            and ac["access_level"] == "none"
-            for ac in access_controls
+        # Check for a default access level for this team (applies to all org members)
+        default_access_level = next(
+            (
+                ac["access_level"]
+                for ac in access_controls
+                if ac["resource_id"] == str(self.team.id)
+                and ac["organization_member_id"] is None
+                and ac["role_id"] is None
+            ),
+            None,
         )
 
-        # If team is not private, all organization members have access
-        if not team_is_private:
-            return cast("OrganizationMembership.Level", organization_membership.level)
+        if default_access_level == "none":
+            # Team is private and user has no specific access
+            return None
 
-        # No access found
-        return None
+        if default_access_level == "admin":
+            return OrganizationMembership.Level.ADMIN
+
+        if default_access_level == "member":
+            return OrganizationMembership.Level.MEMBER
+
+        # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
+        return OrganizationMembership.Level.ADMIN
 
 
 class UserDashboardPermissions:
@@ -272,10 +289,8 @@ class UserDashboardPermissions:
     @cached_property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
-            self.dashboard.restriction_level
-            if cast(Organization, self.p.current_organization).is_feature_available(
-                AvailableFeature.ADVANCED_PERMISSIONS
-            )
+            Dashboard.RestrictionLevel(self.dashboard.restriction_level)
+            if cast(Organization, self.p.current_organization).is_feature_available(AvailableFeature.ACCESS_CONTROL)
             else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
@@ -345,6 +360,7 @@ class UserInsightPermissions:
         dashboard_ids = set(
             DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
         )
+        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
 

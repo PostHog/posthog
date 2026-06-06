@@ -11,11 +11,11 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
     testDir: '.',
-    /* 
+    /*
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
-    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
+    timeout: process.env.CI ? 90 * 1000 : 50 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
@@ -30,9 +30,14 @@ export default defineConfig({
     fullyParallel: true,
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
-    /* Retry on CI only */
-    retries: process.env.CI ? 3 : 2,
-    /* 
+    /*
+        Retries are 3 on CI by default. The nightly flake-audit workflow sets
+        PLAYWRIGHT_RETRIES=0 to surface the true per-test failure rate, which the
+        default retry budget otherwise hides (50%-flaky tests pass 93.75% of the time
+        with 4 attempts).
+     */
+    retries: process.env.PLAYWRIGHT_RETRIES ? Number(process.env.PLAYWRIGHT_RETRIES) : process.env.CI ? 3 : 2,
+    /*
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
@@ -42,6 +47,7 @@ export default defineConfig({
     reporter: [
         ['html', { open: 'never' }],
         ...(process.env.CI ? [['junit', { outputFile: 'junit-results.xml' }] as const] : []),
+        ...(process.env.CI ? [['json', { outputFile: 'results.json' }] as const] : []),
     ],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {

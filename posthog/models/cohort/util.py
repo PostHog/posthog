@@ -1,7 +1,10 @@
+from __future__ import annotations
+
+import copy
 import uuid
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from django.conf import settings
 from django.utils import timezone
@@ -11,6 +14,8 @@ from clickhouse_driver.errors import SocketTimeoutError
 from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -25,15 +30,14 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    EstimatedQueryExecutionTimeTooLong,
-    QuerySizeExceeded,
 )
-from posthog.models import Action, Filter, Team
-from posthog.models.action.util import format_action_filter
+from posthog.models import Filter, Team
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, CohortPeople
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.dependencies import get_cohort_dependents
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
@@ -45,11 +49,18 @@ from posthog.models.cohort.sql import (
 )
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import format_action_filter
+
+if TYPE_CHECKING:
+    from posthog.personhog_client import ReadConsistency
 from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -113,11 +124,11 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.CAPACITY
         case SocketTimeoutError():
             return CohortErrorCode.INTERRUPTED
-        case ClickHouseQueryTimeOut() | EstimatedQueryExecutionTimeTooLong():
+        case ClickHouseQueryTimeOut() | ClickHouseEstimatedQueryExecutionTimeTooLong():
             return CohortErrorCode.TIMEOUT
         case ClickHouseQueryMemoryLimitExceeded():
             return CohortErrorCode.MEMORY_LIMIT
-        case QuerySizeExceeded():
+        case ClickHouseQuerySizeExceeded():
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
@@ -157,7 +168,7 @@ def run_cohort_query(
     start_time = timezone.now()
 
     # Tag the query for tracking
-    tag_queries(kind="cohort_calculation", id=cohort_tag)
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, kind="cohort_calculation", id=cohort_tag)
 
     delayed_task = None
     # Use tags_context to protect tags during import (circular import resolution can corrupt context)
@@ -209,6 +220,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
         return None
 
     try:
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         result = sync_execute(
             """
             SELECT
@@ -291,15 +303,42 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     return query, params
 
 
+def _sanitize_query_for_cohort(query_dict: dict) -> dict:
+    """Strip fields unnecessary for cohort population.
+
+    Cohort population only needs person IDs, so we remove recordings data
+    (which can use complex UDFs like aggregate_funnel_array that may not
+    be available or are needlessly expensive) and search terms (the cohort
+    should include all matching persons, not just those matching a search).
+    """
+    query_dict = copy.deepcopy(query_dict)
+
+    if query_dict.get("kind") == "ActorsQuery":
+        select = query_dict.get("select", [])
+        query_dict["select"] = [s for s in select if s != "matched_recordings"]
+        if not query_dict["select"]:
+            query_dict["select"] = ["actor"]
+
+        # Intentionally strip search: the cohort should capture all persons matching
+        # the query, not just those matching an ad-hoc search in the persons modal.
+        query_dict.pop("search", None)
+
+        source = query_dict.get("source", {})
+        if isinstance(source, dict) and source.get("includeRecordings"):
+            source["includeRecordings"] = False
+
+    return query_dict
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query = get_query_runner(
-        cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
-    ).to_query()
+    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+
+    query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 
     uses_distinct_id = False
     uses_actor_id = False
@@ -543,7 +582,13 @@ def format_cohort_subquery(
 
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="insert_static_cohort",
+        feature=Feature.COHORT,
+    )
     persons = [
         {
             "id": str(uuid.uuid4()),
@@ -560,10 +605,32 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
     """Remove a person from a static cohort in ClickHouse.
 
-    Uses DELETE FROM with mutations_sync=0 to avoid replica synchronization issues in production.
-    This is an exception to PostHog's usual pattern due to the table lacking an is_deleted and version columns.
+    Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
+    synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
+    for deterministic behavior. This is an exception to PostHog's usual pattern due to the table
+    lacking an is_deleted and version columns.
     """
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="remove_person_from_static_cohort",
+        feature=Feature.COHORT,
+    )
+
+    # Use synchronous mutations in tests for deterministic behavior
+    if settings.TEST:
+        ch_settings = {
+            "mutations_sync": "2",
+            "lightweight_deletes_sync": "2",
+        }
+    else:
+        # Use async mutations in production to avoid replica sync issues
+        ch_settings = {
+            "mutations_sync": "0",
+            "lightweight_deletes_sync": "0",
+        }
+
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
@@ -571,15 +638,17 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings={"mutations_sync": "0"},
+        settings=ch_settings,
     )
 
 
-def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
-    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
-    if using_database:
-        qs = qs.using(using_database)
-    return qs.count()
+def get_static_cohort_size(
+    *,
+    cohort_id: int,
+    team_id: int,
+    consistency: ReadConsistency = "eventual",
+) -> int:
+    return count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency=consistency)
 
 
 def recalculate_cohortpeople(
@@ -591,7 +660,7 @@ def recalculate_cohortpeople(
     """
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
-    tag_queries(cohort_id=cohort.id)
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, cohort_id=cohort.id)
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
@@ -608,7 +677,7 @@ def recalculate_cohortpeople(
 
 
 def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
-    tag_queries(name="recalculate_cohortpeople_for_team_hogql")
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, name="recalculate_cohortpeople_for_team_hogql")
 
     history = CohortCalculationHistory.objects.create(
         team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
@@ -626,6 +695,15 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         raise
 
 
+def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+
+    # Clickhouse rejects a top-level SETTINGS clause when the SELECT is used as a subquery, so we trim it.
+    return sql[: sql.rfind("SETTINGS")], hogql_context
+
+
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
@@ -640,21 +718,14 @@ def _recalculate_cohortpeople_for_team_hogql(
         history.save(update_fields=["finished_at", "count", "error", "error_code"])
         return 0
     else:
-        from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-
-        cohort_query, hogql_context = (
-            HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
-        )
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
         cohort_params = hogql_context.values
-
-        # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
-        # statement is used in a subquery. We remove it here.
-        cohort_query = cohort_query[: cohort_query.rfind("SETTINGS")]
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     def execute_query():
         tag_queries(
+            product=ProductKey.COHORTS,
             kind="cohort_calculation",
             query_type="CohortsQueryHogQL",
             feature=Feature.COHORT,
@@ -706,7 +777,9 @@ def _recalculate_cohortpeople_for_team_hogql(
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
+    tag_queries(
+        product=ProductKey.COHORTS, name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id
+    )
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
@@ -793,7 +866,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
+    tag_queries(product=ProductKey.COHORTS, name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     cohort_ids_from_cohortperson = [row[0] for row in res]
     cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
@@ -813,7 +886,7 @@ def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    tag_queries(name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
+    tag_queries(product=ProductKey.COHORTS, name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
@@ -823,6 +896,18 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
         cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
         static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
+
+
+def get_nested_cohort_ids(cohort: Cohort) -> set[int]:
+    """Extract cohort IDs referenced in a cohort's property filters."""
+    ids: set[int] = set()
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                ids.add(int(prop.value))
+            except (ValueError, TypeError):
+                continue
+    return ids
 
 
 def get_all_cohort_dependencies(
@@ -837,13 +922,7 @@ def get_all_cohort_dependencies(
     seen_cohort_ids = set()
     seen_cohort_ids.add(cohort.id)
 
-    queue = []
-    for prop in cohort.properties.flat:
-        if prop.type == "cohort" and not isinstance(prop.value, list):
-            try:
-                queue.append(int(prop.value))
-            except (ValueError, TypeError):
-                continue
+    queue = list(get_nested_cohort_ids(cohort))
 
     while queue:
         cohort_id = queue.pop()
@@ -854,19 +933,14 @@ def get_all_cohort_dependencies(
                     continue
             else:
                 current_cohort = Cohort.objects.db_manager(using_database).get(
-                    pk=cohort_id, team__project_id=cohort.team.project_id, deleted=False
+                    pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
             if current_cohort.id not in seen_cohort_ids:
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 
-                for prop in current_cohort.properties.flat:
-                    if prop.type == "cohort" and not isinstance(prop.value, list):
-                        try:
-                            queue.append(int(prop.value))
-                        except (ValueError, TypeError):
-                            continue
+                queue.extend(get_nested_cohort_ids(current_cohort))
 
         except Cohort.DoesNotExist:
             seen_cohorts_cache[cohort_id] = ""
@@ -958,3 +1032,428 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
             dfs(cohort_id, seen, sorted_cohort_ids)
 
     return sorted_cohort_ids
+
+
+def cohort_filters_have_values(filters_dict: dict | None) -> bool:
+    """Check whether a cohort filters dict contains at least one filter criterion."""
+    properties = filters_dict.get("properties") if isinstance(filters_dict, dict) else None
+    values = properties.get("values") if isinstance(properties, dict) else None
+    return isinstance(values, list) and len(values) > 0
+
+
+def insert_actors_into_cohort_by_query(
+    cohort: Cohort,
+    query: str,
+    params: dict[str, Any],
+    context: HogQLContext,
+    *,
+    team_id: int,
+):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        {
+            "cohort_id": cohort.pk,
+            "_timestamp": datetime.now(),
+            "team_id": team_id,
+            **context.values,
+            **params,
+        },
+    )
+
+
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
+    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    query = print_cohort_hogql_query(cohort, context, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+
+
+def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
+    # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
+    # it's being populated for the first time, so we evaluate the criteria rather than reading the
+    # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+
+    # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
+    return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
+
+
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
+    query, params, context = build_static_cohort_filters_query(cohort, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+
+
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+    from posthog.helpers.batch_iterators import CursorBatchIterator
+
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
+    CH_PAGE_SIZE = 10_000
+
+    # Use cursor-based pagination to stream from ClickHouse in pages instead of
+    # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
+    # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
+    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            {
+                "cohort_id": cohort.pk,
+                "team_id": team_id,
+                "cursor": cursor,
+                "limit": batch_size,
+            },
+        )
+        if not rows:
+            return [], cursor
+        items = [str(r[0]) for r in rows]
+        return items, items[-1]
+
+    batch_iterator = CursorBatchIterator(
+        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
+    )
+    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
+
+
+# ── Cohort membership operations (Postgres / personhog) ───────────────
+
+
+def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CheckCohortMembershipRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.check_cohort_membership(CheckCohortMembershipRequest(person_id=person_id, cohort_ids=cohort_ids))
+    membership_by_cohort: dict[int, bool] = {m.cohort_id: m.is_member for m in resp.memberships}
+    return {cohort_id: membership_by_cohort.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    """Return ``{cohort_id: is_member}`` for the given person.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Membership for cohorts the person is not in is returned as ``False`` rather
+    than being omitted, so callers can index directly by cohort_id.
+    """
+    from posthog.models.person.util import _personhog_routed
+
+    if not cohort_ids:
+        return {}
+
+    # Local import to avoid circulars (cohort → person via CohortPeople FK).
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+    from posthog.models.person.person import READ_DB_FOR_PERSONS
+
+    # Scope cohort_ids to the team via Cohort on the default DB before querying
+    # either the personhog RPC or the persons-DB CohortPeople table. Neither
+    # downstream path enforces team ownership (posthog_cohortpeople has no
+    # team_id column; the RPC just filters by person_id + cohort_id), so the
+    # tenant boundary has to be applied here. Cohorts belonging to a different
+    # team are reported as ``False`` rather than looked up. Same pattern as
+    # `posthog.models.team.util.delete_bulky_postgres_data`.
+    scoped_cohort_ids = list(Cohort.objects.filter(id__in=cohort_ids, team_id=team_id).values_list("id", flat=True))
+    if not scoped_cohort_ids:
+        return dict.fromkeys(cohort_ids, False)
+
+    def orm_fn() -> dict[int, bool]:
+        member_ids = set(
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+            .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
+            .values_list("cohort_id", flat=True)
+        )
+        return {cohort_id: cohort_id in member_ids for cohort_id in scoped_cohort_ids}
+
+    scoped_result = _personhog_routed(
+        "check_cohort_membership",
+        lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
+        orm_fn,
+        team_id=team_id,
+    )
+    # Expand back to the caller's original cohort_ids; cohorts that were scoped
+    # out (not owned by this team) register as non-member.
+    return {cohort_id: scoped_result.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
+    """Convenience single-cohort variant of ``check_cohort_membership``."""
+    return check_cohort_membership(team_id, person_id, [cohort_id]).get(cohort_id, False)
+
+
+_LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
+
+
+def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import ListCohortMemberIdsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    all_ids: list[int] = []
+    cursor = 0
+    while True:
+        resp = client.list_cohort_member_ids(
+            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+        )
+        all_ids.extend(resp.person_ids)
+        if resp.next_cursor == 0:
+            break
+        cursor = resp.next_cursor
+    return all_ids
+
+
+def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
+    """Return all person IDs belonging to a static cohort.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    """
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+    from posthog.models.person.person import READ_DB_FOR_PERSONS
+    from posthog.models.person.util import _personhog_routed
+
+    # Validate cohort ownership on the default DB before querying the persons DB
+    # or the personhog RPC — neither downstream path enforces team isolation
+    # (posthog_cohortpeople has no team_id column; the proto has no team_id field).
+    # Same pattern as check_cohort_membership / delete_bulky_postgres_data.
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return []
+
+    def orm_fn() -> list[int]:
+        return list(
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+            .filter(cohort_id=cohort_id)
+            .values_list("person_id", flat=True)
+        )
+
+    return _personhog_routed(
+        "list_cohort_member_ids",
+        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+# ── Cohort write operations ─────────────────────────────────────────
+
+
+def _insert_cohort_members_via_personhog(cohort_id: int, person_ids: list[int], version: int | None) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import InsertCohortMembersRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.insert_cohort_members(
+        InsertCohortMembersRequest(
+            cohort_id=cohort_id,
+            person_ids=person_ids,
+            version=version,
+        )
+    )
+    return resp.inserted_count
+
+
+def insert_cohort_members(
+    team_id: int,
+    cohort_id: int,
+    person_ids: list[int],
+    version: int | None,
+    *,
+    _skip_ownership_check: bool = False,
+) -> int:
+    """Insert person IDs into a static cohort's PG membership table.
+
+    Routes through personhog when the gate is enabled, falling back to a raw
+    SQL INSERT against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Returns the number of newly inserted rows (duplicates are skipped).
+    """
+    from posthog.models.person.util import _personhog_routed
+
+    if not person_ids:
+        return 0
+
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+    from posthog.models.person import Person
+
+    if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    def orm_fn() -> int:
+        from django.db import connections, router
+
+        db_write = router.db_for_write(Person) or "default"
+        cursor = connections[db_write].cursor()
+        table = CohortPeople._meta.db_table
+        placeholders = ",".join(["%s"] * len(person_ids))
+        query = f"""
+            INSERT INTO "{table}" ("person_id", "cohort_id", "version")
+            SELECT pid, %s, %s
+            FROM UNNEST(ARRAY[{placeholders}]) AS t(pid)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM "{table}" AS cp
+                WHERE cp."person_id" = pid AND cp."cohort_id" = %s
+            )
+        """
+        cursor.execute(query, [cohort_id, version, *person_ids, cohort_id])
+        return cursor.rowcount
+
+    return _personhog_routed(
+        "insert_cohort_members",
+        lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _delete_cohort_member_via_personhog(cohort_id: int, person_id: int) -> bool:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMemberRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.delete_cohort_member(DeleteCohortMemberRequest(cohort_id=cohort_id, person_id=person_id))
+    return resp.deleted
+
+
+def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
+    """Remove a single person from a static cohort's PG membership table.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM DELETE against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Returns ``True`` if a row was deleted, ``False`` otherwise.
+    """
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+    from posthog.models.person.util import _personhog_routed
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return False
+
+    def orm_fn() -> bool:
+        deleted_count, _ = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            cohort_id=cohort_id, person_id=person_id
+        ).delete()  # nosemgrep: no-direct-persons-db-orm
+        return deleted_count > 0
+
+    return _personhog_routed(
+        "delete_cohort_member",
+        lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+_DELETE_BULK_MAX_ITERATIONS = 10_000
+
+
+def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    total_deleted = 0
+    for _ in range(_DELETE_BULK_MAX_ITERATIONS):
+        resp = client.delete_cohort_members_bulk(
+            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
+        )
+        total_deleted += resp.deleted_count
+        if resp.deleted_count < batch_size:
+            break
+    else:
+        logger.error(
+            "delete_cohort_members_bulk_max_iterations",
+            cohort_ids=cohort_ids,
+            total_deleted=total_deleted,
+            max_iterations=_DELETE_BULK_MAX_ITERATIONS,
+        )
+    return total_deleted
+
+
+def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: int = 10_000) -> int:
+    """Delete all PG cohort membership rows for the given cohort IDs.
+
+    Routes through personhog when the gate is enabled, falling back to the
+    Django ORM ``_raw_delete`` against ``posthog_cohortpeople`` otherwise.
+    Returns the total number of deleted rows.
+    """
+    from posthog.models.person.util import _personhog_routed
+
+    if not cohort_ids:
+        return 0
+
+    from posthog.models.cohort.cohort import CohortPeople
+
+    def orm_fn() -> int:
+        from django.db import router
+
+        qs = CohortPeople.objects.filter(cohort_id__in=cohort_ids)  # nosemgrep: no-direct-persons-db-orm
+        db_alias = router.db_for_write(CohortPeople)
+        return qs._raw_delete(db_alias)
+
+    return _personhog_routed(
+        "delete_cohort_members_bulk",
+        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _count_cohort_members_via_personhog(cohort_ids: list[int], consistency: ReadConsistency) -> int:
+    from posthog.personhog_client import consistency_to_read_options
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CountCohortMembersRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.count_cohort_members(
+        CountCohortMembersRequest(
+            cohort_ids=cohort_ids,
+            read_options=consistency_to_read_options(consistency),
+        )
+    )
+    return resp.count
+
+
+def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsistency = "eventual") -> int:
+    """Return the number of persons in a static cohort.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM COUNT against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+
+    Use ``consistency="strong"`` when reading immediately after a write
+    (e.g. after inserting or deleting cohort members) to avoid stale counts
+    from replication lag (ORM) or eventual consistency (personhog).
+    """
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+    from posthog.models.person.util import _personhog_routed
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    def orm_fn() -> int:
+        qs = CohortPeople.objects.filter(cohort_id=cohort_id)  # nosemgrep: no-direct-persons-db-orm
+        if consistency == "strong":
+            from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+            qs = qs.using(PERSONS_DB_FOR_WRITE)
+        return qs.count()
+
+    return _personhog_routed(
+        "count_cohort_members",
+        lambda: _count_cohort_members_via_personhog([cohort_id], consistency),
+        orm_fn,
+        team_id=team_id,
+    )

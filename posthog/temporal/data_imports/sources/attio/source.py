@@ -31,6 +31,11 @@ class AttioSource(SimpleSource[AttioSourceConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.attio.com": "Your Attio API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error: Forbidden for url: https://api.attio.com": "Your Attio API key does not have the required scopes. Please check the API key permissions and try again.",
+            # Attio can return non-retryable 400 responses from object query endpoints under /v2/objects/.
+            # The exact cause can vary by object and workspace configuration (e.g. an optional standard object
+            # like users/workspaces/deals not being enabled), so avoid implying the object is missing when surfacing
+            # the error to users. Our request body is deterministic, so retrying will not recover.
+            "400 Client Error: Bad Request for url: https://api.attio.com/v2/objects/": "Attio rejected the request for this object query. Please verify the schema is available in Attio and that the request is valid, then try again.",
         }
 
     @property
@@ -61,15 +66,22 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="Enter your Attio API key",
+                        secret=True,
                     ),
                 ],
             ),
-            featureFlag="dwh_attio",
         )
 
-    def get_schemas(self, config: AttioSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self,
+        config: AttioSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
         # Attio API doesn't support updatedAt filtering, so only full refresh is supported
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint_config.name,
                 supports_incremental=False,
@@ -78,6 +90,10 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
             )
             for endpoint_config in ATTIO_ENDPOINTS.values()
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None

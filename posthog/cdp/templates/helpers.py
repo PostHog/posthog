@@ -6,13 +6,12 @@ from typing import Any, Optional, cast
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-import STPyV8
-
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.validation import compile_hog
-from posthog.models import HogFunction
 from posthog.models.utils import uuid7
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
@@ -64,6 +63,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
     mock_fetch = MagicMock()
     mock_print = MagicMock()
     mock_posthog_capture = MagicMock()
+    mock_produce_to_warehouse_webhooks = MagicMock()
     fetch_responses: dict[str, dict[Any, Any]] = {}
 
     def setUp(self):
@@ -78,6 +78,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
         self.mock_posthog_capture = MagicMock(
             side_effect=lambda *args: print("[DEBUG HogFunctionPostHogCapture]", *args)  # noqa: T201
         )
+        self.mock_produce_to_warehouse_webhooks = MagicMock(side_effect=lambda *args: args[0] if args else None)
 
     def mock_fetch_response(self, url, *args):
         return self.fetch_responses.get(url, {"status": 200, "body": {}})
@@ -131,6 +132,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
             "fetch": self.mock_fetch,
             "print": self.mock_print,
             "postHogCapture": self.mock_posthog_capture,
+            "produceToWarehouseWebhooks": self.mock_produce_to_warehouse_webhooks,
         }
 
         if functions:
@@ -157,7 +159,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
         # Mock the plugin server status endpoint to avoid connection errors
         # Patch where it's used (in hog_function.py) not where it's defined
-        self.mock_get_status = patch("posthog.models.hog_functions.hog_function.get_hog_function_status").start()
+        self.mock_get_status = patch(
+            "products.cdp.backend.models.hog_functions.hog_function.get_hog_function_status"
+        ).start()
         self.mock_get_status.return_value = MagicMock(status_code=200, json=lambda: {"state": "idle", "tokens": 0})
         self.addCleanup(self.mock_get_status.stop)
 
@@ -197,6 +201,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             function_id = response.json()["id"]
 
             # load from the DB based on the created ID
+            # nosemgrep: idor-lookup-without-team (test helper only)
             hog_function = HogFunction.objects.get(id=function_id)
 
             return get_transpiled_function(hog_function)
@@ -238,6 +243,8 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
             processEvent(globals, posthog);;
             """
+
+        import STPyV8
 
         with STPyV8.JSContext() as ctxt:
             ctxt.eval(js)

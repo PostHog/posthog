@@ -1,23 +1,30 @@
 import './PersonDisplay.scss'
 
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { PersonPreview } from './PersonPreview'
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+
 import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     displayName?: string
+    /** Max display name length before mid-ellipsis truncation. Passed to `asDisplay`. */
+    maxLength?: number
     withIcon?: boolean | ProfilePictureProps['size']
     href?: string
     noLink?: boolean
@@ -26,6 +33,7 @@ export interface PersonDisplayProps {
     isCentered?: boolean
     children?: React.ReactChild
     withCopyButton?: boolean
+    withComposeTicketButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
     inline?: boolean
     className?: string
@@ -69,6 +77,7 @@ export function PersonIcon({
 export function PersonDisplay({
     person,
     displayName,
+    maxLength,
     withIcon,
     noEllipsis,
     noPopover,
@@ -77,15 +86,21 @@ export function PersonDisplay({
     href = asLink(person),
     children,
     withCopyButton,
+    withComposeTicketButton,
     placement,
     inline,
     className,
     muted,
 }: PersonDisplayProps): JSX.Element {
-    const display = displayName || asDisplay(person)
+    const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const notebookNode = useNotebookNode()
+
+    const showComposeButton = !!withComposeTicketButton && !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_CREATE_TICKET]
+    const personDistinctId = person?.distinct_id || person?.distinct_ids?.[0]
+    const personEmail = typeof person?.properties?.email === 'string' ? person.properties.email : undefined
 
     const handleClick = (e: React.MouseEvent): void => {
         if (visible && href && !noLink && person?.properties) {
@@ -99,7 +114,7 @@ export function PersonDisplay({
     }
 
     let content = children || (
-        <span className={clsx(!inline && 'flex items-center', isCentered && 'justify-center')}>
+        <span className={clsx(!inline && 'flex items-center', isCentered && 'justify-center', 'group/person')}>
             {withIcon && (
                 <PersonIcon
                     displayName={displayName}
@@ -108,6 +123,24 @@ export function PersonDisplay({
                 />
             )}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
+            {showComposeButton && personDistinctId && (
+                <span
+                    className="ml-1 shrink-0"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setVisible(false)
+                    }}
+                >
+                    <ComposeTicketButton
+                        size="xsmall"
+                        type="tertiary"
+                        iconOnly
+                        distinctId={personDistinctId}
+                        email={personEmail}
+                    />
+                </span>
+            )}
         </span>
     )
 
@@ -116,7 +149,7 @@ export function PersonDisplay({
             className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
             onClick={!noPopover ? handleClick : undefined}
         >
-            {noLink || !href || (visible && !person?.properties) ? (
+            {noLink || !href || !person?.properties ? (
                 content
             ) : (
                 <Link
@@ -158,8 +191,8 @@ export function PersonDisplay({
             showArrow
         >
             {withCopyButton ? (
-                <div className="flex flex-row items-center justify-between gap-2 min-w-0">
-                    <span className="min-w-0 flex-1">{content}</span>
+                <div className="flex flex-row items-center gap-1 min-w-0">
+                    <span className="min-w-0 truncate">{content}</span>
                     <IconCopy
                         className="text-lg cursor-pointer shrink-0"
                         onClick={() => void copyToClipboard(display)}

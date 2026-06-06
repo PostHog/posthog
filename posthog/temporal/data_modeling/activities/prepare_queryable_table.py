@@ -4,11 +4,12 @@ from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -23,7 +24,7 @@ class PrepareQueryableTableInputs:
     row_count: int
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWarehouseSavedQuery:
     saved_query = (
         DataWarehouseSavedQuery.objects.select_related("team", "table")
@@ -33,7 +34,7 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
@@ -45,9 +46,18 @@ def _update_saved_query_with_table(
     saved_query_table.save()
 
 
+@dataclasses.dataclass
+class PrepareQueryableTableResult:
+    storage_delta_mib: float | None
+    total_storage_mib: float | None
+
+
 @activity.defn
-async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs):
-    """Prepare materialized files for querying and create DataWarehouseTable."""
+async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) -> PrepareQueryableTableResult:
+    """Prepare materialized files for querying and create DataWarehouseTable.
+
+    Returns storage metrics (delta and total MiB) for the materialized table.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -57,7 +67,7 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs):
         f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.normalized_name} "
         f"existing_queryable_folder={queryable_folder}"
     )
-    folder_path = prepare_s3_files_for_querying(
+    folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=inputs.file_uris,
@@ -65,10 +75,15 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs):
         existing_queryable_folder=queryable_folder,
         logger=logger,
     )
-    await logger.adebug("Creating DataWarehouseTable model")
-    saved_query_table = await create_table_from_saved_query(
+    await logger.ainfo("Preparing table for querying")
+    create_result = await create_table_from_saved_query(
         inputs.job_id, inputs.saved_query_id, inputs.team_id, folder_path
     )
 
-    await _update_saved_query_with_table(inputs, saved_query, saved_query_table)
+    await _update_saved_query_with_table(inputs, saved_query, create_result.table)
     await logger.ainfo(f"Updated saved query row count: id={saved_query.id} row_count={inputs.row_count}")
+
+    return PrepareQueryableTableResult(
+        storage_delta_mib=create_result.storage_delta_mib,
+        total_storage_mib=create_result.total_storage_mib,
+    )

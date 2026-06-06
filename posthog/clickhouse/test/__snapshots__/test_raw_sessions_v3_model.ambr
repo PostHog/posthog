@@ -44,6 +44,24 @@
     AND team_id = 99999
   '''
 # ---
+# name: TestRawSessionsModel.test_emails_are_collected
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_empty_hosts_and_emails
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
 # name: TestRawSessionsModel.test_event_names_are_collected
   '''
   
@@ -73,7 +91,7 @@
             count() as parts_count,
             partition
      FROM clusterAllReplicas('posthog', system.parts)
-     WHERE database = 'posthog_test'
+     WHERE database = currentDatabase()
        AND table = 'sharded_raw_sessions_v3'
        AND partition IN ('202511')
        AND active = 99999
@@ -118,6 +136,15 @@
   '''
 # ---
 # name: TestRawSessionsModel.test_has_replay_events.1
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_hosts_are_collected
   '''
   
   select *

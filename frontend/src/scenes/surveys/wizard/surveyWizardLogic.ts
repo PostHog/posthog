@@ -1,20 +1,23 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
+import { Breadcrumb, LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
 import {
     SURVEY_CREATED_SOURCE,
     SurveyTemplate,
+    SurveyTemplateMode,
+    SurveyTemplateType,
     defaultSurveyAppearance,
     defaultSurveyTemplates,
     surveyThemes,
@@ -25,16 +28,26 @@ import type { surveyWizardLogicType } from './surveyWizardLogicType'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
+// Re-exported for convenience — the canonical definition lives in ../constants.
+export type { SurveyTemplateMode } from '../constants'
+
 // Main flow steps (appearance is optional, branched from 'when')
 const WIZARD_STEPS: WizardStep[] = ['template', 'questions', 'where', 'when']
 
-// Core templates to show prominently
-const CORE_TEMPLATE_TYPES = [
-    'Net promoter score (NPS)',
-    'Customer satisfaction score (CSAT)',
-    'Product-market fit (PMF)',
-    'Open feedback',
-]
+// Core templates to show prominently, per template mode.
+const CORE_TEMPLATE_TYPES: Record<SurveyTemplateMode, SurveyTemplateType[]> = {
+    in_app: [SurveyTemplateType.NPS, SurveyTemplateType.CSAT, SurveyTemplateType.PMF, SurveyTemplateType.OpenFeedback],
+    hosted: [
+        SurveyTemplateType.UserResearchIntake,
+        SurveyTemplateType.ProductResearch,
+        SurveyTemplateType.NPS,
+        SurveyTemplateType.CCR,
+    ],
+}
+
+function templateMatchesMode(template: SurveyTemplate, mode: SurveyTemplateMode): boolean {
+    return !template.modes || template.modes.includes(mode)
+}
 
 export interface SurveyWizardLogicProps {
     id: string // 'new' for new surveys, or a UUID for editing
@@ -54,11 +67,16 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            ['reportSurveyCreated', 'reportSurveyEdited'],
+            ['reportSurveyCreated', 'reportSurveyEdited', 'reportSurveyTemplateClicked'],
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading']],
+        values: [
+            surveyLogic({ id: props.id }),
+            ['survey', 'surveyChanged', 'surveyLoading'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
 
     actions({
@@ -67,6 +85,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         prevStep: true,
         resetWizard: true,
         selectTemplate: (template: SurveyTemplate) => ({ template }),
+        setTemplateMode: (mode: SurveyTemplateMode) => ({ mode }),
         restoreDefaultQuestions: true,
         launchSurvey: true,
         launchSurveySuccess: (survey: Survey) => ({ survey }),
@@ -104,6 +123,13 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 resetWizard: () => null,
             },
         ],
+        templateMode: [
+            'in_app' as SurveyTemplateMode,
+            {
+                setTemplateMode: (_, { mode }) => mode,
+                resetWizard: () => 'in_app' as SurveyTemplateMode,
+            },
+        ],
         createdSurvey: [
             null as Survey | null,
             {
@@ -135,18 +161,41 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     selectors({
         coreTemplates: [
-            () => [],
-            (): SurveyTemplate[] => {
-                return defaultSurveyTemplates.filter((t) => CORE_TEMPLATE_TYPES.includes(t.templateType))
+            (s) => [s.templateMode],
+            (mode: SurveyTemplateMode): SurveyTemplate[] => {
+                const coreTypes = CORE_TEMPLATE_TYPES[mode]
+                // Preserve the order declared in CORE_TEMPLATE_TYPES so featured cards stay positioned.
+                return coreTypes
+                    .map((type) => defaultSurveyTemplates.find((t) => t.templateType === type))
+                    .filter((t): t is SurveyTemplate => !!t && templateMatchesMode(t, mode))
             },
         ],
         otherTemplates: [
-            () => [],
-            (): SurveyTemplate[] => {
-                return defaultSurveyTemplates.filter((t) => !CORE_TEMPLATE_TYPES.includes(t.templateType))
+            (s) => [s.templateMode],
+            (mode: SurveyTemplateMode): SurveyTemplate[] => {
+                const coreTypes = new Set<SurveyTemplateType>(CORE_TEMPLATE_TYPES[mode])
+                return defaultSurveyTemplates.filter(
+                    (t) => !coreTypes.has(t.templateType) && templateMatchesMode(t, mode)
+                )
             },
         ],
         stepNumber: [(s) => [s.currentStep], (currentStep: WizardStep): number => WIZARD_STEPS.indexOf(currentStep)],
+        breadcrumbs: [
+            (s) => [s.survey],
+            (survey: Survey): Breadcrumb[] => [
+                {
+                    key: Scene.Surveys,
+                    name: 'Surveys',
+                    path: urls.surveys(),
+                    iconType: 'survey',
+                },
+                {
+                    key: [Scene.SurveyWizard, survey?.id || 'new'],
+                    name: survey?.name || 'New survey',
+                    iconType: 'survey',
+                },
+            ],
+        ],
         stepValidationErrors: [
             (s) => [s.survey],
             (survey: Survey): Record<WizardStep, string[]> => {
@@ -200,7 +249,12 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                         reason: 'Transactional surveys can be more frequent',
                     }
                 }
-                if (templateType?.includes('Onboarding') || templateType?.includes('Attribution')) {
+                if (
+                    templateType?.includes('Onboarding') ||
+                    templateType?.includes('Attribution') ||
+                    templateType?.includes('Exit') ||
+                    templateType?.includes('Announcement')
+                ) {
                     return { value: 'once', label: 'Once ever', reason: 'One-time feedback collection' }
                 }
                 return { value: 'monthly', label: 'Every month', reason: 'General feedback cadence' }
@@ -210,10 +264,14 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
 
     listeners(({ actions, values, props }) => ({
         selectTemplate: ({ template }) => {
+            const isHostedMode = values.templateMode === 'hosted'
             const timestamp = dayjs().format('YYYY-MM-DD HH:mm')
             actions.setSurveyValue('name', `${template.templateType} (${timestamp})`)
             actions.setSurveyValue('description', template.description || '')
-            actions.setSurveyValue('type', template.type || SurveyType.Popover)
+            actions.setSurveyValue(
+                'type',
+                isHostedMode ? SurveyType.ExternalSurvey : template.type || SurveyType.Popover
+            )
             actions.setSurveyValue('questions', template.questions)
 
             // Apply Clean theme by default (works well on most sites, and users without
@@ -240,6 +298,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('appearance', {
                 ...defaultSurveyAppearance,
                 ...themeAppearance,
+                ...values.currentTeam?.survey_config?.appearance,
                 ...cleanTemplateBehavior,
             })
 
@@ -250,11 +309,18 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 monthly: 30,
             }
             const { value: frequencyValue } = values.recommendedFrequency
-            actions.setSurveyValue('schedule', frequencyValue === 'once' ? SurveySchedule.Once : SurveySchedule.Always)
-            actions.setSurveyValue('conditions', {
-                ...template.conditions,
-                seenSurveyWaitPeriodInDays: frequencyToDays[frequencyValue],
-            })
+            const isOnce = frequencyValue === 'once'
+            actions.setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Recurring)
+            actions.setSurveyValue('iteration_count', isOnce ? 0 : 10)
+            actions.setSurveyValue('iteration_frequency_days', isOnce ? 0 : frequencyToDays[frequencyValue])
+            actions.setSurveyValue('conditions', template.conditions ?? null)
+
+            actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
+
+            // Hosted surveys don't have a guided wizard — route to the dedicated editor.
+            if (isHostedMode) {
+                router.actions.push(props.id === 'new' ? urls.survey('new') : `${urls.survey(props.id)}?edit=true`)
+            }
         },
         restoreDefaultQuestions: () => {
             const template = values.selectedTemplate
@@ -338,8 +404,36 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         },
     })),
 
+    urlToAction(({ actions, props, values }) => ({
+        [urls.surveyWizard(props.id)]: (_, searchParams) => {
+            const templateParam = searchParams.template
+            if (templateParam && props.id === 'new') {
+                const matchedTemplate = defaultSurveyTemplates.find((t) => t.templateType === templateParam)
+                if (matchedTemplate) {
+                    actions.resetSurvey()
+                    actions.selectTemplate(matchedTemplate)
+                }
+            } else if (props.id === 'new' && values.currentStep === 'success') {
+                // Reset wizard when navigating back after a successful launch,
+                // since the scene-level logic mount keeps state alive across navigations
+                actions.resetWizard()
+                actions.resetSurvey()
+            }
+        },
+    })),
+
     afterMount(({ actions, props, values }) => {
+        // Preserve any in-memory edits when re-mounting on the same survey id (e.g.
+        // navigating between the full editor and the wizard). surveyChanged is
+        // in-memory only, so a fresh session can never trigger this branch.
+        const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === props.id
+
         if (props.id === 'new') {
+            if (shouldPreserveLocalChanges) {
+                actions.setStep('questions')
+                return
+            }
+
             // Templates set both name AND questions, while default NEW_SURVEY has empty name
             const hasTemplateSelected = values.survey?.name && values.survey?.questions?.length > 0
             if (hasTemplateSelected) {
@@ -348,13 +442,23 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.resetWizard()
                 actions.resetSurvey()
             }
-        } else {
+        } else if (!shouldPreserveLocalChanges) {
             actions.loadSurvey()
         }
+    }),
 
-        return () => {
-            actions.resetWizard()
-            if (props.id === 'new') {
+    beforeUnmount(({ actions, props }) => {
+        actions.resetWizard()
+        // For an in-progress "new" survey, preserve the in-memory draft only if the
+        // user is navigating to the other survey-editor view for the same id (full
+        // editor for new). Anywhere else (list, dashboards, etc.) means the user
+        // abandoned the draft, so we clear it. Using `endsWith` so this still works
+        // when the app is mounted under a project-scoped path (`/project/<id>/...`).
+        if (props.id === 'new') {
+            const destination = router.values.location.pathname
+            const stayingInNewSurveyEditor =
+                destination.endsWith(urls.survey('new')) || destination.endsWith(urls.surveyWizard('new'))
+            if (!stayingInNewSurveyEditor) {
                 actions.resetSurvey()
             }
         }

@@ -15,7 +15,7 @@ import type { managedMigrationLogicType } from './managedMigrationLogicType'
 import { ManagedMigration } from './types'
 
 export interface ManagedMigrationForm {
-    source_type: 's3' | 'mixpanel' | 'amplitude'
+    source_type: 's3' | 's3_gzip' | 'mixpanel' | 'amplitude'
     access_key: string
     secret_key: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
@@ -23,6 +23,7 @@ export interface ManagedMigrationForm {
     s3_region?: string
     s3_bucket?: string
     s3_prefix?: string
+    endpoint_url?: string
     // date range specific fields
     start_date?: string
     end_date?: string
@@ -41,6 +42,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     s3_region: '',
     s3_bucket: '',
     s3_prefix: '',
+    endpoint_url: '',
     content_type: 'captured',
     start_date: '',
     end_date: '',
@@ -72,6 +74,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             {
                 loadMigrations: async () => {
                     const projectId = ApiConfig.getCurrentProjectId()
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/projects/${projectId}/managed_migrations`)
                     return response.results
                 },
@@ -83,6 +86,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             defaults: NEW_MANAGED_MIGRATION,
             errors: ({
                 source_type,
+                content_type,
                 access_key,
                 secret_key,
                 s3_region,
@@ -98,9 +102,16 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     secret_key: !secret_key ? 'Secret key is required' : null,
                 }
 
-                if (source_type === 's3') {
+                if (source_type === 's3' || source_type === 's3_gzip') {
                     errors.s3_region = !s3_region ? 'S3 region is required' : null
                     errors.s3_bucket = !s3_bucket ? 'S3 bucket is required' : null
+
+                    if (content_type === 'amplitude') {
+                        if (!import_events && !generate_identify_events && !generate_group_identify_events) {
+                            errors.import_events =
+                                'At least one of "Import events", "Generate identify events", or "Generate group identify events" must be enabled'
+                        }
+                    }
                 } else if (source_type === 'mixpanel' || source_type === 'amplitude') {
                     errors.start_date = !start_date ? 'Start date is required' : null
                     errors.end_date = !end_date ? 'End date is required' : null
@@ -114,6 +125,11 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         } else if (endDateParsed.diff(startDateParsed, 'year', true) > 1) {
                             errors.end_date =
                                 'Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods.'
+                        } else if (
+                            source_type === 'amplitude' &&
+                            endDateParsed.diff(startDateParsed, 'hour', true) < 1
+                        ) {
+                            errors.end_date = 'Date range must be at least 1 hour for Amplitude migrations.'
                         }
                     }
 
@@ -135,12 +151,19 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     secret_key: values.secret_key,
                     content_type: values.content_type,
                 }
-                if (values.source_type === 's3') {
+                if (values.source_type === 's3' || values.source_type === 's3_gzip') {
                     payload = {
                         ...payload,
                         s3_region: values.s3_region,
                         s3_bucket: values.s3_bucket,
                         s3_prefix: values.s3_prefix,
+                        ...(values.endpoint_url ? { endpoint_url: values.endpoint_url } : {}),
+                    }
+
+                    if (values.content_type === 'amplitude') {
+                        payload.import_events = values.import_events
+                        payload.generate_identify_events = values.generate_identify_events
+                        payload.generate_group_identify_events = values.generate_group_identify_events
                     }
                 } else if (values.source_type === 'mixpanel' || values.source_type === 'amplitude') {
                     payload = {
@@ -158,6 +181,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     }
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
                     return response
                 } catch (error: any) {
@@ -184,6 +208,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         pauseMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
+                // nosemgrep: prefer-codegen-api
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/pause/`)
                 lemonToast.success('Migration paused successfully')
                 actions.loadMigrations()
@@ -194,6 +219,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         resumeMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
+                // nosemgrep: prefer-codegen-api
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/resume/`)
                 lemonToast.success('Migration resumed successfully')
                 actions.loadMigrations()
@@ -213,21 +239,15 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             }
         },
         startPolling: () => {
-            const pollInterval = setInterval(() => {
-                if (!values.isPolling) {
-                    clearInterval(pollInterval)
-                    return
-                }
-                actions.loadMigrations()
-            }, 5000)
-
-            cache.pollInterval = pollInterval
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.loadMigrations()
+                }, 5000)
+                return () => clearInterval(intervalId)
+            }, 'pollMigrations')
         },
         stopPolling: () => {
-            if (cache.pollInterval) {
-                clearInterval(cache.pollInterval)
-                cache.pollInterval = null
-            }
+            cache.disposables.dispose('pollMigrations')
         },
     })),
     selectors({

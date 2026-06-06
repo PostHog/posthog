@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 
@@ -31,7 +31,6 @@ export function processEvent(event: PluginEvent, { global }: LegacyTransformatio
             shouldIngestEvent = Math.round(Math.random() * 100) <= global.percentage
         } else {
             const hash = createHash('sha256').update(event.distinct_id).digest('hex')
-            // eslint-disable-next-line @typescript-eslint/no-loss-of-precision
             const decisionValue = parseInt(hash.substring(0, 15), 16) / 0xfffffffffffffff
             shouldIngestEvent = decisionValue <= global.percentage / 100
         }

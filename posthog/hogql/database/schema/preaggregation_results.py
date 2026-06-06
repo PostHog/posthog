@@ -1,3 +1,6 @@
+from pydantic import Field
+
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
@@ -16,6 +19,10 @@ class PreaggregationResultsTable(Table):
     HogQL schema for the sharded_preaggregation_results table.
     Used for on-demand preaggregation of queries like uniqExact(person_id) GROUP BY day.
     """
+
+    top_level_settings: HogQLQuerySettings | None = Field(
+        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
+    )
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),

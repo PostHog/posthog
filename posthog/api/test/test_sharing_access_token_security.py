@@ -3,12 +3,20 @@ Security tests for sharing access tokens - ensuring they cannot be abused to acc
 """
 
 import json
+from datetime import timedelta
+from typing import Any, cast
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.insight import Insight
+from django.conf import settings
+from django.utils import timezone
+
+from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):
@@ -32,6 +40,97 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             [401, 403],
             f"Expected 401/403 for logged out user, got {response.status_code}. User may still be logged in!",
         )
+
+    def test_expired_sharing_token_rejected_by_api(self):
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+
+        sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+        old_token = sharing_config.access_token
+
+        # Rotate — old config gets expires_at set to now + grace period
+        new_config = sharing_config.rotate_access_token()
+        new_token = new_config.access_token
+
+        # Jump past the grace period so the old token is fully expired
+        future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
+        with freeze_time(future):
+            # Old token must be rejected
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": old_token}),
+            )
+            assert response.status_code in [401, 403], (
+                f"Expired sharing token should be rejected. Got {response.status_code}"
+            )
+
+            # New token must still work
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": new_token}),
+            )
+            assert response.status_code == 200, f"New sharing token should still work. Got {response.status_code}"
+
+    def test_expired_password_protected_sharing_token_rejected_by_api(self):
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+
+        from posthog.models.share_password import SharePassword
+
+        sharing_config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        share_password, _ = SharePassword.create_password(sharing_config, created_by=self.user)
+
+        # Generate a JWT for the password-protected share
+        jwt_token = sharing_config.generate_password_protected_token(share_password)
+        old_access_token = sharing_config.access_token
+
+        # Rotate — old config gets expires_at set
+        new_config = sharing_config.rotate_access_token()
+        new_config.password_required = True
+        new_config.save()
+        new_share_password, _ = SharePassword.create_password(new_config, created_by=self.user)
+        new_jwt_token = new_config.generate_password_protected_token(new_share_password)
+
+        # Jump past the grace period
+        future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
+        with freeze_time(future):
+            # Old JWT against expired config must be rejected
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": old_access_token}),
+                HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
+            )
+            assert response.status_code in [401, 403], (
+                f"Expired password-protected sharing token should be rejected. Got {response.status_code}"
+            )
+
+            # New JWT against active config must still work
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                cast(Any, {"sharing_access_token": new_config.access_token}),
+                HTTP_AUTHORIZATION=f"Bearer {new_jwt_token}",
+            )
+            assert response.status_code == 200, (
+                f"New password-protected sharing token should still work. Got {response.status_code}"
+            )
 
     def test_sharing_access_token_cannot_access_insights_not_on_dashboard(self):
         """
@@ -149,7 +248,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         Test that variables_override parameter is ignored when using sharing access tokens.
         Variables only work in HogQL queries, not TrendsQuery.
         """
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         # Create an insight variable first
         variable = InsightVariable.objects.create(
@@ -356,4 +455,118 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         )
         assert response.status_code in [401, 403], (
             f"Should not be able to update dashboard with sharing access token in body. Got {response.status_code}: {response.content}"
+        )
+
+    def _enable_organization_security_settings(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+        ]
+        self.organization.save()
+
+    def _create_shared_insight(self) -> tuple[Insight, SharingConfiguration]:
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+        return insight, sharing_config
+
+    def test_sharing_access_token_rejected_when_organization_disallows_public_sharing(self):
+        """
+        Regression test for the org-level public sharing kill switch.
+
+        When an organization admin disables `allow_publicly_shared_resources` (under the
+        ORGANIZATION_SECURITY_SETTINGS feature), existing sharing tokens must stop granting
+        API access — even though the SharingConfiguration row remains `enabled=True`.
+        """
+        insight, sharing_config = self._create_shared_insight()
+
+        # Baseline: default org allows public sharing — token works.
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            cast(Any, {"sharing_access_token": sharing_config.access_token}),
+        )
+        assert response.status_code == 200, f"Baseline sharing token should work. Got {response.status_code}"
+
+        # Flip the kill switch on an org WITHOUT the feature — no-op, token still works.
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            cast(Any, {"sharing_access_token": sharing_config.access_token}),
+        )
+        assert response.status_code == 200, (
+            f"Kill switch must only apply when the security feature is available. Got {response.status_code}"
+        )
+
+        # Enable the feature — the kill switch now bites: token must be rejected.
+        self._enable_organization_security_settings()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            cast(Any, {"sharing_access_token": sharing_config.access_token}),
+        )
+        assert response.status_code in [401, 403], (
+            f"Sharing token must be rejected when org disables public sharing. Got {response.status_code}: {response.content}"
+        )
+
+        # HTML view should also 404 (regression guard for existing behavior).
+        response = self.client.get(f"/shared/{sharing_config.access_token}")
+        assert response.status_code == 404
+
+        # Re-enabling the org flag restores access — no row invalidation.
+        self.organization.allow_publicly_shared_resources = True
+        self.organization.save()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            cast(Any, {"sharing_access_token": sharing_config.access_token}),
+        )
+        assert response.status_code == 200, f"Re-enabling org flag should restore sharing. Got {response.status_code}"
+
+    def test_password_protected_sharing_token_rejected_when_organization_disallows_public_sharing(self):
+        """
+        Same kill-switch behavior must apply to the password-protected JWT auth path.
+        """
+        from posthog.models.share_password import SharePassword
+
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+        sharing_config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        share_password, _ = SharePassword.create_password(sharing_config, created_by=self.user)
+        jwt_token = sharing_config.generate_password_protected_token(share_password)
+
+        # Baseline: JWT works with default org.
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            cast(Any, {"sharing_access_token": sharing_config.access_token}),
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
+        )
+        assert response.status_code == 200, f"Baseline password-protected JWT should work. Got {response.status_code}"
+
+        # Org disables public sharing with the feature enabled — JWT must be rejected.
+        self._enable_organization_security_settings()
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/",
+            cast(Any, {"sharing_access_token": sharing_config.access_token}),
+            HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
+        )
+        assert response.status_code in [401, 403], (
+            f"Password-protected JWT must be rejected when org disables public sharing. Got {response.status_code}: {response.content}"
         )

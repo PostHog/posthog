@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -20,21 +22,19 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
-    RevenueAnalyticsEventItem,
-    SubscriptionDropoffMode,
 )
 
+from posthog.models import Organization, Team, User
 from posthog.models.utils import uuid7
 
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import (
-    ErrorTrackingQueryRunner,
-    search_tokenizer,
-)
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -46,7 +46,21 @@ from products.error_tracking.backend.models import (
 from ee.models.rbac.role import Role
 
 
-class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class ErrorTrackingQueryRunnerTestsMixin:
+    __test__ = False
+
+    use_v2: bool = False
+    use_v3: bool = False
+
+    # will be provided by inheritance from PostHogTestCase
+    team: Team
+    user: User
+    organization: Organization
+
+    def assertEqual(
+        self, first: object, second: object, msg: object = None
+    ) -> None: ...  # will be provided by inheritance from TestCase
+
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
 
@@ -61,10 +75,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     issue_one_fingerprint = "issue_one_fingerprint"
     issue_two_fingerprint = "issue_two_fingerprint"
     issue_three_fingerprint = "issue_three_fingerprint"
-
-    PURCHASE_EVENT_NAME = "purchase"
-    REVENUE_PROPERTY = "revenue"
-    SUBSCRIPTION_PROPERTY = "subscription_id"
 
     def override_fingerprint(self, fingerprint, issue_id, version=1):
         update_error_tracking_issue_fingerprints(team_id=self.team.pk, issue_id=issue_id, fingerprints=[fingerprint])
@@ -109,8 +119,18 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 person_id=person_id,
             )
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
+
+        materialized_columns = get_materialized_columns("events")
+        for property_name in ("$exception_issue_id", "$exception_types", "$exception_values"):
+            if (property_name, "properties") not in materialized_columns:
+                materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
+        super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
+
     def setUp(self):
-        super().setUp()
+        super(ErrorTrackingQueryRunnerTestsMixin, self).setUp()  # type: ignore[misc] # noqa: UP008
 
         with freeze_time("2020-01-10 12:11:00"):
             _create_person(
@@ -160,8 +180,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         searchQuery=None,
         filterGroup=None,
         orderBy="last_seen",
-        revenueEntity=None,
-        revenuePeriod=None,
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -181,9 +199,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     filterTestAccounts=filterTestAccounts,
                     searchQuery=searchQuery,
                     filterGroup=filterGroup,
-                    orderBy=orderBy,
-                    revenueEntity=revenueEntity,
-                    revenuePeriod=revenuePeriod,
+                    orderBy=orderBy,  # pyright: ignore[reportArgumentType]
                     status=status,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
@@ -191,6 +207,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     personId=personId,
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
+                    useQueryV2=self.use_v2,
+                    useQueryV3=self.use_v3,
                 ),
             )
             .calculate()
@@ -506,7 +524,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -522,7 +540,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         role = Role.objects.create(name="Test Team", organization=self.organization)
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -719,93 +737,56 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
 
-    @freeze_time("2020-01-12")
-    @snapshot_clickhouse_queries
-    def test_sorting_by_revenue(self):
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-            )
-        ]
 
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_one,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
+class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
+    __test__ = True
+    use_v2 = False
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_event_filter_group_operator(self):
+        firefox_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5333"
+        chrome_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5334"
+        safari_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5335"
+        self.create_events_and_issue(
+            issue_id=firefox_issue_id,
+            fingerprint="firefox_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Firefox"},
         )
-
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 12500, "$group_1": self.group1_id},
+        self.create_events_and_issue(
+            issue_id=chrome_issue_id,
+            fingerprint="chrome_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Chrome"},
         )
-
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 10000, "$group_0": self.group0_id, "$group_1": self.group1_id},
+        self.create_events_and_issue(
+            issue_id=safari_issue_id,
+            fingerprint="safari_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Safari"},
         )
-
         flush_persons_and_events()
 
-        results = self._calculate(orderBy="revenue")["results"]
-
-        self.assertEqual(len(results), 3)
-        self.assertEqual([r["revenue"] for r in results], [47542.0, 25042.0, 22500.0])
-
-    @freeze_time("2020-01-12")
-    @snapshot_clickhouse_queries
-    def test_sorting_by_mrr(self):
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
-                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
-            )
+        browser_filters = [
+            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
         ]
 
-        # Recurring event for user one (contributes to MRR)
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_one,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 25042, self.SUBSCRIPTION_PROPERTY: "sub_1"},
-        )
+        or_results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=browser_filters)],
+            )
+        )["results"]
+        self.assertEqual({result["id"] for result in or_results}, {firefox_issue_id, chrome_issue_id})
 
-        # One-time event for user two (does NOT contribute to MRR)
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 12500},
-        )
-
-        # Recurring event for user two (contributes to MRR)
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id_two,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 10000, self.SUBSCRIPTION_PROPERTY: "sub_2"},
-        )
-
-        flush_persons_and_events()
-
-        results = self._calculate(orderBy="revenue", revenuePeriod="mrr")["results"]
-
-        # MRR: user_1 = 25042 (sub_1), user_2 = 10000 (sub_2), issue_three has no MRR
-        self.assertEqual(len(results), 3)
-        self.assertEqual([r["revenue"] for r in results], [35042, 25042, 10000])
+        and_results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=browser_filters)],
+            )
+        )["results"]
+        self.assertEqual([result["id"] for result in and_results], [])
 
 
 class TestSearchTokenizer(TestCase):

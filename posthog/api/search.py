@@ -9,23 +9,20 @@ from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import (
-    Action,
-    Cohort,
-    Dashboard,
-    EventDefinition,
-    Experiment,
-    FeatureFlag,
-    Insight,
-    PropertyDefinition,
-    Survey,
-)
-from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models import Cohort, EventDefinition, PropertyDefinition
 
+from products.actions.backend.models.action import Action
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
+from products.surveys.backend.models import Survey
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 LIMIT = 25
 
@@ -107,6 +104,7 @@ class QuerySerializer(serializers.Serializer):
 
     q = serializers.CharField(required=False, default="")
     entities = serializers.MultipleChoiceField(required=False, choices=list(ENTITY_MAP.keys()))
+    include_counts = serializers.BooleanField(required=False, default=True)
 
     def validate_q(self, value: str):
         # gracefully handle invalid queries
@@ -117,6 +115,7 @@ class QuerySerializer(serializers.Serializer):
 
 class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params
@@ -127,10 +126,16 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # get entities to search from params or default to all entities
         entities = set(params["entities"]) if params["entities"] else set(ENTITY_MAP.keys())
         query = params["q"]
+        include_counts = params["include_counts"]
 
-        results, counts, _ = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
+        results, counts, _ = search_entities(
+            entities, query, self.project_id, self, ENTITY_MAP, include_counts=include_counts
+        )
 
-        return Response({"results": results, "counts": counts})
+        response_data: dict[str, Any] = {"results": results}
+        if counts is not None:
+            response_data["counts"] = counts
+        return Response(response_data)
 
 
 def search_entities(
@@ -141,9 +146,10 @@ def search_entities(
     entity_map: dict[str, EntityConfig],
     limit: int = LIMIT,
     offset: int = 0,
-) -> tuple[list[dict[str, Any]], dict[str, int | None], int]:
+    include_counts: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = dict.fromkeys(entity_map)
+    counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)
@@ -163,7 +169,8 @@ def search_entities(
             filters=entity_meta.get("filters"),
         )
         qs = qs.union(klass_qs)
-        counts[entity_name] = klass_qs.count()
+        if include_counts:
+            counts[entity_name] = klass_qs.count()
 
     # order by rank
     if query:
@@ -171,14 +178,14 @@ def search_entities(
     else:
         qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-    # Get total count before pagination
-    total_count = qs.count()
+    # Get total count before pagination (only when needed)
+    total_count = qs.count() if include_counts else None
 
     # Apply pagination
     results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
     for result in results:
         result.pop("_sort_name", None)
-    return results, counts, total_count
+    return results, counts or None, total_count
 
 
 def class_queryset(
@@ -194,7 +201,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # Apply entity-specific filters

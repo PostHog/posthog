@@ -1,4 +1,9 @@
+import datetime
+
 from posthog.test.base import BaseTest
+
+from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
@@ -8,46 +13,23 @@ from ee.models.rbac.access_control import AccessControl
 
 
 class TestUser(BaseTest):
-    def test_user_tracks_original_is_active_on_load(self):
-        user = User.objects.create(email="tracker@example.com", is_active=True)
-
-        # Reload from DB to trigger from_db
-        loaded_user = User.objects.get(pk=user.pk)
-
-        # Should have _original_is_active set to current value
-        self.assertTrue(loaded_user._original_is_active)
-        self.assertTrue(loaded_user.is_active)
-
-        # Change is_active and verify _original_is_active still reflects original
-        loaded_user.is_active = False
-        self.assertTrue(loaded_user._original_is_active)  # Still True (original)
-        self.assertFalse(loaded_user.is_active)  # Now False (changed)
-
-    def test_user_refresh_from_db_updates_original_is_active(self):
-        user = User.objects.create(email="refresh@example.com", is_active=True)
-        loaded_user = User.objects.get(pk=user.pk)
-
-        # Simulate external change
-        User.objects.filter(pk=user.pk).update(is_active=False)
-
-        # Before refresh, _original_is_active is still True
-        self.assertTrue(loaded_user._original_is_active)
-
-        # After refresh, _original_is_active should update
-        loaded_user.refresh_from_db()
-        self.assertFalse(loaded_user._original_is_active)
-        self.assertFalse(loaded_user.is_active)
-
-    def test_new_user_instance_has_no_original_is_active(self):
-        # Newly constructed instances (not from DB) won't have _original_is_active
-        new_user = User(email="new@example.com", is_active=True)
-        self.assertFalse(hasattr(new_user, "_original_is_active"))
-
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
+
+    def test_create_superuser_raises_with_guidance(self):
+        with self.assertRaises(CommandError) as ctx:
+            User.objects.create_superuser(email="admin@posthog.com", password="12345678")
+        self.assertIn("doesn't support `createsuperuser`", str(ctx.exception))
+        self.assertIn("generate_demo_data", str(ctx.exception))
+        self.assertIn("is_staff", str(ctx.exception))
+
+    def test_createsuperuser_command_fails_with_guidance(self):
+        with self.assertRaises(CommandError) as ctx:
+            call_command("createsuperuser", "--noinput", "--email", "admin@posthog.com")
+        self.assertIn("doesn't support `createsuperuser`", str(ctx.exception))
 
     def test_analytics_metadata(self):
         self.maxDiff = None
@@ -124,11 +106,9 @@ class TestUser(BaseTest):
             )
 
     def test_join_with_new_access_control_sets_allowed_team(self):
-        # Org WITH ADVANCED_PERMISSIONS
+        # Org WITH ACCESS_CONTROL
         org = Organization.objects.create(name="RBAC Org")
-        org.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
-        ]
+        org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
         org.save()
 
         t1 = Team.objects.create(organization=org, name="T1")
@@ -147,9 +127,7 @@ class TestUser(BaseTest):
     def test_join_admin_prefers_first_project_even_with_rbac(self):
         # Admins bypass RBAC filtering
         org = Organization.objects.create(name="Admin Org")
-        org.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
-        ]
+        org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
         org.save()
 
         t1 = Team.objects.create(organization=org, name="T1")
@@ -164,3 +142,56 @@ class TestUser(BaseTest):
         # Admin should be set to the first team
         user.refresh_from_db()
         self.assertEqual(user.current_team, t1)
+
+    def test_from_db_sets_original_is_active(self):
+        user = User.objects.create(email="from_db@example.com", is_active=True)
+
+        loaded = User.objects.get(pk=user.pk)
+
+        self.assertTrue(loaded._original_is_active)
+        self.assertEqual(loaded._original_is_active, loaded.is_active)
+
+    def test_from_db_sets_original_is_active_for_inactive_user(self):
+        user = User.objects.create(email="inactive@example.com", is_active=False)
+
+        loaded = User.objects.get(pk=user.pk)
+
+        self.assertFalse(loaded._original_is_active)
+        self.assertEqual(loaded._original_is_active, loaded.is_active)
+
+    def test_get_by_natural_key_exact_match(self):
+        user = User.objects.create(email="alice@example.com")
+        self.assertEqual(User.objects.get_by_natural_key("alice@example.com"), user)
+
+    def test_get_by_natural_key_is_case_insensitive(self):
+        user = User.objects.create(email="Alastair.Pharo@example.com")
+
+        self.assertEqual(User.objects.get_by_natural_key("alastair.pharo@example.com"), user)
+        self.assertEqual(User.objects.get_by_natural_key("ALASTAIR.PHARO@example.com"), user)
+        self.assertEqual(User.objects.get_by_natural_key("Alastair.Pharo@example.com"), user)
+
+    def test_get_by_natural_key_raises_does_not_exist_when_missing(self):
+        with self.assertRaises(User.DoesNotExist):
+            User.objects.get_by_natural_key("nobody@example.com")
+
+    def test_get_by_natural_key_finds_inactive_user(self):
+        # Active-state filtering is the responsibility of ModelBackend.user_can_authenticate, not
+        # this lookup. Mirror Django's default get_by_natural_key, which doesn't filter by is_active.
+        user = User.objects.create(email="inactive@example.com", is_active=False)
+        self.assertEqual(User.objects.get_by_natural_key("inactive@example.com"), user)
+
+    def test_get_by_natural_key_with_multiple_case_variants_picks_most_recent_login(self):
+        older = User.objects.create(email="dup@example.com")
+        older.last_login = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+        older.save(update_fields=["last_login"])
+
+        newer = User.objects.create(email="Dup@example.com")
+        newer.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+        newer.save(update_fields=["last_login"])
+
+        # Exact match wins over case-insensitive fallback when a row matches the typed casing.
+        self.assertEqual(User.objects.get_by_natural_key("dup@example.com"), older)
+        self.assertEqual(User.objects.get_by_natural_key("Dup@example.com"), newer)
+
+        # When the typed casing matches no row exactly, fallback picks the most recent login.
+        self.assertEqual(User.objects.get_by_natural_key("DUP@example.com"), newer)

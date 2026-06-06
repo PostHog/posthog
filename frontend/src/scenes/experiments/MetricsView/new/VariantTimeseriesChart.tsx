@@ -62,11 +62,21 @@ export function VariantTimeseriesChart({
                                     axis.ticks.push({ value: 0 })
                                     axis.ticks.sort((a, b) => a.value - b.value)
                                 }
+                                // When 0 is the lowest tick, pad below so it doesn't
+                                // overlap with x-axis date labels
+                                if (axis.ticks.length > 1 && axis.ticks[0].value === 0) {
+                                    const tickStep = axis.ticks[1].value - axis.ticks[0].value
+                                    axis.min = -tickStep * 0.3
+                                }
                             },
                         },
                         x: {
                             grid: {
                                 display: false,
+                            },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45,
                             },
                         },
                     },

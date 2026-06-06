@@ -6,7 +6,7 @@ from posthog.exceptions_capture import capture_exception
 
 
 class ProcessTaskError(ApplicationError):
-    def __init__(self, message: str, context: dict[str, Any], cause: Exception, **kwargs):
+    def __init__(self, message: str, context: dict[str, Any], cause: Optional[Exception], **kwargs):
         self.context = context or {}
         if "team" not in self.context:
             self.context["team"] = "array"
@@ -53,6 +53,12 @@ class SandboxNotFoundError(ProcessTaskFatalError):
 
 class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
+
+    pass
+
+
+class SandboxNotRunningError(SandboxExecutionError):
+    """Sandbox is not in a running state."""
 
     pass
 

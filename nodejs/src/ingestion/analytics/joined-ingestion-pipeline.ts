@@ -1,159 +1,272 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent } from '../../types'
+import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
-import { OkResultWithContext } from '../pipelines/filter-ok-batch-pipeline'
+import { EventFilterManager } from '../common/event-filters'
+import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import {
+    EventFiltersBatchContext,
+    createEventFiltersBatchAppMetricsBeforeBatchStep,
+    createFlushEventFiltersBatchAppMetricsStep,
+} from '../common/steps/event-filters-steps'
+import { CookielessManager } from '../cookieless/cookieless-manager'
+import {
+    createApplyEventRestrictionsStep,
+    createDropExceptionEventsStep,
+    createEnrichSurveyPersonPropertiesStep,
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    createSkipCookielessRateLimitToOverflowStep,
+    createValidateAiEventTokensStep,
+    createValidateHistoricalMigrationStep,
+} from '../event-preprocessing'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { newBatchingPipeline } from '../pipelines/builders'
+import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
+import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
-import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { PerEventProcessingConfig, PerEventProcessingInput } from './per-event-processing-subpipeline'
-import { createPerEventProcessingSubpipeline } from './per-event-processing-subpipeline'
-import { PostTeamPreprocessingSubpipelineInput } from './post-team-preprocessing-subpipeline'
-import { PreprocessingHub, PreprocessingPipelineConfig, createPreprocessingPipeline } from './preprocessing-pipeline'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './outputs'
+import {
+    PerDistinctIdPipelineConfig,
+    PerDistinctIdPipelineInput,
+    createPerDistinctIdPipeline,
+} from './per-distinct-id-pipeline'
+import {
+    PostTeamPreprocessingSubpipelineConfig,
+    createPostTeamPreprocessingSubpipeline,
+} from './post-team-preprocessing-subpipeline'
 
 export interface JoinedIngestionPipelineConfig {
-    // Preprocessing config
-    hub: PreprocessingHub
-    kafkaProducer: KafkaProducerWrapper
-    personsStore: PersonsStore
-    hogTransformer: HogTransformerService
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
-    overflowTopic: string
-    dlqTopic: string
+    preservePartitionLocality: boolean
+    personsPrefetchEnabled: boolean
+    cdpHogWatcherSampleRate: number
+    groupId: string
+    outputs: IngestionOutputs<
+        | EventOutput
+        | AiEventOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | DlqOutput
+        | OverflowOutput
+        | AsyncOutput
+        | GroupsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | AppMetricsOutput
+    >
+    splitAiEventsConfig: SplitAiEventsStepConfig
+    perDistinctIdOptions: EventPipelineRunnerOptions
+    /**
+     * Maximum number of batches the BatchingPipeline will accept concurrently.
+     * Sourced from `INGESTION_WORKER_CONCURRENT_BATCHES` and MUST match the
+     * Rust consumer's per-worker `Semaphore` capacity — divergence causes
+     * either idle capacity (consumer under-limits) or HTTP 503s
+     * (`ingestion_api_batch_capacity_rejections_total`).
+     */
+    concurrentBatches: number
+}
+
+export interface JoinedIngestionPipelineDeps {
+    personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
+    hogTransformer: HogTransformerService
+    eventFilterManager: EventFilterManager
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
     promiseScheduler: PromiseScheduler
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
-
-    // Per-distinct-id config
-    perDistinctIdOptions: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
     teamManager: TeamManager
+    cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
-    groupId: string
+    topHog: TopHogRegistry
 }
 
 export interface JoinedIngestionPipelineInput {
     message: Message
-    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessedEventWithGroupStore = PostTeamPreprocessingSubpipelineInput & {
-    groupStoreForBatch: GroupStoreForBatch
+function addTeamToContext<T extends { team: Team }, C>(
+    element: OkResultWithContext<T, C>
+): OkResultWithContext<T, C & { team: Team }> {
+    return {
+        result: element.result,
+        context: {
+            ...element.context,
+            team: element.result.value.team,
+        },
+    }
 }
 
-function getTokenAndDistinctId(input: PerEventProcessingInput): string {
-    const token = input.event.token ?? ''
+function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
+    const token = input.headers.token ?? ''
     const distinctId = input.event.distinct_id ?? ''
     return `${token}:${distinctId}`
-}
-
-function mapToPerEventInput<C>(
-    element: OkResultWithContext<PreprocessedEventWithGroupStore, C>
-): OkResultWithContext<PerEventProcessingInput, C> {
-    const input = element.result.value
-    return {
-        result: ok({
-            message: input.eventWithTeam.message,
-            event: input.eventWithTeam.event as PipelineEvent,
-            team: input.team,
-            headers: input.headers,
-            groupStoreForBatch: input.groupStoreForBatch,
-        }),
-        context: element.context,
-    }
 }
 
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
->(builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>, config: JoinedIngestionPipelineConfig) {
+>(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
-        hub,
-        kafkaProducer,
-        personsStore,
-        hogTransformer,
-        eventIngestionRestrictionManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
-        overflowTopic,
-        dlqTopic,
-        promiseScheduler,
-        overflowRedirectService,
-        overflowLaneTTLRefreshService,
-        perDistinctIdOptions,
-        teamManager,
-        groupTypeManager,
+        preservePartitionLocality,
+        personsPrefetchEnabled,
+        cdpHogWatcherSampleRate,
         groupId,
+        outputs,
+        splitAiEventsConfig,
+        perDistinctIdOptions,
+        concurrentBatches,
     } = config
 
-    const preprocessingConfig: PreprocessingPipelineConfig = {
-        hub,
-        kafkaProducer,
+    const {
         personsStore,
+        groupStore,
         hogTransformer,
+        eventFilterManager,
         eventIngestionRestrictionManager,
-        overflowEnabled,
-        overflowTopic,
-        dlqTopic,
+        eventSchemaEnforcementManager,
         promiseScheduler,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-    }
+        teamManager,
+        cookielessManager,
+        groupTypeManager,
+        topHog,
+    } = deps
 
-    const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+    const topHogWrapper = createTopHogWrapper(topHog)
+
+    const pipelineConfig: PipelineConfig<OverflowOutput | AsyncOutput> = {
+        outputs,
         promiseScheduler,
     }
 
-    const perEventConfig: PerEventProcessingConfig = {
+    const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
+        eventFilterManager,
+        eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
+        cookielessManager,
+        preservePartitionLocality,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
+        personsStore,
+        personsPrefetchEnabled,
+        hogTransformer,
+        cdpHogWatcherSampleRate,
+    }
+
+    const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
+        outputs,
+        splitAiEventsConfig,
         teamManager,
         groupTypeManager,
         hogTransformer,
         personsStore,
-        kafkaProducer,
+        groupStore,
         groupId,
+        topHog: topHogWrapper,
     }
 
-    return (
-        createPreprocessingPipeline(builder, preprocessingConfig)
-            // Filter to OK results only - preprocessing already handled DLQ, REDIRECT, etc.
-            .filterOk()
-            .map(mapToPerEventInput)
-            .messageAware((b) =>
-                b
-                    .teamAware((b) =>
-                        b
-                            // Group by token:distinctId and process each group concurrently
-                            // Events within each group are processed sequentially
-                            .groupBy(getTokenAndDistinctId)
-                            .concurrently((eventsForDistinctId) =>
-                                eventsForDistinctId.sequentially((event) =>
-                                    createPerEventProcessingSubpipeline(event, perEventConfig)
-                                )
+    return newBatchingPipeline<
+        TInput,
+        void,
+        TContext,
+        EventFiltersBatchContext,
+        TContext,
+        OverflowOutput | AsyncOutput
+    >(
+        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
+        (batch) =>
+            batch
+                .messageAware((b) =>
+                    b
+                        // Header-only steps: parse Kafka headers and apply token-level restrictions.
+                        // Cheap; runs per-event before we touch the body.
+                        .sequentially((b) =>
+                            b.pipe(createParseHeadersStep()).pipe(
+                                createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                    overflowEnabled,
+                                    preservePartitionLocality,
+                                })
                             )
-                            .gather()
-                    )
-                    .handleIngestionWarnings(kafkaProducer)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(promiseScheduler, { await: false })
-            .gather()
+                        )
+                        // Rate-limit non-cookieless events to overflow before parsing the body.
+                        // Cookieless events (headers.distinct_id === sentinel) pass through and are
+                        // handled by the matching only-cookieless step in post-team, which keys on
+                        // the hashed distinct_id assigned by the cookieless step.
+                        .pipeBatch(
+                            createSkipCookielessRateLimitToOverflowStep(
+                                preservePartitionLocality,
+                                overflowRedirectService
+                            )
+                        )
+                        // Body parse and team resolution. Anything that needs the parsed event lives here.
+                        .sequentially((b) =>
+                            b
+                                .pipe(createParseKafkaMessageStep())
+                                .pipe(createDropExceptionEventsStep())
+                                .pipe(createResolveTeamStep(teamManager))
+                                .pipe(createValidateHistoricalMigrationStep())
+                                .pipe(createValidateAiEventTokensStep())
+                                .pipe(createEnrichSurveyPersonPropertiesStep())
+                        )
+                        .filterMap(addTeamToContext, (b) =>
+                            b
+                                .teamAware((b) =>
+                                    createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
+                                        // Group by token:distinctId and process each group concurrently
+                                        // Events within each group are processed sequentially
+                                        .groupBy(getTokenAndDistinctId)
+                                        .concurrently((eventsForDistinctId) =>
+                                            eventsForDistinctId.sequentially((event) =>
+                                                createPerDistinctIdPipeline(event, perEventConfig)
+                                            )
+                                        )
+                                )
+                                .handleIngestionWarnings(outputs)
+                        )
+                )
+                .handleResults(pipelineConfig)
+                .handleSideEffects(promiseScheduler, { await: false }),
+        (afterBatch) =>
+            afterBatch
+                .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
+                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+        // Batch stores (personsStore, groupStore) are singletons that don't support
+        // concurrent batches yet — they accumulate state across events and flush once.
+        // The Rust consumer's per-worker Semaphore caps in-flight batches at the
+        // same value (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as
+        // HTTP 503s in `ingestion_api_batch_capacity_rejections_total`.
+        { concurrentBatches }
     )
 }

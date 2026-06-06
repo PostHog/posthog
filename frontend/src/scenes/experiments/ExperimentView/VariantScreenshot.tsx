@@ -1,13 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonFileInput, LemonModal, LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonFileInput,
+    LemonModal,
+    LemonSkeleton,
+    lemonToast,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
+import { VariantTag } from './VariantTag'
 
 export function VariantScreenshot({
     variantKey,
@@ -28,16 +36,25 @@ export function VariantScreenshot({
         return Array.isArray(variantImages) ? variantImages : [variantImages]
     }
 
-    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds())
+    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds)
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
 
+    const [isFocused, setIsFocused] = useState(false)
+    const containerRef = useRef<HTMLDivElement>(null)
+
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
-            if (id && mediaIds.length < 5) {
-                const newMediaIds = [...mediaIds, id]
-                setMediaIds(newMediaIds)
+            if (!id) {
+                return
+            }
+            if (mediaIds.length >= 5) {
+                lemonToast.error('Maximum of 5 images allowed')
+                return
+            }
 
+            setMediaIds((prev) => {
+                const newMediaIds = [...prev, id]
                 const updatedVariantImages = {
                     ...experiment.parameters?.variant_screenshot_media_ids,
                     [variantKey]: newMediaIds,
@@ -45,14 +62,45 @@ export function VariantScreenshot({
 
                 updateExperimentVariantImages(updatedVariantImages)
                 reportExperimentVariantScreenshotUploaded(experiment.id)
-            } else if (mediaIds.length >= 5) {
-                lemonToast.error('Maximum of 5 images allowed')
-            }
+                return newMediaIds
+            })
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    const handlePaste = useCallback(
+        (e: React.ClipboardEvent): void => {
+            if (uploading) {
+                return
+            }
+
+            const items = e.clipboardData?.items
+            if (!items) {
+                return
+            }
+
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i]
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault()
+                    const file = item.getAsFile()
+                    if (file) {
+                        if (mediaIds.length >= 5) {
+                            lemonToast.error('Maximum of 5 images allowed')
+                            return
+                        }
+                        setFilesToUpload([file])
+                    } else {
+                        lemonToast.error('Could not read image from clipboard')
+                    }
+                    return
+                }
+            }
+        },
+        [mediaIds.length, setFilesToUpload, uploading]
+    )
 
     const handleImageLoad = (mediaId: string): void => {
         setLoadingImages((prev) => ({ ...prev, [mediaId]: false }))
@@ -95,7 +143,20 @@ export function VariantScreenshot({
     const widthClass = getThumbnailWidth()
 
     return (
-        <div className="deprecated-space-y-4">
+        <div
+            ref={containerRef}
+            className={`deprecated-space-y-4 rounded p-1 -m-1 outline-none transition-colors ${
+                isFocused ? 'ring-1 ring-accent' : ''
+            }`}
+            tabIndex={0}
+            onPaste={handlePaste}
+            onFocus={() => setIsFocused(true)}
+            onBlur={(e) => {
+                if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+                    setIsFocused(false)
+                }
+            }}
+        >
             <div className="flex gap-4 items-start">
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
@@ -108,6 +169,7 @@ export function VariantScreenshot({
                                     <img
                                         className="w-full h-full object-cover"
                                         src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                        alt={`Variant screenshot thumbnail ${index + 1}`}
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
                                     />
@@ -139,12 +201,22 @@ export function VariantScreenshot({
                             onChange={setFilesToUpload}
                             loading={uploading}
                             value={filesToUpload}
+                            showUploadedFiles={false}
                             callToAction={
                                 <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
-                                    <span className="text-2xl text-secondary">+</span>
+                                    {uploading ? (
+                                        <Spinner className="text-secondary" />
+                                    ) : (
+                                        <span className="text-2xl text-secondary">+</span>
+                                    )}
                                 </div>
                             }
                         />
+                    </div>
+                )}
+                {isFocused && mediaIds.length < 5 && (
+                    <div className="flex items-center h-16">
+                        <span className="text-xs text-secondary whitespace-nowrap">⌘V to paste</span>
                     </div>
                 )}
             </div>
@@ -178,5 +250,3 @@ export function VariantScreenshot({
         </div>
     )
 }
-
-export default VariantScreenshot

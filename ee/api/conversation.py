@@ -1,22 +1,25 @@
 import time
 import uuid
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.mixins import DestroyModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -32,6 +35,7 @@ from posthog.rate_limit import (
     AIResearchBurstRateThrottle,
     AIResearchSustainedRateThrottle,
     AISustainedRateThrottle,
+    is_team_exempt_from_ai_rate_limit,
 )
 from posthog.temporal.ai.chat_agent import (
     CHAT_AGENT_STREAM_MAX_LENGTH,
@@ -46,16 +50,18 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
+from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
-from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +84,13 @@ class MessageMinimalSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=10000)
 
 
+def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
+    """Large spend histories can exceed Temporal's 2MB payload limit."""
+    if billing_context.spend_history and len(billing_context.spend_history) > threshold:
+        billing_context.spend_history = None
+    return billing_context
+
+
 class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
@@ -93,6 +106,7 @@ class MessageSerializer(MessageMinimalSerializer):
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+    is_sandbox = serializers.BooleanField(required=False, default=False)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
@@ -118,7 +132,7 @@ class MessageSerializer(MessageMinimalSerializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                billing_context = MaxBillingContext.model_validate(billing_context)
+                billing_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = billing_context
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -154,7 +168,7 @@ class QueueMessageSerializer(serializers.Serializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                parsed_context = MaxBillingContext.model_validate(billing_context)
+                parsed_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = parsed_context.model_dump()
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -174,7 +188,9 @@ class QueueMessageUpdateSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["max"])
-class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class ConversationViewSet(
+    TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
+):
     scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
@@ -190,7 +206,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def _ensure_queue_access(self, request: Request, conversation_id: str) -> Response | None:
         try:
-            conversation = Conversation.objects.get(id=conversation_id)
+            # nosemgrep: idor-lookup-without-team (instance scoped to team via get_queryset)
+            conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id)
         except Conversation.DoesNotExist:
             return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
         if conversation.user != request.user or conversation.team != self.team:
@@ -201,6 +218,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return Response({"messages": queue, "max_queue_messages": queue_store.max_messages})
 
     def safely_get_queryset(self, queryset):
+        queryset = queryset.select_related("user").exclude(deleted=True)
+
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
@@ -214,6 +233,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
+        if self.action == "list":
+            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
     def get_throttles(self):
@@ -233,7 +254,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = request.data.get("conversation")
         if conversation_id:
             try:
-                conversation = Conversation.objects.get(id=conversation_id)
+                conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id, team=self.team)
                 if conversation.type == Conversation.Type.DEEP_RESEARCH:
                     return True
             except (Conversation.DoesNotExist, ValidationError):
@@ -255,6 +276,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_research = self._is_research_request(request)
 
         if is_research:
+            if is_team_exempt_from_ai_rate_limit(self.team_id):
+                return
             throttles = [AIResearchBurstRateThrottle(), AIResearchSustainedRateThrottle()]
         else:
             # Skip throttling for paying customers
@@ -287,6 +310,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return MessageSerializer
         if self.action == "append_message":
             return MessageMinimalSerializer
+        if self.action == "list":
+            return ConversationMinimalSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self):
@@ -320,11 +345,14 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if self.lookup_url_kwarg:
             self.kwargs[self.lookup_url_kwarg] = conversation_id
         try:
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (user+team check immediately after)
             conversation = Conversation.objects.get(id=conversation_id)
             if conversation.user != request.user or conversation.team != self.team:
                 return Response(
                     {"error": "Cannot access other users' conversations"}, status=status.HTTP_400_BAD_REQUEST
                 )
+            if conversation.deleted:
+                return Response({"error": "Conversation does not exist"}, status=status.HTTP_404_NOT_FOUND)
         except Conversation.DoesNotExist:
             # Conversation doesn't exist, create it if we have a message
             if not has_message:
@@ -347,14 +375,36 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
-        if conversation.type == Conversation.Type.DEEP_RESEARCH:
-            is_research = True
+        is_sandbox = (
+            serializer.validated_data.get("is_sandbox", False)
+            or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+        )
 
-        if has_message and not is_idle:
+        if conversation.type == Conversation.Type.DEEP_RESEARCH:
+            if not is_new_conversation and is_idle and has_message and not has_resume_payload:
+                conversation.type = Conversation.Type.ASSISTANT
+                conversation.save(update_fields=["type", "updated_at"])
+                is_research = False
+            else:
+                is_research = True
+
+        if has_message and not is_idle and not is_sandbox:
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
+
+        is_impersonated = is_impersonated_session(request)
+
+        if is_sandbox and has_message:
+            return handle_sandbox_message(
+                conversation=conversation,
+                conversation_id=str(conversation_id),
+                content=serializer.validated_data["content"],
+                user=cast(User, request.user),
+                team=self.team,
+                is_new_conversation=is_new_conversation,
+            )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
@@ -370,13 +420,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
                 billing_context=serializer.validated_data.get("billing_context"),
                 is_agent_billable=False,
+                is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
             )
             workflow_class = ResearchAgentWorkflow
             timeout = RESEARCH_AGENT_WORKFLOW_TIMEOUT
             max_length = RESEARCH_AGENT_STREAM_MAX_LENGTH
         else:
-            is_impersonated = is_impersonated_session(request)
             is_agent_billable = not is_impersonated
             workflow_inputs = ChatAgentWorkflowInputs(
                 team_id=self.team_id,
@@ -392,6 +442,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 agent_mode=serializer.validated_data.get("agent_mode"),
                 use_checkpointer=True,
                 is_agent_billable=is_agent_billable,
+                is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
             )
             workflow_class = ChatAgentWorkflow
@@ -401,13 +452,39 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         async def async_stream(
             workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
+            SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
+
             serializer = AssistantSSESerializer()
             stream_manager = AgentExecutor(conversation, timeout=timeout, max_length=max_length)
-            last_iteration_time = time.time()
-            async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
-                chunk_received_time = time.time()
-                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(chunk_received_time - last_iteration_time)
-                last_iteration_time = chunk_received_time
+            last_yield_time = time.time()
+            last_chunk_time = last_yield_time
+            aiter = stream_manager.astream(workflow_class, workflow_inputs).__aiter__()
+
+            while True:
+                next_task = asyncio.ensure_future(aiter.__anext__())
+                try:
+                    while not next_task.done():
+                        elapsed = time.time() - last_yield_time
+                        wait_time = max(0.1, SSE_KEEPALIVE_INTERVAL - elapsed)
+                        done, _ = await asyncio.wait({next_task}, timeout=wait_time)
+                        if not done:
+                            yield SSE_KEEPALIVE_COMMENT
+                            last_yield_time = time.time()
+                except BaseException:
+                    if not next_task.done():
+                        next_task.cancel()
+                    raise
+
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    break
+
+                now = time.time()
+                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(now - last_chunk_time)
+                last_chunk_time = now
+                last_yield_time = now
 
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
@@ -457,6 +534,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         return self._queue_response(queue_store, queue)
 
+    @extend_schema(parameters=[OpenApiParameter("queue_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=True, methods=["PATCH", "DELETE"], url_path=r"queue/(?P<queue_id>[^/.]+)")
     def queue_item(self, request: Request, queue_id: str, *args, **kwargs):
         conversation_id = self._queue_conversation_id()
@@ -493,7 +571,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
 
-        if conversation.status in [Conversation.Status.CANCELING, Conversation.Status.IDLE]:
+        # IDLE is intentionally not short-circuited: during the handoff between the main
+        # workflow completing and a queued workflow starting, the status is briefly IDLE
+        # even though a queued Temporal workflow may be running.
+        if conversation.status == Conversation.Status.CANCELING:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():
@@ -506,6 +587,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             logger.exception("Failed to cancel conversation", conversation_id=conversation.id, error=str(e))
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        description="Delete a conversation.",
+        responses={204: None},
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        instance: Conversation = self.get_object()
+        Conversation.objects.filter(pk=instance.pk).update(deleted=True, deleted_at=timezone.now())
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["POST"], url_path="append_message")

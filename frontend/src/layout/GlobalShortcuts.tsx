@@ -7,27 +7,35 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
+import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
+import { SidePanelTab } from '~/types'
+
 import { navigation3000Logic } from './navigation-3000/navigationLogic'
+import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from './navigation-3000/themeLogic'
+import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
-
+    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
-    const { toggleHealthMenu } = useActions(healthMenuLogic)
     const { toggleTheme } = useActions(themeLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
+
+    // Open Info tab if scene has panel content, otherwise default to PostHog AI
+    const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
     useAppShortcut({
         name: 'Search',
@@ -87,19 +95,25 @@ export function GlobalShortcuts(): null {
     })
 
     useAppShortcut({
+        name: 'toggle-context-panel',
+        keybind: [keyBinds.toggleRightNav],
+        intent: 'Toggle context panel',
+        interaction: 'function',
+        callback: () => {
+            if (sidePanelOpen) {
+                closeSidePanel()
+            } else {
+                openSidePanel(defaultTab)
+            }
+        },
+    })
+
+    useAppShortcut({
         name: 'toggle-help-menu',
         keybind: [keyBinds.helpMenu],
         intent: 'Toggle help menu',
         interaction: 'function',
         callback: () => toggleHelpMenu(),
-    })
-
-    useAppShortcut({
-        name: 'toggle-health-menu',
-        keybind: [keyBinds.healthMenu],
-        intent: 'Toggle health menu',
-        interaction: 'function',
-        callback: () => toggleHealthMenu(),
     })
 
     useAppShortcut({
@@ -132,6 +146,14 @@ export function GlobalShortcuts(): null {
         intent: 'Toggle theme (dark / light)',
         interaction: 'function',
         callback: () => toggleTheme(),
+    })
+
+    useAppShortcut({
+        name: 'jump-to-timestamp',
+        keybind: [keyBinds.jumpToTimestamp],
+        intent: 'Jump to timestamp',
+        interaction: 'function',
+        callback: openJumpToTimestampModal,
     })
 
     return null

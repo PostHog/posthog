@@ -10,7 +10,7 @@ from posthog.heatmaps.sql import (
 
 operations = [
     run_sql_with_exceptions(WRITABLE_HEATMAPS_TABLE_SQL(), node_roles=NodeRole.DATA),
-    run_sql_with_exceptions(DISTRIBUTED_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DISTRIBUTED_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(HEATMAPS_TABLE_SQL(), node_roles=NodeRole.DATA),
     run_sql_with_exceptions(KAFKA_HEATMAPS_TABLE_SQL(), node_roles=NodeRole.DATA),
     run_sql_with_exceptions(HEATMAPS_TABLE_MV_SQL(), node_roles=NodeRole.DATA),

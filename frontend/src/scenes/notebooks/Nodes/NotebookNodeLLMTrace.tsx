@@ -7,23 +7,24 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { Query } from '~/queries/Query/Query'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
+import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { Query } from '~/queries/Query/Query'
 import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
+import { AIObservabilitySetupPrompt } from 'products/ai_observability/frontend/AIObservabilitySetupPrompt'
+import { aiObservabilitySharedLogic } from 'products/ai_observability/frontend/aiObservabilitySharedLogic'
+import { useTracesQueryContext } from 'products/ai_observability/frontend/AIObservabilityTracesScene'
+import { aiObservabilityTracesTabLogic } from 'products/ai_observability/frontend/tabs/aiObservabilityTracesTabLogic'
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
-import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
-import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
-import { llmAnalyticsSharedLogic } from 'products/llm_analytics/frontend/llmAnalyticsSharedLogic'
-import { llmAnalyticsTracesTabLogic } from 'products/llm_analytics/frontend/tabs/llmAnalyticsTracesTabLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
@@ -37,8 +38,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
 
-    const sharedLogic = llmAnalyticsSharedLogic({ logicKey, personId, group })
-    const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
+    const sharedLogic = aiObservabilitySharedLogic({ logicKey, personId, group })
+    const tracesLogic = aiObservabilityTracesTabLogic({ personId, group })
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(sharedLogic)
     const { setTracesQuery } = useActions(tracesLogic)
     const { tracesQuery } = useValues(tracesLogic)
@@ -64,12 +65,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 
     return (
         <BindLogic logic={dataNodeLogic} props={{ key: logicKey }}>
-            <LLMAnalyticsSetupPrompt className="border-none" thing="trace">
+            <AIObservabilitySetupPrompt className="border-none" thing="trace">
                 <Query
                     uniqueKey={logicKey}
                     attachTo={notebookLogic}
                     query={{
                         ...tracesQuery,
+                        source: {
+                            ...tracesQuery.source,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
                         embedded: true,
                         showTestAccountFilters: false,
                         showReload: false,
@@ -89,7 +94,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
                         setTracesQuery(query)
                     }}
                 />
-            </LLMAnalyticsSetupPrompt>
+            </AIObservabilitySetupPrompt>
         </BindLogic>
     )
 }
@@ -97,8 +102,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLLMTraceAttributes>): JSX.Element => {
     const { personId, groupKey, groupTypeIndex, nodeId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
-    const sharedLogic = llmAnalyticsSharedLogic({ logicKey: nodeId, personId, group })
-    const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
+    const sharedLogic = aiObservabilitySharedLogic({ logicKey: nodeId, personId, group })
+    const tracesLogic = aiObservabilityTracesTabLogic({ personId, group })
     const { setDates, setPropertyFilters } = useActions(sharedLogic)
     const { setTracesQuery } = useActions(tracesLogic)
     const { tracesQuery } = useValues(tracesLogic)

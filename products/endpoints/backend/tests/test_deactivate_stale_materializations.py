@@ -6,13 +6,14 @@ from unittest import mock
 
 from django.utils import timezone
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks import (
     STALE_THRESHOLD_DAYS,
     _deactivate_version_materialization,
     deactivate_stale_materializations,
 )
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -53,15 +54,21 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             created_by=self.user,
             is_active=True,
             last_executed_at=last_executed_at,
-            current_version=1,
         )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"{name}_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/{name}_table",
+        )
+        saved_query.table = table
+        saved_query.save()
         version = EndpointVersion.objects.create(
             endpoint=endpoint,
             version=1,
             query=self.sample_hogql_query,
             created_by=self.user,
             saved_query=saved_query,
-            is_materialized=True,
         )
         return endpoint, version
 
@@ -248,13 +255,20 @@ class TestDeactivateEndpointMaterialization(BaseTest):
             is_active=True,
             current_version=1,
         )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="to_deactivate_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/to_deactivate_table",
+        )
+        saved_query.table = table
+        saved_query.save()
         version = EndpointVersion.objects.create(
             endpoint=endpoint,
             version=1,
             query=self.sample_hogql_query,
             created_by=self.user,
             saved_query=saved_query,
-            is_materialized=True,
         )
 
         _deactivate_version_materialization(version)

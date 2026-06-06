@@ -1,8 +1,8 @@
-import { kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { Scene } from 'scenes/sceneTypes'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
 
@@ -10,7 +10,9 @@ import type { exportsSceneLogicType } from './exportsSceneLogicType'
 
 export const exportsSceneLogic = kea<exportsSceneLogicType>([
     path(['scenes', 'exports', 'exportsSceneLogic']),
-    tabAwareScene(),
+    connect(() => ({
+        actions: [exportsLogic, ['loadExports']],
+    })),
     selectors({
         breadcrumbs: [
             () => [],
@@ -22,5 +24,8 @@ export const exportsSceneLogic = kea<exportsSceneLogicType>([
                 },
             ],
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadExports()
     }),
 ])

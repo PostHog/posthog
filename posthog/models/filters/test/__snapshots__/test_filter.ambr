@@ -12,9 +12,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -37,9 +40,13 @@
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -64,9 +71,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -89,9 +99,13 @@
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -116,9 +130,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -138,9 +155,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -160,9 +180,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -182,9 +205,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -207,9 +233,13 @@
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -237,9 +267,13 @@
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -267,9 +301,13 @@
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -297,9 +335,13 @@
          "posthog_cohort"."created_at",
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"

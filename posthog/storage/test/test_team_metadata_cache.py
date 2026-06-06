@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+import posthog.storage.team_access_cache_signal_handlers  # noqa: F401 — registers PSAK delete handler
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
@@ -188,9 +189,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Cache should NOT be cleared
         mock_clear.assert_not_called()
 
-    @patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache")
-    def test_team_delete_clears_project_secret_api_key_cache(self, mock_invalidate):
-        """Test that deleting a team clears its project secret API key caches."""
+    @patch("posthog.storage.team_access_cache.token_auth_cache")
+    def test_team_delete_clears_project_secret_api_key_cache(self, mock_token_cache):
         from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 
         team = Team.objects.create(
@@ -201,31 +201,51 @@ class TestTeamMetadataCacheSignals(BaseTest):
         ProjectSecretAPIKey.objects.create(
             team=team,
             label="Key 1",
-            secure_value="hashed_value_1",
+            secure_value="sha256$hashed_value_1",
         )
         ProjectSecretAPIKey.objects.create(
             team=team,
             label="Key 2",
-            secure_value="hashed_value_2",
+            secure_value="sha256$hashed_value_2",
         )
 
-        team.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
 
-        self.assertEqual(mock_invalidate.call_count, 2)
-        invalidated_values = {call.args[0] for call in mock_invalidate.call_args_list}
-        self.assertEqual(invalidated_values, {"hashed_value_1", "hashed_value_2"})
+        mock_token_cache.invalidate_tokens.assert_called_once()
+        invalidated_values = set(mock_token_cache.invalidate_tokens.call_args[0][0])
+        self.assertEqual(invalidated_values, {"sha256$hashed_value_1", "sha256$hashed_value_2"})
 
-    @patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache")
-    def test_team_delete_handles_no_project_secret_api_keys(self, mock_invalidate):
-        """Test that deleting a team without project secret API keys doesn't error."""
+    @patch("posthog.storage.team_access_cache_signal_handlers.capture_exception")
+    @patch("posthog.storage.team_access_cache.token_auth_cache")
+    def test_team_delete_psak_cache_handles_redis_failure(self, mock_token_cache, mock_capture):
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        mock_token_cache.is_configured = True
+        mock_token_cache.invalidate_tokens.side_effect = Exception("Redis down")
+
+        team = Team.objects.create(organization=self.organization, name="Test Team")
+        ProjectSecretAPIKey.objects.create(team=team, label="Key 1", secure_value="sha256$hashed_1")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_capture.assert_called_once()
+        args, _ = mock_capture.call_args
+        self.assertIsInstance(args[0], Exception)
+        self.assertEqual(str(args[0]), "Redis down")
+
+    @patch("posthog.storage.team_access_cache.token_auth_cache")
+    def test_team_delete_handles_no_project_secret_api_keys(self, mock_token_cache):
         team = Team.objects.create(
             organization=self.organization,
             name="Test Team",
         )
 
-        team.delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
 
-        mock_invalidate.assert_not_called()
+        mock_token_cache.invalidate_tokens.assert_not_called()
 
 
 class TestCacheStats(BaseTest):
@@ -563,3 +583,13 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
             self.team.full_clean()
 
         self.assertIn("session_recording_sample_rate", str(context.exception))
+
+
+# llm-gateway policy projection lives in its own cache (see
+# test_team_llm_gateway_policy_cache.py); we explicitly assert the field is NOT
+# in the shared team_metadata blob so the flags-pipeline consumers stay
+# unaffected by llm-gateway changes.
+class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
+    def test_llm_gateway_fields_excluded_from_shared_metadata(self):
+        self.assertNotIn("llm_gateway_enabled_at", TEAM_METADATA_FIELDS)
+        self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)

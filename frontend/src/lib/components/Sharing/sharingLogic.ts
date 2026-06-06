@@ -4,9 +4,9 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -19,7 +19,9 @@ export interface SharingLogicProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     recordingId?: string
+    notebookShortId?: string
     additionalParams?: Record<string, any>
+    onSharingEnabledChange?: (enabled: boolean) => void
 }
 
 export interface EmbedConfig {
@@ -38,16 +40,23 @@ const defaultSharingSettings = {
     noHeader: false,
     showInspector: false,
     hideExtraDetails: false,
+    theme: 'system',
 }
 
 const propsToApiParams = async (
     props: SharingLogicProps
-): Promise<{ dashboardId?: number; insightId?: number; recordingId?: string }> => {
+): Promise<{
+    dashboardId?: number
+    insightId?: number
+    recordingId?: string
+    notebookShortId?: string
+}> => {
     const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
     return {
         dashboardId: props.dashboardId,
         insightId,
         recordingId: props.recordingId,
+        notebookShortId: props.notebookShortId,
     }
 }
 
@@ -55,8 +64,8 @@ export const sharingLogic = kea<sharingLogicType>([
     path(['lib', 'components', 'Sharing', 'sharingLogic']),
     props({} as SharingLogicProps),
     key(
-        ({ insightShortId, dashboardId, recordingId }) =>
-            `sharing-${insightShortId || dashboardId || recordingId || ''}`
+        ({ insightShortId, dashboardId, recordingId, notebookShortId }) =>
+            `sharing-${insightShortId || dashboardId || recordingId || notebookShortId || ''}`
     ),
     connect(() => [preflightLogic, userLogic, dashboardsModel, organizationLogic]),
 
@@ -77,7 +86,11 @@ export const sharingLogic = kea<sharingLogicType>([
                     return await api.sharing.get(await propsToApiParams(props))
                 },
                 setIsEnabled: async (enabled: boolean) => {
-                    return await api.sharing.update(await propsToApiParams(props), { enabled })
+                    const sharingConfiguration = await api.sharing.update(await propsToApiParams(props), { enabled })
+                    if (sharingConfiguration) {
+                        props.onSharingEnabledChange?.(sharingConfiguration.enabled)
+                    }
+                    return sharingConfiguration
                 },
                 setPasswordRequired: async (password_required: boolean) => {
                     return await api.sharing.update(await propsToApiParams(props), {
@@ -145,9 +158,9 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
-        advancedPermissionsAvailable: [
+        accessControlAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS),
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ACCESS_CONTROL),
         ],
 
         sharingAllowed: [

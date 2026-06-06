@@ -3,24 +3,28 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
+import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
+
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory } from './maxLogic'
+import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
+const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = 'posthog_ai_data_processing_dismissed'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -79,6 +83,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['currentOrganization'],
             sceneLogic,
             ['sceneId', 'sceneConfig'],
+            teamLogic,
+            ['currentTeamIdStrict'],
             featureFlagLogic,
             ['featureFlags'],
             sidePanelStateLogic,
@@ -93,7 +99,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+        deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
+        dismissDataProcessing: true,
     }),
 
     loaders(({ values }) => ({
@@ -108,7 +116,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 ) => {
                     const response = await api.conversations.list()
-                    return response.results
+                    return response.results.map((conversation) =>
+                        mergeConversations(
+                            conversation,
+                            values.conversationHistory.find((existing) => existing.id === conversation.id)
+                        )
+                    )
                 },
 
                 loadConversation: async (conversationId: string) => {
@@ -155,6 +168,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 dismissLiabilityNotice: () => true,
             },
         ],
+        dataProcessingDismissed: [
+            false,
+            { persist: true, storageKey: AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY },
+            {
+                dismissDataProcessing: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
@@ -163,28 +183,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
-            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-            if (isRemovingSidePanelFlag) {
-                newInternalTab(urls.ai(undefined, prompt))
-                return
-            }
-
-            let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
-            if (!logic) {
-                logic = maxLogic({ tabId: 'sidepanel' })
-                logic.mount() // we're never unmounting this
-            }
-            actions.openSidePanelMax()
-            // HACK: Delay to ensure maxThreadLogic is mounted after the side panel opens - ugly, but works
-            window.setTimeout(() => logic!.actions.askMax(prompt), 100)
+            newInternalTab(urls.ai(undefined, prompt))
         },
         openSidePanelMax: ({ conversationId }) => {
-            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
-            if (isRemovingSidePanelFlag) {
-                newInternalTab(urls.ai(conversationId))
-                return
-            }
-
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
                 actions.openSidePanel(SidePanelTab.Max)
             }
@@ -200,14 +201,32 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
+        deleteConversation: async ({ id }) => {
+            try {
+                await conversationsDestroy(String(values.currentTeamIdStrict), id)
+                if (values.currentConversationId === id) {
+                    router.actions.push(urls.aiHistory())
+                }
+                for (const logic of maxLogic.findAllMounted()) {
+                    if (logic.values.conversationId === id) {
+                        logic.actions.startNewConversation()
+                    }
+                }
+                actions.loadConversationHistory()
+            } catch {
+                lemonToast.error('Failed to delete chat')
+            }
+        },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
-            actions.loadConversationHistory()
-        }
+    afterMount(({ actions }) => {
+        actions.loadConversationHistory()
     }),
 
     selectors({
+        currentConversationId: [
+            () => [router.selectors.searchParams],
+            (searchParams): string | null => searchParams?.chat ?? null,
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

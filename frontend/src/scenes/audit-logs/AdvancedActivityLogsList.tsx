@@ -5,11 +5,12 @@ import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 
-import { AuditLogTable } from './AuditLogTable'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+import { AuditLogTable } from './AuditLogTable'
 
 export function AdvancedActivityLogsList(): JSX.Element {
-    const { advancedActivityLogs, advancedActivityLogsLoading, pagination } = useValues(advancedActivityLogsLogic)
+    const { advancedActivityLogs, advancedActivityLogsLoading, pagination, isOrganizationView, teamsById } =
+        useValues(advancedActivityLogsLogic)
 
     const humanizedLogs = advancedActivityLogs?.results ? humanize(advancedActivityLogs.results, describerFor) : []
 
@@ -21,7 +22,13 @@ export function AdvancedActivityLogsList(): JSX.Element {
         return <AdvancedActivityLogsEmptyState />
     }
 
-    return <AuditLogTable logItems={humanizedLogs} pagination={pagination} />
+    return (
+        <AuditLogTable
+            logItems={humanizedLogs}
+            pagination={pagination}
+            teamsById={isOrganizationView ? teamsById : undefined}
+        />
+    )
 }
 
 const AdvancedActivityLogsListSkeleton = (): JSX.Element => (

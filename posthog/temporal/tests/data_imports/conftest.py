@@ -9,13 +9,14 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
+import pymysql
 import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from testcontainers.mysql import MySqlContainer
 
 from posthog.schema import HogQLQueryResponse
 
@@ -23,16 +24,133 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BATCH_TABLE,
+    STATUS_TABLE,
+    STATUS_VIEW,
+)
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
-from products.data_warehouse.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
+@pytest.fixture(scope="package")
+def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
+    """Create sourcebatch/sourcebatchstatus tables in the default test database.
+
+    The v3 pipeline tests patch WAREHOUSE_SOURCES_DATABASE_URL to point at
+    the Django test database, but the product migration only runs on the
+    dedicated warehouse_sources_queue DB. This fixture bridges the gap by
+    creating non-partitioned copies of the tables in the test DB.
+    """
+    with django_db_blocker.unblock():
+        from django.db import connection
+
+        with connection.cursor() as cur:
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {BATCH_TABLE} (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    team_id BIGINT NOT NULL,
+                    schema_id VARCHAR(200) NOT NULL,
+                    source_id VARCHAR(200) NOT NULL,
+                    job_id VARCHAR(200) NOT NULL,
+                    run_uuid VARCHAR(200) NOT NULL,
+                    batch_index INT NOT NULL,
+                    s3_path TEXT NOT NULL,
+                    row_count INT NOT NULL,
+                    byte_size BIGINT NOT NULL,
+                    is_final_batch BOOLEAN NOT NULL,
+                    total_batches INT,
+                    total_rows BIGINT,
+                    sync_type VARCHAR(32) NOT NULL,
+                    cumulative_row_count BIGINT NOT NULL DEFAULT 0,
+                    resource_name VARCHAR(400) NOT NULL,
+                    is_resume BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
+                    metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    batch_id UUID NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
+                    job_state VARCHAR(32) NOT NULL,
+                    attempt SMALLINT NOT NULL DEFAULT 0,
+                    exec_time TIMESTAMPTZ,
+                    error_response JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute(f"DROP VIEW IF EXISTS {STATUS_VIEW}")
+            cur.execute(f"""
+                CREATE VIEW {STATUS_VIEW} AS
+                SELECT DISTINCT ON (batch_id) *
+                FROM {STATUS_TABLE}
+                ORDER BY batch_id ASC, created_at DESC, id DESC
+            """)
+
+
+@pytest.fixture
+def _clean_sourcebatch_tables(_ensure_sourcebatch_tables):
+    """Truncate sourcebatch tables between tests so v3 runs start clean."""
+    yield
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute(f"TRUNCATE {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE")
+
+
+@pytest.fixture(scope="session")
+def mysql_container():
+    """Spin up a MySQL container once for the entire test session.
+
+    Shared across all data-imports tests so we don't pay container
+    startup more than once. Requires a reachable Docker daemon — CI has
+    one (it's what brings up the `docker-compose.dev.yml` stack), and
+    local flox envs have Docker too. If Docker is unreachable the
+    fixture errors loudly so the breakage isn't silently hidden.
+    """
+    container = MySqlContainer("mysql:9.2")
+    container.start()
+    try:
+        yield container
+    finally:
+        container.stop()
+
+
+@pytest.fixture
+def mysql_config(mysql_container):
+    return {
+        "host": mysql_container.get_container_host_ip(),
+        "port": int(mysql_container.get_exposed_port(3306)),
+        "user": mysql_container.username,
+        "password": mysql_container.password,
+        "database": mysql_container.dbname,
+        # MySQLSourceConfig names the logical database "schema" and keeps
+        # the two in lockstep — mirror that here.
+        "schema": mysql_container.dbname,
+        "using_ssl": False,
+    }
+
+
+@pytest.fixture
+def mysql_connection(mysql_config):
+    with pymysql.connect(
+        host=mysql_config["host"],
+        port=mysql_config["port"],
+        database=mysql_config["database"],
+        user=mysql_config["user"],
+        password=mysql_config["password"],
+        connect_timeout=5,
+    ) as connection:
+        yield connection
 
 
 @pytest_asyncio.fixture
@@ -53,28 +171,6 @@ async def minio_client():
             await minio_client.create_bucket(Bucket=BUCKET_NAME)
 
         yield minio_client
-
-
-def _mock_to_session_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "aws_session_token": None,
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
-def _mock_to_object_store_rs_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "region": "us-east-1",
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
 
 
 async def run_external_data_job_workflow(
@@ -109,8 +205,6 @@ async def run_external_data_job_workflow(
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
-        mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -121,6 +215,7 @@ async def run_external_data_job_workflow(
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,
@@ -131,7 +226,7 @@ async def run_external_data_job_workflow(
                 )
 
     # if not ignore_assertions:
-    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
@@ -1027,6 +1122,75 @@ def stripe_customer_payment_method():
 
 
 @pytest.fixture
+def mock_stripe_client(
+    stripe_balance_transaction,
+    stripe_charge,
+    stripe_customer,
+    stripe_dispute,
+    stripe_invoiceitem,
+    stripe_invoice,
+    stripe_payout,
+    stripe_price,
+    stripe_product,
+    stripe_refund,
+    stripe_subscription,
+    stripe_credit_note,
+    stripe_customer_balance_transaction,
+    stripe_customer_payment_method,
+):
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
+        mock_balance_transaction_list = mock.MagicMock()
+        mock_charges_list = mock.MagicMock()
+        mock_customers_list = mock.MagicMock()
+        mock_disputes_list = mock.MagicMock()
+        mock_invoice_items_list = mock.MagicMock()
+        mock_invoice_list = mock.MagicMock()
+        mock_payouts_list = mock.MagicMock()
+        mock_price_list = mock.MagicMock()
+        mock_product_list = mock.MagicMock()
+        mock_refunds_list = mock.MagicMock()
+        mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
+        mock_customer_balance_transactions_list = mock.MagicMock()
+        mock_customer_payment_methods_list = mock.MagicMock()
+
+        mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
+        mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
+        mock_customers_list.auto_paging_iter.return_value = stripe_customer["data"]
+        mock_disputes_list.auto_paging_iter.return_value = stripe_dispute["data"]
+        mock_invoice_items_list.auto_paging_iter.return_value = stripe_invoiceitem["data"]
+        mock_invoice_list.auto_paging_iter.return_value = stripe_invoice["data"]
+        mock_payouts_list.auto_paging_iter.return_value = stripe_payout["data"]
+        mock_price_list.auto_paging_iter.return_value = stripe_price["data"]
+        mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
+        mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
+        mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
+        mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
+            "data"
+        ]
+        mock_customer_payment_methods_list.auto_paging_iter.return_value = stripe_customer_payment_method["data"]
+
+        instance = MockStripeClient.return_value
+        instance.balance_transactions.list.return_value = mock_balance_transaction_list
+        instance.charges.list.return_value = mock_charges_list
+        instance.customers.list.return_value = mock_customers_list
+        instance.disputes.list.return_value = mock_disputes_list
+        instance.invoice_items.list.return_value = mock_invoice_items_list
+        instance.invoices.list.return_value = mock_invoice_list
+        instance.payouts.list.return_value = mock_payouts_list
+        instance.prices.list.return_value = mock_price_list
+        instance.products.list.return_value = mock_product_list
+        instance.refunds.list.return_value = mock_refunds_list
+        instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
+        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
+        instance.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
+
+        yield instance
+
+
+@pytest.fixture
 def zendesk_brands():
     return json.loads(
         """
@@ -1481,3 +1645,255 @@ def chargebee_customer():
         }
         """
     )
+
+
+@pytest.fixture
+def paddle_customers():
+    return {
+        "data": [
+            {
+                "id": "ctm_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "name": "John Doe",
+                "email": "john@doe.com",
+                "status": "active",
+                "created_at": "2023-08-21T11:05:00Z",
+                "updated_at": "2023-08-21T11:05:00Z",
+                "marketing_consent": True,
+                "locale": "en",
+                "custom_data": None,
+                "import_meta": None,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def paddle_subscriptions():
+    return {
+        "data": [
+            {
+                "id": "sub_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "status": "active",
+                "customer_id": "ctm_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "address_id": "add_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                "business_id": None,
+                "currency_code": "USD",
+                "created_at": "2023-08-21T11:05:00Z",
+                "updated_at": "2023-08-21T11:05:00Z",
+                "started_at": "2023-08-21T11:05:00Z",
+                "next_billed_at": "2023-09-21T11:05:00Z",
+                "collection_mode": "automatic",
+                "billing_details": None,
+                "current_billing_period": {
+                    "starts_at": "2023-08-21T11:05:00Z",
+                    "ends_at": "2023-09-21T11:05:00Z",
+                },
+                "items": [
+                    {
+                        "price_id": "pri_01h8bx9mqw8z9k5f9v9v9v9v9v",
+                        "quantity": 1,
+                        "status": "active",
+                    }
+                ],
+                "custom_data": None,
+            }
+        ]
+    }
+
+
+# Customer.io list-endpoint fixtures — shapes mirror real EU API responses with all
+# names/IDs/timestamps replaced with synthetic values.
+
+
+@pytest.fixture
+def customer_io_broadcasts():
+    return {
+        "broadcasts": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "name": "Test broadcast",
+                "type": "api_triggered",
+                "created": 1700000000,
+                "updated": 1700000000,
+                "active": True,
+                "state": "draft",
+                "actions": [],
+                "first_started": None,
+                "tags": [],
+                "scheduled_start": None,
+                "scheduled_start_should_backfill": False,
+                "scheduled_stop": None,
+                "scheduled_stop_should_sunset": False,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_campaigns():
+    return {
+        "campaigns": [
+            {
+                "id": 100,
+                "deduplicate_id": "100:1700000000",
+                "name": "Welcome series",
+                "type": "triggered",
+                "created": 1700000000,
+                "updated": 1700000000,
+                "active": True,
+                "state": "running",
+                "actions": [200],
+                "first_started": 1700000000,
+                "tags": ["onboarding"],
+                "scheduled_start": None,
+                "scheduled_start_should_backfill": False,
+                "scheduled_stop": None,
+                "scheduled_stop_should_sunset": False,
+                "event_name": "signed_up",
+                "event_type": "event",
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_collections():
+    return {
+        "collections": [
+            {
+                "id": 1,
+                "name": "Products",
+                "rows": 0,
+                "bytes": 0,
+                "created_at": 1700000000,
+                "updated_at": 1700000000,
+                "schema": {"fields": []},
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_newsletters():
+    return {
+        "newsletters": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "content_ids": [10],
+                "name": "Monthly newsletter",
+                "sent_at": 1700000000,
+                "created": 1700000000,
+                "updated": 1700000000,
+                "type": "newsletter",
+                "tags": [],
+                "recipient_segment_ids": [50],
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_object_types():
+    return {
+        "types": [
+            {
+                "id": "1",
+                "name": "Account",
+                "enabled": True,
+                "icon": "company",
+                "singular_name": "Account",
+                "slug": "accounts",
+                "singular_slug": "account",
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_segments():
+    return {
+        "segments": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "name": "Active users",
+                "description": "Users active in the last 30 days",
+                "state": "finished",
+                "progress": None,
+                "type": "dynamic",
+                "tags": [],
+                "conditions": "true",
+                "created_at": 1700000000,
+                "updated_at": 1700000000,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_sender_identities():
+    return {
+        "sender_identities": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "name": "Marketing",
+                "email": "marketing@example.com",
+                "phone": None,
+                "address": "1 Example Way",
+                "template_type": "transactional",
+                "auto_generated": False,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_snippets():
+    return {
+        "snippets": [
+            {
+                "name": "footer",
+                "value": "<p>Unsubscribe</p>",
+                "updated_at": 1700000000,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_subscription_topics():
+    return {
+        "topics": [
+            {
+                "id": 1,
+                "identifier": "topic_1",
+                "name": "Product updates",
+                "description": "Updates about new features",
+                "subscribed_by_default": True,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_transactional():
+    return {
+        "messages": [
+            {
+                "id": 1,
+                "name": "Password reset",
+                "description": "Password reset email",
+                "send_to_unsubscribed": True,
+                "link_tracking": True,
+                "open_tracking": True,
+                "hide_message_body": False,
+                "queue_drafts": False,
+                "trigger_name": None,
+                "created_at": 1700000000,
+                "updated_at": 1700000000,
+            }
+        ]
+    }

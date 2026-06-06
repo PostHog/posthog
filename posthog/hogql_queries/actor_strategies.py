@@ -1,20 +1,33 @@
+import uuid as uuid_mod
+from datetime import UTC, datetime
 from typing import Literal, Optional, cast
 
 from django.db import connections
 
 import orjson as json
+import structlog
 
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import Group, Team
+from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
+    _batched_get_distinct_ids_for_persons,
+    _batched_get_persons_by_uuids,
+)
+from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+
+logger = structlog.get_logger(__name__)
 
 # Use centralized database routing constant
 READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
@@ -25,16 +38,23 @@ class ActorStrategy:
     origin: str
     origin_id: str
 
-    def __init__(self, team: Team, query: ActorsQuery, paginator: HogQLHasMorePaginator):
+    def __init__(
+        self,
+        team: Team,
+        query: ActorsQuery,
+        paginator: HogQLHasMorePaginator,
+        user: User | None = None,
+    ):
         self.team = team
         self.paginator = paginator
         self.query = query
+        self.user = user
 
     def get_actors(self, actor_ids) -> dict[str, dict]:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
+        return RecordingsHelper(self.team, user=self.user).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -51,11 +71,60 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    # batching is needed to prevent timeouts when reading from Postgres
-    BATCH_SIZE = 1000
-
-    # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
     def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
+        from posthog.personhog_client.client import get_personhog_client
+
+        client = get_personhog_client()
+        if client is not None:
+            try:
+                result = self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending)
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="get_actors", source="personhog", client_name=get_client_name()
+                ).inc()
+                return result
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="get_actors", source="personhog", error_type="grpc_error", client_name=get_client_name()
+                ).inc()
+                logger.warning("personhog_get_actors_failure", team_id=self.team.pk, exc_info=True)
+
+        PERSONHOG_ROUTING_TOTAL.labels(operation="get_actors", source="raw_sql", client_name=get_client_name()).inc()
+        return self._get_actors_via_raw_sql(actor_ids, sort_by_created_at_descending)
+
+    def _get_actors_via_personhog(
+        self,
+        actor_ids,
+        sort_by_created_at_descending: bool,
+    ) -> dict[str, dict]:
+        actor_ids_list = [str(uid) for uid in actor_ids]
+        team_id = self.team.pk
+
+        all_persons = _batched_get_persons_by_uuids(team_id, actor_ids_list, operation="get_actors")
+
+        if sort_by_created_at_descending:
+            all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
+
+        person_ids = [p.id for p in all_persons]
+        distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
+
+        return {
+            p.uuid: {
+                "id": uuid_mod.UUID(p.uuid),
+                "properties": json.loads(p.properties) if p.properties else {},
+                "is_identified": p.is_identified,
+                "created_at": datetime.fromtimestamp(p.created_at / 1000, tz=UTC) if p.created_at else None,
+                "last_seen_at": datetime.fromtimestamp(p.last_seen_at / 1000, tz=UTC) if p.last_seen_at else None,
+                "distinct_ids": distinct_ids_by_person.get(p.id, []),
+            }
+            for p in all_persons
+        }
+
+    # Hand-written SQL instead of ORM because the ORM was blowing up memory on exports
+    def _get_actors_via_raw_sql(
+        self,
+        actor_ids,
+        sort_by_created_at_descending: bool,
+    ) -> dict[str, dict]:
         person_table = Person._meta.db_table
         pdi_table = PersonDistinctId._meta.db_table
         conn = connections[READ_DB_FOR_PERSONS]
@@ -65,9 +134,9 @@ class PersonStrategy(ActorStrategy):
         all_distinct_ids: list = []
 
         with conn.cursor() as cursor:
-            for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
-                batch = actor_ids_list[i : i + self.BATCH_SIZE]
-                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
+            for i in range(0, len(actor_ids_list), PERSONHOG_BATCH_SIZE):
+                batch = actor_ids_list[i : i + PERSONHOG_BATCH_SIZE]
+                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at, {person_table}.last_seen_at
                     FROM {person_table}
                     WHERE {person_table}.uuid = ANY(%(uuids)s)
                     AND {person_table}.team_id = %(team_id)s"""
@@ -75,14 +144,14 @@ class PersonStrategy(ActorStrategy):
                 all_people.extend(cursor.fetchall())
 
             if sort_by_created_at_descending:
-                from datetime import datetime
+                from datetime import datetime as _datetime
 
-                min_dt = datetime.min
+                min_dt = _datetime.min
                 all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
 
             person_ids = [x[0] for x in all_people]
-            for i in range(0, len(person_ids), self.BATCH_SIZE):
-                batch = person_ids[i : i + self.BATCH_SIZE]
+            for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
+                batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
                 cursor.execute(
                     f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
                     FROM {pdi_table}
@@ -104,6 +173,7 @@ class PersonStrategy(ActorStrategy):
                 "properties": json.loads(person[2]),
                 "is_identified": person[3],
                 "created_at": person[4],
+                "last_seen_at": person[5],
                 "distinct_ids": distinct_ids,
             }
             for person, distinct_ids in person_id_to_raw_person_and_set.values()
@@ -125,28 +195,29 @@ class PersonStrategy(ActorStrategy):
         if self.query.fixedProperties:
             where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         parse_expr(
                             "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
-                            {"search": ast.Constant(value=f"%{self.query.search}%")},
+                            {"search": ast.Constant(value=f"%{search}%")},
                         ),
                     ]
                 )
@@ -181,18 +252,20 @@ class GroupStrategy(ActorStrategy):
         super().__init__(**kwargs)
 
     def get_actors(self, actor_ids) -> dict[str, dict]:
+        from posthog.models.group.util import get_groups_by_identifiers
+
+        groups = get_groups_by_identifiers(self.team.pk, self.group_type_index, [str(aid) for aid in actor_ids])
         return {
-            str(p["group_key"]): {
-                "id": p["group_key"],
+            str(g.group_key): {
+                "id": g.group_key,
                 "type": "group",
-                "properties": p["group_properties"],  # TODO: Legacy for frontend
-                **p,
+                "properties": g.group_properties,  # TODO: Legacy for frontend
+                "group_key": g.group_key,
+                "group_type_index": g.group_type_index,
+                "created_at": g.created_at,
+                "group_properties": g.group_properties,
             }
-            for p in Group.objects.filter(
-                team_id=self.team.pk, group_type_index=self.group_type_index, group_key__in=actor_ids
-            )
-            .values("group_key", "group_type_index", "created_at", "group_properties")
-            .iterator(chunk_size=self.paginator.limit)
+            for g in groups
         }
 
     def input_columns(self) -> list[str]:
@@ -201,19 +274,20 @@ class GroupStrategy(ActorStrategy):
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
-        if self.query.search is not None and self.query.search != "":
+        search = self.query.search.strip() if self.query.search else None
+        if search:
             where_exprs.append(
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Field(chain=["properties", "name"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                            right=ast.Constant(value=f"%{search}%"),
                         ),
                     ]
                 )
@@ -235,3 +309,72 @@ class GroupStrategy(ActorStrategy):
                 ),
             )
         ]
+
+
+class SessionStrategy(ActorStrategy):
+    """Strategy for session-based aggregation (e.g. funnels aggregated by $session_id).
+
+    The actor is a session. Person data is fetched separately using the person_id
+    column from the funnel query and nested under a "person" key.
+    """
+
+    field = "session"
+    origin = "sessions"
+    origin_id = "session_id"
+
+    def get_actors(self, actor_ids) -> dict[str, dict]:
+        session_ids = list(actor_ids)
+        if not session_ids:
+            return {}
+
+        query = parse_select(
+            """
+            SELECT
+                session_id,
+                `$start_timestamp`,
+                `$end_timestamp`,
+                `$session_duration`,
+                `$channel_type`,
+                `$entry_pathname`,
+                `$entry_referring_domain`,
+                `$entry_utm_source`,
+                `$entry_utm_medium`,
+                `$entry_utm_campaign`,
+                `$entry_utm_term`,
+                `$entry_utm_content`,
+                `$num_uniq_urls`,
+                `$autocapture_count`,
+                `$exit_pathname`,
+                `$last_external_click_url`,
+                `$pageview_count`
+            FROM sessions
+            WHERE session_id IN {session_ids}
+            """,
+            {"session_ids": ast.Constant(value=session_ids)},
+        )
+
+        response = execute_hogql_query(
+            query_type="SessionActorsQuery",
+            query=query,
+            team=self.team,
+            user=self.user,
+        )
+
+        columns = response.columns or []
+        return {str(row[0]): {columns[i]: row[i] for i in range(len(columns))} for row in response.results}
+
+    def input_columns(self) -> list[str]:
+        return ["session"]
+
+    def filter_conditions(self) -> list[ast.Expr]:
+        where_exprs: list[ast.Expr] = []
+
+        search = self.query.search.strip() if self.query.search else None
+        if search:
+            where_exprs.append(
+                parse_expr(
+                    "person_id in (select id from persons where ilike(properties.email, {search}) or ilike(properties.name, {search}))",
+                    {"search": ast.Constant(value=f"%{search}%")},
+                )
+            )
+        return where_exprs

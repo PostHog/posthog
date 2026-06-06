@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "outDir": "dist",
+        // rootDir is the parent visual_review/ directory because client.ts imports
+        // types from `../frontend/generated/api.schemas.ts` via @visual-review/types
+        "rootDir": "..",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "declaration": true,
+        "paths": {
+            "@visual-review/types": ["../frontend/generated/api.schemas.ts"]
+        }
+    },
+    "include": ["src"]
+}

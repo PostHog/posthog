@@ -1,11 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
-    PersonPropertyFilter,
     PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -14,6 +12,7 @@ import {
 } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
+import { PersonMessage } from '../person-message'
 import { PersonUpdate } from '../person-update-batch'
 import { InternalPersonWithDistinctId } from './person-repository'
 
@@ -28,14 +27,6 @@ export interface RawPostgresPersonRepository {
         teamPersons: { teamId: TeamId; distinctId: string }[],
         useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
-
-    countPersonsByProperties(teamPersons: { teamId: TeamId; properties: PersonPropertyFilter[] }): Promise<number>
-
-    fetchPersonsByProperties(teamPersons: {
-        teamId: TeamId
-        properties: PersonPropertyFilter[]
-        options?: { limit?: number; offset?: number }
-    }): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
         createdAt: DateTime,
@@ -56,22 +47,22 @@ export interface RawPostgresPersonRepository {
         update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]>
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
-    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
+    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
     updatePersonsBatch(
         personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>>
 
-    deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]>
 
     addDistinctId(
         person: InternalPerson,
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]>
+    ): Promise<PersonMessage[]>
 
     moveDistinctIds(
         source: InternalPerson,

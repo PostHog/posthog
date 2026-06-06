@@ -6,6 +6,8 @@ import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,6 +21,11 @@ export function CSPReportingSettings(): JSX.Element {
     const [includeDistinctId, setIncludeDistinctId] = useState(false)
     const [includeVersion, setIncludeVersion] = useState(true)
     const [includeSampleRate, setIncludeSampleRate] = useState(false)
+
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <>
@@ -65,21 +72,25 @@ export function CSPReportingSettings(): JSX.Element {
                         label="version: the version for the current CSP. This helps you track impact of changes to your CSP."
                         checked={includeVersion}
                         onChange={setIncludeVersion}
+                        disabledReason={restrictedReason}
                     />
                     <LemonCheckbox
                         label="session_id: the PostHog UUIDv7 session id. Helps you link CSP violations to session replay."
                         checked={includeSessionId}
                         onChange={setIncludeSessionId}
+                        disabledReason={restrictedReason}
                     />
                     <LemonCheckbox
                         label="distinct_id: the distinct id for the current user. So you can track which users are being affected"
                         checked={includeDistinctId}
                         onChange={setIncludeDistinctId}
+                        disabledReason={restrictedReason}
                     />
                     <LemonCheckbox
                         label="sample_rate: the sample rate for the current CSP. Lets you control the volume of reports you ingest."
                         checked={includeSampleRate}
                         onChange={setIncludeSampleRate}
+                        disabledReason={restrictedReason}
                     />
                 </div>
             </div>

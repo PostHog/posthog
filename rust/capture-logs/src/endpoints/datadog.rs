@@ -1,4 +1,4 @@
-use crate::log_record::KafkaLogRow;
+use crate::log_record::{override_timestamp, KafkaLogRow};
 use crate::service::Service;
 use axum::{
     extract::State,
@@ -9,7 +9,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
 use bytes::Bytes;
 use chrono::{TimeZone, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::json;
 use std::collections::HashMap;
 use tracing::{debug, error, instrument};
@@ -29,10 +29,50 @@ pub struct DatadogLog {
     pub service: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_timestamp")]
     pub timestamp: Option<i64>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TimestampValue {
+        Integer(i64),
+        Str(String),
+    }
+
+    let opt: Option<TimestampValue> = Option::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(TimestampValue::Integer(n)) => Ok(Some(n)),
+        Some(TimestampValue::Str(s)) => {
+            if s.is_empty() {
+                return Ok(None);
+            }
+            // Try parsing as plain integer string first
+            if let Ok(n) = s.parse::<i64>() {
+                return Ok(Some(n));
+            }
+            // Try parsing as RFC 3339 / ISO 8601 datetime
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                return Ok(Some(dt.timestamp_millis()));
+            }
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f") {
+                return Ok(Some(dt.and_utc().timestamp_millis()));
+            }
+            Err(de::Error::custom(format!(
+                "invalid timestamp string: {}",
+                s
+            )))
+        }
+    }
 }
 
 pub fn normalize_datadog_severity(status: Option<&str>) -> (String, i32) {
@@ -123,18 +163,24 @@ pub fn extract_trace_span_ids(extra: &HashMap<String, serde_json::Value>) -> (St
     (trace_id, span_id)
 }
 
-pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryParams) -> KafkaLogRow {
+pub fn datadog_log_to_kafka_row(
+    log: DatadogLog,
+    query_params: &DatadogQueryParams,
+) -> (KafkaLogRow, bool) {
     // Body values take precedence over query params
     let status = log.status.as_deref().or(query_params.status.as_deref());
     let (severity_text, severity_number) = normalize_datadog_severity(status);
 
-    let timestamp = log
+    let raw_timestamp = log
         .timestamp
         .and_then(|ts| {
             // Datadog uses milliseconds since epoch
             Utc.timestamp_millis_opt(ts).single()
         })
         .unwrap_or_else(Utc::now);
+
+    let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+    let was_overridden = original_timestamp.is_some();
 
     let service = log.service.or_else(|| query_params.service.clone());
     let hostname = log.hostname.or_else(|| query_params.hostname.clone());
@@ -190,7 +236,11 @@ pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryPara
         attributes.insert(key.clone(), value.to_string());
     }
 
-    KafkaLogRow {
+    if let Some(original) = original_timestamp {
+        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+    }
+
+    let row = KafkaLogRow {
         uuid: Uuid::now_v7().to_string(),
         trace_id,
         span_id,
@@ -205,7 +255,10 @@ pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryPara
         instrumentation_scope,
         event_name,
         attributes,
+        bytes_uncompressed: None,
     }
+    .with_computed_bytes();
+    (row, was_overridden)
 }
 
 #[derive(Deserialize, Debug)]
@@ -284,13 +337,19 @@ pub async fn export_datadog_logs_http(
         },
     };
 
-    let rows: Vec<KafkaLogRow> = logs
+    let results: Vec<(KafkaLogRow, bool)> = logs
         .into_iter()
         .map(|log| datadog_log_to_kafka_row(log, &query_params))
         .collect();
 
-    let row_count = rows.len();
-    if let Err(e) = service.sink.write(&token, rows, body.len() as u64).await {
+    let row_count = results.len();
+    let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
+    let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
+    if let Err(e) = service
+        .sink
+        .write(&token, rows, body.len() as u64, timestamps_overridden)
+        .await
+    {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,

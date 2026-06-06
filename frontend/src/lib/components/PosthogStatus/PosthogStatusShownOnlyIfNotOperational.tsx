@@ -2,10 +2,17 @@ import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { healthMenuLogic } from '../HealthMenu/healthMenuLogic'
+import { cn } from 'lib/utils/css-classes'
 
-export function PosthogStatusShownOnlyIfNotOperational(): JSX.Element | null {
-    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus } = useValues(healthMenuLogic)
+import { posthogStatusLogic } from '../HelpMenu/posthogStatusLogic'
+
+export function PosthogStatusShownOnlyIfNotOperational({
+    iconOnly = false,
+}: {
+    iconOnly?: boolean
+}): JSX.Element | null {
+    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus, statusPageUrl } =
+        useValues(posthogStatusLogic)
 
     if (postHogStatus === 'operational') {
         return null
@@ -22,15 +29,19 @@ export function PosthogStatusShownOnlyIfNotOperational(): JSX.Element | null {
         >
             <Link
                 buttonProps={{
-                    iconOnly: true,
-                    className: 'text-secondary group-hover:text-primary',
+                    iconOnly: iconOnly,
+                    menuItem: !iconOnly,
                 }}
-                to="https://posthogstatus.com"
-                tooltip={tooltipText}
+                to={statusPageUrl}
+                tooltip={!iconOnly ? tooltipText : undefined}
                 tooltipCloseDelayMs={0}
                 target="_blank"
             >
-                <span className="relative flex size-4">
+                <span
+                    className={cn('relative flex size-4', {
+                        'mr-px': !iconOnly,
+                    })}
+                >
                     <span className="absolute inline-flex h-full w-full animate-pulse-glow rounded-full duration-1" />
                     <svg className="size-4" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path
@@ -39,6 +50,7 @@ export function PosthogStatusShownOnlyIfNotOperational(): JSX.Element | null {
                         />
                     </svg>
                 </span>
+                {!iconOnly && <span className="truncate">{tooltipText}</span>}
             </Link>
         </div>
     )

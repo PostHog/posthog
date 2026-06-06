@@ -1,6 +1,7 @@
 import json
 import importlib
 from datetime import timedelta
+from typing import Any, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -12,8 +13,9 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
-from posthog.models.plugin import Plugin, PluginConfig, PluginStorage
 from posthog.models.team.team import Team
+
+from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginStorage
 
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
@@ -175,10 +177,11 @@ class MarkInactiveExportsAsFinished(TestCase):
         migration.mark_inactive_exports_as_finished(apps, None)
 
         entries = ActivityLog.objects.filter(activity="export_fail", is_system=True)
+        details = [cast(dict[str, Any], entry.detail) for entry in entries]
 
-        self.assertEqual({entry.detail["trigger"]["job_id"] for entry in entries}, {"1", "6"})
+        self.assertEqual({detail["trigger"]["job_id"] for detail in details}, {"1", "6"})
         self.assertEqual(
-            {entry.detail["trigger"]["failure_reason"] for entry in entries},
+            {detail["trigger"]["failure_reason"] for detail in details},
             {"Export was killed after too much inactivity"},
         )
 

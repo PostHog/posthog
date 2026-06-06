@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -10,9 +9,9 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
+import { Scene } from 'scenes/sceneTypes'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { duplicateExistingSurvey, sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -21,10 +20,12 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
+import { SURVEY_CREATED_SOURCE } from './constants'
 import type { surveysLogicType } from './surveysLogicType'
 import { surveysSdkLogic } from './surveysSdkLogic'
+import { captureMaxAISurveyCreationException } from './utils'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -35,8 +36,12 @@ export enum SurveysTabs {
     Settings = 'settings',
 }
 
+export function isSurveyDraft(survey: Pick<Survey, 'start_date'>): boolean {
+    return !survey.start_date
+}
+
 export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>): ProgressStatus {
-    if (!survey.start_date) {
+    if (isSurveyDraft(survey)) {
         return ProgressStatus.Draft
     } else if (!survey.end_date) {
         return ProgressStatus.Running
@@ -50,6 +55,7 @@ function hasMorePages(surveys: any[], count: number): boolean {
 
 export interface SurveysFilters {
     status: string
+    type: SurveyType | 'any'
     created_by: null | number
     archived: boolean
 }
@@ -84,12 +90,11 @@ function mergeSearchSurveysData(
     response: CountedPaginatedResponse<Survey>,
     appendResults = false
 ): SurveyDataState {
-    if (response.results.length === 0) {
+    if (appendResults && response.results.length === 0) {
         return currentData
     }
 
-    const searchSurveys =
-        appendResults && response.results ? [...currentData.searchSurveys, ...response.results] : response.results
+    const searchSurveys = appendResults ? [...currentData.searchSurveys, ...response.results] : response.results
 
     return {
         ...currentData,
@@ -129,6 +134,17 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
+        setPreferredEditor: (editor: 'guided' | 'full') => ({ editor }),
+        handleMaxSurveyCreated: (
+            toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                survey_type?: string
+                error?: string
+                error_message?: string
+            },
+            source: SURVEY_CREATED_SOURCE
+        ) => ({ toolOutput, source }),
     }),
     loaders(({ values, actions }) => ({
         data: {
@@ -155,11 +171,6 @@ export const surveysLogic = kea<surveysLogicType>([
                 const trimmedSearchTerm = values.searchTerm?.trim() || ''
                 if (trimmedSearchTerm === '') {
                     return mergeSearchSurveysData(values.data, { results: [], count: 0 })
-                }
-
-                // Only do backend search if we have more total items than the page size
-                if (values.data.surveysCount <= SURVEY_PAGE_SIZE) {
-                    return values.data
                 }
 
                 const response = await api.surveys.list({
@@ -210,34 +221,6 @@ export const surveysLogic = kea<surveysLogicType>([
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
                     searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
-                }
-            },
-            createSurveyFromTemplate: async (surveyTemplate: SurveyTemplate) => {
-                const response = await api.surveys.create(
-                    sanitizeSurvey({
-                        ...surveyTemplate,
-                        name: surveyTemplate.templateType,
-                    })
-                )
-
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_CREATED,
-                    metadata: {
-                        survey_id: response.id,
-                        source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
-                        template_type: surveyTemplate.templateType,
-                    },
-                })
-
-                // Navigate to the created survey
-                router.actions.push(urls.survey(response.id))
-
-                // Return updated data with the new survey
-                return {
-                    ...values.data,
-                    surveys: [response, ...values.data.surveys],
-                    surveysCount: values.data.surveysCount + 1,
                 }
             },
         },
@@ -316,6 +299,7 @@ export const surveysLogic = kea<surveysLogicType>([
         filters: [
             {
                 archived: false,
+                type: 'any',
                 status: 'any',
                 created_by: null,
             } as Partial<SurveysFilters>,
@@ -343,6 +327,16 @@ export const surveysLogic = kea<surveysLogicType>([
             null as Survey | null,
             {
                 setSurveyToDuplicate: (_, { survey }) => survey,
+            },
+        ],
+        // Remembers which editor (guided wizard vs full editor) the user last
+        // chose. Used on "new survey" landing pages to redirect to their
+        // preferred editor automatically.
+        preferredEditor: [
+            'guided' as 'guided' | 'full',
+            { persist: true },
+            {
+                setPreferredEditor: (_, { editor }) => editor,
             },
         ],
     }),
@@ -387,43 +381,46 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
         },
-        setSearchTerm: async ({ searchTerm }, breakpoint) => {
-            await breakpoint(300) // Debounce for 300ms
-            if (searchTerm && values.data.surveysCount > SURVEY_PAGE_SIZE) {
-                actions.loadSearchResults()
+        handleMaxSurveyCreated: ({ toolOutput, source }) => {
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                    source,
+                    created_successfully: !toolOutput?.error,
+                },
+            })
+
+            if (toolOutput?.error || !toolOutput?.survey_id) {
+                captureMaxAISurveyCreationException(toolOutput.error, source)
+                return
             }
+
+            actions.loadSurveys()
+            if (toolOutput.survey_type === 'popover') {
+                router.actions.push(urls.surveyWizard(toolOutput.survey_id))
+            } else {
+                router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
+            }
+        },
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSearchResults()
         },
     })),
     selectors({
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
             (data, searchTerm, filters) => {
-                let searchedSurveys = data.surveys
+                let searchedSurveys = searchTerm?.trim() ? data.searchSurveys : data.surveys
 
-                if (searchTerm) {
-                    // Always do frontend search first for better UX
-                    const fuseResults = new Fuse(searchedSurveys, {
-                        keys: ['key', 'name'],
-                        ignoreLocation: true,
-                        threshold: 0.3,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
-
-                    // If we have backend search results (triggered when total count > page size)
-                    // merge them with frontend results, removing duplicates
-                    if (data.searchSurveys.length > 0) {
-                        const seenIds = new Set(fuseResults.map((s) => s.id))
-                        const uniqueBackendResults = data.searchSurveys.filter((s) => !seenIds.has(s.id))
-                        searchedSurveys = [...fuseResults, ...uniqueBackendResults]
-                    } else {
-                        searchedSurveys = fuseResults
-                    }
-                }
-
-                const { status, created_by, archived } = filters
+                const { status, type, created_by, archived } = filters
                 if (status !== 'any') {
                     searchedSurveys = searchedSurveys.filter((survey: Survey) => getSurveyStatus(survey) === status)
+                }
+                if (type !== 'any') {
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.type === type)
                 }
                 if (created_by) {
                     searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.created_by?.id === created_by)
@@ -453,9 +450,9 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
         ],
-        guidedEditorEnabled: [
+        formBuilderEnabled: [
             (s) => [s.enabledFlags],
-            (enabledFlags) => !!(enabledFlags[FEATURE_FLAGS.SURVEYS_GUIDED_EDITOR] === 'test'),
+            (enabledFlags) => !!enabledFlags[FEATURE_FLAGS.SURVEYS_FORM_BUILDER],
         ],
         globalSurveyAppearanceConfigAvailable: [
             (s) => [s.hasAvailableFeature],

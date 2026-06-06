@@ -1,10 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'
+import { batchSpikeEventsLogic } from './batchSpikeEventsLogic'
 import type { issuesDataNodeLogicType } from './issuesDataNodeLogicType'
 
 export interface IssuesDataNodeLogicProps {
@@ -22,7 +24,9 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             values: [nodeLogic, ['response', 'responseLoading'], issueActionsLogic, ['needsReload']],
             actions: [
                 nodeLogic,
-                ['setResponse', 'loadData', 'cancelQuery'],
+                ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
+                batchSpikeEventsLogic,
+                ['loadSpikeEventsForIssues'],
                 issueActionsLogic,
                 [
                     'mergeIssues',
@@ -51,30 +55,61 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props, cache }) => ({
+        loadData: () => {
+            cache.loadStartTime = performance.now()
+        },
         reloadData: () => {
             actions.loadData('force_blocking')
+        },
+        loadDataSuccess: () => {
+            const durationMs = cache.loadStartTime != null ? Math.round(performance.now() - cache.loadStartTime) : null
+
+            const response = values.response as Record<string, any> | null
+            const results = response && 'results' in response ? response.results : []
+            const query = props.query as Record<string, any>
+            const filterGroups = query?.filterGroup?.values ?? []
+            const filterCount = filterGroups.reduce(
+                (count: number, group: any) => count + (group?.values?.length ?? 0),
+                0
+            )
+            const sortBy = query?.orderBy ?? null
+            const sortDirection = query?.orderDirection ?? null
+            const isV3 = query?.useQueryV3 ?? false
+            const eventName = isV3 ? 'error_tracking_issue_list_loaded_v3' : 'error_tracking_issue_list_loaded'
+            posthog.capture(eventName, {
+                duration_ms: durationMs,
+                result_count: (results as ErrorTrackingIssue[]).length,
+                is_cached: response?.is_cached ?? null,
+                filter_count: filterCount,
+                sort_by: sortBy,
+                sort_direction: sortDirection,
+                assignee_filter: !!query?.assignee,
+                status_filter: query?.status ?? null,
+            })
+
+            const issueIds = (results as ErrorTrackingIssue[]).map((issue) => issue.id).filter(Boolean)
+            if (issueIds.length > 0) {
+                const dateRange = (props.query as ErrorTrackingQuery).dateRange
+                actions.loadSpikeEventsForIssues(issueIds, dateRange)
+            }
         },
         // optimistically update local results
         mergeIssues: ({ ids }) => {
             const { results } = values
 
-            const issues = results.filter(({ id }) => ids.includes(id))
-            const primaryIssue = issues.shift()
+            const [primaryId, ...sourceIds] = ids
+            const primaryIssue = results.find(({ id }) => id === primaryId)
+            const sourceIssues = results.filter(({ id }) => sourceIds.includes(id))
 
-            if (primaryIssue && issues.length > 0) {
-                const mergingIds = issues.map((g) => g.id)
-                const mergedIssue = mergeIssues(primaryIssue, issues)
+            if (primaryIssue && sourceIssues.length > 0) {
+                const mergedIssue = mergeIssues(primaryIssue, sourceIssues)
 
-                // optimistically update local results
                 actions.setResponse({
                     ...values.response,
                     results: results
-                        .filter(({ id }) => !mergingIds.includes(id))
-                        .map((issue) =>
-                            // replace primary issue
-                            mergedIssue.id === issue.id ? mergedIssue : issue
-                        ),
+                        .filter(({ id }) => !sourceIds.includes(id))
+                        .map((issue) => (issue.id === primaryIssue.id ? mergedIssue : issue)),
                 })
             }
         },
@@ -154,11 +189,20 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             }
         },
 
-        mutationSuccess: () => actions.reloadData(),
+        mutationSuccess: () => {
+            // in v3 when mutation succeeds, phantom gets added (which is injected into the query) so the query reloads
+            // in v1 when mutation succeeds, we need to reload the data manually
+            const query = props.query as Record<string, any> | null
+            if (query?.useQueryV3) {
+                return
+            }
+            actions.reloadData()
+        },
         mutationFailure: () => actions.reloadData(),
     })),
 
-    afterMount(({ values, actions }) => {
+    afterMount(({ values, actions, cache }) => {
+        cache.loadStartTime = performance.now()
         if (values.needsReload) {
             actions.clearNeedsReload()
             actions.reloadData()

@@ -25,7 +25,9 @@ async def execute_query(clickhouse_client: ClickHouseClient, query: str, *data):
 
 
 async def create_clickhouse_tables_and_views(clickhouse_client):
-    from posthog.batch_exports.sql import (
+    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
+
+    from products.batch_exports.backend.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
@@ -33,7 +35,6 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
-    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
 
     create_view_queries = (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
@@ -71,14 +72,18 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
 
 async def truncate_events(clickhouse_client):
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_events")
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS distributed_events_recent")
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS events_recent")
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_events_recent")
 
 
 async def truncate_persons(clickhouse_client):
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS person_distinct_id2")
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS person")
 
 
 async def truncate_sessions(clickhouse_client):
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_raw_sessions")
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS raw_sessions")
 
 

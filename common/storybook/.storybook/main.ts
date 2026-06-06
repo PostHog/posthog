@@ -1,11 +1,22 @@
 import type { StorybookConfig } from '@storybook/types'
+import * as path from 'path'
 
 import { createEntry } from '../webpack.config.js'
+import { ModuleGraphPlugin } from './plugins/module-graph-plugin'
+
+// Repo root = three levels up from this file (common/storybook/.storybook/main.ts).
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
 const config: StorybookConfig = {
     stories: [
-        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../frontend/src/**/*.mdx',
+        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../products/**/frontend/**/*.mdx',
+        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../products/**/mcp/**/*.mdx',
+        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../packages/quill/packages/charts/src/**/*.mdx',
+        '../../../packages/quill/packages/charts/src/**/*.stories.@(js|jsx|ts|tsx)',
     ],
 
     addons: [
@@ -16,15 +27,24 @@ const config: StorybookConfig = {
         '@storybook/addon-a11y',
     ],
 
-    staticDirs: ['public', { from: '../../../frontend/public', to: '/static' }],
+    staticDirs: [
+        'public',
+        { from: '../../../frontend/public', to: '/static' },
+        { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
+    ],
 
-    webpackFinal: (config) => {
+    webpackFinal: (config, { configType }) => {
         const mainConfig = createEntry('main')
         return {
             ...config,
             // Disable filesystem cache in CI to avoid heap OOM during cache shutdown
             // (especially on memory-constrained environments like Cloudflare Pages)
             cache: process.env.CI ? false : { type: 'filesystem' },
+            // The hosted build doesn't need source maps, and generating them is what
+            // tips Terser over the heap limit during minification (webpack 5 ties
+            // Terser's source maps to `devtool`). Keep them for local `storybook dev`.
+            devtool: configType === 'PRODUCTION' ? false : config.devtool,
+            plugins: [...(config.plugins ?? []), new ModuleGraphPlugin(REPO_ROOT)],
             resolve: {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
@@ -47,11 +67,17 @@ const config: StorybookConfig = {
         options: { builder: { useSWC: true } },
     },
 
+    build: {
+        test: {
+            disableSourcemaps: !!process.env.CI,
+            // esbuild minifier: the default swc one rejects `extractComments` and breaks prod builds
+            esbuildMinify: true,
+        },
+    },
+
     docs: {
         autodocs: 'tag',
     },
-
-    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
 
 export default config

@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+import { decodeParams, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
@@ -8,17 +9,17 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { isAbortedRequest, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { hogqlQuery } from '~/queries/query'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -31,7 +32,15 @@ import {
     PersonsTabType,
 } from '~/types'
 
-import { asDisplay, getHogqlQueryStringForPersonId } from './person-utils'
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
+
+import {
+    asDisplay,
+    coercePropertyValue,
+    getHogqlQueryStringForPersonId,
+    parsePersonFromHogQLRow,
+    scoreDistinctId,
+} from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
@@ -39,6 +48,7 @@ export interface PersonsLogicProps {
     syncWithUrl?: boolean
     urlId?: string
     fixedProperties?: PersonPropertyFilter[]
+    tabId?: string
 }
 
 export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
@@ -47,6 +57,7 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventFilter: false,
         showEventsFilter: true,
         showTableViews: true,
         contextKey: PERSON_EVENTS_CONTEXT_KEY,
@@ -95,8 +106,10 @@ function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
+        const tabKey = props.tabId ? `tab_${props.tabId}_` : ''
+
         if (props.urlId) {
-            return `url_${props.urlId}`
+            return `${tabKey}url_${props.urlId}`
         }
 
         if (props.fixedProperties) {
@@ -132,100 +145,116 @@ export const personsLogic = kea<personsLogicType>([
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
+        resetEventsQuery: true,
     }),
-    loaders(({ values, actions, props }) => ({
-        persons: [
-            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
-                offset: number
-            },
-            {
-                loadPersons: async ({ url }) => {
-                    let result: CountedPaginatedResponse<PersonType> & { offset: number }
-                    if (!url) {
-                        const newFilters: PersonListParams = { ...values.listFilters }
-                        newFilters.properties = [
-                            ...(values.listFilters.properties || []),
-                            ...values.hiddenListProperties,
-                        ]
-                        newFilters.include_total = true // The total count is slow, but needed for infinite loading
-                        if (props.cohort) {
-                            result = {
-                                ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
-                                offset: 0,
+    loaders(({ values, actions, props }) => {
+        const setupPersonQueries = (person: PersonType): void => {
+            actions.reportPersonDetailViewed(person)
+            if (person.id != null) {
+                actions.setEventsQuery(createInitialEventsPayload(person.id))
+                actions.setExceptionsQuery(createInitialExceptionsPayload(person.id))
+                actions.setSurveyResponsesQuery(createInitialSurveyResponsesPayload(person.id))
+            }
+        }
+        return {
+            persons: [
+                {
+                    next: null,
+                    previous: null,
+                    count: 0,
+                    results: [],
+                    offset: 0,
+                } as CountedPaginatedResponse<PersonType> & {
+                    offset: number
+                },
+                {
+                    loadPersons: async ({ url }) => {
+                        let result: CountedPaginatedResponse<PersonType> & { offset: number }
+                        if (!url) {
+                            const newFilters: PersonListParams = { ...values.listFilters }
+                            newFilters.properties = [
+                                ...(values.listFilters.properties || []),
+                                ...values.hiddenListProperties,
+                            ]
+                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
+                            if (props.cohort) {
+                                result = {
+                                    ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                    offset: 0,
+                                }
+                            } else {
+                                result = { ...(await api.persons.list(newFilters)), offset: 0 }
                             }
                         } else {
-                            result = { ...(await api.persons.list(newFilters)), offset: 0 }
+                            result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                         }
-                    } else {
-                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
-                    }
-                    return result
+                        return result
+                    },
                 },
-            },
-        ],
-        person: [
-            null as PersonType | null,
-            {
-                loadPerson: async ({ id }): Promise<PersonType | null> => {
-                    const response = await api.persons.list({ distinct_id: id })
-                    if (!response.results.length) {
-                        return null
-                    }
-                    const person = response.results[0]
-                    if (person) {
-                        actions.reportPersonDetailViewed(person)
-                        if (person.id != null) {
-                            const eventsQuery = createInitialEventsPayload(person.id)
-                            actions.setEventsQuery(eventsQuery)
-                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
-                            actions.setExceptionsQuery(exceptionsQuery)
-                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
-                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
+            ],
+            person: [
+                null as PersonType | null,
+                {
+                    loadPerson: async ({ id }): Promise<PersonType | null> => {
+                        const response = await api.persons.list({ distinct_id: id })
+                        if (!response.results.length) {
+                            return null
                         }
-                    }
+                        const person = response.results[0]
+                        if (person) {
+                            setupPersonQueries(person)
+                        }
 
-                    return person
-                },
-                loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
-                    const row = response?.results?.[0]
-                    if (row) {
-                        const person: PersonType = {
-                            id: row[0],
-                            uuid: row[0],
-                            distinct_ids: row[1],
-                            properties: JSON.parse(row[2] || '{}'),
-                            is_identified: !!row[3],
-                            created_at: row[4],
-                        }
-                        actions.reportPersonDetailViewed(person)
-                        if (person.id != null) {
-                            const eventsQuery = createInitialEventsPayload(person.id)
-                            actions.setEventsQuery(eventsQuery)
-                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
-                            actions.setExceptionsQuery(exceptionsQuery)
-                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
-                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
-                        }
                         return person
-                    }
-                    return null
-                },
-            },
-        ],
-        cohorts: [
-            null as CohortType[] | null,
-            {
-                loadCohorts: async (): Promise<CohortType[] | null> => {
-                    if (!values.person?.id) {
+                    },
+                    loadPersonUUID: async ({ uuid }, breakpoint): Promise<PersonType | null> => {
+                        let response: HogQLQueryResponse
+                        try {
+                            response = await api.query<HogQLQuery>(
+                                {
+                                    kind: NodeKind.HogQLQuery,
+                                    query: getHogqlQueryStringForPersonId(),
+                                    values: { id: uuid },
+                                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                { refresh: 'blocking' }
+                            )
+                        } catch (error) {
+                            // The blocking query is aborted when navigation moves on before it resolves.
+                            // That's expected, not a load failure — drop the stale result instead of
+                            // surfacing an error or letting it be captured as an exception. Emit a
+                            // breadcrumb so the otherwise-silent swallow is still measurable.
+                            if (isAbortedRequest(error)) {
+                                posthog.capture('person_uuid_load_aborted')
+                                breakpoint()
+                                return values.person
+                            }
+                            throw error
+                        }
+                        const row = response?.results?.[0]
+                        if (row) {
+                            const person = parsePersonFromHogQLRow(row)
+                            setupPersonQueries(person)
+                            return person
+                        }
                         return null
-                    }
-                    const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
-                    return response.results
+                    },
                 },
-            },
-        ],
-    })),
+            ],
+            cohorts: [
+                null as CohortType[] | null,
+                {
+                    loadCohorts: async (): Promise<CohortType[] | null> => {
+                        if (!values.person?.id) {
+                            return null
+                        }
+                        const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
+                        return response.results
+                    },
+                },
+            ],
+        }
+    }),
     reducers(() => ({
         listFilters: [
             {} as PersonListParams,
@@ -292,6 +321,7 @@ export const personsLogic = kea<personsLogicType>([
                 setPerson: () => null,
                 loadPersonUUID: () => null,
                 loadPersonFailure: (_, { error }) => error,
+                loadPersonUUIDFailure: (_, { error }) => error,
             },
         ],
         distinctId: [
@@ -387,89 +417,86 @@ export const personsLogic = kea<personsLogicType>([
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {
-                // We do not track which distinct ID was created through identify, but we can try to guess
-                const nonUuidDistinctIds = person?.distinct_ids.filter((id) => id?.split('-').length !== 5)
-
-                if (nonUuidDistinctIds && nonUuidDistinctIds?.length >= 1) {
-                    /**
-                     * If there are one or more distinct IDs that are not a UUID, one of them is most likely
-                     * the identified ID. In most cases, there would be only one non-UUID distinct ID.
-                     */
-                    return nonUuidDistinctIds[0]
+                if (!person?.distinct_ids.length) {
+                    return null
                 }
-
-                // Otherwise, just fall back to the default first distinct ID
-                return person?.distinct_ids[0] || null
+                return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
+            },
+        ],
+        eventsQueryIsDirty: [
+            (s) => [s.eventsQuery, s.person],
+            (eventsQuery, person): boolean => {
+                if (!eventsQuery || !person?.id) {
+                    return false
+                }
+                return !objectsEqual(eventsQuery, createInitialEventsPayload(person.id))
             },
         ],
     })),
     listeners(({ actions, values }) => ({
+        resetEventsQuery: () => {
+            const person = values.person
+            if (person?.id != null) {
+                actions.setEventsQuery(createInitialEventsPayload(person.id))
+            }
+        },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 
             if (person && person.id) {
-                let parsedValue = newValue
+                const parsedValue = coercePropertyValue(newValue ?? null)
 
-                // Instrumentation stuff
-                let action: 'added' | 'updated'
                 const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
-                let newPropertyType: string = typeof newValue
+                const newPropertyType: string = parsedValue === null ? 'null' : typeof parsedValue
+                const action: 'added' | 'updated' = Object.keys(person.properties).includes(key) ? 'updated' : 'added'
 
-                // If the property is a number, store it as a number
-                const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
-                    parsedValue = attemptedParsedNumber
-                    newPropertyType = 'number'
+                const updatedProperties =
+                    action === 'added'
+                        ? { [key]: parsedValue, ...person.properties }
+                        : { ...person.properties, [key]: parsedValue }
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+
+                try {
+                    await api.persons.updateProperty(person.id, key, parsedValue)
+                    lemonToast.success(`Person property ${action}`)
+
+                    eventUsageLogic.actions.reportPersonPropertyUpdated(
+                        action,
+                        Object.keys(updatedProperties).length,
+                        oldPropertyType,
+                        newPropertyType
+                    )
+                } catch {
+                    actions.setPerson({ ...person })
+                    lemonToast.error(`Failed to update person property`)
                 }
-
-                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
-                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
-                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
-                    newPropertyType = parsedValue !== null ? 'boolean' : 'null'
-                }
-
-                if (!Object.keys(person.properties).includes(key)) {
-                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
-                    action = 'added'
-                } else {
-                    person.properties[key] = parsedValue
-                    action = 'updated'
-                }
-
-                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
-                //      the _updated_ properties yet.
-                await api.persons.updateProperty(person.id, key, parsedValue)
-                lemonToast.success(`Person property ${action}`)
-
-                eventUsageLogic.actions.reportPersonPropertyUpdated(
-                    action,
-                    Object.keys(person.properties).length,
-                    oldPropertyType,
-                    newPropertyType
-                )
             }
         },
         deleteProperty: async ({ key }) => {
             const person = values.person
 
             if (person && person.id) {
-                const updatedProperties = { ...person.properties }
-                delete updatedProperties[key]
+                const { [key]: _, ...updatedProperties } = person.properties
 
-                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
-                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
-                await api.persons.deleteProperty(person.id, key)
-                lemonToast.success(`Person property deleted`)
+                actions.setPerson({ ...person, properties: updatedProperties })
 
-                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+                try {
+                    await api.persons.deleteProperty(person.id, key)
+                    lemonToast.success(`Person property deleted`)
+
+                    eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+                } catch {
+                    actions.setPerson({ ...person })
+                    lemonToast.error(`Failed to delete person property`)
+                }
             }
         },
         navigateToCohort: ({ cohort }) => {
             router.actions.push(urls.cohort(cohort.id))
         },
     })),
-    actionToUrl(({ values, props }) => ({
+    trackedActionToUrl(({ values, props }) => ({
         setListFilters: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]

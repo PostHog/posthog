@@ -1,6 +1,7 @@
 import { compareVersion } from 'lib/utils/semver'
 
 import {
+    BasicSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -108,12 +109,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.234.11',
             'posthog-react-native': '4.27.0',
+            'posthog-ios': '3.43.0',
+            'posthog-android': '3.35.0',
+            posthog_flutter: '5.18.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/446' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/389' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/260' },
-        ],
+        unsupportedSdks: [],
         check: (s) => s.schedule === SurveySchedule.Always,
     },
     {
@@ -128,6 +128,24 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) =>
             s.appearance?.position === SurveyPosition.NextToTrigger ||
             (s.appearance?.tabPosition !== undefined && s.appearance?.tabPosition !== SurveyTabPosition.Right),
+    },
+    {
+        feature: 'Custom survey position',
+        sdkVersions: {
+            'posthog-js': '1.245.0',
+            'posthog-react-native': '4.43.13',
+        },
+        unsupportedSdks: [
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/581' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/502' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/379' },
+        ],
+        // True when a non-default popover position is set. NextToTrigger is excluded
+        // here because it is covered by the "Feedback button surveys" entry above.
+        check: (s) =>
+            s.appearance?.position !== undefined &&
+            s.appearance?.position !== SurveyPosition.Right &&
+            s.appearance?.position !== SurveyPosition.NextToTrigger,
     },
     {
         feature: 'Partial response collection',
@@ -175,12 +193,14 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Event trigger property filters',
-        sdkVersions: { 'posthog-js': '1.268.0', 'posthog-react-native': '4.16.0' },
-        unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/449' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/392' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/263' },
-        ],
+        sdkVersions: {
+            'posthog-js': '1.268.0',
+            'posthog-react-native': '4.16.0',
+            'posthog-android': '3.38.0',
+            'posthog-ios': '3.47.0',
+            posthog_flutter: '5.20.0',
+        },
+        unsupportedSdks: [],
         check: (s) =>
             (s.conditions?.events?.values?.length ?? 0) > 0 &&
             !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
@@ -247,6 +267,73 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) =>
             s.questions.some(
                 (q) => q.type === SurveyQuestionType.Rating && q.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
+            ),
+    },
+    {
+        feature: 'Shuffle questions',
+        sdkVersions: { 'posthog-js': '1.131.5' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/442' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
+        ],
+        check: (s) => s.appearance?.shuffleQuestions === true,
+    },
+    {
+        feature: 'Shuffle choice options',
+        sdkVersions: { 'posthog-js': '1.131.5' },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3162' },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/492' },
+            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI; flag exposed on display model
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/310' },
+        ],
+        check: (s) =>
+            s.questions.some(
+                (q) =>
+                    (q.type === SurveyQuestionType.SingleChoice || q.type === SurveyQuestionType.MultipleChoice) &&
+                    (q as MultipleSurveyQuestion).shuffleOptions === true
+            ),
+    },
+    {
+        feature: 'Survey wait period',
+        sdkVersions: {
+            'posthog-js': '1.105.7',
+            'posthog-ios': '3.44.0',
+            'posthog-android': '3.35.0',
+            posthog_flutter: '5.18.0',
+        },
+        unsupportedSdks: [{ sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3192' }],
+        check: (s) => (s.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0,
+    },
+    {
+        feature: 'Delay survey popup',
+        sdkVersions: {
+            'posthog-js': '1.141.0',
+            'posthog-ios': '3.54.0',
+        },
+        unsupportedSdks: [
+            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3193' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/448' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/322' },
+        ],
+        check: (s) => (s.appearance?.surveyPopupDelaySeconds ?? 0) > 0,
+    },
+    {
+        feature: 'Response length validation',
+        sdkVersions: { 'posthog-js': '1.344.0', 'posthog-react-native': '4.31.0' },
+        unsupportedSdks: [
+            { sdk: 'posthog-ios', issue: false },
+            { sdk: 'posthog-android', issue: false },
+            { sdk: 'posthog_flutter', issue: false },
+        ],
+        check: (s) =>
+            s.questions.some(
+                (q) =>
+                    q.type === SurveyQuestionType.Open &&
+                    (q as BasicSurveyQuestion).validation &&
+                    (q as BasicSurveyQuestion).validation!.length > 0
             ),
     },
 ]
