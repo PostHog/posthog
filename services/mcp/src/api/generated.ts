@@ -18484,6 +18484,49 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface FolderInstructions {
+      /** Unique identifier for this instructions version. */
+      readonly id: string;
+      /** Markdown instructions describing the contents of the folder. */
+      readonly content: string;
+      /** Monotonically increasing version number, starting at 1. */
+      readonly version: number;
+      /** Whether this is the current (latest) version for the folder. */
+      readonly is_latest: boolean;
+      /** User who published this version. */
+      readonly created_by: UserBasic;
+      /** When this version was published. */
+      readonly created_at: string;
+      /** When this version row was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface FolderInstructionsPublish {
+      /** Full markdown instructions to publish as a new version for the folder. */
+      content: string;
+      /**
+         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+         * @minimum 0
+         */
+      base_version?: number;
+    }
+
+    /**
+     * Version-history entry: metadata only, with the markdown content omitted.
+     */
+    export interface FolderInstructionsVersion {
+      /** Unique identifier for this instructions version. */
+      readonly id: string;
+      /** Monotonically increasing version number, starting at 1. */
+      readonly version: number;
+      /** Whether this is the current (latest) version for the folder. */
+      readonly is_latest: boolean;
+      /** User who published this version. */
+      readonly created_by: UserBasic;
+      /** When this version was published. */
+      readonly created_at: string;
+    }
+
     /**
      * Request body for `forget`.
      */
@@ -24296,6 +24339,15 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
+    export interface PaginatedFolderInstructionsVersionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FolderInstructionsVersion[];
+    }
+
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -29582,6 +29634,16 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at?: string;
+    }
+
+    export interface PatchedFolderInstructionsPublish {
+      /** Full markdown instructions to publish as a new version for the folder. */
+      content?: string;
+      /**
+         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+         * @minimum 0
+         */
+      base_version?: number;
     }
 
     export interface PatchedGroupType {
@@ -47718,6 +47780,21 @@ export namespace Schemas {
     };
 
     export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemInstructionsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
