@@ -255,6 +255,8 @@ describe('sceneLogic', () => {
         it('bootstraps the homepage from APP_CONTEXT so a direct /home visit redirects on first paint', async () => {
             logic.unmount()
             const priorAppContext = window.POSTHOG_APP_CONTEXT
+            let bootstrappedHomepagePathname = ''
+            let redirectedPathname = ''
             try {
                 initKeaTests()
                 window.POSTHOG_APP_CONTEXT = {
@@ -271,15 +273,37 @@ describe('sceneLogic', () => {
                 bootstrappedLogic.cache.tabsLoaded = false
                 bootstrappedLogic.mount()
                 // homepage is populated synchronously from APP_CONTEXT — no setHomepage / API round-trip needed.
-                expect(removeProjectIdIfPresent(bootstrappedLogic.values.homepage?.pathname ?? '')).toEqual(
-                    urls.dashboard(42)
+                bootstrappedHomepagePathname = removeProjectIdIfPresent(
+                    bootstrappedLogic.values.homepage?.pathname ?? ''
                 )
                 router.actions.push(urls.projectHomepage())
                 await expectLogic(bootstrappedLogic).delay(1)
-                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+                redirectedPathname = removeProjectIdIfPresent(router.values.location.pathname)
             } finally {
                 window.POSTHOG_APP_CONTEXT = priorAppContext
             }
+            expect(bootstrappedHomepagePathname).toEqual(urls.dashboard(42))
+            expect(redirectedPathname).toEqual(urls.dashboard(42))
+        })
+
+        it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage(), { modal: 'feature', other: 'dropped' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+            expect(router.values.searchParams).toEqual({ modal: 'feature' })
+        })
+
+        it('does not loop when the launchpad is the homepage and a forwarded param is present', async () => {
+            logic.actions.setHomepage({
+                ...dashboardHomepage,
+                id: 'homepage-launchpad',
+                pathname: urls.projectHomepage(),
+            })
+            router.actions.push(urls.projectHomepage(), { modal: 'feature' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(router.values.searchParams).toEqual({ modal: 'feature' })
         })
     })
     describe('mergePinnedTabs', () => {

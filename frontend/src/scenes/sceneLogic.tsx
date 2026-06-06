@@ -1356,31 +1356,32 @@ export const sceneLogic = kea<sceneLogicType>([
         // The Home button (via `/`) and a direct visit to /home should both land on the user's
         // configured homepage (set in the Configure home modal). Redirect there unless we're
         // already at it, which also guards against loops when the homepage is the launchpad itself.
-        const redirectToConfiguredHomepage = (): boolean => {
+        const redirectToConfiguredHomepage = (searchParams: Params): boolean => {
             const homepage = values.homepage
             if (!homepage) {
                 return false
             }
-            let targetPathname = homepage.pathname ? addProjectIdIfMissing(homepage.pathname) : urls.projectHomepage()
-            if (targetPathname === '/') {
-                targetPathname = urls.projectHomepage()
+            let targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
+            if (removeProjectIdIfPresent(targetPathname) === '/') {
+                targetPathname = addProjectIdIfMissing(urls.projectHomepage())
             }
-            const targetSearch = homepage.search || ''
-            const targetHash = homepage.hash || ''
+            // Forward allow-listed params (e.g. modal) onto the homepage the same way the launchpad
+            // redirect does, and compare against that final target so a forwarded param can't loop.
+            const target = withForwardedSearchParams(
+                targetPathname + (homepage.search || '') + (homepage.hash || ''),
+                searchParams,
+                forwardedRedirectQueryParams
+            )
             const loc = router.values.currentLocation
-            const alreadyAtHomepage =
-                addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
-                (loc.search || '') === targetSearch &&
-                (loc.hash || '') === targetHash
-            if (alreadyAtHomepage) {
+            if (addProjectIdIfMissing(loc.pathname) + (loc.search || '') + (loc.hash || '') === target) {
                 return false
             }
-            router.actions.replace(targetPathname, targetSearch, targetHash)
+            router.actions.replace(target)
             return true
         }
 
         mapping['/'] = (_params, searchParams) => {
-            if (redirectToConfiguredHomepage()) {
+            if (redirectToConfiguredHomepage(searchParams)) {
                 return
             }
             router.actions.replace(
@@ -1388,8 +1389,13 @@ export const sceneLogic = kea<sceneLogicType>([
             )
         }
 
+        const projectHomepagePath = urls.projectHomepage()
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
             mapping[path] = (params, searchParams, hashParams, { method }) => {
+                // A direct visit to /home honors the configured homepage just like the Home button.
+                if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
+                    return
+                }
                 const tabId = ensureNavigationTabId()
                 actions.openScene(
                     scene,
@@ -1402,17 +1408,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                     method
                 )
-            }
-        }
-
-        const projectHomepagePath = urls.projectHomepage()
-        const openProjectHomepageScene = mapping[projectHomepagePath]
-        if (openProjectHomepageScene) {
-            mapping[projectHomepagePath] = (params, searchParams, hashParams, payload) => {
-                if (redirectToConfiguredHomepage()) {
-                    return
-                }
-                return openProjectHomepageScene(params, searchParams, hashParams, payload)
             }
         }
 
