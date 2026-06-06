@@ -2,8 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { labelFromKey } from '~/queries/nodes/WebOverview/WebOverview'
 
-import { OverviewItem } from './OverviewGrid'
-import { OverviewMetricCardGrid } from './OverviewMetricCardGrid'
+import { OverviewMetricCardGrid, OverviewMetricCardItem } from './OverviewMetricCardGrid'
 
 type Story = StoryObj<typeof OverviewMetricCardGrid>
 
@@ -19,7 +18,7 @@ const meta: Meta<typeof OverviewMetricCardGrid> = {
 }
 export default meta
 
-const overviewItems: OverviewItem[] = [
+const overviewItems: OverviewMetricCardItem[] = [
     { key: 'visitors', value: 171861, previous: 160000, changeFromPreviousPct: 12, kind: 'unit' },
     { key: 'views', value: 4863551, previous: 4700000, changeFromPreviousPct: 16, kind: 'unit' },
     { key: 'sessions', value: 547323, previous: 552000, changeFromPreviousPct: -1, kind: 'unit' },
@@ -34,7 +33,7 @@ const overviewItems: OverviewItem[] = [
     },
 ]
 
-const conversionGoalItems: OverviewItem[] = [
+const conversionGoalItems: OverviewMetricCardItem[] = [
     { key: 'visitors', value: 171861, previous: 160000, changeFromPreviousPct: 12, kind: 'unit' },
     { key: 'total conversions', value: 24310, previous: 21000, changeFromPreviousPct: 16, kind: 'unit' },
     { key: 'unique conversions', value: 18402, previous: 17900, changeFromPreviousPct: 3, kind: 'unit' },

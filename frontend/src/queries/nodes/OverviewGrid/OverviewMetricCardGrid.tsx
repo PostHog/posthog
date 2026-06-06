@@ -13,8 +13,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
 
+export interface OverviewMetricCardItem extends Omit<OverviewItem, 'value' | 'previous'> {
+    value: number | undefined
+    previous?: number
+}
+
 interface OverviewMetricCardGridProps {
-    items: OverviewItem[]
+    items: OverviewMetricCardItem[]
     loading: boolean
     numSkeletons: number
     samplingRate?: SamplingRate
@@ -58,17 +63,15 @@ function MetricCardCell({
     usedLazyPrecompute,
     labelFromKey,
 }: {
-    item: OverviewItem
+    item: OverviewMetricCardItem
     usedPreAggregatedTables: boolean
     usedLazyPrecompute: boolean
     labelFromKey: (key: string) => string
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
 
-    const value = typeof item.value === 'number' ? item.value : undefined
-    const previous = typeof item.previous === 'number' ? item.previous : undefined
     const format = (n: number): string => formatItem(n, item.kind, { currency: baseCurrency })
-    const subtitle = previous != null ? `vs. ${format(previous)} prior` : item.caption
+    const subtitle = item.previous != null ? `vs. ${format(item.previous)} prior` : item.caption
 
     const clickable = !!item.onClick
     const handleClick = clickable
@@ -106,7 +109,7 @@ function MetricCardCell({
             ) : null}
             <MetricCard
                 title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
-                value={value}
+                value={item.value}
                 change={metricChange(item)}
                 goodDirection={item.isIncreaseBad ? 'down' : 'up'}
                 formatValue={format}
@@ -116,7 +119,7 @@ function MetricCardCell({
     )
 }
 
-function MetricCardTitle({ label, item }: { label: string; item: OverviewItem }): JSX.Element {
+function MetricCardTitle({ label, item }: { label: string; item: OverviewMetricCardItem }): JSX.Element {
     if (!item.warning) {
         return <>{label}</>
     }
@@ -145,8 +148,12 @@ function MetricCardTitle({ label, item }: { label: string; item: OverviewItem })
     )
 }
 
-function metricChange(item: OverviewItem): MetricChange | null {
-    if (item.changeFromPreviousPct == null || Math.abs(item.changeFromPreviousPct) >= NO_BASELINE_CHANGE_SENTINEL) {
+function metricChange(item: OverviewMetricCardItem): MetricChange | null {
+    if (
+        item.changeFromPreviousPct == null ||
+        item.changeFromPreviousPct === 0 ||
+        Math.abs(item.changeFromPreviousPct) >= NO_BASELINE_CHANGE_SENTINEL
+    ) {
         return null
     }
     return { value: item.changeFromPreviousPct }
