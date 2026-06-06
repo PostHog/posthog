@@ -27,22 +27,35 @@ class _EventsFieldCollector(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         field_type = node.type
         if isinstance(field_type, ast.PropertyType):
-            ft = field_type.field_type
-            table_type = ft.table_type
-            col_name = ft.name
-            # Unwrap VirtualTableType (e.g. poe for person properties) to check if this
-            # property ultimately lives on the events table, and resolve the actual DB
-            # column name (e.g. "person_properties" instead of "properties")
-            while isinstance(table_type, ast.VirtualTableType):
-                db_field = table_type.virtual_table.fields.get(ft.name)
-                if isinstance(db_field, DatabaseField):
-                    col_name = db_field.name
-                table_type = table_type.table_type
-            if table_type == self.events_table_type and len(field_type.chain) >= 1:
-                self.property_accesses.add((str(field_type.chain[0]), col_name))
-            field_type = ft
+            self._record_property_access(field_type.field_type, str(field_type.chain[0]) if field_type.chain else None)
+            field_type = field_type.field_type
         if isinstance(field_type, ast.FieldType) and field_type.table_type == self.events_table_type:
             self.fields.add(field_type.name)
+
+    def visit_jsonfield_access(self, node: ast.JSONFieldAccess):
+        # After the lowering pass an unmaterialized `properties.$x` read is a `JSONFieldAccess` over the blob `Field`,
+        # not a `PropertyType`. Record the property access so `_resolve_materialized_columns` keeps the `properties`
+        # column in the subquery instead of discarding it. `super()` still visits `node.expr` (the blob field).
+        super().visit_jsonfield_access(node)
+        blob_type = node.expr.type
+        if isinstance(blob_type, ast.FieldType) and node.keys:
+            self._record_property_access(blob_type, str(node.keys[0]))
+
+    def _record_property_access(self, blob_field_type: ast.FieldType, property_name: str | None) -> None:
+        """Record a (property, table_column) access on the events table, if this property lives there."""
+        if property_name is None:
+            return
+        table_type = blob_field_type.table_type
+        col_name = blob_field_type.name
+        # Unwrap VirtualTableType (e.g. poe for person properties) to check if this property ultimately lives on the
+        # events table, and resolve the actual DB column name (e.g. "person_properties" instead of "properties").
+        while isinstance(table_type, ast.VirtualTableType):
+            db_field = table_type.virtual_table.fields.get(blob_field_type.name)
+            if isinstance(db_field, DatabaseField):
+                col_name = db_field.name
+            table_type = table_type.table_type
+        if table_type == self.events_table_type:
+            self.property_accesses.add((property_name, col_name))
 
 
 class EventsPrefilterTransformer(TraversingVisitor):
