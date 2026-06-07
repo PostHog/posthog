@@ -148,6 +148,32 @@ export interface SandboxEnvironmentApi {
     readonly updated_at: string
 }
 
+export interface PatchedSandboxEnvironmentApi {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    network_access_level?: NetworkAccessLevelEnumApi
+    /** List of allowed domains for custom network access */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+    include_default_domains?: boolean
+    /** List of repositories this environment applies to (format: org/repo) */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses) */
+    environment_variables?: unknown
+    /** Whether this environment has any environment variables set */
+    readonly has_environment_variables?: boolean
+    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+    private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    readonly internal?: boolean
+    /** Computed domain allowlist based on network_access_level and allowed_domains */
+    readonly effective_domains?: readonly string[]
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 export interface TaskAutomationApi {
     readonly id: string
     /** @maxLength 255 */
@@ -188,6 +214,39 @@ export interface PaginatedTaskAutomationListApi {
     /** @nullable */
     previous?: string | null
     results: TaskAutomationApi[]
+}
+
+export interface PatchedTaskAutomationApi {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    prompt?: string
+    /** @maxLength 255 */
+    repository?: string
+    /** @nullable */
+    github_integration?: number | null
+    /** @maxLength 100 */
+    cron_expression?: string
+    /** @maxLength 128 */
+    timezone?: string
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    enabled?: boolean
+    /** @nullable */
+    readonly last_run_at?: string | null
+    /** @nullable */
+    readonly last_run_status?: string | null
+    /** @nullable */
+    readonly last_task_id?: string | null
+    /** @nullable */
+    readonly last_task_run_id?: string | null
+    /** @nullable */
+    readonly last_error?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 /**
@@ -236,12 +295,28 @@ export interface TaskApi {
     /** @nullable */
     readonly task_number: number | null
     readonly slug: string
-    /** @maxLength 255 */
+    /**
+     * Short human-readable title. Auto-generated from `description` when omitted.
+     * @maxLength 255
+     */
     title?: string
     title_manually_set?: boolean
+    /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+  * `error_tracking` - Error Tracking
+  * `eval_clusters` - Eval Clusters
+  * `user_created` - User Created
+  * `automation` - Automation
+  * `slack` - Slack
+  * `support_queue` - Support Queue
+  * `session_summaries` - Session Summaries
+  * `signal_report` - Signal Report
+  * `signals_scout` - Signals Scout */
     origin_product?: OriginProductEnumApi
     /**
+     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
      * @nullable
      */
@@ -302,12 +377,28 @@ export interface PatchedTaskApi {
     /** @nullable */
     readonly task_number?: number | null
     readonly slug?: string
-    /** @maxLength 255 */
+    /**
+     * Short human-readable title. Auto-generated from `description` when omitted.
+     * @maxLength 255
+     */
     title?: string
     title_manually_set?: boolean
+    /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+  * `error_tracking` - Error Tracking
+  * `eval_clusters` - Eval Clusters
+  * `user_created` - User Created
+  * `automation` - Automation
+  * `slack` - Slack
+  * `support_queue` - Support Queue
+  * `session_summaries` - Session Summaries
+  * `signal_report` - Signal Report
+  * `signals_scout` - Signals Scout */
     origin_product?: OriginProductEnumApi
     /**
+     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
      * @nullable
      */
@@ -346,6 +437,24 @@ export interface PatchedTaskApi {
      * @nullable
      */
     ci_prompt?: string | null
+}
+
+export interface TaskFileRequestApi {
+    /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
+    folder?: string
+}
+
+export interface TaskFileResponseApi {
+    /** Identifier of the project-tree entry for this task. */
+    id: string
+    /** Full slash-separated path of the filed task in the project tree. */
+    path: string
+    /** File system entry type. Always 'task'. */
+    type: string
+    /** Identifier of the task this entry points to. */
+    ref: string
+    /** In-app link to the task. */
+    href: string
 }
 
 /**
@@ -1671,10 +1780,13 @@ export type TasksListParams = {
     internal?: boolean
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number
     /**
@@ -1737,10 +1849,13 @@ export const TasksListStatus = {
 export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number
 }

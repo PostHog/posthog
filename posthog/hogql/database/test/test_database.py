@@ -471,7 +471,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     @snapshot_postgres_queries
@@ -611,6 +611,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         sql = "select some_field.key from events"
         prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+
+    def test_database_warehouse_joins_on_system_table_are_serialized(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="system.accounts",
+            source_table_key="external_id",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="my_join_field",
+        )
+
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=db)
+        serialized = db.serialize(context, include_only={"system.accounts"})
+
+        assert "system.accounts" in serialized
+        assert "my_join_field" in serialized["system.accounts"].fields
 
     def test_database_warehouse_joins_deleted_join(self):
         DataWarehouseJoin.objects.create(

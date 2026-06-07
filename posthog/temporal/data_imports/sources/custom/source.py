@@ -5,9 +5,12 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from requests import Response
+from urllib3.util.retry import Retry
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -20,7 +23,9 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_sessi
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from posthog.temporal.data_imports.sources.common.rest_source.utils import resolve_request_url
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from posthog.temporal.data_imports.util import NonRetryableException
@@ -30,6 +35,26 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
+
+# Outbound create-time probe tunables. The probe runs inline on the API request
+# thread, the same as business_knowledge's URL fetch, so it borrows that feature's
+# limits (products/business_knowledge/backend/constants.py): short connect/read
+# timeouts and a hard upper bound on declared resources. Defined locally rather
+# than imported so data_imports doesn't couple to an unrelated product.
+PROBE_CONNECT_TIMEOUT = 5
+PROBE_READ_TIMEOUT = 10
+# Auth/header config is shared across resources and the probe only acts on 401/403,
+# so one reachable resource validates the credential. Probe a small prefix instead
+# of one request per declared resource — otherwise the endpoint is an on-demand
+# outbound-request amplifier (one API call -> N outbound requests).
+PROBE_MAX_RESOURCES = 5
+# Bytes read from a 401/403 body for the error snippet. The probe opens responses
+# with stream=True and never ingests the body, so a bounded slice keeps a large or
+# hostile response from being buffered into worker memory (cf. URL_MAX_BYTES, sized
+# down here because the probe only needs a short diagnostic snippet).
+PROBE_ERROR_SNIPPET_BYTES = 2048
+# Upper bound on declared resources, matching business_knowledge MAX_URLS_PER_SOURCE.
+MAX_MANIFEST_RESOURCES = 500
 
 
 def is_custom_source_available_for_team(team_id: int | None) -> bool:
@@ -110,7 +135,7 @@ class _Manifest(BaseModel):
     data_selector, incremental, …) passes through untouched to the REST engine."""
 
     client: _ManifestClient
-    resources: list[_ManifestResource] = Field(min_length=1)
+    resources: list[_ManifestResource] = Field(min_length=1, max_length=MAX_MANIFEST_RESOURCES)
 
     @model_validator(mode="after")
     def _resource_names_unique(self) -> "_Manifest":
@@ -159,23 +184,125 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     if not ok:
         return False, f"Invalid base_url: {err}"
 
+    base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
-        path = resource.get("endpoint", {}).get("path", "")
-        if path.startswith(("http://", "https://")):
-            ok, err = _check_url(path, team_id)
-            if not ok:
-                return False, f"Resource {resource['name']!r}: {err}"
+        # Resolve exactly as the engine will (so a whitespace/case-disguised absolute path
+        # is caught), then only re-vet resources that resolve to a *different* host than
+        # base_url — `_is_host_safe` does a DNS lookup, so don't re-resolve base per resource.
+        resolved = _endpoint_request_url(base_url, resource.get("endpoint"))
+        if resolved is None or _url_hostname(resolved) == base_host:
+            continue
+        ok, err = _check_url(resolved, team_id)
+        if not ok:
+            return False, f"Resource {resource['name']!r}: {err}"
 
     return True, None
 
 
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
-    parsed = urlparse(url)
-    if not parsed.hostname:
+    # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
+    # validator can't be fooled into vetting a different host than the request reaches.
+    hostname = _url_hostname(url)
+    if not hostname:
         return False, f"URL {url!r} is missing a hostname"
-    if is_cloud() and parsed.scheme != "https":
+    if is_cloud() and urlparse(url).scheme != "https":
         return False, f"URL {url!r} must use https:// on PostHog Cloud"
-    return _is_host_safe(parsed.hostname, team_id)
+    return _is_host_safe(hostname, team_id)
+
+
+class _LeaveMissing(dict):
+    """Format mapping that leaves unknown ``{name}`` placeholders untouched."""
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _endpoint_request_url(base_url: str, endpoint: Any) -> str | None:
+    """The URL an endpoint will send a request — and the credential — to.
+
+    The REST engine binds scalar ``params`` into the path (``_bind_path_params`` runs
+    ``path.format(**params)``) and then resolves it against ``base_url`` via
+    ``resolve_request_url``. We do exactly the same here, so a template like ``"{target}"``
+    (``params={"target": "https://attacker/"}``) or ``"{scheme}://attacker/"``
+    (``params={"scheme": "https"}``) — and any whitespace/case/encoding-disguised absolute
+    URL — resolves to the same destination the runtime would request. Returns ``None`` for a
+    non-dict endpoint or a missing/non-string path. (SSRF to internal hosts is separately
+    caught at request time by the transport-layer guard; this is about detecting a *new
+    destination* for the credential re-entry check.)
+    """
+    if not isinstance(endpoint, dict):
+        return None
+    path = endpoint.get("path")
+    if not isinstance(path, str):
+        return None
+
+    params = endpoint.get("params")
+    bindable = (
+        _LeaveMissing({name: value for name, value in params.items() if isinstance(value, str)})
+        if isinstance(params, dict)
+        else _LeaveMissing()
+    )
+    try:
+        resolved = path.format_map(bindable)
+    except (ValueError, IndexError, KeyError):
+        # Malformed / positional format string — it's re-vetted at request time anyway.
+        resolved = path
+
+    return resolve_request_url(base_url, resolved)
+
+
+def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
+    """Hostnames a stored manifest will send requests — and the credential — to.
+
+    Lets the API layer detect when an update retargets the source at a new host
+    so it can require the credential to be re-entered: an editor who can't read
+    the stored secret must not be able to redirect it to a server they control.
+    Returns an empty set for anything unparseable — the caller treats "no hosts"
+    as "nothing new", and a malformed manifest is rejected elsewhere.
+    """
+    if not isinstance(manifest_json, str):
+        return frozenset()
+    try:
+        manifest = json.loads(manifest_json)
+    except json.JSONDecodeError:
+        return frozenset()
+    if not isinstance(manifest, dict):
+        return frozenset()
+
+    client = manifest.get("client")
+    base_url = client.get("base_url") if isinstance(client, dict) else None
+    # Resolve resource paths against base_url the same way the engine does. With no usable
+    # base_url an absolute resource path still has a host; a relative one is left hostless
+    # (its destination is unknown) — the manifest is rejected elsewhere for the missing base.
+    base_for_resolve = base_url if isinstance(base_url, str) else ""
+
+    urls: list[str] = [base_url] if isinstance(base_url, str) else []
+    resources = manifest.get("resources")
+    if isinstance(resources, list):
+        for resource in resources:
+            endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+            resolved = _endpoint_request_url(base_for_resolve, endpoint)
+            if resolved is not None:
+                urls.append(resolved)
+
+    # `_url_hostname` returns an already-lowercased host.
+    hosts = {host for url in urls if (host := _url_hostname(url))}
+    return frozenset(hosts)
+
+
+def _url_hostname(url: str) -> str | None:
+    """The host the HTTP client will actually connect to.
+
+    `urlparse` treats a backslash — and its ``%5c`` encoding — as ordinary
+    userinfo, so ``https://evil.example\\@trusted.example/`` parses as host
+    ``trusted.example`` here, while requests/urllib3 (per the WHATWG URL rules)
+    treat ``\\`` as a path separator and connect to ``evil.example``. Normalizing
+    those to ``/`` before parsing keeps the retarget guard aligned with the real
+    destination, so an ambiguous-authority URL can't smuggle the credential to a
+    new host while appearing unchanged.
+    """
+    normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
+    return urlparse(normalized).hostname
 
 
 @SourceRegistry.register
@@ -204,6 +331,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
             label="Custom REST source",
+            releaseStatus=ReleaseStatus.ALPHA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
@@ -287,10 +415,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         if not ok:
             return False, err
 
-        # Probe every resource so we surface auth/connection errors at create-time
-        # rather than waiting for the first sync. The auth/header setup comes from
-        # the shared client config, so it is built once and reused across the
-        # per-resource requests.
+        # Probe a small prefix of resources so we surface auth/connection errors
+        # at create-time rather than waiting for the first sync. The auth/header
+        # setup comes from the shared client config, so it is built once and
+        # reused across the per-resource requests.
         client = manifest["client"]
         base_url = client["base_url"]
 
@@ -305,21 +433,41 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except (ValueError, TypeError) as exc:
             return False, f"Invalid auth configuration: {exc}"
 
-        session = make_tracked_session(headers=headers)
+        # The probe runs inline on the request thread, so keep it cheap and
+        # bounded: no retries (don't multiply outbound volume at create time),
+        # no redirects (Smokescreen re-resolves each hop; keep the credential
+        # pinned to the validated host), and credential values registered for
+        # redaction even when injected under a manifest-chosen param/header name
+        # the denylist scrubber can't anticipate.
+        session = make_tracked_session(
+            headers=headers,
+            redact_values=auth_secret_values(probe_auth),
+            retry=Retry(total=0),
+            allow_redirects=False,
+        )
 
-        for resource in manifest["resources"]:
+        for resource in manifest["resources"][:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
-            url = path if path.startswith(("http://", "https://")) else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            # Resolve via the shared helper so the probe hits the same host the sync will.
+            url = resolve_request_url(base_url, path)
             # Replay the configured query params and request body so the probe
             # matches what the sync sends — an endpoint that needs them shouldn't
             # answer differently at probe vs sync time.
             probe_params = _static_probe_params(endpoint.get("params"))
             probe_json = endpoint.get("json")
             try:
+                # stream=True so the body isn't buffered into memory; only a 401/403
+                # snippet is read below, and the response is always closed.
                 response = session.request(
-                    method, url, params=probe_params or None, json=probe_json, auth=probe_auth, timeout=15
+                    method,
+                    url,
+                    params=probe_params or None,
+                    json=probe_json,
+                    auth=probe_auth,
+                    timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT),
+                    stream=True,
                 )
             except Exception as exc:
                 return False, f"Resource {resource['name']!r}: could not reach {url}: {exc}"
@@ -329,12 +477,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # limited during the probe burst), 5xx — are not credential errors
             # and must not block source creation; a real, persistent failure
             # surfaces on the first sync instead.
-            if response.status_code in (401, 403):
-                return False, (
-                    f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                    f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
-                    f"{response.text[:200]}"
-                )
+            try:
+                if response.status_code in (401, 403):
+                    return False, (
+                        f"Resource {resource['name']!r}: the upstream API rejected the request with "
+                        f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
+                        f"{_read_capped_text(response)}"
+                    )
+            finally:
+                response.close()
 
         return True, None
 
@@ -431,6 +582,26 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             partition_mode="md5",
             sort_mode=sort_mode,
         )
+
+
+def _read_capped_text(response: Response) -> str:
+    """Read at most ``PROBE_ERROR_SNIPPET_BYTES`` of a streamed body for an error snippet.
+
+    The probe opens responses with ``stream=True`` and never ingests the body, so a
+    bounded slice keeps a large or hostile upstream response from being materialized
+    into worker memory. Reads the raw stream directly (rather than ``response.text``,
+    which buffers and decompresses the whole body).
+
+    ``decode_content=False`` is deliberate: it reads exactly ``PROBE_ERROR_SNIPPET_BYTES``
+    raw bytes and never inflates a ``Content-Encoding: gzip`` body, so a decompression
+    bomb can't expand a tiny read into megabytes. The snippet is only a human-readable
+    diagnostic — a (rare) compressed error body just shows as bytes.
+    """
+    try:
+        raw = response.raw.read(PROBE_ERROR_SNIPPET_BYTES, decode_content=False)
+    except Exception:
+        return ""
+    return raw.decode("utf-8", errors="replace")
 
 
 def _static_probe_params(params: Any) -> dict[str, Any]:

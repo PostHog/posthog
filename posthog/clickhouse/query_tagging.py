@@ -27,6 +27,7 @@ class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
+    ID_JAG = "id_jag"
 
 
 class Product(StrEnum):
@@ -53,8 +54,9 @@ class Product(StrEnum):
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    REPLAY_VISION = "replay_vision"
     REVENUE_ANALYTICS = "revenue_analytics"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
@@ -169,7 +171,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.WEB_OVERVIEW_QUERY
             | NodeKind.WEB_STATS_TABLE_QUERY
             | NodeKind.WEB_GOALS_QUERY
-            | NodeKind.WEB_TRENDS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY

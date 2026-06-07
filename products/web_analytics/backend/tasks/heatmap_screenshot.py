@@ -23,6 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
 from posthog.security.url_validation import is_url_allowed, should_block_url
 from posthog.tasks.utils import CeleryQueue
+from posthog.utils import get_instance_region
 
 from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
@@ -457,13 +458,20 @@ def _use_browserless_for_screenshot(screenshot: SavedHeatmap) -> bool:
     team = screenshot.team
     org_id = str(team.organization_id)
     project_id = str(team.id)
+    # Expose the deploy region (US / EU / DEV) so the flag can target by environment, e.g. to keep
+    # the rollout off the dev environment while it's at 100% in prod.
+    region = get_instance_region() or "DEV"
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 HEATMAP_BROWSERLESS_FLAG,
                 project_id,  # bucket per team so a whole team flips together, not per user
                 groups={"organization": org_id, "project": project_id},
-                group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
+                person_properties={"region": region},
+                group_properties={
+                    "organization": {"id": org_id, "region": region},
+                    "project": {"id": project_id, "region": region},
+                },
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -476,9 +484,10 @@ def _launch_local_browser(p: Playwright) -> Browser:
     launch_args = [
         "--force-device-scale-factor=1",
         "--disable-dev-shm-usage",
-        "--no-sandbox",
         "--disable-gpu",
     ]
+    if settings.HEATMAP_CHROMIUM_NO_SANDBOX:
+        launch_args.append("--no-sandbox")
     proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
     proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
     return p.chromium.launch(

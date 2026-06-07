@@ -166,6 +166,7 @@ export interface RoleLookupResponseApi {
  * `google-cloud-service-account` - Google Cloud Service Account
  * `google-cloud-storage` - Google Cloud Storage
  * `google-pubsub` - Google Pubsub
+ * `google-search-console` - Google Search Console
  * `google-sheets` - Google Sheets
  * `hubspot` - Hubspot
  * `intercom` - Intercom
@@ -205,6 +206,7 @@ export const IntegrationKindEnumApi = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -332,70 +334,6 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
-export interface UserGitHubAccountApi {
-    /**
-     * GitHub account type for the installation (e.g. User or Organization).
-     * @nullable
-     */
-    type?: string | null
-    /**
-     * GitHub login or organization name tied to the installation.
-     * @nullable
-     */
-    name?: string | null
-}
-
-export interface UserGitHubIntegrationItemApi {
-    /** PostHog UserIntegration row id. */
-    id: string
-    /** Integration kind; always `github` for this API. */
-    kind: string
-    /** GitHub App installation id. */
-    installation_id: string
-    /**
-     * Repository selection mode from GitHub (e.g. selected or all).
-     * @nullable
-     */
-    repository_selection?: string | null
-    /** Installation account metadata from GitHub. */
-    account?: UserGitHubAccountApi | null
-    /** True when this installation id matches a team-level GitHub integration on the active project. */
-    uses_shared_installation: boolean
-    /** When this integration row was created. */
-    created_at: string
-}
-
-export interface UserGitHubIntegrationListResponseApi {
-    /** GitHub personal integrations for the authenticated user. */
-    results: UserGitHubIntegrationItemApi[]
-}
-
-export interface PaginatedUserGitHubIntegrationListResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: UserGitHubIntegrationListResponseApi[]
-}
-
-export interface UserGitHubLinkStartRequestApi {
-    /**
-     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
-     * @nullable
-     */
-    team_id?: number | null
-    /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
-    connect_from?: string
-}
-
-export interface UserGitHubLinkStartResponseApi {
-    /** URL to open in the browser to install or authorize the GitHub App for this user. */
-    install_url: string
-    /** OAuth or install flow used for this GitHub connection. */
-    connect_flow: string
-}
-
 export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -449,6 +387,7 @@ export type IntegrationsListParams = {
      * `google-cloud-service-account` - Google Cloud Service Account
      * `google-cloud-storage` - Google Cloud Storage
      * `google-pubsub` - Google Pubsub
+     * `google-search-console` - Google Search Console
      * `google-sheets` - Google Sheets
      * `hubspot` - Hubspot
      * `intercom` - Intercom
@@ -499,6 +438,7 @@ export const IntegrationsListKind = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
     Intercom: 'intercom',
@@ -592,58 +532,6 @@ export type IntegrationsGithubTeamsRetrieveParams = {
     offset?: number
     /**
      * Optional case-insensitive team name or slug search query.
-     */
-    search?: string
-}
-
-export type UsersIntegrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type UsersIntegrationsGithubBranchesRetrieveParams = {
-    /**
-     * Maximum number of branches to return
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number
-    /**
-     * Number of branches to skip
-     * @minimum 0
-     */
-    offset?: number
-    /**
-     * Repository in owner/repo format
-     * @minLength 1
-     */
-    repo: string
-    /**
-     * Optional case-insensitive branch name search query.
-     */
-    search?: string
-}
-
-export type UsersIntegrationsGithubReposRetrieveParams = {
-    /**
-     * Maximum number of repositories to return per request (max 500).
-     * @minimum 1
-     * @maximum 500
-     */
-    limit?: number
-    /**
-     * Number of repositories to skip before returning results.
-     * @minimum 0
-     */
-    offset?: number
-    /**
-     * Optional case-insensitive repository name search query.
      */
     search?: string
 }

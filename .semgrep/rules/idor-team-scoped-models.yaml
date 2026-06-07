@@ -131,7 +131,9 @@ rules:
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
+                              |TeamWorkflowsConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -167,12 +169,14 @@ rules:
                               |MessageTemplate
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
+                              |MCPIntentEmbeddingCache
                               |MCPSession
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
                               |ObjectMediaPreview
+                              |ParserRecipe
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -363,7 +367,9 @@ rules:
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
+                        |TeamWorkflowsConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -395,12 +401,14 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |MCPIntentClusterSnapshot
+                        |MCPIntentEmbeddingCache
                         |MCPSession
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
                         |ObjectMediaPreview
+                        |ParserRecipe
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
