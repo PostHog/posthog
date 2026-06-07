@@ -1,8 +1,15 @@
 import uuid
+import asyncio
 from datetime import timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -28,7 +35,6 @@ from products.error_tracking.backend.temporal.recommendations_refresh.workflow i
     ErrorTrackingRecommendationsRefreshWorkflow,
 )
 
-_CLOSE_CONNECTIONS = "products.error_tracking.backend.temporal.recommendations_refresh.activities.close_old_connections"
 _ALERTS_COMPUTE = "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute"
 _LONG_RUNNING_COMPUTE = (
     "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute"
@@ -64,15 +70,20 @@ class TestGetTeamsWithRecentExceptionsActivity(ClickhouseTestMixin, APIBaseTest)
         assert team_old_exception.id not in team_ids
 
 
-class TestRefreshRecommendationsBatchActivity(BaseTest):
+class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
+    # Inline compute fans out over the shared thread pool, each thread with its own DB
+    # connection, so the data must be committed (not wrapped in TestCase's atomic block).
+    CLASS_DATA_LEVEL_SETUP = False
+
     @patch(_SOURCE_MAPS_COMPUTE, return_value=_SOURCE_MAPS_META)
     @patch(_LONG_RUNNING_COMPUTE, return_value=_LONG_RUNNING_META)
     @patch(_ALERTS_COMPUTE, return_value=_ALERTS_META)
-    @patch(_CLOSE_CONNECTIONS)
-    def test_computes_recommendations_inline_for_all_teams(self, _close, _alerts, _long, _source):
+    def test_computes_recommendations_inline_for_all_teams(self, _alerts, _long, _source):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
-        result = refresh_recommendations_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
+        result = asyncio.run(
+            refresh_recommendations_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
+        )
 
         assert result.teams_processed == 2
         assert result.recommendations_kicked == 6
@@ -86,15 +97,14 @@ class TestRefreshRecommendationsBatchActivity(BaseTest):
     @patch(_SOURCE_MAPS_COMPUTE, return_value=_SOURCE_MAPS_META)
     @patch(_LONG_RUNNING_COMPUTE, return_value=_LONG_RUNNING_META)
     @patch(_ALERTS_COMPUTE, return_value=_ALERTS_META)
-    @patch(_CLOSE_CONNECTIONS)
-    def test_rerun_only_recomputes_stale_recommendations(self, _close, _alerts, _long, _source):
+    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _long, _source):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         batch = RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
 
-        first = refresh_recommendations_batch_activity(batch)
+        first = asyncio.run(refresh_recommendations_batch_activity(batch))
         assert first.recommendations_kicked == 6
 
-        second = refresh_recommendations_batch_activity(batch)
+        second = asyncio.run(refresh_recommendations_batch_activity(batch))
         # Only `alerts` has no refresh_interval, so it recomputes for both teams; long_running_issues
         # (1h) and source_maps (6h) are still fresh and are skipped.
         assert second.recommendations_kicked == 2

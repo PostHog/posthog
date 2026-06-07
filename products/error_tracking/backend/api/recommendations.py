@@ -94,7 +94,7 @@ class ErrorTrackingRecommendationViewSet(
         # so each poll is a cheap read of the current state.
         is_poll = request.query_params.get("poll", "false").lower() == "true"
         if not is_poll:
-            refresh_team_recommendations(self.team.id, compute_sync=False)
+            refresh_team_recommendations(self.team.id)
         return super().list(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)

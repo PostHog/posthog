@@ -1,12 +1,10 @@
-from django.db import close_old_connections
-
 import structlog
 from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 
-from products.error_tracking.backend.recommendations.refresh import refresh_team_recommendations
+from products.error_tracking.backend.recommendations.refresh import refresh_team_recommendations_inline
 from products.error_tracking.backend.temporal.recommendations_refresh.types import (
     RecommendationsRefreshInputs,
     RefreshBatchInputs,
@@ -42,12 +40,11 @@ def get_teams_with_recent_exceptions_activity(inputs: RecommendationsRefreshInpu
 
 
 @activity.defn
-def refresh_recommendations_batch_activity(inputs: RefreshBatchInputs) -> RefreshBatchResult:
-    close_old_connections()
+async def refresh_recommendations_batch_activity(inputs: RefreshBatchInputs) -> RefreshBatchResult:
     kicked = 0
     for index, team_id in enumerate(inputs.team_ids):
-        # refresh_team_recommendations swallows per-team errors, so one bad team
+        # refresh_team_recommendations_inline swallows per-team errors, so one bad team
         # never sinks the batch.
-        kicked += refresh_team_recommendations(team_id, compute_sync=True)
+        kicked += await refresh_team_recommendations_inline(team_id)
         activity.heartbeat(index)
     return RefreshBatchResult(teams_processed=len(inputs.team_ids), recommendations_kicked=kicked)
