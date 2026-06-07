@@ -73,6 +73,8 @@ export interface GatewayApi {
     /** @nullable */
     readonly updated_at: string | null
     readonly created_by: UserBasicApi
+    /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+    readonly bound_credentials_count: number
 }
 
 export interface PaginatedGatewayListApi {
@@ -95,6 +97,59 @@ export interface PatchedGatewayApi {
     /** @nullable */
     readonly updated_at?: string | null
     readonly created_by?: UserBasicApi
+    /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+    readonly bound_credentials_count?: number
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * `oauth_application` - oauth_application
+ */
+export type CredentialTypeEnumApi = (typeof CredentialTypeEnumApi)[keyof typeof CredentialTypeEnumApi]
+
+export const CredentialTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    OauthApplication: 'oauth_application',
+} as const
+
+export interface BindCredentialApi {
+    /** Which kind of credential to reassign.
+
+  * `personal_api_key` - personal_api_key
+  * `oauth_application` - oauth_application */
+    credential_type: CredentialTypeEnumApi
+    /** Id of the credential to reassign to this gateway. */
+    credential_id: string
+}
+
+export interface BoundPersonalAPIKeyApi {
+    /** Personal API key id. */
+    readonly id: string
+    /** The key's human-readable label. */
+    readonly label: string
+    /** The user the personal API key belongs to. */
+    readonly user: UserBasicApi
+    /**
+     * When the key was last used, if ever.
+     * @nullable
+     */
+    readonly last_used_at: string | null
+}
+
+export interface BoundOAuthApplicationApi {
+    /** OAuth application id. */
+    readonly id: string
+    /** The application's name. */
+    readonly name: string
+    /** The application's OAuth client id. */
+    readonly client_id: string
+}
+
+export interface GatewayBoundCredentialsApi {
+    /** Personal API keys bound to this gateway. */
+    readonly personal_api_keys: readonly BoundPersonalAPIKeyApi[]
+    /** OAuth applications bound to this gateway. */
+    readonly oauth_applications: readonly BoundOAuthApplicationApi[]
 }
 
 export type GatewaysListParams = {

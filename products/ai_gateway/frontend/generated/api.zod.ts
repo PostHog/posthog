@@ -42,3 +42,19 @@ export const GatewaysPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading\/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a bound credential makes."
         ),
 })
+
+/**
+ * Reassign a credential to this gateway.
+
+Only credentials already bound to one of this team's gateways can be moved —
+this manages attribution across the team's own gateways, not arbitrary keys.
+ */
+export const GatewaysBindCredentialCreateBody = /* @__PURE__ */ zod.object({
+    credential_type: zod
+        .enum(['personal_api_key', 'oauth_application'])
+        .describe('\* `personal_api_key` - personal_api_key\n\* `oauth_application` - oauth_application')
+        .describe(
+            'Which kind of credential to reassign.\n\n\* `personal_api_key` - personal_api_key\n\* `oauth_application` - oauth_application'
+        ),
+    credential_id: zod.string().describe('Id of the credential to reassign to this gateway.'),
+})

@@ -4,7 +4,9 @@ from rest_framework import status
 
 from posthog.models.gateway import DEFAULT_GATEWAY_SLUG, Gateway
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestGatewayAPI(APIBaseTest):
@@ -16,6 +18,18 @@ class TestGatewayAPI(APIBaseTest):
 
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/gateways/{suffix}"
+
+    def _gateway(self, slug: str = DEFAULT_GATEWAY_SLUG) -> Gateway:
+        return Gateway.objects.for_team(self.team.id).get(slug=slug)
+
+    def _bind_key(self, gateway: Gateway, label: str = "key") -> PersonalAPIKey:
+        return PersonalAPIKey.objects.create(
+            label=label,
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["llm_gateway:read"],
+            gateway=gateway,
+        )
 
     def test_list_includes_auto_provisioned_gateway(self):
         response = self.client.get(self._url())
@@ -93,4 +107,59 @@ class TestGatewayAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.post(self._url(), {"slug": "members_blocked"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_bound_credentials_count(self):
+        gateway = self._gateway()
+        self._bind_key(gateway, "a")
+        self._bind_key(gateway, "b")
+        response = self.client.get(self._url())
+        row = next(g for g in response.json()["results"] if g["id"] == str(gateway.id))
+        self.assertEqual(row["bound_credentials_count"], 2)
+
+    def test_credentials_action_lists_bound_keys(self):
+        gateway = self._gateway()
+        key = self._bind_key(gateway, "reports-bot")
+        response = self.client.get(self._url(f"{gateway.id}/credentials/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual([k["id"] for k in body["personal_api_keys"]], [str(key.id)])
+        self.assertEqual(body["personal_api_keys"][0]["label"], "reports-bot")
+        self.assertEqual(body["oauth_applications"], [])
+
+    def test_bind_credential_reassigns_between_gateways(self):
+        source = self._gateway()
+        key = self._bind_key(source, "movable")
+        self.client.post(self._url(), {"slug": "target"})
+        target = self._gateway("target")
+
+        response = self.client.post(
+            self._url(f"{target.id}/bind_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        key.refresh_from_db()
+        self.assertEqual(key.gateway_id, target.id)
+        self.assertEqual(response.json()["bound_credentials_count"], 1)
+
+    def test_bind_credential_rejects_credential_not_bound_to_team(self):
+        gateway = self._gateway()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign_key = self._bind_key(Gateway.objects.for_team(other_team.id).get(slug=DEFAULT_GATEWAY_SLUG))
+
+        response = self.client.post(
+            self._url(f"{gateway.id}/bind_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(foreign_key.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_member_cannot_bind_credential(self):
+        gateway = self._gateway()
+        key = self._bind_key(gateway)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.post(
+            self._url(f"{gateway.id}/bind_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
+        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

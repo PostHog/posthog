@@ -7,14 +7,23 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { aiGatewayLogicType } from './aiGatewayLogicType'
-import { gatewaysCreate, gatewaysDestroy, gatewaysList, gatewaysPartialUpdate } from './generated/api'
-import { GatewayApi } from './generated/api.schemas'
+import {
+    gatewaysBindCredentialCreate,
+    gatewaysCreate,
+    gatewaysCredentialsRetrieve,
+    gatewaysDestroy,
+    gatewaysList,
+    gatewaysPartialUpdate,
+} from './generated/api'
+import { GatewayApi, GatewayBoundCredentialsApi } from './generated/api.schemas'
 
 // Mirrors the backend GATEWAY_SLUG_PATTERN — lowercase, URL-safe, no leading/trailing separator.
 const SLUG_PATTERN = /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/
 
 // `null` = modal closed, `'new'` = creating, a string id = renaming that gateway.
 export type EditingGatewayId = string | 'new' | null
+
+export type CredentialType = 'personal_api_key' | 'oauth_application'
 
 export interface GatewayFormValues {
     slug: string
@@ -28,6 +37,12 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
         openEditGateway: (gateway: GatewayApi) => ({ gateway }),
         closeModal: true,
         deleteGateway: (gateway: GatewayApi) => ({ gateway }),
+        moveCredential: (payload: {
+            credentialType: CredentialType
+            credentialId: string
+            fromGatewayId: string
+            toGatewayId: string
+        }) => payload,
     }),
     loaders(({ values }) => ({
         gateways: [
@@ -36,6 +51,15 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
                 loadGateways: async () => {
                     return (await gatewaysList(String(values.currentTeamId), { limit: 1000 })).results
                 },
+            },
+        ],
+        credentialsByGateway: [
+            {} as Record<string, GatewayBoundCredentialsApi>,
+            {
+                loadCredentials: async ({ gatewayId }: { gatewayId: string }) => ({
+                    ...values.credentialsByGateway,
+                    [gatewayId]: await gatewaysCredentialsRetrieve(String(values.currentTeamId), gatewayId),
+                }),
             },
         ],
     })),
@@ -95,6 +119,21 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             } catch {
                 lemonToast.error('Could not delete gateway')
             }
+        },
+        moveCredential: async ({ credentialType, credentialId, fromGatewayId, toGatewayId }) => {
+            try {
+                await gatewaysBindCredentialCreate(String(values.currentTeamId), toGatewayId, {
+                    credential_type: credentialType,
+                    credential_id: credentialId,
+                })
+            } catch {
+                lemonToast.error('Could not move credential')
+                return
+            }
+            actions.loadGateways()
+            actions.loadCredentials({ gatewayId: toGatewayId })
+            actions.loadCredentials({ gatewayId: fromGatewayId })
+            lemonToast.success('Credential moved')
         },
     })),
     afterMount(({ actions }) => actions.loadGateways()),

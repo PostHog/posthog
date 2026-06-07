@@ -8,7 +8,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { GatewayApi, GatewaysListParams, PaginatedGatewayListApi, PatchedGatewayApi } from './api.schemas'
+import type {
+    BindCredentialApi,
+    GatewayApi,
+    GatewayBoundCredentialsApi,
+    GatewaysListParams,
+    PaginatedGatewayListApi,
+    PatchedGatewayApi,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -126,5 +133,47 @@ export const gatewaysDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getGatewaysDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getGatewaysBindCredentialCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/gateways/${id}/bind_credential/`
+}
+
+/**
+ * Reassign a credential to this gateway.
+
+Only credentials already bound to one of this team's gateways can be moved —
+this manages attribution across the team's own gateways, not arbitrary keys.
+ */
+export const gatewaysBindCredentialCreate = async (
+    projectId: string,
+    id: string,
+    bindCredentialApi: BindCredentialApi,
+    options?: RequestInit
+): Promise<GatewayApi> => {
+    return apiMutator<GatewayApi>(getGatewaysBindCredentialCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bindCredentialApi),
+    })
+}
+
+export const getGatewaysCredentialsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/gateways/${id}/credentials/`
+}
+
+/**
+ * List the personal API keys and OAuth applications that attribute usage to this gateway.
+ */
+export const gatewaysCredentialsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<GatewayBoundCredentialsApi> => {
+    return apiMutator<GatewayBoundCredentialsApi>(getGatewaysCredentialsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }

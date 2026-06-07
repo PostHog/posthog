@@ -9870,6 +9870,28 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    /**
+     * * `personal_api_key` - personal_api_key
+    * `oauth_application` - oauth_application
+     */
+    export type CredentialTypeEnum = typeof CredentialTypeEnum[keyof typeof CredentialTypeEnum];
+
+
+    export const CredentialTypeEnum = {
+      PersonalApiKey: 'personal_api_key',
+      OauthApplication: 'oauth_application',
+    } as const;
+
+    export interface BindCredential {
+      /** Which kind of credential to reassign.
+
+      * `personal_api_key` - personal_api_key
+      * `oauth_application` - oauth_application */
+      credential_type: CredentialTypeEnum;
+      /** Id of the credential to reassign to this gateway. */
+      credential_id: string;
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -9897,6 +9919,29 @@ export namespace Schemas {
       true_label?: string;
       /** Optional label for a false value. */
       false_label?: string;
+    }
+
+    export interface BoundOAuthApplication {
+      /** OAuth application id. */
+      readonly id: string;
+      /** The application's name. */
+      readonly name: string;
+      /** The application's OAuth client id. */
+      readonly client_id: string;
+    }
+
+    export interface BoundPersonalAPIKey {
+      /** Personal API key id. */
+      readonly id: string;
+      /** The key's human-readable label. */
+      readonly label: string;
+      /** The user the personal API key belongs to. */
+      readonly user: UserBasic;
+      /**
+         * When the key was last used, if ever.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
     }
 
     export interface BreakdownItem {
@@ -19164,6 +19209,15 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       readonly created_by: UserBasic;
+      /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+      readonly bound_credentials_count: number;
+    }
+
+    export interface GatewayBoundCredentials {
+      /** Personal API keys bound to this gateway. */
+      readonly personal_api_keys: readonly BoundPersonalAPIKey[];
+      /** OAuth applications bound to this gateway. */
+      readonly oauth_applications: readonly BoundOAuthApplication[];
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -30623,6 +30677,8 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic;
+      /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
+      readonly bound_credentials_count?: number;
     }
 
     export interface PatchedGroupType {
