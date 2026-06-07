@@ -1,4 +1,4 @@
-import { actions, kea, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -9,13 +9,8 @@ import { Breadcrumb } from '~/types'
 import type { replayScannerSceneLogicType } from './replayScannerSceneLogicType'
 import { ALL_EDITOR_TABS, EditorTab } from './types'
 
-export interface ReplayScannerSceneLogicProps {
-    tabId: string
-}
-
 export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerSceneLogic']),
-    props({} as ReplayScannerSceneLogicProps),
 
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),

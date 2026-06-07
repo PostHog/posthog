@@ -37,7 +37,6 @@ import {
 
 export interface ReplayScannerLogicProps {
     id: string
-    tabId: string
 }
 
 export type ObservationStatusValue = ReplayObservationApi['status']
@@ -180,7 +179,7 @@ export function buildObservationListParams(
 export const replayScannerLogic = kea<replayScannerLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerLogic']),
     props({} as ReplayScannerLogicProps),
-    key((props) => `${props.tabId}:${props.id}`),
+    key((props) => props.id),
 
     actions({
         loadScanner: true,
