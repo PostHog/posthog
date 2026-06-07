@@ -171,6 +171,7 @@ function BarChartInner<Meta = unknown>({
         fitToHeight = false,
         valueDomain,
         roundStackEnds = false,
+        fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
@@ -427,7 +428,7 @@ function BarChartInner<Meta = unknown>({
                 clipToRoundedRects(ctx, stackPills, barCornerRadius)
             }
             for (const { series: s, bars } of seriesBars) {
-                drawBars(baseDrawCtx, s, bars, stackPills.length > 0 ? 0 : barCornerRadius)
+                drawBars(baseDrawCtx, s, bars, stackPills.length > 0 ? 0 : barCornerRadius, barFillStyle)
             }
             if (stackPills.length > 0) {
                 ctx.restore()
@@ -447,6 +448,7 @@ function BarChartInner<Meta = unknown>({
             barTrack,
             xTickFormatter,
             barShadow,
+            barFillStyle,
         ]
     )
 

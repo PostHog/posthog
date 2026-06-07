@@ -241,6 +241,7 @@ export function TrendsBarChart({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
+            animateHover: 180,
             yTickFormatter: aggregatedYTickFormatter,
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
@@ -253,7 +254,7 @@ export function TrendsBarChart({
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
             // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
             // instead of clamping them to 0.
-            bars: { fitToHeight: embedded, divergingStack: true },
+            bars: { fitToHeight: embedded, divergingStack: true, fillStyle: 'gloss', cornerRadius: 4 },
         }
     }, [
         yAxisScaleType,
