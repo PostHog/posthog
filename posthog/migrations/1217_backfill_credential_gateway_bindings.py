@@ -58,7 +58,9 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
+    # Atomic for rollback safety. Only touches the small set of pre-existing
+    # llm_gateway:read credentials, so the transaction is short; re-runs are
+    # idempotent (only gateway__isnull rows are bound).
 
     dependencies = [
         ("posthog", "1216_backfill_default_gateways"),
