@@ -29,13 +29,12 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# Salvage threshold for a turn whose closing end_turn never arrives. The sandbox emits the
-# agent's final message and a null-cost usage_update (cost is computed only at finalization)
-# but no end_turn, so the turn never reads as finished. After this many seconds of silence
-# carrying that fingerprint we accept the last message rather than polling to
-# MAX_POLL_SECONDS and failing a run that actually completed. Well above the gap between log
-# lines during genuine work, so a slow step is never mistaken for a dropped turn.
-STALE_TURN_SALVAGE_SECONDS = 300
+# After this many seconds of silence carrying the null-cost usage_update fingerprint, accept
+# the last message instead of polling to MAX_POLL_SECONDS and failing a run that completed.
+# Set to the relay's continuous-silence ceiling (relay_sandbox_events.py: MAX_RECONNECT_ATTEMPTS
+# * SSE_READ_TIMEOUT_SECONDS = 5 * 300) so we never cut off a turn the relay still treats as
+# active; past that the relay has given up and the run is terminal. Keep in sync if those change.
+STALE_TURN_SALVAGE_SECONDS = 1500
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
