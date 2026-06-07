@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -8,17 +8,14 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { aiObservabilityUsersLogicType } from './aiObservabilityUsersLogicType'
 
-export interface AIObservabilityUsersLogicProps {
-    tabId?: string
-}
+export type AIObservabilityUsersLogicProps = Record<string, never>
 
 export const aiObservabilityUsersLogic = kea<aiObservabilityUsersLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityUsersLogic']),
-    key((props: AIObservabilityUsersLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilityUsersLogicProps),
-    connect((props: AIObservabilityUsersLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],

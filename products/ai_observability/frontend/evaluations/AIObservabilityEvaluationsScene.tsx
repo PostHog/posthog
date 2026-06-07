@@ -71,9 +71,9 @@ function getActiveTab(
     return tab === 'offline-evals' || tab === 'offline' ? 'offline-evals' : 'online-evals'
 }
 
-function AIObservabilityEvaluationsContent({ tabId }: { tabId?: string }): JSX.Element {
-    const evaluationsLogic = llmEvaluationsLogic({ tabId })
-    const metricsLogic = evaluationMetricsLogic({ tabId })
+function AIObservabilityEvaluationsContent(): JSX.Element {
+    const evaluationsLogic = llmEvaluationsLogic()
+    const metricsLogic = evaluationMetricsLogic()
     const {
         evaluations,
         filteredEvaluations,
@@ -370,11 +370,11 @@ function AIObservabilityEvaluationsContent({ tabId }: { tabId?: string }): JSX.E
     )
 }
 
-export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function AIObservabilityEvaluationsScene(): JSX.Element {
     const { searchParams, location } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic({ tabId }))
-    const metricsLogic = evaluationMetricsLogic({ tabId })
+    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic())
+    const metricsLogic = evaluationMetricsLogic()
     const showOfflineEvals = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
     const activeTab = getActiveTab(location.pathname, searchParams, showOfflineEvals)
 
@@ -384,7 +384,7 @@ export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): 
         {
             key: 'online-evals',
             label: 'Online evals',
-            content: <AIObservabilityEvaluationsContent tabId={tabId} />,
+            content: <AIObservabilityEvaluationsContent />,
             link: combineUrl(urls.aiObservabilityEvaluations(), {
                 ...searchParams,
                 tab: undefined,
@@ -404,7 +404,7 @@ export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): 
                               </LemonTag>
                           </span>
                       ),
-                      content: <OfflineEvaluationsTab tabId={tabId} />,
+                      content: <OfflineEvaluationsTab />,
                       link: combineUrl(urls.aiObservabilityOfflineEvaluations(), {
                           ...searchParams,
                           tab: undefined,
@@ -424,8 +424,8 @@ export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): 
     ]
 
     return (
-        <BindLogic logic={llmEvaluationsLogic} props={{ tabId }}>
-            <BindLogic logic={evaluationMetricsLogic} props={{ tabId }}>
+        <BindLogic logic={llmEvaluationsLogic} props={{}}>
+            <BindLogic logic={evaluationMetricsLogic} props={{}}>
                 <SceneContent>
                     <SceneTitleSection
                         name="Evaluations"
