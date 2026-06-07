@@ -412,10 +412,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadSnapshotsForSourceFailure: async ({ errorObject }, breakpoint) => {
-            // A 404 means a recording block is permanently gone — the backend has already classified
-            // it as terminal, so retrying would only burn the client retry budget on a block that
-            // will never load. Fail fast instead.
-            if (errorObject instanceof ApiError && errorObject.status === 404) {
+            // A non-retriable client error (a 4xx other than a 429 back-off — e.g. a 404 for a
+            // permanently-gone block, or a 4xx the backend passed through as-is) won't succeed on
+            // retry, so fail fast instead of burning the retry budget. A 429 falls through to the
+            // Retry-After-aware backoff below.
+            const status = errorObject instanceof ApiError ? errorObject.status : undefined
+            if (status !== undefined && status >= 400 && status < 500 && status !== 429) {
                 actions.snapshotLoadingPermanentlyFailed()
                 return
             }

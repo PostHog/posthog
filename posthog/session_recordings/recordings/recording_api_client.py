@@ -11,7 +11,7 @@ from prometheus_client import Counter
 from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.session_recordings.recordings.errors import (
-    BlockFetchBackoffError,
+    BlockFetchClientError,
     BlockFetchError,
     BlockNotFoundError,
     RecordingDeletedError,
@@ -177,16 +177,15 @@ class RecordingApiClient:
         except (RecordingDeletedError, BlockFetchError):
             raise
         except (aiohttp.ClientError, TimeoutError) as e:
-            # A 429 asking us to wait longer than we'll spend inline: hand the back-off to the
-            # client (429 + Retry-After) rather than sleeping a worker for the whole interval.
-            if isinstance(e, aiohttp.ClientResponseError) and e.status == 429:
-                seconds = _retry_after_seconds(e)
-                if seconds is not None and seconds > _MAX_INLINE_RETRY_AFTER_SECONDS:
-                    raise BlockFetchBackoffError(
-                        "Recording API asked to back off",
-                        status_code=e.status,
-                        retry_after=e.headers.get("Retry-After") if e.headers else None,
-                    )
+            # A non-retriable client error (any 4xx we won't retry, including a 429 asking us to
+            # back off longer than we'll wait inline): return the upstream status to the client
+            # as-is rather than retrying or masking it as a transient 503.
+            if isinstance(e, aiohttp.ClientResponseError) and not _is_retriable_block_fetch(e):
+                raise BlockFetchClientError(
+                    f"Recording API returned {e.status}",
+                    status_code=e.status,
+                    retry_after=e.headers.get("Retry-After") if e.headers else None,
+                )
             logger.exception(
                 "recording_api_client.fetch_block_failed",
                 url=url,

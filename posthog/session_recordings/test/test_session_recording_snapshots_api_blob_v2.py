@@ -11,7 +11,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import (
-    BlockFetchBackoffError,
+    BlockFetchClientError,
     BlockNotFoundError,
     RecordingDeletedError,
     TransientBlockFetchError,
@@ -285,7 +285,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage = MagicMock()
         # The recording-api asked us to back off longer than we'll wait inline.
         mock_storage.fetch_block = AsyncMock(
-            side_effect=BlockFetchBackoffError("Recording API asked to back off", status_code=429, retry_after="60")
+            side_effect=BlockFetchClientError("Recording API returned 429", status_code=429, retry_after="60")
         )
         mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
 
@@ -296,6 +296,49 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         # The back-off is handed to the client as a 429 + Retry-After, not retried server-side.
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
         assert response["Retry-After"] == "60"
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    def test_blob_v2_client_error_returned_as_is(
+        self,
+        mock_recording_api_client,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+        ]
+
+        mock_storage = MagicMock()
+        # A non-retriable upstream client error (e.g. 403) — returned to the client as that status.
+        mock_storage.fetch_block = AsyncMock(
+            side_effect=BlockFetchClientError("Recording API returned 403", status_code=403)
+        )
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+
+        response = self.client.get(url)
+
+        # Returned as its own status, not masked as a retriable 503, and no Retry-After.
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "Retry-After" not in response
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",

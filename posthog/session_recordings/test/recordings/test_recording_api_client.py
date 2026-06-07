@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 
 from posthog.session_recordings.recordings.errors import (
-    BlockFetchBackoffError,
+    BlockFetchClientError,
     BlockNotFoundError,
     RecordingDeletedError,
     TransientBlockFetchError,
@@ -209,13 +209,16 @@ class TestFetchBlock:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("status_code", [400, 401, 403, 422])
-    async def test_does_not_retry_4xx(self, client, mock_session, status_code):
+    async def test_non_retriable_4xx_returned_as_is_not_retried(self, client, mock_session, status_code):
         mock_session.get = MagicMock(return_value=self._response_mock(200, raise_status=status_code))
 
-        with pytest.raises(TransientBlockFetchError, match="Failed to fetch block from Recording API"):
+        # A genuine client error is returned to the client as its own status, not masked as a 503.
+        with pytest.raises(BlockFetchClientError) as exc_info:
             await client.fetch_block("key", 0, 100, "session-123", 1)
 
-        # A 4xx is a genuine client error — fail fast without retrying.
+        assert exc_info.value.status_code == status_code
+        assert exc_info.value.retry_after is None
+        # Fail fast without retrying — retrying a client error won't help.
         assert mock_session.get.call_count == 1
 
     @pytest.mark.asyncio
@@ -270,12 +273,12 @@ class TestFetchBlock:
     @pytest.mark.asyncio
     async def test_429_with_long_retry_after_is_handed_back_not_retried(self, client, mock_session):
         # A 429 asking for longer than the inline budget must not be retried in-process; it becomes
-        # a BlockFetchBackoffError carrying the status + Retry-After for the client to obey.
+        # a BlockFetchClientError carrying the status + Retry-After for the client to obey.
         mock_session.get = MagicMock(
             return_value=self._response_mock(200, raise_status=429, headers={"Retry-After": "60"})
         )
 
-        with pytest.raises(BlockFetchBackoffError) as exc_info:
+        with pytest.raises(BlockFetchClientError) as exc_info:
             await client.fetch_block("key", 0, 100, "session-123", 1)
 
         assert exc_info.value.status_code == 429

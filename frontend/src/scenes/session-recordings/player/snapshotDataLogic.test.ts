@@ -106,6 +106,18 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('slow down', new ApiError('rate limited', 429))
             }).toDispatchActions(['snapshotLoadingPermanentlyFailed'])
         })
+
+        it('fails fast on a non-429 client error without burning the retry budget', async () => {
+            // A 4xx other than a 429 is a permanent client error — fail fast like a 404 rather than
+            // retrying something that won't succeed.
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('forbidden', new ApiError('forbidden', 403))
+            })
+                .toDispatchActions(['snapshotLoadingPermanentlyFailed'])
+                .toNotHaveDispatchedActions(['loadNextSnapshotSource'])
+
+            expect(logic.cache.loadFailureCount).toBeUndefined()
+        })
     })
 
     describe('snapshot parsing', () => {

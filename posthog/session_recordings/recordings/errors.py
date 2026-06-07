@@ -26,13 +26,13 @@ class BlockNotFoundError(BlockFetchError):
     """
 
 
-class BlockFetchBackoffError(BlockFetchError):
-    """The recording-api returned a back-off response (429) asking us to wait longer than we
-    are willing to spend retrying in-process.
+class BlockFetchClientError(BlockFetchError):
+    """The recording-api returned a non-retriable client error (a 4xx) for a block fetch.
 
-    Terminal for the in-process retry: rather than sleeping a request worker for the whole
-    interval, the caller surfaces the upstream status and its Retry-After to the client, which
-    is better placed to honour the back-off itself.
+    Terminal, and not transient: retrying won't help, so the caller surfaces the upstream status
+    straight to the client as-is rather than masking it as a retriable 503. Covers a 429 asking us
+    to back off longer than we'll wait inline (carries its Retry-After for the client to honour) as
+    well as genuine client errors like 400/401/403/422.
     """
 
     def __init__(self, message: str, *, status_code: int, retry_after: str | None = None) -> None:
