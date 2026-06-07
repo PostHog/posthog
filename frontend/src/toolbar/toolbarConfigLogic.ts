@@ -644,7 +644,25 @@ function verifyUiHostReachability(
     })
         .then((response) => {
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                // We reached *a* server, but it returned a non-ok status for
+                // /toolbar_oauth/check (the backend view always returns 200). This means
+                // uiHost points at a host whose /toolbar_oauth/ path isn't routed — almost
+                // always a reverse-proxy misconfig. It's an expected, actionable condition,
+                // so guide the user to the config modal rather than reporting noisy generic
+                // exceptions. setAuthStatus('error') makes the Authenticate button open the
+                // modal too (see the authenticate/confirmAuthenticate listeners).
+                actions.setAuthStatus('error')
+                toolbarPosthogJS.capture('toolbar ui host check', {
+                    ...checkBaseProps,
+                    status: 'error',
+                    error_type: 'http_error',
+                    http_status: response.status,
+                    duration_ms: Date.now() - checkStart,
+                })
+                if (authParams) {
+                    actions.openUiHostConfigModal()
+                }
+                return
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
@@ -658,9 +676,13 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
+            // Only genuine fetch failures (network/CORS/timeout) reach here now — an
+            // unexpected condition worth reporting. Attach the resolved hosts so the
+            // exception is debuggable without reading the source.
             actions.setAuthStatus('error')
             captureToolbarException(error, 'ui_host_check', {
                 error_type: classifyFetchError(error),
+                ...checkBaseProps,
             })
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
