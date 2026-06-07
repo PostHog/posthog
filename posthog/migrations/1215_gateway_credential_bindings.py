@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1211_gateway"),
+        ("posthog", "1214_gateway"),
     ]
 
     operations = [

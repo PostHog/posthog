@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1212_gateway_credential_bindings"),
+        ("posthog", "1215_gateway_credential_bindings"),
     ]
 
     operations = [

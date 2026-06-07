@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1210_team_ingested_production_event"),
+        ("posthog", "1213_filesystemfolderinstructions"),
     ]
 
     operations = [
