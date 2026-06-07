@@ -134,6 +134,7 @@ rules:
                               |TeamWorkflowsConfig
                               |FileSystem
                               |FileSystemFolderInstructions
+                              |Gateway
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -370,6 +371,7 @@ rules:
                         |TeamWorkflowsConfig
                         |FileSystem
                         |FileSystemFolderInstructions
+                        |Gateway
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
