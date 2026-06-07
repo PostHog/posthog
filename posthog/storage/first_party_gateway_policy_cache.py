@@ -266,23 +266,28 @@ def refresh_all_first_party_policies() -> int:
     entries warm; signal handlers and the per-OAuth-token TTL handle removal.
 
     select_related pulls each credential's bound gateway and its team in the same
-    query, so there's no N+1 lookup. scope is a space-separated TextField;
-    whitespace-bounded so the literal doesn't substring-match a longer scope.
+    query, so there's no N+1 lookup. Streamed via .iterator() so the working set
+    stays flat as the number of gateway-scoped credentials grows. scope is a
+    space-separated TextField; whitespace-bounded so the literal doesn't
+    substring-match a longer scope.
     """
     now = timezone.now()
-    credentials: list[Credential] = [
-        *PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
+    querysets = (
+        PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
             scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE], user__is_active=True
         ),
-        *OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
+        OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
             user__is_active=True,
             application_id__isnull=False,
             expires__gt=now,
         ),
-    ]
+    )
 
-    for credential in credentials:
-        project_first_party_policy(credential)
+    count = 0
+    for queryset in querysets:
+        for credential in queryset.iterator(chunk_size=1000):
+            project_first_party_policy(credential)
+            count += 1
 
-    return len(credentials)
+    return count
