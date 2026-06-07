@@ -54,6 +54,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionMessagesQuery,
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
@@ -926,6 +927,17 @@ def get_query_runner(
 
         return TraceQueryRunner(
             query=cast(TraceQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "SessionMessagesQuery":
+        from .ai.session_messages_query_runner import SessionMessagesQueryRunner
+
+        return SessionMessagesQueryRunner(
+            query=cast(SessionMessagesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
