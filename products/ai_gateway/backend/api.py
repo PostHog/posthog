@@ -178,11 +178,22 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         credential_type = serializer.validated_data["credential_type"]
         credential_id = serializer.validated_data["credential_id"]
 
+        # Tenant isolation here is by gateway, not user: this is an admin-gated action
+        # (TeamMemberStrictManagementPermission) that manages which of the team's gateways a
+        # credential attributes to, so it must reach credentials owned by any team member.
+        # gateway_id__in restricts the lookup to credentials already bound to THIS team's
+        # gateways, which is the authorization boundary — a user filter would be wrong here.
         team_gateway_ids = list(Gateway.objects.for_team(self.team_id).values_list("id", flat=True))
         if credential_type == _CREDENTIAL_TYPE_PERSONAL_API_KEY:
-            credential = PersonalAPIKey.objects.filter(pk=credential_id, gateway_id__in=team_gateway_ids).first()
+            credential = PersonalAPIKey.objects.filter(  # nosemgrep: idor-lookup-without-user
+                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
+                gateway_id__in=team_gateway_ids,
+            ).first()
         else:
-            credential = OAuthApplication.objects.filter(pk=credential_id, gateway_id__in=team_gateway_ids).first()
+            credential = OAuthApplication.objects.filter(  # nosemgrep: idor-lookup-without-user
+                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
+                gateway_id__in=team_gateway_ids,
+            ).first()
 
         if credential is None:
             raise ValidationError(
