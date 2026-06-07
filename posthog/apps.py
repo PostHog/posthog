@@ -30,9 +30,13 @@ class PostHogConfig(AppConfig):
         from posthog.storage.gateway_provisioning import (
             connect_signal_handlers as connect_gateway_provisioning_signal_handlers,
         )
+        from posthog.storage.first_party_gateway_policy_signal_handlers import (
+            connect_signal_handlers as connect_first_party_gateway_policy_signal_handlers,
+        )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
+        connect_first_party_gateway_policy_signal_handlers()
         connect_gateway_provisioning_signal_handlers()
 
         # Connect core signal receivers at app-population. They used to wire in as an import
