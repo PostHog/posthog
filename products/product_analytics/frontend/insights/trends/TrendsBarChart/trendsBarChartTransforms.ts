@@ -117,6 +117,9 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
         // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
         divergingStack: !opts.isPercentStackView && !opts.isGrouped,
         tooltip: opts.tooltip,
+        fillStyle: 'gloss',
+        barCornerRadius: 4,
+        animateHover: 180,
     }
 }
 
