@@ -284,6 +284,16 @@ def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: A
     transaction.on_commit(lambda: reproject_team_first_party_policies_task.delay(team_id))
 
 
+def _reproject_on_role_membership_change(sender: type, instance: Any, **kwargs: Any) -> None:
+    # Role membership feeds UserAccessControl's role-scoped ACs, so adding or
+    # removing it can flip the project access check without any AccessControl row
+    # changing. Reproject the affected user's gateway credentials.
+    if not settings.AI_GATEWAY_REDIS_URL or instance.user_id is None:
+        return
+    user_id = instance.user_id
+    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+
+
 def connect_signal_handlers() -> None:
     post_init.connect(_snapshot_pak, sender=PersonalAPIKey)
     pre_save.connect(_capture_old_pak_if_deferred, sender=PersonalAPIKey)
@@ -308,8 +318,11 @@ def connect_signal_handlers() -> None:
     # only when available; the projection's RBAC check default-allows there anyway.
     try:
         from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import RoleMembership
 
         post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
         post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
+        post_save.connect(_reproject_on_role_membership_change, sender=RoleMembership)
+        post_delete.connect(_reproject_on_role_membership_change, sender=RoleMembership)
     except ImportError:
         pass

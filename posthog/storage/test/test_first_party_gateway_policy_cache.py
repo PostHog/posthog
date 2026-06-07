@@ -555,3 +555,18 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
         )
 
         mock_delay.assert_called_with(self.team.id)
+
+    @pytest.mark.ee
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_user_first_party_policies_task.delay")
+    def test_role_membership_change_reprojects_user(self, mock_delay, mock_settings, mock_transaction):
+        from ee.models.rbac.role import Role, RoleMembership
+
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        role = Role.objects.create(name="engineers", organization=self.organization)
+        RoleMembership.objects.create(user=self.user, role=role)
+
+        mock_delay.assert_called_with(self.user.pk)
