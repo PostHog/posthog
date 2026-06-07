@@ -2,6 +2,15 @@ class BlockFetchError(Exception):
     pass
 
 
+class BlockNotFoundError(BlockFetchError):
+    """A specific recording block is permanently missing (recording-api 404).
+
+    Terminal, unlike a transient BlockFetchError: the block is gone and retrying
+    will never recover it, so callers must surface a non-retriable response rather
+    than the retriable 503 used for transient failures.
+    """
+
+
 class RecordingBlockFetchError(Exception):
     """Raised when one or more recording blocks could not be fetched from the recording-api.
 

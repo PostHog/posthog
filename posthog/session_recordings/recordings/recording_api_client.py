@@ -7,7 +7,7 @@ import aiohttp
 import structlog
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +56,7 @@ class RecordingApiClient:
         async def _fetch() -> bytes:
             async with self.session.get(url, params=params) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockNotFoundError("Block not found")
                 if response.status == 410:
                     data = await response.json()
                     deleted_at = data.get("deleted_at")

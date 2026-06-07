@@ -99,6 +99,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
+    BlockNotFoundError,
     RecordingBlockFetchError,
     RecordingDeletedError,
 )
@@ -165,6 +166,12 @@ FETCH_BLOCKS_HISTOGRAM = Histogram(
     "session_snapshots_fetch_blocks_seconds",
     "Time taken to fetch recording blocks from storage",
     labelnames=["decompress"],
+)
+
+BLOCK_FETCH_FAILURE_COUNTER = Counter(
+    "session_snapshots_block_fetch_failure_total",
+    "Recording playback failures from block fetches that the user can't recover from, by reason",
+    labelnames=["reason"],
 )
 
 LOADING_V2_LTS_COUNTER = Counter(
@@ -1407,6 +1414,19 @@ class SessionRecordingViewSet(
                 },
                 status=status.HTTP_410_GONE,
             )
+        except BlockNotFoundError:
+            logger.warning(
+                "recording_block_not_found",
+                session_id=str(recording.session_id),
+                team_id=self.team.id,
+            )
+            BLOCK_FETCH_FAILURE_COUNTER.labels(reason="not_found").inc()
+            # A permanently-missing block is terminal — return a non-retriable 404 so the player
+            # surfaces an error instead of retrying a block that will never load.
+            return Response(
+                {"error": "A recording block could not be found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except RecordingBlockFetchError as e:
             logger.warning(
                 "recording_block_fetch_failed",
@@ -1800,6 +1820,11 @@ class SessionRecordingViewSet(
             except RecordingDeletedError:
                 # Let this propagate up to return a 410 response
                 raise
+            except BlockNotFoundError:
+                # A permanently-missing block is terminal — let it propagate so the endpoint
+                # returns a non-retriable response rather than the retriable 503 used for
+                # transient failures (a 404 block will never be recovered by retrying).
+                raise
             except BlockFetchError:
                 logger.exception(
                     "fetch_block_failed",
@@ -1833,6 +1858,7 @@ class SessionRecordingViewSet(
             # A failed block fetch is a transient / recoverable failure (recording-api error,
             # timeout, or S3 / decompress failure) — surface it as a retriable response rather
             # than a blanket 500 that the player can never recover from.
+            BLOCK_FETCH_FAILURE_COUNTER.labels(reason="transient").inc()
             raise RecordingBlockFetchError("Failed to load recording block", failed_block_indices=block_errors)
 
         return blocks_data

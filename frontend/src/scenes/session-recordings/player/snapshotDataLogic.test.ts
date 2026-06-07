@@ -75,8 +75,10 @@ describe('snapshotDataLogic', () => {
 
     describe('permanent load failure', () => {
         it('signals a permanent failure once snapshot load retries are exhausted', async () => {
-            // Pretend the previous 3 retries already happened
-            logic.cache.loadFailureCount = 3
+            // The handler gives up once loadFailureCount exceeds 2 (the guard is `> 2`). Seed it at
+            // 2 so the next failure is the terminal one: the handler increments to 3, trips the
+            // guard, and dispatches snapshotLoadingPermanentlyFailed instead of retrying.
+            logic.cache.loadFailureCount = 2
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshotsForSourceFailure('boom', new Error('boom'))

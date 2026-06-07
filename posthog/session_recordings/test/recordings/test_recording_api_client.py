@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 
 
@@ -92,7 +92,7 @@ class TestFetchBlock:
         )
 
     @pytest.mark.asyncio
-    async def test_404_raises_error(self, client, mock_session):
+    async def test_404_raises_block_not_found(self, client, mock_session):
         mock_response = AsyncMock()
         mock_response.status = 404
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
@@ -100,7 +100,8 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(BlockFetchError, match="Block not found"):
+        # A genuinely-missing block is a terminal BlockNotFoundError, not a transient BlockFetchError.
+        with pytest.raises(BlockNotFoundError, match="Block not found"):
             await client.fetch_block(
                 "key",
                 0,
@@ -202,9 +203,10 @@ class TestFetchBlock:
     async def test_does_not_retry_404(self, client, mock_session):
         mock_session.get = MagicMock(return_value=self._response_mock(404))
 
-        with pytest.raises(BlockFetchError, match="Block not found"):
+        with pytest.raises(BlockNotFoundError, match="Block not found"):
             await client.fetch_block("key", 0, 100, "session-123", 1)
 
+        # A genuinely-missing block is terminal — fail fast without retrying.
         assert mock_session.get.call_count == 1
 
 

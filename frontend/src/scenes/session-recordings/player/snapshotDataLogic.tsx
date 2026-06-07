@@ -397,7 +397,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
         loadSnapshotsForSourceFailure: async (_, breakpoint) => {
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
-            if (cache.loadFailureCount > 3) {
+            // The backend already retries transient block fetches, so we only need a couple of
+            // client-side retries (with backoff) on top before giving up.
+            if (cache.loadFailureCount > 2) {
                 // Retries exhausted — signal a terminal failure so the player can surface an
                 // actionable error instead of staying stuck on "Buffering…" indefinitely.
                 actions.snapshotLoadingPermanentlyFailed()
