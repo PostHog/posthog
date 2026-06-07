@@ -29520,6 +29520,7 @@
         "ProductKey": {
             "enum": [
                 "actions",
+                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",

@@ -4000,6 +4000,7 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
+    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"

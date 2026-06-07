@@ -1,6 +1,13 @@
 {
     "products": [
         {
+            "path": "AI gateway",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "ai_gateway",
+            "intents": ["ai_gateway"]
+        },
+        {
             "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
