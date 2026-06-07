@@ -173,6 +173,14 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     # scoped_teams/scoped_organizations narrow a credential below the user's full
     # membership. The gateway can't see them, so the projection is the only
     # enforcement point — fail closed if the bound gateway's team is out of scope.
+    #
+    # team_id is the gateway's canonical (project root) team. scoped_teams holds
+    # environment-level team ids, and the gateway authenticates/attributes at the
+    # project level — it cannot honor a per-environment narrowing. So a credential
+    # scoped only to a non-canonical environment of this project deliberately fails
+    # closed here rather than being silently widened to project-wide access. (A
+    # loud rejection at credential-bind time is the better long-term home for this,
+    # once that API exists.)
     if credential.scoped_teams and team_id not in credential.scoped_teams:
         return HyperCacheStoreMissing()
     if credential.scoped_organizations and str(team.organization_id) not in credential.scoped_organizations:
@@ -259,11 +267,6 @@ def clear_first_party_policy(credential_or_hash: Credential | str) -> None:
     if not cache_hash:
         return
     first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
-
-
-def get_first_party_policy(hash_key: str) -> dict[str, Any] | None:
-    """Django-side read (lazy-fill). The gateway reads Redis/S3 directly."""
-    return first_party_gateway_policy_hypercache.get_from_cache(hash_key)
 
 
 def refresh_all_first_party_policies() -> int:

@@ -235,6 +235,19 @@ class TestFirstPartyPolicyFailClosed(FirstPartyPolicyTestMixin):
         project_first_party_policy(credential)
         self.assertIsNotNone(self._read_blob(credential_hash(credential)))
 
+    def test_credential_scoped_to_child_environment_fails_closed(self):
+        # The gateway is bound to the canonical (project root) team, and the Go
+        # gateway authenticates at project level — it can't honor a per-environment
+        # narrowing. A credential scoped only to a child environment of this project
+        # deliberately fails closed rather than being silently widened to the whole
+        # project. self.team is canonical (parent_team_id IS NULL); child is one of
+        # its environments.
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        credential.scoped_teams = [child.id]
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
     def test_scoped_org_outside_current_team_org_fails_closed(self):
         credential, _ = self._make_pak([GATEWAY_SCOPE])
         credential.scoped_organizations = ["00000000-0000-0000-0000-000000000000"]
