@@ -117,7 +117,7 @@ Then in your reasoning: take the most recent `day` as `x`, filter the rest to th
 compute median + MAD over those, and score. (Compute the robust stats in your head / from the
 rows — keep the SQL simple and do the small stats on the returned series.)
 
-**Hourly series for a high-volume metric** (last 21 days, hourly, for hour-of-week baseline):
+**Hourly series for a high-volume metric** (last 21 days, hourly, for same-hour-of-day baseline):
 
 ```sql
 SELECT toStartOfHour(timestamp) AS hour,
@@ -132,7 +132,11 @@ GROUP BY hour, dow, hod
 ORDER BY hour DESC
 ```
 
-Score the latest complete `hour` against prior rows sharing its `(dow, hod)`.
+Score the latest complete `hour` against prior rows sharing its `hod` (same-hour-of-day) —
+~14–28 comparable points over 21 days, so the ≥ 12 baseline floor is reachable. Only upgrade
+to full hour-of-week (rows sharing both `dow` and `hod`) once you have ~8+ weeks of history,
+since same-hour-of-week yields just one point per week. (`dow` is still selected above so the
+upgrade needs no query change.)
 
 **Tips**
 

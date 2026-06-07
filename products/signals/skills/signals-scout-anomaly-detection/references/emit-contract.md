@@ -65,9 +65,12 @@ the baseline median, the z-score, and the time window in the summaries.
 
 ## Dedupe keys
 
-Stable strings the inbox groups on. Use `insight:<short_id>` and a metric-anomaly key like
-`metric_anomaly:<short_id>:<date>` so a recurrence on a later day is a new finding that cites
-the prior one rather than silently colliding. Add `dashboard:<id>` when relevant. Include 1–2.
+Stable strings stored on the signal for traceability and grouping context — they are recorded
+in the signal's `extra`, **not** enforced as idempotency keys by `emit_signal` (grouping is
+semantic). Your own dedupe is the scratchpad / run-history check before emitting. Use
+`insight:<short_id>` and a metric-anomaly key like `metric_anomaly:<short_id>:<date>` so a
+recurrence on a later day reads as a new finding citing the prior one. Add `dashboard:<id>`
+when relevant. Include 1–2.
 
 ## finding_id (not a dedupe key)
 
