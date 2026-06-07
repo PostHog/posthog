@@ -258,10 +258,6 @@ export function FinishExperimentModal(): JSX.Element {
             <LemonModal
                 isOpen={isFinishExperimentModalOpen}
                 onClose={() => {
-                    // Don't allow dismissing (X / backdrop / escape) while the request is in flight.
-                    if (endExperimentLoading) {
-                        return
-                    }
                     restoreUnmodifiedExperiment()
                     closeFinishExperimentModal()
                 }}
@@ -271,7 +267,6 @@ export function FinishExperimentModal(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
-                            disabledReason={endExperimentLoading && 'Ending experiment…'}
                             onClick={() => {
                                 restoreUnmodifiedExperiment()
                                 closeFinishExperimentModal()

@@ -1469,15 +1469,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         endExperimentWithoutShipping: async () => {
-            // endExperiment swallows its own error, so success is detected by whether *this* call
-            // set the end date. Capture the prior state first: a pre-existing end_date (or a failed
-            // request that leaves it unchanged) must not be mistaken for a successful end here.
-            const alreadyEnded = !!values.experiment.end_date
-            // Await so the button keeps its loading state until the request resolves.
-            await asyncActions.endExperiment()
-            if (alreadyEnded || !values.experiment.end_date) {
-                return
-            }
+            actions.endExperiment()
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
 
