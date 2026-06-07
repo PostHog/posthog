@@ -27,6 +27,22 @@ import type { snapshotDataLogicType } from './snapshotDataLogicType'
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
 const MAX_V2_POLLING_INTERVAL_MS = 60000
 const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
+// Cap on an honoured Retry-After so a large value from a rate-limited upstream can't freeze the
+// player for minutes; beyond this we wait this long and then fall through to the normal retry/give-up.
+const MAX_SNAPSHOT_RETRY_AFTER_MS = 30000
+
+// On a 429 the backend passes through the recording API's Retry-After — obey it (capped) instead of
+// our own backoff so we don't hammer a rate-limited upstream. Returns null for anything else.
+function retryAfterMsFromError(error: unknown): number | null {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return null
+    }
+    const seconds = parseInt(error.headers?.get('Retry-After') ?? '', 10)
+    if (isNaN(seconds) || seconds <= 0) {
+        return null
+    }
+    return Math.min(seconds * 1000, MAX_SNAPSHOT_RETRY_AFTER_MS)
+}
 
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -413,7 +429,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 actions.snapshotLoadingPermanentlyFailed()
                 return
             }
-            await breakpoint(cache.loadFailureCount * 2000)
+            // Honor a passed-through Retry-After on a 429, else use our own escalating backoff.
+            await breakpoint(retryAfterMsFromError(errorObject) ?? cache.loadFailureCount * 2000)
             actions.loadNextSnapshotSource()
         },
 

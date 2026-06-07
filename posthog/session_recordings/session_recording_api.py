@@ -98,6 +98,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import (
+    BlockFetchBackoffError,
     BlockNotFoundError,
     RecordingDeletedError,
     SnapshotRequestFailedError,
@@ -1427,6 +1428,24 @@ class SessionRecordingViewSet(
                 {"error": "A recording block could not be found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except BlockFetchBackoffError as e:
+            logger.warning(
+                "recording_block_fetch_backoff",
+                session_id=str(recording.session_id),
+                team_id=self.team.id,
+                retry_after=e.retry_after,
+            )
+            BLOCK_FETCH_FAILURE_COUNTER.labels(reason="backoff").inc()
+            # The recording-api asked us to back off for longer than we'll wait inline — pass the
+            # 429 and its Retry-After straight to the client so it honours the interval itself
+            # instead of us pinning a request worker.
+            response = Response(
+                {"error": "Too many requests loading this recording. Please try again shortly."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = e.retry_after
+            return response
         except SnapshotRequestFailedError as e:
             logger.warning(
                 "recording_block_fetch_failed",
@@ -1824,6 +1843,10 @@ class SessionRecordingViewSet(
                 # A permanently-missing block is terminal — let it propagate so the endpoint
                 # returns a non-retriable response rather than the retriable 503 used for
                 # transient failures (a 404 block will never be recovered by retrying).
+                raise
+            except BlockFetchBackoffError:
+                # The upstream asked us to back off — let it propagate so the endpoint returns a
+                # 429 + Retry-After to the client rather than retrying or masking it as a 503.
                 raise
             except TransientBlockFetchError:
                 logger.exception(

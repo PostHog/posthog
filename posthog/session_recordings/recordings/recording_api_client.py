@@ -11,6 +11,7 @@ from prometheus_client import Counter
 from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.session_recordings.recordings.errors import (
+    BlockFetchBackoffError,
     BlockFetchError,
     BlockNotFoundError,
     RecordingDeletedError,
@@ -35,22 +36,39 @@ BLOCK_FETCH_RETRY_COUNTER = Counter(
 # (429 Too Many Requests) or the request timed out upstream (408 Request Timeout).
 _RETRIABLE_4XX = {408, 429}
 
-# Upper bound on a honoured Retry-After: a large (or hostile) value must not pin the snapshot
-# request handler — beyond this we'd rather fail the block fast and let the response (503) flow.
-_MAX_RETRY_AFTER_SECONDS = 10.0
+# How long we'll wait *inline* (sleeping a request worker) for a server-supplied Retry-After.
+# Within this we honour it and retry in place; a 429 asking for longer is handed back to the
+# client as a 429 + Retry-After (see fetch_block) so it can obey the back-off without pinning a
+# worker. Aligned with the fallback backoff's own max so inline waits stay within a known bound.
+_MAX_INLINE_RETRY_AFTER_SECONDS = 3.0
 
 _fallback_wait = wait_random_exponential(multiplier=0.2, max=3)
 
 
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """The Retry-After (in seconds) on a ClientResponseError, or None if absent/unparseable."""
+    if not isinstance(exc, aiohttp.ClientResponseError) or not exc.headers:
+        return None
+    retry_after = exc.headers.get("Retry-After")
+    return _parse_retry_after(retry_after) if retry_after is not None else None
+
+
 def _is_retriable_block_fetch(exc: BaseException) -> bool:
-    """Whether a block fetch should be retried.
+    """Whether a block fetch should be retried in-process.
 
     Recoverable: connection errors, timeouts, recording-api 5xx, and the back-off 4xx codes
-    (408/429). Not recoverable: other 4xx responses (a genuine client error), and the 404/410
-    cases which are raised as BlockNotFoundError/RecordingDeletedError before reaching here.
+    (408/429). Not recoverable: other 4xx responses (a genuine client error), the 404/410 cases
+    (raised as BlockNotFoundError/RecordingDeletedError before reaching here), and a 429 whose
+    Retry-After exceeds what we'll wait inline — that one is surfaced to the client instead.
     """
     if isinstance(exc, aiohttp.ClientResponseError):
-        return exc.status >= 500 or exc.status in _RETRIABLE_4XX
+        if exc.status < 500 and exc.status not in _RETRIABLE_4XX:
+            return False
+        if exc.status == 429:
+            seconds = _retry_after_seconds(exc)
+            if seconds is not None and seconds > _MAX_INLINE_RETRY_AFTER_SECONDS:
+                return False
+        return True
     return isinstance(exc, aiohttp.ClientError | TimeoutError)
 
 
@@ -79,18 +97,16 @@ def _parse_retry_after(value: str) -> float | None:
 
 
 def _wait_block_fetch_retry(retry_state: RetryCallState) -> float:
-    """Honour a recording-api Retry-After header (429/503) when present, else exponential backoff.
+    """Honour a recording-api Retry-After header when present, else exponential backoff.
 
     The header is the server explicitly telling us when to come back, so respecting it backs off
-    a struggling upstream better than our own jittered guess. Clamped to [0, _MAX_RETRY_AFTER_SECONDS].
+    a struggling upstream better than our own jittered guess. Only reached for retries we keep
+    in-process, so the value is already within the inline budget; clamped to [0, budget] defensively.
     """
     exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, aiohttp.ClientResponseError) and exc.headers:
-        retry_after = exc.headers.get("Retry-After")
-        if retry_after is not None:
-            seconds = _parse_retry_after(retry_after)
-            if seconds is not None:
-                return min(max(seconds, 0.0), _MAX_RETRY_AFTER_SECONDS)
+    seconds = _retry_after_seconds(exc) if exc is not None else None
+    if seconds is not None:
+        return min(max(seconds, 0.0), _MAX_INLINE_RETRY_AFTER_SECONDS)
     return _fallback_wait(retry_state)
 
 
@@ -161,6 +177,16 @@ class RecordingApiClient:
         except (RecordingDeletedError, BlockFetchError):
             raise
         except (aiohttp.ClientError, TimeoutError) as e:
+            # A 429 asking us to wait longer than we'll spend inline: hand the back-off to the
+            # client (429 + Retry-After) rather than sleeping a worker for the whole interval.
+            if isinstance(e, aiohttp.ClientResponseError) and e.status == 429:
+                seconds = _retry_after_seconds(e)
+                if seconds is not None and seconds > _MAX_INLINE_RETRY_AFTER_SECONDS:
+                    raise BlockFetchBackoffError(
+                        "Recording API asked to back off",
+                        status_code=e.status,
+                        retry_after=e.headers.get("Retry-After") if e.headers else None,
+                    )
             logger.exception(
                 "recording_api_client.fetch_block_failed",
                 url=url,

@@ -4,12 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 
 from posthog.session_recordings.recordings.errors import (
+    BlockFetchBackoffError,
     BlockNotFoundError,
     RecordingDeletedError,
     TransientBlockFetchError,
 )
 from posthog.session_recordings.recordings.recording_api_client import (
-    _MAX_RETRY_AFTER_SECONDS,
+    _MAX_INLINE_RETRY_AFTER_SECONDS,
     BLOCK_FETCH_RETRY_COUNTER,
     RecordingApiClient,
     _parse_retry_after,
@@ -251,7 +252,9 @@ class TestFetchBlock:
         sleep_mock.assert_awaited_once_with(2.0)
 
     @pytest.mark.asyncio
-    async def test_clamps_large_retry_after(self, client, mock_session):
+    async def test_clamps_large_retry_after_for_retried_status(self, client, mock_session):
+        # A 503 stays retriable; its (large) Retry-After is clamped to the inline budget so it
+        # can't pin the request handler.
         mock_session.get = MagicMock(
             side_effect=[
                 self._response_mock(200, raise_status=503, headers={"Retry-After": "3600"}),
@@ -262,8 +265,23 @@ class TestFetchBlock:
         with patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
             await client.fetch_block("key", 0, 100, "session-123", 1)
 
-        # A large Retry-After is clamped so it can't pin the request handler.
-        sleep_mock.assert_awaited_once_with(_MAX_RETRY_AFTER_SECONDS)
+        sleep_mock.assert_awaited_once_with(_MAX_INLINE_RETRY_AFTER_SECONDS)
+
+    @pytest.mark.asyncio
+    async def test_429_with_long_retry_after_is_handed_back_not_retried(self, client, mock_session):
+        # A 429 asking for longer than the inline budget must not be retried in-process; it becomes
+        # a BlockFetchBackoffError carrying the status + Retry-After for the client to obey.
+        mock_session.get = MagicMock(
+            return_value=self._response_mock(200, raise_status=429, headers={"Retry-After": "60"})
+        )
+
+        with pytest.raises(BlockFetchBackoffError) as exc_info:
+            await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.retry_after == "60"
+        # Not retried — we handed the back-off to the client instead of sleeping a worker.
+        assert mock_session.get.call_count == 1
 
     @pytest.mark.asyncio
     async def test_clamps_negative_retry_after_to_zero(self, client, mock_session):

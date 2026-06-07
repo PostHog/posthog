@@ -96,6 +96,16 @@ describe('snapshotDataLogic', () => {
 
             expect(logic.cache.loadFailureCount).toBeUndefined()
         })
+
+        it('treats a 429 as retriable (budgeted), not fail-fast', async () => {
+            // Unlike a 404, a 429 is a back-off-and-retry signal, so it goes through the normal
+            // bounded retry path. With the budget already exhausted the next 429 ends terminally.
+            logic.cache.loadFailureCount = 2
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('slow down', new ApiError('rate limited', 429))
+            }).toDispatchActions(['snapshotLoadingPermanentlyFailed'])
+        })
     })
 
     describe('snapshot parsing', () => {

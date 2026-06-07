@@ -26,6 +26,21 @@ class BlockNotFoundError(BlockFetchError):
     """
 
 
+class BlockFetchBackoffError(BlockFetchError):
+    """The recording-api returned a back-off response (429) asking us to wait longer than we
+    are willing to spend retrying in-process.
+
+    Terminal for the in-process retry: rather than sleeping a request worker for the whole
+    interval, the caller surfaces the upstream status and its Retry-After to the client, which
+    is better placed to honour the back-off itself.
+    """
+
+    def __init__(self, message: str, *, status_code: int, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+
 class SnapshotRequestFailedError(Exception):
     """Raised when one or more recording blocks could not be fetched for a snapshot request.
 
