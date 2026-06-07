@@ -14,9 +14,9 @@ class BlockNotFoundError(BlockFetchError):
 class RecordingBlockFetchError(Exception):
     """Raised when one or more recording blocks could not be fetched from the recording-api.
 
-    Represents a transient / recoverable failure (recording-api returning a non-404/410 error,
-    a timeout, or an S3 / decompress failure) rather than a client error, so callers should
-    surface a retriable response instead of a blanket 500.
+    Represents a transient / recoverable failure (recording-api returning a 5xx, or a network
+    timeout / connection failure) rather than a client error, so callers should surface a
+    retriable response instead of a blanket 500.
     """
 
     def __init__(self, message: str, failed_block_indices: list[int] | None = None) -> None:

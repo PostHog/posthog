@@ -170,7 +170,7 @@ FETCH_BLOCKS_HISTOGRAM = Histogram(
 
 BLOCK_FETCH_FAILURE_COUNTER = Counter(
     "session_snapshots_block_fetch_failure_total",
-    "Recording playback failures from block fetches that the user can't recover from, by reason",
+    "Block-fetch failures that failed a snapshot request, by reason (transient = retriable 503, not_found = terminal 404)",
     labelnames=["reason"],
 )
 
@@ -1835,6 +1835,9 @@ class SessionRecordingViewSet(
                 return block_index, None
 
         tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+        # gather runs without return_exceptions: transient failures are collected as None below,
+        # while a terminal BlockNotFoundError / RecordingDeletedError raises out and takes
+        # precedence over transient failures on sibling blocks (retrying wouldn't help anyway).
         results = await asyncio.gather(*tasks)
 
         blocks_data: list[bytes] = []
@@ -1855,8 +1858,8 @@ class SessionRecordingViewSet(
                 blocks_requested=max_blob_key - min_blob_key + 1,
                 blocks_failed=len(block_errors),
             )
-            # A failed block fetch is a transient / recoverable failure (recording-api error,
-            # timeout, or S3 / decompress failure) — surface it as a retriable response rather
+            # A failed block fetch here is a transient / recoverable failure (recording-api 5xx,
+            # or a network timeout / connection failure) — surface it as a retriable response rather
             # than a blanket 500 that the player can never recover from.
             BLOCK_FETCH_FAILURE_COUNTER.labels(reason="transient").inc()
             raise RecordingBlockFetchError("Failed to load recording block", failed_block_indices=block_errors)

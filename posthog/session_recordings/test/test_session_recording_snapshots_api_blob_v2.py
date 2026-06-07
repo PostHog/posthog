@@ -249,6 +249,59 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
         assert response.json()["error"] == "A recording block could not be found."
 
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    def test_blob_v2_not_found_takes_precedence_over_transient(
+        self,
+        mock_recording_api_client,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+        ]
+
+        mock_storage = MagicMock()
+        # One block fails transiently while another is permanently gone — the terminal
+        # not-found must win, so the request is a non-retriable 404 rather than a 503.
+        mock_storage.fetch_block = AsyncMock(
+            side_effect=[
+                BlockFetchError("upstream recording-api returned 502"),
+                BlockNotFoundError("Block not found"),
+            ]
+        )
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=1"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.json()["error"] == "A recording block could not be found."
+
     @parameterized.expand(
         [
             ("0", "", ""),
