@@ -539,8 +539,10 @@ AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 
 # Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
-# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured.
-AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "")
+# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
+# except in local dev where it defaults to the gateway's local listen addr
+# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
+AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
 
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
