@@ -10,6 +10,7 @@ credentials.
 
 from __future__ import annotations
 
+import time
 import collections
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -70,6 +71,37 @@ _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslkey": "/tmp/no.txt",
     "options": "-c client_encoding=UTF8",
 }
+
+# Bounded in-process retry for transient connection-establishment failures.
+# The cluster (or, on an SSH-tunneled sync, the tunnel's local-forward socket)
+# can drop a connection mid-handshake with "server closed the connection
+# unexpectedly". That's transient — a short backoff and a fresh tunnel + connect
+# usually recovers it, sparing the activity an uncaught failure (which Temporal
+# would retry anyway, but only after the interceptor has captured a noisy error).
+_CONNECT_MAX_ATTEMPTS = 3
+_CONNECT_RETRY_BACKOFF_SECONDS = 2
+
+# Substrings libpq uses when the connection to the server dropped while it was
+# still being established. Matched narrowly so permanent failures (auth, unknown
+# host, refused, SSL misconfiguration) still propagate immediately rather than
+# burning retries — those are already listed in `get_non_retryable_errors`.
+_TRANSIENT_CONNECT_ERROR_SUBSTRINGS = (
+    "server closed the connection unexpectedly",
+    "connection to server was lost",
+    "connection to server was closed",
+)
+
+
+def _is_transient_connect_error(error: BaseException) -> bool:
+    """True if `error` is a transient connection-establishment drop worth retrying.
+
+    psycopg surfaces these as `OperationalError` once libpq notices the dead
+    socket, so we match on type and message rather than a single SQLSTATE.
+    """
+    if isinstance(error, psycopg.OperationalError):
+        message = " ".join(str(arg) for arg in error.args).lower()
+        return any(substring in message for substring in _TRANSIENT_CONNECT_ERROR_SUBSTRINGS)
+    return False
 
 
 def filter_redshift_incremental_fields(
@@ -279,17 +311,43 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         Redshift-wide SSL conventions in one place — every listing
         method takes the resulting connection, so discovery against an
         SSH-tunneled cluster only opens the tunnel once.
+
+        Connection establishment is retried with backoff on transient
+        drops (see `_is_transient_connect_error`); a fresh tunnel is
+        opened each attempt. Errors raised by the caller's use of the
+        yielded connection are never retried — only the connect itself.
         """
-        with open_ssh_tunnel(config) as (host, port):
-            with psycopg.connect(
-                host=host,
-                port=port,
-                dbname=config.database,
-                user=config.user,
-                password=config.password,
-                **_REDSHIFT_CONNECT_OPTS,
-            ) as conn:
-                yield conn
+        for attempt in range(1, _CONNECT_MAX_ATTEMPTS + 1):
+            connected = False
+            try:
+                with open_ssh_tunnel(config) as (host, port):
+                    conn = psycopg.connect(
+                        host=host,
+                        port=port,
+                        dbname=config.database,
+                        user=config.user,
+                        password=config.password,
+                        **_REDSHIFT_CONNECT_OPTS,
+                    )
+                    connected = True
+                    with conn:
+                        yield conn
+                return
+            except Exception as e:
+                # Only retry transient failures that happened *before* the
+                # connection was handed to the caller — once yielded, any
+                # exception belongs to the query body and must propagate.
+                if connected or attempt >= _CONNECT_MAX_ATTEMPTS or not _is_transient_connect_error(e):
+                    raise
+                backoff = _CONNECT_RETRY_BACKOFF_SECONDS * attempt
+                structlog.get_logger().warning(
+                    "Transient Redshift connection failure, retrying",
+                    attempt=attempt,
+                    max_attempts=_CONNECT_MAX_ATTEMPTS,
+                    backoff_seconds=backoff,
+                    exc_info=e,
+                )
+                time.sleep(backoff)
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`

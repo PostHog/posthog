@@ -1,16 +1,18 @@
 import pytest
 from unittest.mock import MagicMock
 
-from psycopg import sql
+from psycopg import OperationalError, sql
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import TemporaryFileSizeExceedsLimitException
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
+    _CONNECT_MAX_ATTEMPTS,
     RedshiftColumn,
     RedshiftImplementation,
     _build_query,
+    _is_transient_connect_error,
     filter_redshift_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.redshift.source import _REDSHIFT_IMPLEMENTATION, RedshiftSource
@@ -526,3 +528,101 @@ class TestBuildPipeline:
         impl = RedshiftImplementation()
         impl.build_pipeline(_make_config(), _make_inputs(), chunk_size_override=4242)
         mocked_chunk_size.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Connection-establishment retry
+# ---------------------------------------------------------------------------
+
+
+_REDSHIFT_MODULE = "posthog.temporal.data_imports.sources.redshift.redshift"
+
+# The exact libpq message seen on an SSH-tunneled cluster dropping the
+# local-forward socket mid-handshake.
+_TRANSIENT_MSG = (
+    'connection failed: connection to server at "127.0.0.1", port 37521 failed: '
+    "server closed the connection unexpectedly"
+)
+
+
+class TestIsTransientConnectError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (OperationalError(_TRANSIENT_MSG), True),
+            (OperationalError("connection to server was lost"), True),
+            (OperationalError("password authentication failed for user"), False),
+            (OperationalError("could not translate host name"), False),
+            (OperationalError("SSL connection has been closed unexpectedly"), False),
+            # Right message, wrong type — only psycopg.OperationalError is transient here.
+            (ValueError("server closed the connection unexpectedly"), False),
+        ],
+    )
+    def test_classification(self, error, expected):
+        assert _is_transient_connect_error(error) is expected
+
+
+def _tunnel_cm():
+    cm = MagicMock()
+    cm.__enter__.return_value = ("127.0.0.1", 37521)
+    cm.__exit__.return_value = False
+    return cm
+
+
+def _connection_mock():
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    # Returning a falsy value keeps `with conn:` from swallowing body exceptions.
+    conn.__exit__.return_value = False
+    return conn
+
+
+class TestConnectRetry:
+    @pytest.fixture(autouse=True)
+    def _no_sleep_and_tunnel(self, mocker):
+        self.sleep = mocker.patch(f"{_REDSHIFT_MODULE}.time.sleep")
+        mocker.patch(f"{_REDSHIFT_MODULE}.open_ssh_tunnel", return_value=_tunnel_cm())
+
+    def test_retries_transient_then_succeeds(self, mocker):
+        good_conn = _connection_mock()
+        connect = mocker.patch(
+            f"{_REDSHIFT_MODULE}.psycopg.connect",
+            side_effect=[OperationalError(_TRANSIENT_MSG), good_conn],
+        )
+        impl = RedshiftImplementation()
+        with impl.connect(_make_config()) as conn:
+            assert conn is good_conn
+        assert connect.call_count == 2
+        self.sleep.assert_called_once()
+
+    def test_does_not_retry_permanent_error(self, mocker):
+        connect = mocker.patch(
+            f"{_REDSHIFT_MODULE}.psycopg.connect",
+            side_effect=OperationalError("password authentication failed for user"),
+        )
+        impl = RedshiftImplementation()
+        with pytest.raises(OperationalError):
+            with impl.connect(_make_config()):
+                pass
+        assert connect.call_count == 1
+        self.sleep.assert_not_called()
+
+    def test_raises_after_exhausting_attempts(self, mocker):
+        connect = mocker.patch(
+            f"{_REDSHIFT_MODULE}.psycopg.connect",
+            side_effect=OperationalError(_TRANSIENT_MSG),
+        )
+        impl = RedshiftImplementation()
+        with pytest.raises(OperationalError):
+            with impl.connect(_make_config()):
+                pass
+        assert connect.call_count == _CONNECT_MAX_ATTEMPTS
+
+    def test_does_not_retry_body_error(self, mocker):
+        connect = mocker.patch(f"{_REDSHIFT_MODULE}.psycopg.connect", return_value=_connection_mock())
+        impl = RedshiftImplementation()
+        with pytest.raises(RuntimeError, match="boom"):
+            with impl.connect(_make_config()):
+                raise RuntimeError("boom")
+        assert connect.call_count == 1
+        self.sleep.assert_not_called()
