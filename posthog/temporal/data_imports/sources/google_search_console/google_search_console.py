@@ -144,7 +144,7 @@ def _is_quota_error(response: requests.Response) -> bool:
         return False
     try:
         errors = response.json().get("error", {}).get("errors", [])
-    except ValueError:
+    except (ValueError, AttributeError, TypeError):
         return False
     return any(e.get("domain") == "usageLimits" or e.get("reason") in QUOTA_ERROR_REASONS for e in errors)
 
@@ -154,7 +154,7 @@ def _is_daily_quota_error(response: requests.Response) -> bool:
         return False
     try:
         errors = response.json().get("error", {}).get("errors", [])
-    except ValueError:
+    except (ValueError, AttributeError, TypeError):
         return False
     return any(e.get("reason") in DAILY_QUOTA_REASONS for e in errors)
 

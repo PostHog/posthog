@@ -295,6 +295,8 @@ _DAILY_QUOTA_BODY = {"error": {"code": 403, "errors": [{"domain": "usageLimits",
         (_fake_response(403, {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}), True),
         (_fake_response(403, _PERMISSION_BODY), False),
         (_fake_response(403, {}), False),
+        (_fake_response(403, {"error": None}), False),
+        (_fake_response(403, {"error": "Forbidden"}), False),
         (_fake_response(401), False),
     ],
 )
@@ -307,6 +309,8 @@ def test_is_quota_error(response, expected):
     [
         (_fake_response(403, _DAILY_QUOTA_BODY), True),
         (_fake_response(403, _QUOTA_BODY), False),
+        (_fake_response(403, {"error": None}), False),
+        (_fake_response(403, {"error": "Forbidden"}), False),
         (_fake_response(429), False),
         (_fake_response(200, {"rows": []}), False),
     ],
