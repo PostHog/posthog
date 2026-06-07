@@ -32,6 +32,7 @@ import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsW
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedTicketsPanel } from './RelatedTicketsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
@@ -61,6 +62,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         eventsQuery,
         previousTickets,
         previousTicketsLoading,
+        relatedTickets,
+        relatedTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
@@ -455,6 +458,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             />
                         </>
                     )}
+
+                    <RelatedTicketsPanel
+                        relatedTickets={relatedTickets}
+                        relatedTicketsLoading={relatedTicketsLoading}
+                    />
                 </div>
             </div>
         </SceneContent>

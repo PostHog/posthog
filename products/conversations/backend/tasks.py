@@ -47,6 +47,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.related_tickets import embed_conversations_ticket
 from products.conversations.backend.slack import (
     get_slack_client,
     handle_support_mention,
@@ -832,6 +833,13 @@ def wake_snoozed_tickets() -> None:
 
     if total:
         logger.info("wake_snoozed_tickets_completed", count=total)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def embed_ticket(team_id: int, ticket_id: str) -> None:
+    """Index a Conversations ticket into document_embeddings for related-ticket search."""
+    embed_conversations_ticket(team_id, ticket_id)
 
 
 # ---------------------------------------------------------------------------

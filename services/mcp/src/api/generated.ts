@@ -36247,6 +36247,35 @@ export namespace Schemas {
     }
 
     /**
+     * A ticket found to be semantically similar to the anchor ticket.
+     */
+    export interface RelatedTicket {
+      /** Origin of the related ticket, e.g. 'conversations' or an imported source like 'zendesk'. */
+      source: string;
+      /** Identifier of the related ticket within its source. A UUID for Conversations tickets. */
+      id: string;
+      /** Short human-readable title for the related ticket. */
+      title: string;
+      /** Status of the related ticket as reported by its source. Free-form across sources. */
+      status: string;
+      /**
+         * Canonical link to the ticket in its source. Null for Conversations tickets, where the frontend derives the internal route from ticket_number/id.
+         * @nullable
+         */
+      url?: string | null;
+      /**
+         * Human-readable ticket number, when the source provides one. Null otherwise.
+         * @nullable
+         */
+      ticket_number?: number | null;
+      /**
+         * ISO 8601 timestamp of the related ticket's last activity. Null when unknown.
+         * @nullable
+         */
+      last_activity?: string | null;
+    }
+
+    /**
      * Request body for `remember`.
      */
     export interface RememberRequest {

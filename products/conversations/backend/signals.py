@@ -20,7 +20,7 @@ from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
-from .tasks import post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
+from .tasks import embed_ticket, post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -116,6 +116,11 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
+
+        try:
+            cast(Any, embed_ticket).delay(team_id, item_id)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": item_id})
 
         # Emit analytics events and invalidate cache
         try:

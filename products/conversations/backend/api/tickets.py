@@ -12,6 +12,7 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
@@ -59,10 +60,13 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.related_tickets.query import find_related_tickets
 
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
+
+RELATED_TICKETS_FEATURE_FLAG = "product-support-related-tickets"
 
 
 class SuggestReplyResponseSerializer(serializers.Serializer):
@@ -115,6 +119,37 @@ class ComposeTicketSerializer(serializers.Serializer):
 class ComposeTicketResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Created ticket UUID.")
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
+
+
+class RelatedTicketSerializer(serializers.Serializer):
+    """A ticket found to be semantically similar to the anchor ticket."""
+
+    source = serializers.CharField(
+        help_text="Origin of the related ticket, e.g. 'conversations' or an imported source like 'zendesk'."
+    )
+    id = serializers.CharField(
+        help_text="Identifier of the related ticket within its source. A UUID for Conversations tickets."
+    )
+    title = serializers.CharField(help_text="Short human-readable title for the related ticket.")
+    status = serializers.CharField(
+        help_text="Status of the related ticket as reported by its source. Free-form across sources."
+    )
+    url = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Canonical link to the ticket in its source. Null for Conversations tickets, where the "
+        "frontend derives the internal route from ticket_number/id.",
+    )
+    ticket_number = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Human-readable ticket number, when the source provides one. Null otherwise.",
+    )
+    last_activity = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp of the related ticket's last activity. Null when unknown.",
+    )
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
@@ -792,6 +827,46 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
                 status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    def _related_tickets_enabled(self, request) -> bool:
+        """Whether the related-tickets panel is enabled for this org/project."""
+        org_id = str(self.organization.id)
+        groups = {"organization": org_id, "project": str(self.team_id)}
+        group_properties = {"organization": {"id": org_id}, "project": {"id": str(self.team_id)}}
+        return bool(
+            posthoganalytics.feature_enabled(
+                RELATED_TICKETS_FEATURE_FLAG,
+                str(request.user.distinct_id),
+                groups=groups,
+                group_properties=group_properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: RelatedTicketSerializer(many=True)},
+        description=(
+            "List tickets semantically similar to this one, found via a nearest-neighbor search over ticket "
+            "embeddings. Results may span sources (Conversations and imported support sources). Returns an empty "
+            "list when the related-tickets feature is disabled or AI data processing is not approved."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="related",
+        pagination_class=None,
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def related(self, request, *args, **kwargs):
+        if not self._related_tickets_enabled(request) or not self.organization.is_ai_data_processing_approved:
+            return Response([])
+
+        ticket = self.get_object()
+        results = find_related_tickets(self.team, ticket)
+        return Response(RelatedTicketSerializer(results, many=True).data)
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):

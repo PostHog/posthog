@@ -6,11 +6,13 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
-import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -18,6 +20,8 @@ import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
+import { conversationsTicketsRelatedList } from '../../generated/api'
+import type { RelatedTicketApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
@@ -113,6 +117,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     key((props) => props.id),
     connect(() => ({
         actions: [supportTicketsSceneLogic, ['loadTickets']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         loadTicket: true,
@@ -152,6 +157,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+        loadRelatedTickets: true,
 
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
@@ -215,6 +221,25 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         )
                     } catch (error) {
                         console.error('Failed to load previous tickets:', error)
+                        return []
+                    }
+                },
+            },
+        ],
+        relatedTickets: [
+            [] as RelatedTicketApi[],
+            {
+                loadRelatedTickets: async (): Promise<RelatedTicketApi[]> => {
+                    const ticketId = values.ticket?.id
+                    const projectId = values.currentTeamId
+                    if (!ticketId || !projectId) {
+                        return []
+                    }
+
+                    try {
+                        return await conversationsTicketsRelatedList(projectId.toString(), ticketId)
+                    } catch (error) {
+                        console.error('Failed to load related tickets:', error)
                         return []
                     }
                 },
@@ -451,6 +476,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Load session context data
                 actions.loadPerson()
 
+                if (values.featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_RELATED_TICKETS]) {
+                    actions.loadRelatedTickets()
+                }
+
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()
 
@@ -611,8 +640,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             actions.loadTicket()
         }
     }),
-    beforeUnmount(({ cache }) => {
-        cache.disposables.disposeAll()
+    beforeUnmount(() => {
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
     beforeUnload(({ values }) => ({
