@@ -1,16 +1,18 @@
 from django.db import migrations
 
 _GATEWAY_SCOPE = "llm_gateway:read"
+# Slug of the gateway seeded by 1216; this catch-up binds to it by slug.
+_DEFAULT_SLUG = "default"
 
 
 def backfill_credential_gateway_bindings(apps, schema_editor):
-    """Bind pre-existing llm_gateway:read credentials to their team's default gateway.
+    """Bind pre-existing llm_gateway:read credentials to their team's seeded gateway.
 
-    Runs after 1216, so every canonical team already has a default gateway. A
+    Runs after 1216, so every canonical team already has its initial gateway. A
     gateway can hold many keys (ForeignKey), so all of a team's eligible credentials
-    bind to the one default. Idempotent: only rows still unbound are touched; new
-    credentials are bound at mint time, so this is a one-time catch-up. Signals don't
-    fire — historical models are distinct classes from the ones receivers target.
+    bind to the one seeded gateway. Idempotent: only rows still unbound are touched;
+    new credentials are bound at mint time, so this is a one-time catch-up. Signals
+    don't fire — historical models are distinct classes from the ones receivers target.
     """
     PersonalAPIKey = apps.get_model("posthog", "PersonalAPIKey")
     OAuthApplication = apps.get_model("posthog", "OAuthApplication")
@@ -20,7 +22,7 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
     gateways = Gateway._default_manager  # default manager is `all_teams`; no `.objects`
 
     canonical: dict[int, int] = {}
-    default_gateway: dict[int, int | None] = {}
+    seeded_gateway: dict[int, int | None] = {}
 
     def default_gateway_id(team_id: int | None) -> int | None:
         if not team_id:
@@ -29,11 +31,11 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
             parent = Team.objects.filter(pk=team_id).values_list("parent_team_id", flat=True).first()
             canonical[team_id] = parent or team_id
         canon = canonical[team_id]
-        if canon not in default_gateway:
-            default_gateway[canon] = (
-                gateways.filter(team_id=canon, is_default=True).values_list("id", flat=True).first()
+        if canon not in seeded_gateway:
+            seeded_gateway[canon] = (
+                gateways.filter(team_id=canon, slug=_DEFAULT_SLUG).values_list("id", flat=True).first()
             )
-        return default_gateway[canon]
+        return seeded_gateway[canon]
 
     def org_root_team_id(organization_id: int | str | None) -> int | None:
         if not organization_id:

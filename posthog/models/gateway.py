@@ -13,8 +13,9 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-# Auto-provisioned per team; teams rename or add more. Sharing across teams is
-# fine — attribution is keyed (team_id, slug).
+# Slug of the gateway auto-provisioned for every team. It's an ordinary gateway
+# with no special status — teams rename, delete, or add more. There is no
+# fallback attribution: a credential must name a gateway or it has no policy.
 DEFAULT_GATEWAY_SLUG = "default"
 
 # Lowercase, URL-safe, no leading/trailing separator (posthog_code, slack_app, wizard).
@@ -29,7 +30,6 @@ validate_gateway_slug = RegexValidator(
 class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):  # type: ignore[django-manager-missing]
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="gateways")
     slug = models.CharField(max_length=64, validators=[validate_gateway_slug])
-    is_default = models.BooleanField(default=False)
 
     # `objects` (from TeamScopedRootMixin) is fail-closed and what app code uses.
     # Framework internals (admin widgets, reverse FK accessors, DRF) read
@@ -41,11 +41,6 @@ class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "slug"], name="unique_gateway_slug_per_team"),
-            models.UniqueConstraint(
-                fields=["team"],
-                condition=models.Q(is_default=True),
-                name="unique_default_gateway_per_team",
-            ),
         ]
 
     def __str__(self) -> str:

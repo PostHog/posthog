@@ -38,7 +38,7 @@ class _TeamScopedTestMixin:
 
 class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
     def test_create_with_valid_slug(self):
-        gateway = Gateway.objects.create(team=self.team, slug=DEFAULT_GATEWAY_SLUG, is_default=True)
+        gateway = Gateway.objects.create(team=self.team, slug=DEFAULT_GATEWAY_SLUG)
         self.assertEqual(gateway.slug, "default")
         self.assertEqual(gateway.team_id, self.team.id)
 
@@ -73,21 +73,16 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
 
     def test_same_slug_allowed_across_teams(self):
         other = Team.objects.create(organization=self.organization, name="other")
-        Gateway.all_teams.filter(team=other).delete()  # drop other's auto-provisioned default
-        Gateway.objects.create(team=self.team, slug=DEFAULT_GATEWAY_SLUG, is_default=True)
+        Gateway.all_teams.filter(team=other).delete()  # drop other's auto-provisioned gateway
+        Gateway.objects.create(team=self.team, slug=DEFAULT_GATEWAY_SLUG)
         # A different team reusing the same slug is fine — attribution is keyed
         # (team_id, slug), so team_id disambiguates.
         with team_scope(other.id):
-            Gateway.objects.create(team=other, slug=DEFAULT_GATEWAY_SLUG, is_default=True)
+            Gateway.objects.create(team=other, slug=DEFAULT_GATEWAY_SLUG)
         self.assertEqual(Gateway.objects.unscoped().filter(slug=DEFAULT_GATEWAY_SLUG).count(), 2)
 
-    def test_one_default_per_team(self):
-        Gateway.objects.create(team=self.team, slug="default", is_default=True)
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            Gateway.objects.create(team=self.team, slug="posthog_code", is_default=True)
-
-    def test_multiple_non_default_gateways_allowed(self):
-        Gateway.objects.create(team=self.team, slug="default", is_default=True)
+    def test_multiple_gateways_allowed_per_team(self):
+        Gateway.objects.create(team=self.team, slug="default")
         Gateway.objects.create(team=self.team, slug="posthog_code")
         Gateway.objects.create(team=self.team, slug="wizard")
         self.assertEqual(Gateway.objects.filter(team=self.team).count(), 3)

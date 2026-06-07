@@ -27,9 +27,9 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
         project = Project.objects.create(id=987654321, organization=org, name="p")
         self.team = Team.objects.create(id=project.id, name="t", organization=org, project=project)
         # The provision-on-create signal targets the real Team class, not this
-        # historical one, so create the default gateway explicitly.
+        # historical one, so create the seeded gateway explicitly.
         # Historical Gateway's default manager is `all_teams`, so there's no `.objects`.
-        self.default_gateway = Gateway._default_manager.create(team=self.team, slug="default", is_default=True)
+        self.default_gateway = Gateway._default_manager.create(team=self.team, slug="default")
         user = User.objects.create(email="u@example.com", current_team=self.team)
 
         self.eligible = PersonalAPIKey.objects.create(
@@ -49,7 +49,7 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
         # scoped_teams wins over the user's current_team (which is self.team).
         project2 = Project.objects.create(id=987654322, organization=org, name="p2")
         self.team2 = Team.objects.create(id=project2.id, name="t2", organization=org, project=project2)
-        self.default_gateway2 = Gateway._default_manager.create(team=self.team2, slug="default", is_default=True)
+        self.default_gateway2 = Gateway._default_manager.create(team=self.team2, slug="default")
         self.scoped_to_team2 = PersonalAPIKey.objects.create(
             label="scoped",
             user=user,

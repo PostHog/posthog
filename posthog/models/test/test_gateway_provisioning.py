@@ -8,7 +8,7 @@ from posthog.models.team.team import Team
 
 class TestGatewayProvisioning(BaseTest):
     def _defaults_for(self, team: Team) -> list[Gateway]:
-        return list(Gateway.all_teams.filter(team=team, is_default=True))
+        return list(Gateway.all_teams.filter(team=team, slug=DEFAULT_GATEWAY_SLUG))
 
     def test_team_creation_provisions_default_gateway(self):
         team = Team.objects.create(organization=self.organization, name="fresh")

@@ -1,9 +1,10 @@
 """
-Auto-provision a default gateway for every team.
+Auto-provision an initial gateway for every team.
 
-Gateways are project-scoped, so the default binds to the canonical (parent) team
-and child environments share it. New teams via the post_save signal here,
-existing teams via migration 1216.
+Gateways are project-scoped, so the initial one binds to the canonical (parent)
+team and child environments share it. New teams via the post_save signal here,
+existing teams via migration 1216. It's an ordinary gateway — teams may rename
+or delete it.
 """
 
 from django.db.models.signals import post_save
@@ -13,16 +14,12 @@ from posthog.models.team.team import Team
 
 
 def provision_default_gateway(team_id: int) -> None:
-    """Create the team's default gateway if absent.
+    """Create the team's initial gateway if absent.
 
     Unscoped manager (no team context in the signal), keyed on the canonical
     team_id so get_or_create matches where TeamScopedRootMixin.save() writes.
     """
-    Gateway.all_teams.get_or_create(
-        team_id=team_id,
-        slug=DEFAULT_GATEWAY_SLUG,
-        defaults={"is_default": True},
-    )
+    Gateway.all_teams.get_or_create(team_id=team_id, slug=DEFAULT_GATEWAY_SLUG)
 
 
 def _provision_on_team_create(sender: type[Team], instance: Team, created: bool, **kwargs: object) -> None:

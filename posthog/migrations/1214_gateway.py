@@ -40,7 +40,6 @@ class Migration(migrations.Migration):
                         ],
                     ),
                 ),
-                ("is_default", models.BooleanField(default=False)),
                 (
                     "created_by",
                     models.ForeignKey(
@@ -62,11 +61,6 @@ class Migration(migrations.Migration):
             options={
                 "constraints": [
                     models.UniqueConstraint(fields=("team", "slug"), name="unique_gateway_slug_per_team"),
-                    models.UniqueConstraint(
-                        condition=models.Q(("is_default", True)),
-                        fields=("team",),
-                        name="unique_default_gateway_per_team",
-                    ),
                 ],
             },
         ),
