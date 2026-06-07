@@ -24,15 +24,23 @@ export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'st
  * misconfigured proxy/login/error page on the user's host can return an HTML
  * document (e.g. `<!DOCTYPE …>`) where the toolbar expects JSON — calling
  * `res.json()` on it throws an opaque `SyntaxError: Unexpected token '<'`.
- * Reading the body as text first lets us throw a descriptive error (status +
- * snippet) so callers can fail gracefully and we report something actionable.
+ * On a parse failure we re-read the body as text (via a clone, since a Response
+ * body can only be read once) and throw a descriptive error including the status
+ * and a snippet, so callers can fail gracefully and we report something actionable.
  */
 export async function parseJsonResponse(res: Response): Promise<any> {
-    const text = await res.text()
+    // Clone before reading so the body is still available for the snippet if JSON
+    // parsing fails. Guarded for hand-rolled Response doubles that lack clone().
+    const forSnippet = typeof res.clone === 'function' ? res.clone() : null
     try {
-        return JSON.parse(text)
+        return await res.json()
     } catch {
-        const snippet = text.slice(0, 200)
+        let snippet = ''
+        try {
+            snippet = ((await forSnippet?.text()) ?? '').slice(0, 200)
+        } catch {
+            // Body unavailable (already consumed or no clone) — fall through with no snippet.
+        }
         throw new Error(`Expected JSON but received a non-JSON response (status ${res.status}): ${snippet}`)
     }
 }
