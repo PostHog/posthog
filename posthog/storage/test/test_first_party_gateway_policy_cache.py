@@ -539,3 +539,19 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
 
         self.gateway.delete()
         self.assertIsNone(self._read_blob(cache_hash))
+
+    @pytest.mark.ee
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_team_first_party_policies_task.delay")
+    def test_project_access_control_change_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
+        from ee.models.rbac.access_control import AccessControl
+
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+
+        mock_delay.assert_called_with(self.team.id)

@@ -315,8 +315,9 @@ def refresh_all_first_party_policies() -> int:
     the authorization checks in _policy_for_credential (org membership, personal-key
     restriction, project access control) each issue their own query — intentionally
     O(n) in the credential count, bounded because llm_gateway:read is admin-granted.
-    Org-setting and access-control changes propagate through this hourly pass plus
-    the PAK TTL rather than a per-input signal. Streamed via .iterator() so the
+    The org personal-key setting change propagates through this hourly pass plus the
+    PAK TTL rather than a per-input signal (access-control changes have their own
+    reproject signal). Streamed via .iterator() so the
     working set stays flat. scope is a space-separated TextField; whitespace-bounded
     so the literal doesn't substring-match a longer scope.
     """

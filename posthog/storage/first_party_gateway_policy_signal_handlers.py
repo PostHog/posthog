@@ -45,6 +45,7 @@ from posthog.storage.first_party_gateway_policy_cache import (
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.first_party_gateway_policy import (
     reproject_gateway_first_party_policies_task,
+    reproject_team_first_party_policies_task,
     reproject_user_first_party_policies_task,
     update_first_party_policy_cache_task,
 )
@@ -272,6 +273,17 @@ def _clear_policy_hashes(hashes: list[str]) -> None:
         clear_first_party_policy(hash_key)
 
 
+def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: Any) -> None:
+    # A project access control flips _policy_for_credential's RBAC check. The
+    # projection reads project ACs keyed by team_id, so reproject every gateway
+    # credential on that team — a revocation then clears promptly instead of
+    # lingering until the hourly refresh / TTL.
+    if not settings.AI_GATEWAY_REDIS_URL or instance.resource != "project" or instance.team_id is None:
+        return
+    team_id = instance.team_id
+    transaction.on_commit(lambda: reproject_team_first_party_policies_task.delay(team_id))
+
+
 def connect_signal_handlers() -> None:
     post_init.connect(_snapshot_pak, sender=PersonalAPIKey)
     pre_save.connect(_capture_old_pak_if_deferred, sender=PersonalAPIKey)
@@ -291,3 +303,13 @@ def connect_signal_handlers() -> None:
     post_init.connect(_snapshot_gateway, sender=Gateway)
     post_save.connect(_reproject_gateway_on_save, sender=Gateway)
     pre_delete.connect(_clear_gateway_on_delete, sender=Gateway)
+
+    # Project access controls live in ee, which isn't installed in FOSS. Connect
+    # only when available; the projection's RBAC check default-allows there anyway.
+    try:
+        from ee.models.rbac.access_control import AccessControl
+
+        post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
+        post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
+    except ImportError:
+        pass
