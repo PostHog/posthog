@@ -3,7 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockNotFoundError,
+    RecordingDeletedError,
+    TransientBlockFetchError,
+)
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 
 
@@ -147,7 +151,7 @@ class TestFetchBlock:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
+        with pytest.raises(TransientBlockFetchError, match="Failed to fetch block from Recording API"):
             await client.fetch_block(
                 "key",
                 0,
@@ -189,15 +193,31 @@ class TestFetchBlock:
         assert mock_session.get.call_count == 2
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("status_code", [400, 401, 403, 422, 429])
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 422])
     async def test_does_not_retry_4xx(self, client, mock_session, status_code):
         mock_session.get = MagicMock(return_value=self._response_mock(200, raise_status=status_code))
 
-        with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
+        with pytest.raises(TransientBlockFetchError, match="Failed to fetch block from Recording API"):
             await client.fetch_block("key", 0, 100, "session-123", 1)
 
         # A 4xx is a genuine client error — fail fast without retrying.
         assert mock_session.get.call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [408, 429])
+    async def test_retries_back_off_4xx_then_succeeds(self, client, mock_session, status_code):
+        mock_session.get = MagicMock(
+            side_effect=[
+                self._response_mock(200, raise_status=status_code),
+                self._response_mock(200, body=b"recovered-data"),
+            ]
+        )
+
+        # 408/429 ask us to back off rather than signalling a permanent client error, so retry.
+        result = await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        assert result == b"recovered-data"
+        assert mock_session.get.call_count == 2
 
     @pytest.mark.asyncio
     async def test_does_not_retry_404(self, client, mock_session):

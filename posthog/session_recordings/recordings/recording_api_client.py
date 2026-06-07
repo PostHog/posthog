@@ -7,21 +7,29 @@ import aiohttp
 import structlog
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    BlockNotFoundError,
+    RecordingDeletedError,
+    TransientBlockFetchError,
+)
 
 logger = structlog.get_logger(__name__)
+
+# 4xx statuses that are still worth retrying: the recording-api is asking us to back off
+# (429 Too Many Requests) or the request timed out upstream (408 Request Timeout).
+_RETRIABLE_4XX = {408, 429}
 
 
 def _is_retriable_block_fetch(exc: BaseException) -> bool:
     """Whether a block fetch should be retried.
 
-    Recoverable: connection errors, timeouts, payload/decompress failures, and 5xx
-    responses from the recording-api. Not recoverable: 4xx responses (a genuine client
-    error), and the 404/410 cases which are raised as BlockFetchError/RecordingDeletedError
-    before reaching here.
+    Recoverable: connection errors, timeouts, recording-api 5xx, and the back-off 4xx codes
+    (408/429). Not recoverable: other 4xx responses (a genuine client error), and the 404/410
+    cases which are raised as BlockNotFoundError/RecordingDeletedError before reaching here.
     """
     if isinstance(exc, aiohttp.ClientResponseError):
-        return exc.status >= 500
+        return exc.status >= 500 or exc.status in _RETRIABLE_4XX
     return isinstance(exc, aiohttp.ClientError | TimeoutError)
 
 
@@ -87,7 +95,7 @@ class RecordingApiClient:
                 error=str(e),
                 exc_info=False,
             )
-            raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
+            raise TransientBlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
 
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"

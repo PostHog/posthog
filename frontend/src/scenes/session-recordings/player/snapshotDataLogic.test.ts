@@ -3,7 +3,7 @@ import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 
-import { RecordingDeletedError } from 'lib/api'
+import { ApiError, RecordingDeletedError } from 'lib/api'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
@@ -83,6 +83,18 @@ describe('snapshotDataLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshotsForSourceFailure('boom', new Error('boom'))
             }).toDispatchActions(['snapshotLoadingPermanentlyFailed'])
+        })
+
+        it('fails fast on a 404 without burning the retry budget', async () => {
+            // A 404 means a block is permanently gone, so the handler must give up immediately
+            // rather than retrying — no loadNextSnapshotSource, and the failure counter untouched.
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('gone', new ApiError('not found', 404))
+            })
+                .toDispatchActions(['snapshotLoadingPermanentlyFailed'])
+                .toNotHaveDispatchedActions(['loadNextSnapshotSource'])
+
+            expect(logic.cache.loadFailureCount).toBeUndefined()
         })
     })
 

@@ -10,7 +10,11 @@ from posthog.models import Person, PersonalAPIKey, SessionRecording
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockNotFoundError,
+    RecordingDeletedError,
+    TransientBlockFetchError,
+)
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
@@ -183,7 +187,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage.fetch_block = AsyncMock(
             side_effect=[
                 b'{"timestamp": 1000, "type": "snapshot1"}',
-                BlockFetchError("upstream recording-api returned 502"),
+                TransientBlockFetchError("upstream recording-api returned 502"),
             ]
         )
         mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
@@ -289,7 +293,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         # not-found must win, so the request is a non-retriable 404 rather than a 503.
         mock_storage.fetch_block = AsyncMock(
             side_effect=[
-                BlockFetchError("upstream recording-api returned 502"),
+                TransientBlockFetchError("upstream recording-api returned 502"),
                 BlockNotFoundError("Block not found"),
             ]
         )

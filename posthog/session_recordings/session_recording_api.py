@@ -98,10 +98,10 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import (
-    BlockFetchError,
     BlockNotFoundError,
-    RecordingBlockFetchError,
     RecordingDeletedError,
+    SnapshotRequestFailedError,
+    TransientBlockFetchError,
 )
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
@@ -1427,7 +1427,7 @@ class SessionRecordingViewSet(
                 {"error": "A recording block could not be found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except RecordingBlockFetchError as e:
+        except SnapshotRequestFailedError as e:
             logger.warning(
                 "recording_block_fetch_failed",
                 session_id=str(recording.session_id),
@@ -1825,7 +1825,7 @@ class SessionRecordingViewSet(
                 # returns a non-retriable response rather than the retriable 503 used for
                 # transient failures (a 404 block will never be recovered by retrying).
                 raise
-            except BlockFetchError:
+            except TransientBlockFetchError:
                 logger.exception(
                     "fetch_block_failed",
                     recording_id=recording.session_id,
@@ -1862,7 +1862,7 @@ class SessionRecordingViewSet(
             # or a network timeout / connection failure) — surface it as a retriable response rather
             # than a blanket 500 that the player can never recover from.
             BLOCK_FETCH_FAILURE_COUNTER.labels(reason="transient").inc()
-            raise RecordingBlockFetchError("Failed to load recording block", failed_block_indices=block_errors)
+            raise SnapshotRequestFailedError("Failed to load recording block", failed_block_indices=block_errors)
 
         return blocks_data
 

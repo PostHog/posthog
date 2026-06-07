@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api, { RecordingDeletedError } from 'lib/api'
+import api, { ApiError, RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -395,7 +395,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
-        loadSnapshotsForSourceFailure: async (_, breakpoint) => {
+        loadSnapshotsForSourceFailure: async ({ errorObject }, breakpoint) => {
+            // A 404 means a recording block is permanently gone — the backend has already classified
+            // it as terminal, so retrying would only burn the client retry budget on a block that
+            // will never load. Fail fast instead.
+            if (errorObject instanceof ApiError && errorObject.status === 404) {
+                actions.snapshotLoadingPermanentlyFailed()
+                return
+            }
+
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             // The backend already retries transient block fetches, so we only need a couple of
             // client-side retries (with backoff) on top before giving up.
