@@ -100,7 +100,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
 
     const { observation, observationLoading } = useValues(observationLogic)
 
-    if (observationLoading) {
+    if (observationLoading && !observation) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />

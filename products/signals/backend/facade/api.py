@@ -24,6 +24,15 @@ logger = structlog.get_logger(__name__)
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 
 
+def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: str | None = None) -> bool:
+    """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id)
+
+
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
     """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
     args = get_args(field.annotation)
@@ -49,6 +58,27 @@ for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
             _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
+# Telemetry only forwards top-level *scalar* `extra` values, each truncated — never nested
+# lists/dicts. Source `extra` payloads nest customer-derived content (pganalyze
+# `references[].queryText` raw SQL, session-replay `event_history`, scout `evidence`
+# summaries) that must not leak into product analytics; scalars are the cheap-to-query
+# attribution we actually want (`scout_run_id`, `task_run_id`, `skill_name`, …). The cap
+# bounds top-level strings that could still be large (e.g. an `error_message`).
+_MAX_TELEMETRY_STR_LEN = 256
+
+
+def _telemetry_props_from_extra(extra: dict | None) -> dict:
+    if not extra:
+        return {}
+    props: dict = {}
+    for key, value in extra.items():
+        if isinstance(value, str):
+            props[key] = value[:_MAX_TELEMETRY_STR_LEN]
+        elif isinstance(value, (bool, int, float)):
+            props[key] = value
+    return props
+
+
 async def emit_signal(
     team: Team,
     source_product: str,
@@ -71,7 +101,12 @@ async def emit_signal(
         source_id: Unique identifier within the source (e.g., experiment UUID)
         description: Human-readable description that will be embedded
         weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
-        extra: Optional product-specific metadata
+        extra: Optional product-specific metadata. Its top-level scalar values (truncated) are
+            flattened onto the `signal_emission_started` and `signal_emitted` analytics events
+            alongside the core `source_*` keys (which win on conflict) — see
+            `_telemetry_props_from_extra` — so per-source attribution (e.g. the scout harness's
+            `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
+            Nested lists/dicts are never forwarded.
 
     Example:
         await emit_signal(
@@ -141,6 +176,7 @@ async def emit_signal(
             event="signal_emission_started",
             distinct_id=str(team.uuid),
             properties={
+                **_telemetry_props_from_extra(extra),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
@@ -197,6 +233,7 @@ async def emit_signal(
             event="signal_emitted",
             distinct_id=str(team.uuid),
             properties={
+                **_telemetry_props_from_extra(extra),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
