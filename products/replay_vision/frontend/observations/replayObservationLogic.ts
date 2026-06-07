@@ -21,7 +21,12 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
 
     // Mount the SSE progress stream alongside the page and listen for its completion to reload the row.
     connect((props: ReplayObservationLogicProps) => ({
-        actions: [observationProgressLogic({ observationId: props.id }), ['streamCompleted']],
+        actions: [
+            observationProgressLogic({ observationId: props.id }),
+            ['streamCompleted'],
+            replayObservationSceneLogic,
+            ['setScannerContext'],
+        ],
     })),
 
     actions({
@@ -57,10 +62,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 const response = await visionObservationsRetrieve(String(teamId), props.id)
                 actions.loadObservationSuccess(response)
                 // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
-                replayObservationSceneLogic().actions.setScannerContext(
-                    response.scanner_id,
-                    response.scanner_snapshot?.name ?? null
-                )
+                actions.setScannerContext(response.scanner_id, response.scanner_snapshot?.name ?? null)
             } catch (error: any) {
                 lemonToast.error(`Failed to load observation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadObservationFailure()
