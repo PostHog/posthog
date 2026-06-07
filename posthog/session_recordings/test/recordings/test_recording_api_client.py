@@ -33,6 +33,13 @@ class TestFetchBlock:
     def client(self, mock_session):
         return RecordingApiClient(mock_session, "http://localhost:6740")
 
+    @pytest.fixture(autouse=True)
+    def _no_real_retry_sleep(self):
+        # tenacity's wait_random_exponential sleeps between retries via asyncio.sleep;
+        # stub it so the retry-exercising tests don't block in real time.
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            yield
+
     @pytest.mark.asyncio
     async def test_returns_compressed_bytes_by_default(self, client, mock_session):
         mock_response = AsyncMock()
@@ -181,8 +188,9 @@ class TestFetchBlock:
         assert mock_session.get.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_does_not_retry_4xx(self, client, mock_session):
-        mock_session.get = MagicMock(return_value=self._response_mock(200, raise_status=400))
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 422, 429])
+    async def test_does_not_retry_4xx(self, client, mock_session, status_code):
+        mock_session.get = MagicMock(return_value=self._response_mock(200, raise_status=status_code))
 
         with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
             await client.fetch_block("key", 0, 100, "session-123", 1)
