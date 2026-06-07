@@ -34,17 +34,22 @@ dispatching it as often as configured.
 
 ### 2. Success rate — are runs completing cleanly?
 
-Count clean completions vs. `failed` runs over the window. Distinguish two failure modes by
-duration: a `failed` run that ran ~30 minutes (the per-run budget) before failing **timed out** —
-the scout over-investigated, which is common and semi-expected on high-volume surfaces (logs, error
-tracking), and the fleet self-corrects by writing "tight-run recipe" scratchpad entries. A `failed`
-run that died quickly is more likely genuinely broken.
+Count clean completions vs. `failed` runs over the window. Distinguish failure modes by duration: a
+`failed` run that ran ~30 minutes (the per-run budget) before failing **timed out**; a `failed` run
+that died quickly is more likely genuinely broken. Most timeouts are over-investigation — the scout
+ran to the wall, common and semi-expected on high-volume surfaces (logs, error tracking), and the
+fleet self-corrects by writing "tight-run recipe" scratchpad entries. But a timeout can also be a
+**false timeout**: the scout finished in a few minutes and the run then hung on a dropped close-out,
+so don't infer over-investigation from the ~30-minute duration alone.
 
-- **Diagnosis:** open the `task_url` of a failed run (the error is not in the run payload) to read
-  the transcript. A quick failure from a query tool erroring, a body referencing an event/table
-  that no longer exists, or a changed surface schema is an authoring fix — hand off to
-  `authoring-signals-scouts`. Recurring timeouts on a firehose surface point at a too-broad body
-  that needs a cheaper discriminator, also an authoring fix.
+- **Diagnosis:** read a failed run's transcript (the error is not in the run payload) — open
+  `task_url`, or pull it as data with `tasks-runs-session-logs-retrieve` (filter out the noisy
+  `tool_call_update` / `usage_update` events to get a readable action timeline). Tool calls right up
+  to the wall mean genuine over-investigation; silence long before it means a false timeout. A quick
+  failure from a query tool erroring, a body referencing an event/table that no longer exists, or a
+  changed surface schema is an authoring fix — hand off to `authoring-signals-scouts`. Recurring
+  over-investigation timeouts on a firehose surface point at a too-broad body that needs a cheaper
+  discriminator, also an authoring fix.
 
 ### 3. Emit rate — how often does it speak?
 

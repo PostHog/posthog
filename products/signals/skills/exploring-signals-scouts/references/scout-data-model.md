@@ -50,9 +50,12 @@ as a **healthy quiet run**, not a failure — most runs should close out empty.
 - in-flight / started — currently running (`completed_at` null).
 - completed — finished cleanly. May or may not have emitted; read the `summary`.
 - failed — the run errored before closing out. Its `summary` is empty and the payload exposes
-  **no error field** — open `task_url` to see what went wrong. In practice the common failure is a
-  ~30-minute timeout (the per-run budget) from over-investigation, not a logic-broken scout; a
-  `failed` run whose duration ≈ the budget is almost always a timeout.
+  **no error field** — read the transcript to see what went wrong (open `task_url`, or pull it as
+  data with `tasks-runs-session-logs-retrieve`). In practice the common failure is a ~30-minute
+  timeout (the per-run budget), not a logic-broken scout; a `failed` run whose duration ≈ the budget
+  is almost always a timeout. The usual cause is over-investigation (the scout ran to the wall), but
+  some are false timeouts — the scout finished quickly and the run then hung on a dropped close-out;
+  the session log distinguishes the two (tool calls up to the wall vs. silence long before it).
 
 (The exact string set comes from the Tasks `TaskRun` model; match leniently — read the `summary`
 and `completed_at` together rather than keying on one status string.)
