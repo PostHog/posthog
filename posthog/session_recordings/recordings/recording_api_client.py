@@ -5,10 +5,24 @@ from django.conf import settings
 
 import aiohttp
 import structlog
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_retriable_block_fetch(exc: BaseException) -> bool:
+    """Whether a block fetch should be retried.
+
+    Recoverable: connection errors, timeouts, payload/decompress failures, and 5xx
+    responses from the recording-api. Not recoverable: 4xx responses (a genuine client
+    error), and the 404/410 cases which are raised as BlockFetchError/RecordingDeletedError
+    before reaching here.
+    """
+    if isinstance(exc, aiohttp.ClientResponseError):
+        return exc.status >= 500
+    return isinstance(exc, aiohttp.ClientError | TimeoutError)
 
 
 class RecordingApiClient:
@@ -31,7 +45,15 @@ class RecordingApiClient:
         if decompress:
             params["decompress"] = "true"
 
-        try:
+        # Retry transient failures (connection errors, timeouts, recording-api 5xx) in place so a
+        # single flaky block doesn't fail the whole snapshot request and force a full client retry.
+        @retry(
+            retry=retry_if_exception(_is_retriable_block_fetch),
+            reraise=True,
+            wait=wait_random_exponential(multiplier=0.2, max=3),
+            stop=stop_after_attempt(3),
+        )
+        async def _fetch() -> bytes:
             async with self.session.get(url, params=params) as response:
                 if response.status == 404:
                     raise BlockFetchError("Block not found")
@@ -51,9 +73,12 @@ class RecordingApiClient:
                     )
                 response.raise_for_status()
                 return await response.read()
+
+        try:
+            return await _fetch()
         except (RecordingDeletedError, BlockFetchError):
             raise
-        except aiohttp.ClientError as e:
+        except (aiohttp.ClientError, TimeoutError) as e:
             logger.exception(
                 "recording_api_client.fetch_block_failed",
                 url=url,

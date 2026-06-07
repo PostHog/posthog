@@ -148,6 +148,57 @@ class TestFetchBlock:
                 1,
             )
 
+        # 5xx is transient, so it should be retried up to the attempt limit before giving up.
+        assert mock_session.get.call_count == 3
+
+    @staticmethod
+    def _response_mock(status: int, *, body: bytes | None = None, raise_status: int | None = None):
+        mock_response = AsyncMock()
+        mock_response.status = status
+        mock_response.read = AsyncMock(return_value=body)
+        if raise_status is not None:
+            mock_response.raise_for_status = MagicMock(
+                side_effect=aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=raise_status)
+            )
+        else:
+            mock_response.raise_for_status = MagicMock()
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        return mock_response
+
+    @pytest.mark.asyncio
+    async def test_retries_transient_error_then_succeeds(self, client, mock_session):
+        mock_session.get = MagicMock(
+            side_effect=[
+                self._response_mock(200, raise_status=503),
+                self._response_mock(200, body=b"recovered-data"),
+            ]
+        )
+
+        result = await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        assert result == b"recovered-data"
+        assert mock_session.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_4xx(self, client, mock_session):
+        mock_session.get = MagicMock(return_value=self._response_mock(200, raise_status=400))
+
+        with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
+            await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        # A 4xx is a genuine client error — fail fast without retrying.
+        assert mock_session.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_404(self, client, mock_session):
+        mock_session.get = MagicMock(return_value=self._response_mock(404))
+
+        with pytest.raises(BlockFetchError, match="Block not found"):
+            await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        assert mock_session.get.call_count == 1
+
 
 class TestListBlocks:
     @pytest.fixture
