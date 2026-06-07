@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconPlus } from '@posthog/icons'
+import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -15,7 +15,7 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { aiGatewayDetailLogic, AIGatewayDetailLogicProps, EndpointTab } from './aiGatewayDetailLogic'
-import { CREATE_KEY_URL, GatewayCredentials } from './GatewayCredentials'
+import { GatewayCredentials } from './GatewayCredentials'
 import { GatewayApi } from './generated/api.schemas'
 
 export const scene: SceneExport<AIGatewayDetailLogicProps> = {
@@ -77,8 +77,6 @@ export function AIGatewayDetailScene(): JSX.Element {
                     <GatewayCredentials gateway={gateway} />
                 </div>
             </section>
-
-            <NextSteps />
         </SceneContent>
     )
 }
@@ -105,7 +103,7 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
         curl: {
             language: Language.Bash,
             code: `curl ${base}/messages \\
-  -H "Authorization: Bearer $POSTHOG_GATEWAY_KEY" \\
+  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "claude-sonnet-4.6",
@@ -119,7 +117,7 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
 
 client = OpenAI(
     base_url="${base}",
-    api_key="<a key assigned to this gateway>",
+    api_key="<phx_ personal API key assigned to this gateway>",
 )
 client.chat.completions.create(
     model="gpt-4o",
@@ -132,7 +130,7 @@ client.chat.completions.create(
 
 client = Anthropic(
     base_url="${base}",
-    auth_token="<a key assigned to this gateway>",  # sets the Bearer header
+    auth_token="<phx_ personal API key assigned to this gateway>",  # sets the Bearer header
 )
 client.messages.create(
     model="claude-sonnet-4.6",
@@ -197,25 +195,6 @@ function UsageTile({ label, value, loading }: { label: string; value: string | n
                 <div className="text-2xl font-semibold">{value}</div>
             )}
         </div>
-    )
-}
-
-function NextSteps(): JSX.Element {
-    return (
-        <section className="flex flex-col gap-2">
-            <h3 className="m-0">Next steps</h3>
-            <div className="flex gap-2 flex-wrap">
-                <LemonButton type="secondary" icon={<IconPlus />} to={CREATE_KEY_URL}>
-                    Create personal API key
-                </LemonButton>
-                <LemonButton type="secondary" icon={<IconPlus />} to={urls.aiGateway()}>
-                    Create another gateway
-                </LemonButton>
-                <LemonButton type="secondary" to={urls.settings('environment-ai-observability')}>
-                    Configure providers
-                </LemonButton>
-            </div>
-        </section>
     )
 }
 
