@@ -1092,6 +1092,49 @@ describe('experimentLogic', () => {
             keyed.unmount()
         })
 
+        it('toggles endExperimentLoading on and off around the request', async () => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+            } as Experiment
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+            })
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.endExperiment()
+            })
+                // loading flips on before the request and off after it resolves
+                .toDispatchActions(['setEndExperimentLoading', 'setExperiment', 'setEndExperimentLoading'])
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('resets endExperimentLoading after a failed request', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({ detail: 'boom' })
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.endExperiment()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+        })
+
         it('shows error toast on validation error', async () => {
             const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
                 detail: 'Experiment has already ended.',
@@ -1189,6 +1232,21 @@ describe('experimentLogic', () => {
 
             createSpy.mockRestore()
             keyed.unmount()
+        })
+
+        it('resets endExperimentLoading after a failed ship_variant request', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({ detail: 'boom' })
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
+            })
+                .toDispatchActions(['setEndExperimentLoading', 'setEndExperimentLoading'])
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
         })
 
         it('shows error toast on validation error', async () => {
