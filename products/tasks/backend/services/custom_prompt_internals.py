@@ -29,6 +29,10 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+# Continuous log silence required before salvaging a dropped-finalization turn, so a turn still
+# emitting near the deadline (possibly live) isn't cut off. Heuristic: the relay's true ceiling is
+# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully waited inside the 1800s poll budget.
+STALE_TURN_SALVAGE_SECONDS = 1500
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -227,12 +231,8 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
-    # Poll budget exhausted. MAX_POLL_SECONDS coincides with the relay's continuous-silence
-    # ceiling — relay_sandbox_events.py allows (MAX_RECONNECT_ATTEMPTS + 1) read windows of
-    # SSE_READ_TIMEOUT_SECONDS (6 × 300s) — so by here the relay has stopped treating the turn as
-    # active. Honour a terminal status first (drains cancelled/failed correctly, no race with an
-    # in-loop salvage), then try to salvage a dropped-finalization turn before declaring a timeout.
-    # Keying salvage off a real terminal signal rather than the poll deadline stays a follow-up.
+    # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
+    # relay-detected crash) — drain it; otherwise try to salvage below.
     refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
@@ -254,16 +254,20 @@ async def poll_for_turn(
             verbose=verbose,
             output_fn=output_fn,
         )
-    salvaged = await _salvage_dropped_finalization(
-        task_run,
-        printed_lines=printed_lines,
-        original_skip_lines=original_skip_lines,
-        elapsed=elapsed,
-        verbose=verbose,
-        output_fn=output_fn,
-    )
-    if salvaged is not None:
-        return salvaged
+    # Otherwise salvage a dropped-finalization turn, but only after enough continuous silence.
+    stale_seconds = elapsed - last_new_lines_at
+    if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+        salvaged = await _salvage_dropped_finalization(
+            task_run,
+            printed_lines=printed_lines,
+            original_skip_lines=original_skip_lines,
+            elapsed=elapsed,
+            stale_seconds=stale_seconds,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+        if salvaged is not None:
+            return salvaged
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
 
 
@@ -273,17 +277,14 @@ async def _salvage_dropped_finalization(
     printed_lines: int,
     original_skip_lines: int,
     elapsed: int,
+    stale_seconds: int,
     verbose: bool,
     output_fn: OutputFn,
 ) -> tuple[str, str | None, int, int] | None:
-    """Recover a turn whose closing end_turn was dropped: the agent wrote its final message and
-    the SDK's null-cost usage_update accounting, then went silent until the poll budget ran out.
-
-    Re-reads from the start-of-turn cursor (like _drain_final_log) so a response split across
-    agent_message_chunk slices is recovered in full, not just the last chunk that happened to land
-    in the most recent poll window. Returns None when the log tail is not the dropped-finalization
-    fingerprint or no message is recoverable, so the caller falls back to the timeout failure
-    rather than salvaging an unfinished or failed turn."""
+    """Recover a turn whose closing end_turn was dropped (final message + null-cost usage_update,
+    then silence). Re-reads from the start-of-turn cursor so a chunked response is recovered in
+    full. Returns None when the tail isn't the dropped-finalization fingerprint or no message is
+    recoverable, so the caller falls back to the timeout failure."""
     try:
         _, last_message, full_log, total_lines, _ = await sync_to_async(
             # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
@@ -301,8 +302,9 @@ async def _salvage_dropped_finalization(
         return None
     printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     logger.warning(
-        "custom_prompt - poll_for_turn: end_turn missing but turn-accounting tail present at poll "
-        "timeout (%ds) — salvaging last message, run=%s total_lines=%d",
+        "custom_prompt - salvage_dropped_finalization: end_turn missing, turn-accounting tail present, "
+        "stale %ds at poll timeout (%ds) — salvaging last message, run=%s total_lines=%d",
+        stale_seconds,
         elapsed,
         task_run.id,
         total_lines,
