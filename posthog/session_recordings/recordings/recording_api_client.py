@@ -1,5 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from django.conf import settings
 
@@ -30,6 +32,12 @@ BLOCK_FETCH_RETRY_COUNTER = Counter(
 # (429 Too Many Requests) or the request timed out upstream (408 Request Timeout).
 _RETRIABLE_4XX = {408, 429}
 
+# Upper bound on a honoured Retry-After: a large (or hostile) value must not pin the snapshot
+# request handler — beyond this we'd rather fail the block fast and let the response (503) flow.
+_MAX_RETRY_AFTER_SECONDS = 10.0
+
+_fallback_wait = wait_random_exponential(multiplier=0.2, max=3)
+
 
 def _is_retriable_block_fetch(exc: BaseException) -> bool:
     """Whether a block fetch should be retried.
@@ -41,6 +49,46 @@ def _is_retriable_block_fetch(exc: BaseException) -> bool:
     if isinstance(exc, aiohttp.ClientResponseError):
         return exc.status >= 500 or exc.status in _RETRIABLE_4XX
     return isinstance(exc, aiohttp.ClientError | TimeoutError)
+
+
+def _parse_retry_after(value: str) -> float | None:
+    """Parse a Retry-After header value (delta-seconds or HTTP-date) into seconds-from-now.
+
+    Returns None when the value is empty or unparseable, so the caller falls back to its own
+    backoff rather than trusting a malformed header.
+    """
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return float(int(value))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at is None:
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    return (retry_at - datetime.now(timezone.utc)).total_seconds()
+
+
+def _wait_block_fetch_retry(retry_state: RetryCallState) -> float:
+    """Honour a recording-api Retry-After header (429/503) when present, else exponential backoff.
+
+    The header is the server explicitly telling us when to come back, so respecting it backs off
+    a struggling upstream better than our own jittered guess. Clamped to [0, _MAX_RETRY_AFTER_SECONDS].
+    """
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, aiohttp.ClientResponseError) and exc.headers:
+        retry_after = exc.headers.get("Retry-After")
+        if retry_after is not None:
+            seconds = _parse_retry_after(retry_after)
+            if seconds is not None:
+                return min(max(seconds, 0.0), _MAX_RETRY_AFTER_SECONDS)
+    return _fallback_wait(retry_state)
 
 
 class RecordingApiClient:
@@ -75,7 +123,7 @@ class RecordingApiClient:
         @retry(
             retry=retry_if_exception(_is_retriable_block_fetch),
             reraise=True,
-            wait=wait_random_exponential(multiplier=0.2, max=3),
+            wait=_wait_block_fetch_retry,
             stop=stop_after_attempt(3),
             before_sleep=_count_retry,
         )

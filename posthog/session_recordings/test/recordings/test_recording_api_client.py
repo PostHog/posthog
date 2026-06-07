@@ -9,8 +9,10 @@ from posthog.session_recordings.recordings.errors import (
     TransientBlockFetchError,
 )
 from posthog.session_recordings.recordings.recording_api_client import (
+    _MAX_RETRY_AFTER_SECONDS,
     BLOCK_FETCH_RETRY_COUNTER,
     RecordingApiClient,
+    _parse_retry_after,
     recording_api_client,
 )
 
@@ -168,13 +170,21 @@ class TestFetchBlock:
         assert mock_session.get.call_count == 3
 
     @staticmethod
-    def _response_mock(status: int, *, body: bytes | None = None, raise_status: int | None = None):
+    def _response_mock(
+        status: int,
+        *,
+        body: bytes | None = None,
+        raise_status: int | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         mock_response = AsyncMock()
         mock_response.status = status
         mock_response.read = AsyncMock(return_value=body)
         if raise_status is not None:
             mock_response.raise_for_status = MagicMock(
-                side_effect=aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=raise_status)
+                side_effect=aiohttp.ClientResponseError(
+                    request_info=MagicMock(), history=(), status=raise_status, headers=headers
+                )
             )
         else:
             mock_response.raise_for_status = MagicMock()
@@ -222,6 +232,51 @@ class TestFetchBlock:
 
         assert result == b"recovered-data"
         assert mock_session.get.call_count == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [429, 503])
+    async def test_honors_retry_after_header(self, client, mock_session, status_code):
+        mock_session.get = MagicMock(
+            side_effect=[
+                self._response_mock(200, raise_status=status_code, headers={"Retry-After": "2"}),
+                self._response_mock(200, body=b"recovered-data"),
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            result = await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        assert result == b"recovered-data"
+        # The server told us when to come back, so the backoff honors it instead of guessing.
+        sleep_mock.assert_awaited_once_with(2.0)
+
+    @pytest.mark.asyncio
+    async def test_clamps_large_retry_after(self, client, mock_session):
+        mock_session.get = MagicMock(
+            side_effect=[
+                self._response_mock(200, raise_status=503, headers={"Retry-After": "3600"}),
+                self._response_mock(200, body=b"recovered-data"),
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        # A large Retry-After is clamped so it can't pin the request handler.
+        sleep_mock.assert_awaited_once_with(_MAX_RETRY_AFTER_SECONDS)
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("2", 2.0),
+            ("0", 0.0),
+            ("", None),
+            ("   ", None),
+            ("soon", None),
+        ],
+    )
+    def test_parse_retry_after(self, value, expected):
+        assert _parse_retry_after(value) == expected
 
     @pytest.mark.asyncio
     async def test_counts_retry_attempt_and_recovery(self, client, mock_session):
