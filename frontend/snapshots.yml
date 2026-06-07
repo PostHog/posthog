@@ -2036,18 +2036,6 @@ snapshots:
         hash: v1.k794b7964.e503fd34c51bed2938ea70593de2a34e2bb44585a94779268dbe9caa6a430c38.td6RRIB5rlR-53hCaS6Mlj7-wA7vEPm6EOydbtul8xE
     filters-taxonomic-filter--three-groups-default-layout--light:
         hash: v1.k794b7964.7d03de4d736f21437d1009fc19719734175f0c0822cd2ccdbc380ffa8f5e627c.lGDn7Z4UhsMOqLuuLQ9_TO9FuIbd45s3RKUs7A69z7s
-    filters-taxonomic-filter-headless--events-and-actions--dark:
-        hash: v1.k794b7964.7ee4e2e398582c0a43df30fc5738a25f1f678890451f84355cf1805b752e4e9c.Ogf0s8VYncQihGnhKcrpJ9PMNPJLuVHePrtF9vPnwr8
-    filters-taxonomic-filter-headless--events-and-actions--light:
-        hash: v1.k794b7964.ce3a0d38f4b056cfc367ad8d4ab31ddaa09ed6a693172e2358ad1b7a5c02a6a0.JjZmgPTyGsUU421vtc0Baxzi_hyU9JsYKenH9X1dW9U
-    filters-taxonomic-filter-headless--properties--dark:
-        hash: v1.k794b7964.4ee695e5751c6f73e9742ab0cfeecf61b5adfe829cf3a0d49ab2877cae8b212f.jPN9l5TDgLRy9NzHenXHCU903UDg8-GdeGpf4PXt7aA
-    filters-taxonomic-filter-headless--properties--light:
-        hash: v1.k794b7964.bd715b36b456df8730e934366a35faed4556dffa881456db1272e2804047a036.IH74-bf3miZ6nC3E0bqbzIb0km4fBh97_2XubTpcmns
-    filters-taxonomic-filter-headless--suggested-filters-with-recents--dark:
-        hash: v1.k794b7964.bde87b20067d3a4ab3089ea62acfd9095b3be42275f60a37b5c50fff74cea6a7.wXHAM_8ewbUHxsuzWBDuotzkgYbpE0a0fJ64zGDlAqk
-    filters-taxonomic-filter-headless--suggested-filters-with-recents--light:
-        hash: v1.k794b7964.9e94f0bc20ace724f4984c77cc1c1ef818b64f708ab972b8bc2e0afcbc2bc8a0.d4EvG3smS4PHr1VMeIS3JNPMEu5tDCJXbVJhb7rnzeU
     filters-taxonomic-filter-menu-rebuild--data-warehouse-config--dark:
         hash: v1.k794b7964.c09183f21589b0f11a3013a6e359d23c8d5b17b1e6ed61476ba45da75bcdc73f.tzexSMIoGf0LgGmzdG3-O0g7vd9Isx6MRQ_TWltg4Fo
     filters-taxonomic-filter-menu-rebuild--data-warehouse-config--light:

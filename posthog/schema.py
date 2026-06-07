@@ -4789,6 +4789,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    task_run_id: str = Field(
+        ...,
+        description=(
+            "The `tasks.TaskRun` id the scout span ran inside. Join key into the"
+            " `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id`"
+            " (the `scout_run_id` bridge row is not)."
+        ),
+    )
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 
