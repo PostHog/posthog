@@ -900,9 +900,12 @@ export function LineGraph_({
                                         showTotal={
                                             !isPercentStackView &&
                                             !showPercentView &&
-                                            (!seriesData[0]?.action?.math ||
-                                                seriesData[0].action.math === 'total' ||
-                                                seriesData[0].action.math === 'sum')
+                                            seriesData.every(
+                                                (s) =>
+                                                    !s?.action?.math ||
+                                                    s.action.math === 'total' ||
+                                                    s.action.math === 'sum'
+                                            )
                                         }
                                         formatCompareLabel={tooltipConfig?.formatCompareLabel}
                                         onClose={pinTooltip ? () => unpinTooltip(tooltipId) : undefined}
