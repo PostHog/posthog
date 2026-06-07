@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1213_backfill_default_gateways"),
+        ("posthog", "1216_backfill_default_gateways"),
     ]
 
     operations = [
