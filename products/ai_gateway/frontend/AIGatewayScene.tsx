@@ -118,15 +118,19 @@ export function AIGatewayScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <ProductIntroduction
-                productName="AI gateway"
-                productKey={ProductKey.AI_GATEWAY}
-                thingName="gateway"
-                description={AI_GATEWAY_DESCRIPTION}
-                action={openNewGateway}
-                isEmpty={!gateways.length}
-                customHog={RobotHog}
-            />
+            {gateways.length ? (
+                <GatewayInfoBanner onCreate={openNewGateway} />
+            ) : (
+                <ProductIntroduction
+                    productName="AI gateway"
+                    productKey={ProductKey.AI_GATEWAY}
+                    thingName="gateway"
+                    description={AI_GATEWAY_DESCRIPTION}
+                    action={openNewGateway}
+                    isEmpty
+                    customHog={RobotHog}
+                />
+            )}
             <section className="flex flex-col gap-2">
                 <h3 className="m-0">Usage · last 30 days</h3>
                 <UsageTiles usage={usage} loading={usageLoading} />
@@ -144,6 +148,23 @@ export function AIGatewayScene(): JSX.Element {
             />
             <EditGatewayModal />
         </SceneContent>
+    )
+}
+
+// Persistent (non-dismissible) intro — unlike ProductIntroduction, stays put once gateways exist so
+// teammates landing on the page for the first time still get the pitch and a way in.
+function GatewayInfoBanner({ onCreate }: { onCreate: () => void }): JSX.Element {
+    return (
+        <div className="border-2 border-dashed border-primary w-full p-6 rounded mt-2 mb-4 flex items-center gap-6">
+            <RobotHog className="w-24 hidden md:block shrink-0" />
+            <div className="flex-shrink">
+                <h3 className="m-0">Every major LLM through one endpoint, billed at cost</h3>
+                <p className="ml-0 mt-1 mb-3 text-secondary">{AI_GATEWAY_DESCRIPTION}</p>
+                <LemonButton type="primary" size="small" icon={<IconPlus />} onClick={onCreate}>
+                    New gateway
+                </LemonButton>
+            </div>
+        </div>
     )
 }
 
