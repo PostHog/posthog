@@ -23,6 +23,7 @@ bulk_update()/.update() bypass signals.
 """
 
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -223,7 +224,7 @@ def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created
     transaction.on_commit(lambda: reproject_gateway_first_party_policies_task.delay(gateway_id))
 
 
-def _bound_credential_hashes(gateway_id: object) -> list[str]:
+def _bound_credential_hashes(gateway_id: UUID | str) -> list[str]:
     """Cache-key hashes of the gateway-scoped credentials bound to a gateway."""
     hashes = [
         secure_value
@@ -250,7 +251,12 @@ def _clear_gateway_on_delete(sender: type[Gateway], instance: Gateway, **kwargs:
         return
     hashes = _bound_credential_hashes(instance.pk)
     if hashes:
-        transaction.on_commit(lambda: [clear_first_party_policy(h) for h in hashes])
+        transaction.on_commit(lambda: _clear_policy_hashes(hashes))
+
+
+def _clear_policy_hashes(hashes: list[str]) -> None:
+    for hash_key in hashes:
+        clear_first_party_policy(hash_key)
 
 
 def connect_signal_handlers() -> None:
