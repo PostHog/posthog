@@ -11,6 +11,9 @@ import { formatCountWithPercentage } from 'scenes/surveys/components/question-vi
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
 
+// Room above each bar tip for the value label's height, so it floats rather than overlapping the bar.
+const VALUE_LABEL_PADDING = 28
+
 interface Props {
     data: ChoiceQuestionResponseData[]
     chartLabels: string[]
@@ -47,7 +50,7 @@ export function RatingBarChart({
 
     const config: BarChartConfig = {
         hideYAxis: true,
-        bars: { bandPadding: 0.2 },
+        bars: { bandPadding: 0.2, valuePadding: VALUE_LABEL_PADDING },
     }
 
     return (

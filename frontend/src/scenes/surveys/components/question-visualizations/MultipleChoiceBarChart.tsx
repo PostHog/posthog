@@ -15,6 +15,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
 
 const CATEGORY_LABEL_WIDTH = 280
+// Room beside each bar tip for the value label's text width, so it floats rather than overlapping the bar.
+const VALUE_LABEL_PADDING = 88
 
 interface Props {
     chartData: ChoiceQuestionResponseData[]
@@ -55,7 +57,8 @@ export function MultipleChoiceBarChart({
         axisOrientation: 'horizontal',
         maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
         xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
-        bars: { minBandSize: 32, bandPadding: 0.4 },
+        bars: { minBandSize: 32, bandPadding: 0.4, valuePadding: VALUE_LABEL_PADDING },
+        tooltip: { placement: 'cursor' },
     }
 
     return (
