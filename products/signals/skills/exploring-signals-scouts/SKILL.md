@@ -57,15 +57,23 @@ signals-scout-config-list
 
 Read the result against three cases:
 
-- **Empty (`count: 0`)** — no scouts are registered. The project isn't enrolled in the scout
+The config list is unpaginated — it comes back as `{ results: [...] }` (a bare array), with no
+`count` field. Read the result against three cases:
+
+- **Empty (`results: []`)** — no scouts are registered. The project isn't enrolled in the scout
   fleet (or hasn't ticked yet). Say so plainly; don't go fishing for runs. Point the user at the
   Signals scout settings / PostHog Code onboarding rather than inventing activity.
 - **Configs exist but all `enabled: false`** — the fleet is registered but paused. Nothing is
   running. Tell the user which scouts exist and that they're all off.
-- **At least one `enabled: true`** — the fleet is live. For each enabled scout note its
-  `run_interval_minutes` (cadence), `emit` (false = **dry-run**, runs but writes nothing to the
-  inbox), and `last_run_at` (when it last fired — `null` means it has never run). Now proceed to
-  the user's actual question.
+- **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run. For
+  each enabled scout note its `run_interval_minutes` (cadence), `emit` (false = **dry-run**, runs
+  but writes nothing to the inbox), and `last_run_at` (when it last fired — `null` means it has
+  never run). One caveat before reporting "it's live": runs are gated by the `signals-scout` feature
+  flag, not by `enabled`. A project that was enrolled and later drained from the flag keeps its
+  `enabled: true` rows, but the coordinator no longer plans runs for it — so a stale or `null`
+  `last_run_at` on an enabled scout usually means the project is no longer enrolled, not that the
+  scout is idle. When `last_run_at` is recent, the scout is genuinely running; proceed to the user's
+  actual question.
 
 A scout that is `enabled: true` but `emit: false` is the most common source of "my scout isn't
 doing anything" confusion: it _is_ running and reasoning every tick, it just isn't allowed to post
@@ -192,22 +200,25 @@ in terms of are documented in
 
 ## Workflow: see what scouts have surfaced
 
-Scout findings reach the user as inbox reports. You might expect to filter the inbox to the scout
-source:
+Scout findings reach the user as inbox reports. Filter the inbox to the scout source:
 
 ```json
 inbox-reports-list
 { "source_product": "signals_scout", "limit": 20 }
 ```
 
-**In practice this often returns nothing even on a project where scouts are actively emitting** —
-scout findings flow through the same grouping pipeline as every other source and get attributed to
-the underlying product (`error_tracking`, `llm_analytics`, …), not tagged `signals_scout` at the
-report layer. So don't treat an empty result here as "the fleet emitted nothing." The reliable way
-to know what a specific run surfaced is its `summary`; to browse the inbox generally, use the
-[`inbox-exploration`](../inbox-exploration/SKILL.md) skill (statuses, suggested reviewers, drilling
-into a report's underlying signals). The emit contract behind each finding — weight, confidence,
-severity, the description prose — is documented in
+This is the direct way to find scout-backed reports. Each finding is emitted with
+`source_product="signals_scout"`, that tag rides through grouping into the report's signal metadata,
+and the inbox filter keeps any report whose contributing signals include `signals_scout` — so the
+result is the set of reports the fleet has surfaced.
+
+An empty result means the fleet hasn't emitted (yet), **not** that the filter is broken. Scouts hold
+a high bar — most runs close out without emitting — so on a quiet or newly enrolled project zero
+scout-backed reports is the normal, expected state. Read it as "nothing surfaced," and fall back to
+each run's `summary` for the per-run record of what was (or wasn't) emitted. To browse the inbox more
+broadly, use the [`inbox-exploration`](../inbox-exploration/SKILL.md) skill (statuses, suggested
+reviewers, drilling into a report's underlying signals). The emit contract behind each finding —
+weight, confidence, severity, the description prose — is documented in
 [`../authoring-signals-scouts/references/emit-contract.md`](../authoring-signals-scouts/references/emit-contract.md).
 
 ## Workflow: assess health and performance
