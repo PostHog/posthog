@@ -60,20 +60,24 @@ and `completed_at` together rather than keying on one status string.)
 ## Run → finding link (and why it's awkward)
 
 Findings are **not** stored on the run row, and there is no emit flag or finding count on it
-either — so you cannot query "which runs emitted" directly. When a scout emits, the finding goes
-through `emit_signal()` with `source_product="signals_scout"` / `source_type="cross_source_issue"`
-and flows through the same grouping pipeline as every other source. Each finding gets a
-deterministic `source_id = run:<run_id>:finding:<finding_id>`, **but**:
+either — so you cannot query "which runs emitted" directly from the run. When a scout emits, the
+finding goes through `emit_signal()` with `source_product="signals_scout"` /
+`source_type="cross_source_issue"` and flows through the same grouping pipeline as every other
+source. Each finding gets a deterministic `source_id = run:<run_id>:finding:<finding_id>`:
 
-- The `source_id` is stored in the signal's `metadata.extra`, not a top-level field, and grouping
-  v2 generates its own `document_id` and dedupes on that — never on `source_id`.
-- Grouping merges scout findings into clusters alongside other sources, so the resulting
-  `SignalReport` is attributed to the underlying product (`error_tracking`, …). On a live project,
-  `inbox-reports-list { "source_product": "signals_scout" }` can return **zero** even while scouts
-  are actively emitting — don't rely on it to count or find scout output.
+- The `source_id` is stored at the **top level** of the signal's `metadata` (i.e.
+  `metadata.source_id`), alongside `metadata.source_product` — not inside `metadata.extra`. Grouping
+  v2 generates its own `document_id` and dedupes on that — never on `source_id` — so re-emitting the
+  same `finding_id` creates a second signal rather than updating the first.
+- The `source_product="signals_scout"` tag rides through grouping into the persisted signal
+  metadata, so a report that contains a scout finding carries `signals_scout` among its contributing
+  signals. That's what `inbox-reports-list { "source_product": "signals_scout" }` filters on, and
+  it's the direct way to list scout-backed reports.
 
-So in practice the run's prose `summary` is the readily-available record of what a run did or
-didn't emit. A run that closed out empty has no findings — expected and correct most of the time.
+Two ways to follow a finding, then: filter the inbox by `source_product="signals_scout"` to see the
+reports the fleet produced, or read the run's prose `summary` for the per-run record of what a single
+run did or didn't emit. A run that closed out empty has no findings — expected and correct most of
+the time, since scouts only emit when they clear a high bar.
 
 ## SignalScratchpad — durable fleet memory
 
