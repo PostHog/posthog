@@ -477,13 +477,7 @@ describe('hog-charts bar-layout', () => {
         })
     })
 
-    describe('bandCenter', () => {
-        // Two bands across 200px → band width 100, centers at 50 and 150.
-        it.each([
-            { label: 'a', expected: 50 },
-            { label: 'b', expected: 150 },
-        ])('returns the pixel center $expected for band $label', ({ label, expected }) => {
-            const s = makeSeries({ key: 's', data: [10, 20] })
+
     describe('bandCenter', () => {
         it.each([
             { label: 'a', expected: 50 },
@@ -505,6 +499,7 @@ describe('hog-charts bar-layout', () => {
             expect(bandCenter(scales, 'missing')).toBeUndefined()
         })
     })
+
 
     describe('groupedBarCenter', () => {
         it.each([
