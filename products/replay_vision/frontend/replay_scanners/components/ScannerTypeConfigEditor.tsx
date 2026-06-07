@@ -53,8 +53,8 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             <div>
                                 <div className="text-sm font-medium">Allow inconclusive verdicts</div>
                                 <div className="text-xs text-muted">
-                                    Lets the model answer `inconclusive` when the recording doesn't contain enough
-                                    evidence to decide. Otherwise it must commit to `yes` or `no`.
+                                    Lets the model answer inconclusive when the recording doesn't contain enough
+                                    evidence to decide. Otherwise it must commit to yes or no.
                                 </div>
                             </div>
                         </div>
@@ -131,15 +131,15 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                                     <div className="flex items-center gap-3 max-w-md">
                                         <LemonInput
                                             type="number"
-                                            value={scale.min}
-                                            onChange={(v) => onChange({ ...scale, min: Number(v) || 0 })}
+                                            value={Number.isFinite(scale.min) ? scale.min : undefined}
+                                            onChange={(v) => onChange({ ...scale, min: v ?? Number.NaN })}
                                             prefix={<span className="text-muted text-xs">min</span>}
                                         />
                                         <span className="text-muted">to</span>
                                         <LemonInput
                                             type="number"
-                                            value={scale.max}
-                                            onChange={(v) => onChange({ ...scale, max: Number(v) || 0 })}
+                                            value={Number.isFinite(scale.max) ? scale.max : undefined}
+                                            onChange={(v) => onChange({ ...scale, max: v ?? Number.NaN })}
                                             prefix={<span className="text-muted text-xs">max</span>}
                                         />
                                     </div>
