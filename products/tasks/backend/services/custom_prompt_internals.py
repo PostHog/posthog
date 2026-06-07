@@ -134,9 +134,6 @@ async def poll_for_turn(
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
-    # Newest absolute log-line count seen by the loop — handed to salvage so it can tell whether its
-    # reread surfaced lines the last poll missed (i.e. the turn isn't actually silent).
-    total_lines = 0
     # Elapsed time when we last saw new log lines
     last_new_lines_at = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
@@ -211,8 +208,10 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
-        # Keep the cursor monotonic — S3 eventual-consistency can briefly return
-        # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
+        # Keep the cursor monotonic — S3 eventual-consistency can briefly return fewer lines than the
+        # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
+        # mark handed to salvage, so a stale short final read can't make the reread's recovered lines
+        # look like newly-produced ones.
         skip_lines = max(skip_lines, total_lines)
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
@@ -269,7 +268,7 @@ async def poll_for_turn(
             task_run,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
-            prev_total_lines=total_lines,
+            max_total_lines_seen=skip_lines,
             elapsed=elapsed,
             stale_seconds=stale_seconds,
             verbose=verbose,
@@ -315,7 +314,7 @@ async def _salvage_dropped_finalization(
     *,
     printed_lines: int,
     original_skip_lines: int,
-    prev_total_lines: int,
+    max_total_lines_seen: int,
     elapsed: int,
     stale_seconds: int,
     verbose: bool,
@@ -326,20 +325,33 @@ async def _salvage_dropped_finalization(
     full. Returns None when the tail isn't the dropped-finalization fingerprint or no message is
     recoverable, so the caller falls back to the timeout failure."""
     try:
-        _, last_message, full_log, total_lines, _ = await _read_turn_log_with_retry(
+        finished, last_message, full_log, total_lines, _ = await _read_turn_log_with_retry(
             task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
         )
     except ObjectStorageError:
         return None
-    # The reread can surface lines the final poll missed (S3 eventual consistency, or the agent wrote
-    # between that poll and now). New lines mean the turn wasn't actually silent for stale_seconds —
-    # the silence gate was decided on stale data, so decline rather than truncate a possibly-live turn.
-    if total_lines > prev_total_lines:
+    # If the reread now shows the real end_turn — the closing event simply landed after the final poll
+    # — the turn genuinely completed. Return it as a normal completion rather than timing out.
+    if finished and last_message is not None:
+        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         logger.warning(
-            "custom_prompt - salvage_dropped_finalization: %d new line(s) on reread (poll saw %d) — turn "
+            "custom_prompt - salvage_dropped_finalization: end_turn recovered on reread at poll timeout "
+            "(%ds) — completing, run=%s total_lines=%d",
+            elapsed,
+            task_run.id,
+            total_lines,
+        )
+        return last_message, full_log, total_lines, printed_lines
+    # Decline if the reread reveals lines that no poll ever saw — the turn was still producing output,
+    # so it wasn't actually silent for stale_seconds and could still be live. Compare against the
+    # high-water mark, NOT the last poll's count: S3 is eventually consistent and a final short read
+    # would otherwise make the reread's *recovered* (not new) lines look like fresh activity.
+    if total_lines > max_total_lines_seen:
+        logger.warning(
+            "custom_prompt - salvage_dropped_finalization: reread has %d line(s), high-water was %d — turn "
             "not silent, declining salvage, run=%s",
-            total_lines - prev_total_lines,
-            prev_total_lines,
+            total_lines,
+            max_total_lines_seen,
             task_run.id,
         )
         return None

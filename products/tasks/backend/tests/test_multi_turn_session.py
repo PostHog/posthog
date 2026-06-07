@@ -270,6 +270,65 @@ class TestPollForTurnStaleSalvage:
                 await poll_for_turn(fake, skip_lines=0)
 
     @pytest.mark.asyncio
+    async def test_completes_when_end_turn_recovered_on_reread(self):
+        # The final polls missed the closing line; the salvage reread sees the real end_turn. The turn
+        # completed (late), so it's returned as a normal completion, not declined as "grown" activity.
+        quiet = "\n".join([_agent_message_line("final answer")])  # no end_turn yet
+        completed = "\n".join([_agent_message_line("final answer"), _end_turn_line()])  # end_turn on reread
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # polls 1-3 miss the closing line; the salvage reread (4th) sees the real end_turn.
+            return completed if calls["n"] > 3 else quiet
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "final answer"
+
+    @pytest.mark.asyncio
+    async def test_salvages_despite_eventually_consistent_short_final_poll(self):
+        # An earlier poll saw the full log; the final polls got a stale, shorter S3 read. The salvage
+        # reread recovers the full log — the freshness check compares against the high-water mark (not
+        # the last poll's shrunken count), so the recovered lines aren't mistaken for new activity.
+        full = "\n".join(
+            [
+                _user_message_line("prompt"),
+                _agent_message_line("close-out summary"),
+                _usage_update_line(165000),
+            ]
+        )
+        short = "\n".join([_user_message_line("prompt"), _agent_message_line("close-out summary")])
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # poll 1 sees the full 3-line log; polls 2-3 get a stale 2-line read; the salvage reread is full.
+            return short if calls["n"] in (2, 3) else full
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+
+    @pytest.mark.asyncio
     async def test_salvage_retries_transient_storage_error(self):
         # A transient S3 error on the salvage read is retried (like the poll loop and terminal drain),
         # so a single blip doesn't fail a turn that is otherwise recoverable.
