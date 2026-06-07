@@ -572,7 +572,7 @@ function BarChartInner<Meta = unknown>({
             return (
                 resolveClickedBarSeries({
                     clickData,
-                    d3Scales,
+                    scales: d3Scales,
                     barLayout,
                     isHorizontal,
                     stackedData,

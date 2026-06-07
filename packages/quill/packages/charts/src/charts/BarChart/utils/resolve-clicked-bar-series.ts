@@ -8,9 +8,9 @@ import {
     iterBarsAtCursor,
 } from './bars-under-cursor'
 
-export interface ResolveClickedBarSeriesOptions<Meta> {
+export interface ResolveClickedBarSeriesArgs<Meta> {
     clickData: PointClickData<Meta>
-    d3Scales: BarScaleSet
+    scales: BarScaleSet
     barLayout: BarLayout
     isHorizontal: boolean
     stackedData: Map<string, StackedBand> | undefined
@@ -29,24 +29,27 @@ export interface ResolveClickedBarSeriesOptions<Meta> {
  *  Pure so the routing is unit-testable; returns `null` to pass `clickData` through unchanged. */
 export function resolveClickedBarSeries<Meta>({
     clickData,
-    d3Scales,
+    scales,
     barLayout,
     isHorizontal,
     stackedData,
     topStackedKeyByAxis,
     series,
     labels,
-}: ResolveClickedBarSeriesOptions<Meta>): PointClickData<Meta> | null {
+}: ResolveClickedBarSeriesArgs<Meta>): PointClickData<Meta> | null {
     const { cursor, label, dataIndex, crossSeriesData } = clickData
     if (!cursor) {
         return null
     }
+    // Resolve once per click: O(bars × series) lookups otherwise on the grouped path below.
+    const seriesIndexByKey = new Map(series.map((s, i) => [s.key, i]))
+    const crossByKey = new Map(crossSeriesData.map((d) => [d.series.key, d]))
     const rewrite = (hitSeries: Series<Meta>, value: number, hitDataIndex: number): PointClickData<Meta> => ({
         ...clickData,
         dataIndex: hitDataIndex,
         series: hitSeries,
         value,
-        seriesIndex: series.findIndex((s) => s.key === hitSeries.key),
+        seriesIndex: seriesIndexByKey.get(hitSeries.key) ?? -1,
     })
 
     if (barLayout === 'grouped') {
@@ -54,7 +57,7 @@ export function resolveClickedBarSeries<Meta>({
             series: crossSeriesData.map((d) => d.series),
             label,
             dataIndex,
-            scales: d3Scales,
+            scales,
             layout: barLayout,
             isHorizontal,
             topStackedKeyByAxis,
@@ -62,7 +65,7 @@ export function resolveClickedBarSeries<Meta>({
             if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
                 continue
             }
-            const hit = crossSeriesData.find((d) => d.series.key === s.key)
+            const hit = crossByKey.get(s.key)
             if (!hit) {
                 return null
             }
@@ -77,7 +80,7 @@ export function resolveClickedBarSeries<Meta>({
         labels,
         hoveredLabel: label,
         cursor,
-        scales: d3Scales,
+        scales,
         layout: barLayout,
         isHorizontal,
         stackedData,
@@ -86,7 +89,7 @@ export function resolveClickedBarSeries<Meta>({
     if (!visible) {
         return null
     }
-    const hit = crossSeriesData.find((d) => d.series.key === visible.series.key)
+    const hit = crossByKey.get(visible.series.key)
     if (!hit) {
         return null
     }
