@@ -10,8 +10,6 @@ export const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
 // Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
 const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
-/** Resolve the `bars.shadow` config to a concrete shadow or `undefined` (no shadow): `true`
- *  selects the default upward shadow, `false`/absent disables it, an object is used as-is. */
 export function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
     if (barShadow === true) {
         return DEFAULT_BAR_SHADOW
@@ -29,10 +27,7 @@ export interface WrapperMinHeightOptions {
     labels: string[]
 }
 
-/** Minimum wrapper height for horizontal bar charts so per-row tick labels don't crush — the
- *  wrapper scrolls past it. Returns `undefined` when no floor applies (vertical, fit-to-height
- *  which drops overflow rows instead of growing, or no bands), letting the chart fill whatever
- *  height the tile gives it. */
+// fit-to-height returns no floor: it drops overflow rows instead of growing the wrapper.
 export function computeWrapperMinHeight({
     isHorizontal,
     fitToHeight,
