@@ -84,8 +84,10 @@ For each, pull the latest complete bucket and score it against its stored baseli
 the baseline as you go). Fetch fresh data with:
 
 - `insight-query` (`insightId`, `output_format=json`) — runs one saved insight. **It returns the insight's own date range (often just `-7d`) — too short to baseline, so always widen it with `filters_override` (e.g. `{"date_from": "-63d"}`) or fall back to `execute-sql`.**
-- `dashboard-insights-run` (`id`, `refresh=blocking`, `filters_override`) — runs every tile
-  on a dashboard at once; efficient for sweeping a whole high-value dashboard.
+- `dashboard-insights-run` (`id`, `output_format=json`, `refresh=blocking`, `filters_override`)
+  — runs every tile on a dashboard at once; efficient for sweeping a whole high-value
+  dashboard. Pass `output_format=json` — the default `optimized` returns prose summaries, not
+  the raw bucket series the z-score needs.
 - `execute-sql` — when you need a clean hourly/daily series with a long trailing baseline in
   one query (the most reliable path for the z-score; recipes in `anomaly-methods.md`). Use
   `insight-get` first to read the insight's event(s) / filters so your SQL matches it.
