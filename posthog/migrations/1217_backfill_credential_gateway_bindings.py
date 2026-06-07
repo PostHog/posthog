@@ -6,7 +6,7 @@ _GATEWAY_SCOPE = "llm_gateway:read"
 def backfill_credential_gateway_bindings(apps, schema_editor):
     """Bind pre-existing llm_gateway:read credentials to their team's default gateway.
 
-    Runs after 1213, so every canonical team already has a default gateway. A
+    Runs after 1216, so every canonical team already has a default gateway. A
     gateway can hold many keys (ForeignKey), so all of a team's eligible credentials
     bind to the one default. Idempotent: only rows still unbound are touched; new
     credentials are bound at mint time, so this is a one-time catch-up. Signals don't
