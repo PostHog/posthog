@@ -91,13 +91,13 @@ export function AppShortcutMenu(): JSX.Element | null {
     const { appShortcutMenuOpen, disabledShortcutNames } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen, toggleShortcutDisabled } = useActions(appShortcutLogic)
     const { registeredAppShortcuts } = useValues(appShortcutLogic)
-    const { activeTab } = useValues(sceneLogic)
+    const { sceneId } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
     // Group shortcuts by scope, with scene-specific first and global last
     const groupedShortcuts = useMemo(() => {
         const groups: Record<string, AppShortcutType[]> = {}
-        const currentScene = activeTab?.sceneId
+        const currentScene = sceneId
 
         registeredAppShortcuts.forEach((shortcut) => {
             const scope = shortcut.scope || 'global'
@@ -140,7 +140,7 @@ export function AppShortcutMenu(): JSX.Element | null {
             title: titleForKey(key),
             shortcuts: groups[key],
         }))
-    }, [registeredAppShortcuts, activeTab])
+    }, [registeredAppShortcuts, sceneId])
 
     const handleClose = useCallback(() => {
         setAppShortcutMenuOpen(false)

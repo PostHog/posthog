@@ -43,8 +43,8 @@ export function Navigation({
     const mainRef = useRef<HTMLElement>(null)
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
-    const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
+    const { setScrollDepth } = useActions(sceneLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -169,9 +169,7 @@ export function Navigation({
                                 }
                             )}
                             onScroll={(e) => {
-                                if (activeTabId) {
-                                    setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
-                                }
+                                setScrollDepth(e.currentTarget.scrollTop)
                             }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>

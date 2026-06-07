@@ -18,7 +18,6 @@ import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { NavExperimentTab, PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -103,7 +102,6 @@ export function Nav(): JSX.Element {
     const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
         useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     useAppShortcut({
@@ -303,8 +301,7 @@ export function Nav(): JSX.Element {
                         onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                         onDoubleClick={() => toggleLayoutNavCollapsed()}
                         data-attr="tree-navbar-resizer"
-                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4 z-2', {
-                            'top-[var(--scene-layout-header-height)]': firstTabIsActive,
+                        className={cn('top-[var(--scene-layout-header-height)] right-[-1px] bottom-4 z-2', {
                             'top-0': isLayoutPanelVisible,
                         })}
                         offset={0}

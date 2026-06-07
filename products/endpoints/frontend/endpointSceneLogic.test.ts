@@ -45,7 +45,6 @@ jest.mock('scenes/sceneLogic', () => ({
         isMounted: jest.fn(() => false),
         findMounted: jest.fn(() => null),
     },
-    getTabsSnapshotForHistory: (tabs: any[]) => tabs.map(({ sceneParams: _omit, ...rest }) => ({ ...rest })),
 }))
 
 describe('endpointSceneLogic', () => {

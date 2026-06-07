@@ -72,9 +72,6 @@ describe('dashboardsLogic', () => {
         dashboardsModel.mount()
         await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
 
         logic = dashboardsLogic({ tabId: '1' })
         logic.mount()

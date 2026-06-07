@@ -37,7 +37,6 @@ interface VisualizationArtifactAnswerProps {
     content: VisualizationArtifactContent
     status?: MessageStatus
     isEditingInsight: boolean
-    activeTabId?: string | null
     activeSceneId?: string | null
 }
 
@@ -74,7 +73,6 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
     content,
     status,
     isEditingInsight,
-    activeTabId,
     activeSceneId,
 }: VisualizationArtifactAnswerProps): JSX.Element | null {
     const isSavedInsight = message.source === ArtifactSource.Insight
@@ -142,7 +140,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     </h5>
                 )}
                 <div className="flex items-center gap-1.5">
-                    {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && <InsightSuggestionButton />}
+                    {isEditingInsight && activeSceneId === Scene.Insight && <InsightSuggestionButton />}
                     {!isEditingInsight && (
                         <LemonButton
                             to={
