@@ -604,6 +604,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-ai-gateway':
+        specifier: workspace:*
+        version: link:../products/ai_gateway
       '@posthog/products-ai-observability':
         specifier: workspace:*
         version: link:../products/ai_observability

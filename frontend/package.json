@@ -75,6 +75,7 @@
         "@posthog/icons": "^0.36.6",
         "@posthog/products-access-control": "workspace:*",
         "@posthog/products-actions": "workspace:*",
+        "@posthog/products-ai-gateway": "workspace:*",
         "@posthog/products-ai-observability": "workspace:*",
         "@posthog/products-alerts": "workspace:*",
         "@posthog/products-annotations": "workspace:*",
