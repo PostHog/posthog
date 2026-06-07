@@ -1,5 +1,3 @@
-"""Helpers for comparing serving SQL fragments against the training query fixture."""
-
 from __future__ import annotations
 
 import re
@@ -30,7 +28,6 @@ def _balanced_cte_body(sql: str, cte_name: str) -> str:
 
 
 def select_list_body(sql_fragment: str) -> str:
-    """Return the comma-separated SELECT list between SELECT and FROM."""
     upper = sql_fragment.upper()
     select_index = upper.find("SELECT")
     if select_index < 0:
@@ -97,5 +94,4 @@ def training_derived_feature_aliases() -> tuple[str, ...]:
 
 
 def feature_aliases_from_feature_select(body: str) -> tuple[str, ...]:
-    """Return feature aliases only — skip session_id / team_id id columns."""
     return tuple(alias for alias in feature_aliases_from_select_body(body) if alias not in {"session_id", "team_id"})

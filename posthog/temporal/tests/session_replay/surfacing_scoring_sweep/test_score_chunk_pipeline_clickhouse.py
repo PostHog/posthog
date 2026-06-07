@@ -155,9 +155,7 @@ class TestScoreChunkPipelineClickhouse(ClickhouseTestMixin, BaseTest):
         assert 0.0 <= score <= 1.0, f"booster returned out-of-range score {score}"
 
     def test_session_without_replay_features_is_inner_joined_out(self) -> None:
-        """Sessions missing from session_replay_features must drop, not crash."""
         self._seed_unscored_session()
-        # No replay features inserted — the INNER JOIN should drop the row.
 
         spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
         df = _fetch_features_dataframe(spec)

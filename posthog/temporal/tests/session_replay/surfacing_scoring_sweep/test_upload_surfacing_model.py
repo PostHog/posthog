@@ -1,5 +1,3 @@
-"""Tests for the upload_surfacing_model management command."""
-
 from __future__ import annotations
 
 from pathlib import Path

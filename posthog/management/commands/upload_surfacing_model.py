@@ -60,9 +60,6 @@ class Command(BaseCommand):
         if not source.is_file():
             raise CommandError(f"Source file {source!r} does not exist or is not a regular file.")
 
-        # Reject bad .ubj before it lands in storage and serves NaNs.
-        # Same parity check `scorer.warmup()` runs at worker boot — catches
-        # "trained against stale feature set" at upload time, not at deploy.
         if not options["skip_validate"]:
             try:
                 booster = xgb.Booster()

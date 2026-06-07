@@ -86,19 +86,12 @@ def _count_unscored_in_one_bucket(lookback_days: int, of_chunks: int) -> int:
 
 @activity.defn
 async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksResult:
-    """Build the chunk fan-out plan for one tick.
-
-    We always dispatch the full fan-out: a zero sample on bucket 0 doesn't
-    mean an empty backlog (other buckets can still have work — common on
-    low-volume deploys). Empty buckets no-op cheaply via the chunk's own
-    `if df.empty` guard. The sample is only used for the log field.
-    """
     lookback_days = SCORE_LOOKBACK_DAYS
     of_chunks = DEFAULT_OF_CHUNKS
     chunk_size = TARGET_CHUNK_SIZE
 
     sampled = await sync_to_async(_count_unscored_in_one_bucket, thread_sensitive=False)(lookback_days, of_chunks)
-    estimated_total = sampled * of_chunks  # extrapolate from one bucket
+    estimated_total = sampled * of_chunks
 
     chunks = [
         ChunkSpec(
@@ -172,7 +165,6 @@ def _build_partial_row(
       forcing every read on this session into a cross-shard merge.
     """
     ts = min_first_timestamp + timedelta(microseconds=1)
-    # Force UTC: naive datetimes get interpreted in the worker's local TZ.
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
     partial_ts = format_clickhouse_timestamp(ts)
@@ -281,9 +273,6 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     try:
         validate_features(df, feature_names=feature_names)
     except FeatureValidationError as e:
-        # Non-retryable: schema drift will fail the same way on retry. Surface
-        # as ApplicationError so Temporal stops the activity immediately and
-        # an operator can react (deploy a fixed model or fix the SELECT).
         raise ApplicationError(
             f"feature validation failed for chunk {spec.chunk_id}: {e}",
             type="FeatureValidationError",

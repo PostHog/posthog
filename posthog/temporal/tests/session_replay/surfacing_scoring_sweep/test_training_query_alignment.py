@@ -1,5 +1,3 @@
-"""Serving SQL must stay byte-for-byte aligned with the training query fixture."""
-
 from __future__ import annotations
 
 from posthog.temporal.session_replay.surfacing_scoring_sweep.feature_schema import get_sql_feature_names
@@ -21,7 +19,6 @@ class TestTrainingQueryAlignment:
     def test_aggregated_stats_columns_match_training_query(self) -> None:
         training = set(training_aggregated_stat_aliases())
         serving = set(feature_aliases_from_feature_select(select_list_body(_AGGREGATED_STATS_FRAGMENT)))
-        # Serving adds team_id for multi-tenant isolation; training is session_id-only.
         assert serving - {"team_id"} == training
 
     def test_derived_feature_expressions_match_training_query(self) -> None:

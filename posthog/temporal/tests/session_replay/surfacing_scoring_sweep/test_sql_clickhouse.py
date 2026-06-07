@@ -1,5 +1,3 @@
-"""ClickHouse tests for `fetch_features_sql` / `count_unscored_sql`."""
-
 from __future__ import annotations
 
 import re
@@ -65,8 +63,6 @@ class TestEligibleSessionsJoinClickhouse(ClickhouseTestMixin, BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        # session_replay_features isn't in the global truncate list (posthog/conftest.py),
-        # so other tests can leave residual rows around — clear the slate explicitly.
         sync_execute(TRUNCATE_SESSION_REPLAY_FEATURES_TABLE_SQL())
 
     def _insert_session_replay_event(

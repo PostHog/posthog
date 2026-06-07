@@ -11,7 +11,6 @@ WORKFLOW_NAME = "score-sessions-batch"
 SCHEDULE_ID = "surfacing-scoring-sweep-batch"
 SCHEDULE_TYPE = "surfacing-scoring-sweep"
 
-# Canonical object key for the production XGBoost booster in app-assets S3.
 MODEL_S3_KEY = "surfacing-scoring/surfacing_score_xgb_v1.ubj"
 
 # Pipeline cadence. Must align with the consumer's freshness expectation —
@@ -50,9 +49,7 @@ KAFKA_PRODUCE_FLUSH_TIMEOUT_S = 30
 # typical). The 4-minute ceiling absorbs CH replica failover / one slow shard /
 # a Kafka leader election.
 SCORE_CHUNK_ACTIVITY_TIMEOUT = timedelta(minutes=4)
-# Must be > CH_FEATURE_QUERY_TIMEOUT_S — we don't heartbeat while the CH
-# SELECT is in flight, so a tied timeout races CH max_execution_time
-# against Temporal's heartbeat watchdog.
+# > CH_FEATURE_QUERY_TIMEOUT_S (no heartbeat during the SELECT)
 SCORE_CHUNK_HEARTBEAT_TIMEOUT = timedelta(seconds=90)
 LIST_CHUNKS_ACTIVITY_TIMEOUT = timedelta(seconds=30)
 

@@ -1,5 +1,3 @@
-"""Unit tests for surfacing_scoring_sweep activities."""
-
 from __future__ import annotations
 
 from datetime import datetime

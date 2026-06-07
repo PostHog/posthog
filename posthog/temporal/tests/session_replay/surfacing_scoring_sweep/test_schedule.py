@@ -1,5 +1,3 @@
-"""Schedule wiring for the surfacing scoring sweep."""
-
 from __future__ import annotations
 
 from django.conf import settings

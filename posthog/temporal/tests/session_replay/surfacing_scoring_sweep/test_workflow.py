@@ -1,5 +1,3 @@
-"""Temporal workflow tests for ScoreSessionsBatchWorkflow."""
-
 from __future__ import annotations
 
 import uuid
@@ -150,7 +148,6 @@ async def test_workflow_tolerates_partial_chunk_failures() -> None:
 
 @pytest.mark.asyncio
 async def test_workflow_survives_empty_chunk_results() -> None:
-    """Buckets with no eligible sessions return scored=0 — workflow still completes."""
     chunks = [_chunk(0), _chunk(1)]
 
     @activity.defn(name="list_chunks_activity")

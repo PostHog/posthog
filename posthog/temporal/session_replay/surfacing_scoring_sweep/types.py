@@ -39,28 +39,18 @@ class ChunkSpec:
 
 @dataclass
 class ListChunksResult:
-    """Output of `list_chunks_activity`.
-
-    Always carries the full hash-bucket fan-out. The bucket-0 count is only
-    an extrapolated estimate for logging — empty buckets no-op cheaply.
-    """
-
     chunks: list[ChunkSpec] = field(default_factory=list)
     estimated_unscored_sessions: int = 0
 
 
 @dataclass
 class ChunkResult:
-    """Per-chunk outcome reported back to the parent workflow."""
-
     chunk_id: int
     scored: int = 0
 
 
 @dataclass
 class ScoreSessionsBatchResult:
-    """Aggregated result of one tick. Useful for Temporal UI / metrics surface."""
-
     total_scored: int = 0
     chunks_dispatched: int = 0
     chunks_failed: int = 0

@@ -171,8 +171,6 @@ class TestPublishScores:
 
             (call,) = get_producer_mock.return_value.produce.call_args_list
             payload = call.kwargs["data"]
-            # +1µs over session_start. format_clickhouse_timestamp uses the
-            # canonical 'YYYY-MM-DD HH:MM:SS.ffffff' representation.
             assert payload["first_timestamp"] == "2026-05-07 10:00:00.000001"
             assert payload["last_timestamp"] == "2026-05-07 10:00:00.000001"
 
