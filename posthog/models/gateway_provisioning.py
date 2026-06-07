@@ -3,7 +3,7 @@ Auto-provision a default gateway for every team.
 
 Gateways are project-scoped, so the default binds to the canonical (parent) team
 and child environments share it. New teams via the post_save signal here,
-existing teams via migration 1213.
+existing teams via migration 1216.
 """
 
 from django.db.models.signals import post_save
