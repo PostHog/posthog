@@ -40,8 +40,6 @@ const meta: Meta = {
 
                 // Avoid displaying error of missing $pageview/$pageleave/$web_vitals events
                 '/api/projects/:team_id/event_definitions': () => [200, { count: 5 }],
-                '/api/projects/:team_id/health_issues/': () => [200, { results: [] }],
-                '/api/environments/:team_id/web_analytics_filter_presets/': () => [200, { results: [], count: 0 }],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': (req) => {
@@ -128,86 +126,5 @@ WebAnalyticsDashboardLoading.decorators = [
     }),
 ]
 export function WebAnalyticsDashboardLoading(): JSX.Element {
-    return <App />
-}
-
-ShareNudgeBannerArm.parameters = {
-    layout: 'fullscreen',
-    viewMode: 'story',
-    mockDate: '2023-02-01',
-    pageUrl: urls.webAnalytics(),
-    featureFlags: {
-        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
-        [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'banner',
-    },
-    testOptions: {
-        includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=trend-line-graph] > canvas',
-    },
-}
-ShareNudgeBannerArm.tags = ['test-skip']
-export function ShareNudgeBannerArm(): JSX.Element {
-    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
-
-    useEffect(() => {
-        setSourceTab(SourceTab.REFERRING_DOMAIN)
-        setDeviceTab(DeviceTab.BROWSER)
-    }, [setDeviceTab, setSourceTab])
-
-    return <App />
-}
-
-ShareNudgeButtonArm.parameters = {
-    layout: 'fullscreen',
-    viewMode: 'story',
-    mockDate: '2023-02-01',
-    pageUrl: urls.webAnalytics(),
-    featureFlags: {
-        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
-        [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'button',
-    },
-    testOptions: {
-        includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=trend-line-graph] > canvas',
-    },
-}
-ShareNudgeButtonArm.tags = ['test-skip']
-export function ShareNudgeButtonArm(): JSX.Element {
-    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
-
-    useEffect(() => {
-        setSourceTab(SourceTab.REFERRING_DOMAIN)
-        setDeviceTab(DeviceTab.BROWSER)
-    }, [setDeviceTab, setSourceTab])
-
-    return <App />
-}
-
-ShareNudgePromptArm.parameters = {
-    layout: 'fullscreen',
-    viewMode: 'story',
-    mockDate: '2023-02-01',
-    pageUrl: urls.webAnalytics(),
-    featureFlags: {
-        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
-        [FEATURE_FLAGS.WEB_ANALYTICS_SHARE_NUDGE]: 'prompt',
-    },
-    testOptions: {
-        includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=trend-line-graph] > canvas',
-    },
-}
-ShareNudgePromptArm.tags = ['test-skip']
-export function ShareNudgePromptArm(): JSX.Element {
-    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
-
-    useEffect(() => {
-        setSourceTab(SourceTab.REFERRING_DOMAIN)
-        setDeviceTab(DeviceTab.BROWSER)
-    }, [setDeviceTab, setSourceTab])
-
     return <App />
 }
