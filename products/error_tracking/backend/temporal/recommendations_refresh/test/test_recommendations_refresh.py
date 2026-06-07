@@ -15,7 +15,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from temporalio import activity
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
@@ -82,7 +82,9 @@ class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         result = asyncio.run(
-            refresh_recommendations_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
+            ActivityEnvironment().run(
+                refresh_recommendations_batch_activity, RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
+            )
         )
 
         assert result.teams_processed == 2
@@ -101,10 +103,10 @@ class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         batch = RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
 
-        first = asyncio.run(refresh_recommendations_batch_activity(batch))
+        first = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
         assert first.recommendations_kicked == 6
 
-        second = asyncio.run(refresh_recommendations_batch_activity(batch))
+        second = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
         # Only `alerts` has no refresh_interval, so it recomputes for both teams; long_running_issues
         # (1h) and source_maps (6h) are still fresh and are skipped.
         assert second.recommendations_kicked == 2
