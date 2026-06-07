@@ -115,7 +115,7 @@ the agent loop until budget exhaustion or natural completion, finalizes the run.
 # Single specialist run against a dogfood team
 python manage.py run_signals_scout \
     --team-id 1 \
-    --skill-name signals-scout-llm-analytics
+    --skill-name signals-scout-ai-observability
 
 # Pin a skill version (default: latest LLMSkill row for the team)
 python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general --skill-version 4

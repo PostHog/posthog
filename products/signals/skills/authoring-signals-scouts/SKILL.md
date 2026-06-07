@@ -47,7 +47,7 @@ only as good as its fit to the data it watches.
    it with `posthog:llma-skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or
    read it from the repo at `products/signals/skills/signals-scout-*/`. The generalist
    (`signals-scout-general`) is the broad template; pick a specialist
-   (`-error-tracking`, `-llm-analytics`, `-logs`, `-revenue-analytics`, `-surveys`,
+   (`-error-tracking`, `-ai-observability`, `-logs`, `-revenue-analytics`, `-surveys`,
    `-csp-violations`, `-observability-gaps`) if your scope is domain-tight.
 4. **Skim the inbox.** `posthog:inbox-reports-list` shows what findings are actually
    landing — calibrate so your scout adds signal, not noise.
