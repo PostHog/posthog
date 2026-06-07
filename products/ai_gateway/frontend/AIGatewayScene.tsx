@@ -1,21 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl } from 'kea-router'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonMenu,
-    LemonModal,
-    LemonTable,
-    LemonTableColumns,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,20 +15,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { aiGatewayLogic, CredentialType } from './aiGatewayLogic'
-import { GatewayApi, UserBasicApi } from './generated/api.schemas'
-
-// The generated UserBasicApi isn't structurally assignable to ProfilePicture's
-// user prop (its hedgehog_config type differs), so narrow to the fields it reads.
-const profileUser = (user: UserBasicApi | null): { first_name?: string; last_name?: string; email?: string } => ({
-    first_name: user?.first_name,
-    last_name: user?.last_name,
-    email: user?.email,
-})
-
-// Deep-link to the personal API key settings, opening the create modal pre-filled
-// with the llm_gateway:read scope (the `preset` param is read by personalAPIKeysLogic).
-const CREATE_KEY_URL = combineUrl(urls.settings('user-api-keys'), { preset: 'llm_gateway' }).url
+import { aiGatewayLogic } from './aiGatewayLogic'
+import { GatewayCredentials, profileUser } from './GatewayCredentials'
+import { GatewayApi } from './generated/api.schemas'
 
 export const scene: SceneExport = {
     component: AIGatewayScene,
@@ -53,7 +33,11 @@ export function AIGatewayScene(): JSX.Element {
         {
             title: 'Slug',
             dataIndex: 'slug',
-            render: (slug) => <span className="font-mono">{slug as string}</span>,
+            render: (slug, gateway) => (
+                <Link to={urls.aiGatewayDetail(gateway.id)} className="font-mono font-semibold">
+                    {slug as string}
+                </Link>
+            ),
         },
         {
             title: 'Credentials',
@@ -142,77 +126,7 @@ export function AIGatewayScene(): JSX.Element {
     )
 }
 
-function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.Element {
-    const { gateways, credentialsByGateway, credentialsByGatewayLoading } = useValues(aiGatewayLogic)
-    const { moveCredential } = useActions(aiGatewayLogic)
-
-    const credentials = credentialsByGateway[gateway.id]
-    const otherGateways = gateways.filter((g) => g.id !== gateway.id)
-
-    if (!credentials) {
-        return (
-            <div className="px-4 py-2">
-                <Spinner /> Loading credentials…
-            </div>
-        )
-    }
-
-    const moveMenu = (credentialType: CredentialType, credentialId: string): JSX.Element => (
-        <LemonMenu
-            items={otherGateways.map((g) => ({
-                label: g.slug,
-                onClick: () =>
-                    moveCredential({ credentialType, credentialId, fromGatewayId: gateway.id, toGatewayId: g.id }),
-            }))}
-        >
-            <LemonButton
-                size="small"
-                type="secondary"
-                disabledReason={!otherGateways.length ? 'No other gateways' : undefined}
-            >
-                Move to…
-            </LemonButton>
-        </LemonMenu>
-    )
-
-    if (!credentials.personal_api_keys.length && !credentials.oauth_applications.length) {
-        return (
-            <div className="flex items-center gap-3 px-4 py-2">
-                <span className="text-secondary">No credentials attribute usage to this gateway yet.</span>
-                <LemonButton type="secondary" size="small" icon={<IconPlus />} to={CREATE_KEY_URL}>
-                    Create personal API key
-                </LemonButton>
-            </div>
-        )
-    }
-
-    return (
-        <div className="flex flex-col gap-1 px-4 py-2">
-            {credentials.personal_api_keys.map((key) => (
-                <div key={key.id} className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <ProfilePicture user={profileUser(key.user)} size="sm" />
-                        <span>{key.label}</span>
-                        <span className="text-secondary">personal API key</span>
-                    </div>
-                    {moveMenu('personal_api_key', key.id)}
-                </div>
-            ))}
-            {credentials.oauth_applications.map((app) => (
-                <div key={app.id} className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <span>{app.name}</span>
-                        <span className="text-secondary">OAuth app · {app.client_id}</span>
-                    </div>
-                    {moveMenu('oauth_application', app.id)}
-                </div>
-            ))}
-            {credentialsByGatewayLoading && <Spinner />}
-        </div>
-    )
-}
-
-function EditGatewayModal(): JSX.Element {
+export function EditGatewayModal(): JSX.Element {
     const { editingGatewayId, isEditingGatewaySubmitting, editingGatewayChanged } = useValues(aiGatewayLogic)
     const { closeModal, submitEditingGateway } = useActions(aiGatewayLogic)
 

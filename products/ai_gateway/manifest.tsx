@@ -15,13 +15,22 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_analytics',
         },
+        AIGatewayDetail: {
+            import: () => import('./frontend/AIGatewayDetailScene'),
+            projectBased: true,
+            name: 'AI gateway',
+            layout: 'app-container',
+            iconType: 'llm_analytics',
+        },
     },
     routes: {
         '/ai-gateway': ['AIGateway', 'aiGateway'],
+        '/ai-gateway/:id': ['AIGatewayDetail', 'aiGateway'],
     },
     redirects: {},
     urls: {
         aiGateway: (): string => '/ai-gateway',
+        aiGatewayDetail: (id: string): string => `/ai-gateway/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
