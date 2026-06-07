@@ -63,7 +63,6 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
-    tabId?: string
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
@@ -87,18 +86,7 @@ const inferStaticCohortMode = (cohort: CohortType): StaticCohortMode =>
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => {
-        if (props.id === 'new' || !props.id) {
-            if (props.tabId == null) {
-                return 'new'
-            }
-            return `new-${props.tabId}`
-        }
-        if (props.tabId == null) {
-            return props.id
-        }
-        return `${props.id}-${props.tabId}`
-    }),
+    key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],

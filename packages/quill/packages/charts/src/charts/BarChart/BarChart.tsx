@@ -1,7 +1,13 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
+import {
+    bandCenter,
+    type BarChartPrivate,
+    computeBarTrackRect,
+    computeSeriesBars,
+    groupedBarCenter,
+} from '../../core/bar-layout'
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
@@ -27,7 +33,6 @@ import {
     computePercentStackData,
     computeStackData,
     createBarScales,
-    groupedBandSlot,
     type StackedBand,
     yTickCountForHeight,
 } from '../../core/scales'
@@ -57,19 +62,6 @@ import {
     isStackedLayout,
     iterBarsAtCursor,
 } from './utils/bars-under-cursor'
-
-function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
-    const start = scales.band(label)
-    return start == null ? undefined : start + scales.band.bandwidth() / 2
-}
-
-/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
- *  to anchor on the current-period bar in compare-against-previous grouped layouts.
- *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
-function groupedBarCenter(scales: BarChartPrivate['__barChart'], label: string, seriesKey: string): number | undefined {
-    const slot = groupedBandSlot(scales, label, seriesKey)
-    return slot && slot.x + slot.width / 2
-}
 
 export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]

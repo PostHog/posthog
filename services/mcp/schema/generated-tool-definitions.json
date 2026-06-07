@@ -4823,10 +4823,10 @@
             "readOnlyHint": false
         }
     },
-    "sdk-doctor-get": {
+    "sdk-health-get": {
         "description": "Returns a pre-digested health report for the PostHog SDKs this project is using. Covers which SDKs are current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version breakdowns, and a human-readable reason for each assessment. Use when the user asks about PostHog SDK versions, outdated SDKs, SDK health, version upgrade recommendations, or why events may not be captured due to SDK issues.",
-        "category": "SDK Doctor",
-        "feature": "sdk_doctor",
+        "category": "SDK Health",
+        "feature": "sdk_health",
         "summary": "Get SDK health report",
         "title": "Get SDK health report",
         "required_scopes": ["project:read"],

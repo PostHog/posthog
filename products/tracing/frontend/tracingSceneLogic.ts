@@ -4,7 +4,6 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
@@ -23,7 +22,6 @@ export interface TracingSceneLogicProps {
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
     props({} as TracingSceneLogicProps),
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
-    tabAwareScene(),
 
     connect((p: TracingSceneLogicProps) => ({
         values: [

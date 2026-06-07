@@ -8,7 +8,7 @@ import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { sdkDoctorLogicType } from './sdkDoctorLogicType'
+import type { sdkHealthLogicType } from './sdkHealthLogicType'
 
 // Supported SDK types for version detection and health monitoring
 export type SdkType =
@@ -33,7 +33,7 @@ export type SdkVersion = `${string}.${string}.${string}`
  */
 export type SdkHealthStatus = 'danger' | 'warning' | 'success'
 
-// --- Backend report shape (mirrors SdkHealthReportSerializer in posthog/api/sdk_doctor.py) ---
+// --- Backend report shape (mirrors SdkHealthReportSerializer in posthog/api/sdk_health.py) ---
 //
 // All outdatedness heuristics (device thresholds, grace periods, traffic-share rules, severity
 // escalation) live in products/growth/backend/sdk_health.py and are surfaced pre-computed here.
@@ -116,7 +116,7 @@ export type AugmentedTeamSdkVersionsInfo = {
 }
 
 /**
- * SDK Doctor - PostHog SDK Health Monitoring
+ * SDK Health - PostHog SDK Health Monitoring
  *
  * Detects installed SDKs and their versions across a team's events and surfaces a pre-digested
  * health report computed entirely by the backend (see products/growth/backend/sdk_health.py).
@@ -127,15 +127,15 @@ export type AugmentedTeamSdkVersionsInfo = {
  * - The `report` endpoint applies the outdatedness heuristics and returns the assessment below.
  */
 
-export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
-    path(['scenes', 'onboarding', 'sdks', 'sdkDoctorLogic']),
+export const sdkHealthLogic = kea<sdkHealthLogicType>([
+    path(['scenes', 'onboarding', 'sdks', 'sdkHealthLogic']),
 
     connect(() => ({
         values: [preflightLogic, ['isCloudOrDev'], teamLogic, ['currentTeamId']],
     })),
 
     actions({
-        snoozeSdkDoctor: true,
+        snoozeSdkHealth: true,
         unsnooze: true,
     }),
 
@@ -144,7 +144,7 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
             null as string | null,
             { persist: true },
             {
-                snoozeSdkDoctor: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                snoozeSdkHealth: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                 unsnooze: () => null,
             },
         ],
@@ -161,11 +161,11 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
                         return null
                     }
                     try {
-                        const base = `api/projects/${values.currentTeamId}/sdk_doctor/report/`
+                        const base = `api/projects/${values.currentTeamId}/sdk_health/report/`
                         const endpoint = options?.forceRefresh === true ? `${base}?force_refresh=true` : base
                         return await api.get<SdkHealthReportResponse>(endpoint)
                     } catch (error) {
-                        console.error('Error loading SDK doctor report', error)
+                        console.error('Error loading SDK health report', error)
                         return null
                     }
                 },
@@ -249,8 +249,8 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
     }),
 
     listeners({
-        snoozeSdkDoctor: () => {
-            lemonToast.success('SDK Doctor snoozed for 30 days')
+        snoozeSdkHealth: () => {
+            lemonToast.success('SDK Health snoozed for 30 days')
         },
     }),
 

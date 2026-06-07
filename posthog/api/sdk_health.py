@@ -62,7 +62,7 @@ class SdkReleaseAssessmentSerializer(serializers.Serializer):
     )
     status_reason = serializers.CharField(
         help_text=(
-            "Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when "
+            "Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when "
             "reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated "
             "versions, 'You have the latest available.' for current versions, or 'Released X ago. "
             "Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions."
@@ -95,7 +95,7 @@ class SdkAssessmentSerializer(serializers.Serializer):
         help_text="SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'."
     )
     readable_name = serializers.CharField(
-        help_text="Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS')."
+        help_text="Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS')."
     )
     latest_version = serializers.CharField(help_text="Most recent published version of this SDK.")
     needs_updating = serializers.BooleanField(help_text="True if this SDK needs attention (is_outdated OR is_old).")
@@ -115,7 +115,7 @@ class SdkAssessmentSerializer(serializers.Serializer):
     banners = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — "
+            "Top-level alert sentences matching the SDK Health UI's 'Time for an update!' banner — "
             "one per outdated version with significant traffic. Quote verbatim when surfacing the "
             "headline to users."
         ),
@@ -148,9 +148,9 @@ class SdkHealthReportSerializer(serializers.Serializer):
 # --- ViewSet (MCP-accessible, project-scoped) ------------------------------
 
 
-@extend_schema(tags=["sdk_doctor"])
-class SdkDoctorViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """Project-scoped SDK Doctor report for MCP and agent consumption."""
+@extend_schema(tags=["sdk_health"])
+class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Project-scoped SDK Health report for MCP and agent consumption."""
 
     scope_object = "project"
 
@@ -218,7 +218,7 @@ class SdkDoctorViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def sdk_doctor(request: Request) -> Response:
+def sdk_health(request: Request) -> Response:
     """
     Serve team SDK versions. Data is cached by the Temporal sdk_outdated health check.
     Supports force_refresh=true for on-demand detection.
@@ -234,7 +234,7 @@ def sdk_doctor(request: Request) -> Response:
         return Response({"error": "Failed to get SDK versions. Please try again later."}, status=500)
     if not team_data:
         # Empty dict: brand-new team, deleted team, or no SDK traffic in the last 7 days.
-        # Match SdkDoctorViewSet.report's empty-report behavior — never 500 here.
+        # Match SdkHealthViewSet.report's empty-report behavior — never 500 here.
         return Response({}, status=200)
 
     sdk_data = get_github_sdk_data()
@@ -274,24 +274,24 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
                 sdk_versions = json.loads(
                     cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data
                 )
-                logger.info("sdk_doctor_team_cache_hit", team_id=team_id)
+                logger.info("sdk_health_team_cache_hit", team_id=team_id)
                 return sdk_versions
             except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning("sdk_doctor_team_cache_corrupted", team_id=team_id, error=str(e))
+                logger.warning("sdk_health_team_cache_corrupted", team_id=team_id, error=str(e))
                 capture_exception(e)
     else:
-        logger.info("sdk_doctor_team_force_refresh", team_id=team_id)
+        logger.info("sdk_health_team_force_refresh", team_id=team_id)
 
-    logger.info("sdk_doctor_team_cache_miss", team_id=team_id)
+    logger.info("sdk_health_team_cache_miss", team_id=team_id)
     try:
         sdk_versions = get_and_cache_team_sdk_versions(team_id, redis_client)
         if sdk_versions is not None:
-            logger.info("sdk_doctor_team_cache_populated", team_id=team_id)
+            logger.info("sdk_health_team_cache_populated", team_id=team_id)
             return sdk_versions
         else:
-            logger.error("sdk_doctor_team_clickhouse_empty", team_id=team_id)
+            logger.error("sdk_health_team_clickhouse_empty", team_id=team_id)
     except Exception as e:
-        logger.exception("sdk_doctor_team_fetch_failed", team_id=team_id)
+        logger.exception("sdk_health_team_fetch_failed", team_id=team_id)
         capture_exception(e)
 
     return None
@@ -309,9 +309,9 @@ def get_github_sdk_data() -> dict[str, Any]:
                 parsed = json.loads(cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data)
                 data[sdk_type] = parsed
             except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning("sdk_doctor_github_cache_corrupted", sdk_type=sdk_type, error=str(e))
+                logger.warning("sdk_health_github_cache_corrupted", sdk_type=sdk_type, error=str(e))
                 capture_exception(e, {"sdk_type": sdk_type, "cache_key": cache_key})
         else:
-            logger.warning("sdk_doctor_github_cache_miss", sdk_type=sdk_type)
+            logger.warning("sdk_health_github_cache_miss", sdk_type=sdk_type)
 
     return data
