@@ -97,12 +97,15 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
         )
     }
 
-    const base = `${preflight.ai_gateway_url.replace(/\/$/, '')}/v1/${gateway.slug}`
+    // Dispatch is namespaced by slug as a path prefix: <host>/g/<slug>/v1/<shape> (ai-gateway #80).
+    // Stock SDKs reach it with just a base-URL change — Anthropic appends "/v1/messages" to the gateway
+    // base, OpenAI appends "chat/completions" to the base + "/v1".
+    const gatewayBase = `${preflight.ai_gateway_url.replace(/\/$/, '')}/g/${gateway.slug}`
 
     const snippets: Record<EndpointTab, { language: Language; code: string }> = {
         curl: {
             language: Language.Bash,
-            code: `curl ${base}/messages \\
+            code: `curl ${gatewayBase}/v1/messages \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -116,7 +119,7 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
             code: `from openai import OpenAI
 
 client = OpenAI(
-    base_url="${base}",
+    base_url="${gatewayBase}/v1",  # SDK appends "chat/completions"
     api_key="<phx_ personal API key assigned to this gateway>",
 )
 client.chat.completions.create(
@@ -129,7 +132,7 @@ client.chat.completions.create(
             code: `from anthropic import Anthropic
 
 client = Anthropic(
-    base_url="${base}",
+    base_url="${gatewayBase}",  # SDK appends "/v1/messages"
     auth_token="<phx_ personal API key assigned to this gateway>",  # sets the Bearer header
 )
 client.messages.create(
@@ -144,10 +147,10 @@ client.messages.create(
         <section className="flex flex-col gap-2">
             <h3 className="m-0">Endpoint</h3>
             <p className="text-secondary m-0">
-                Point any OpenAI- or Anthropic-shaped client at this base URL and authenticate with a key assigned to
-                this gateway.
+                Point any OpenAI- or Anthropic-shaped client at this gateway's base URL and authenticate with a key
+                assigned to it. The slug rides the path, so each SDK reaches the gateway with only a base-URL change.
             </p>
-            <CodeSnippet language={Language.Bash}>{base}</CodeSnippet>
+            <CodeSnippet language={Language.Bash}>{gatewayBase}</CodeSnippet>
             <LemonTabs
                 activeKey={endpointTab}
                 onChange={setEndpointTab}
