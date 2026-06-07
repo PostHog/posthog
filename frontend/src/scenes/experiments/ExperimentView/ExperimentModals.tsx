@@ -259,6 +259,10 @@ export function FinishExperimentModal(): JSX.Element {
             <LemonModal
                 isOpen={isFinishExperimentModalOpen}
                 onClose={() => {
+                    // Don't allow dismissing (X / backdrop / escape) while the request is in flight.
+                    if (endExperimentLoading) {
+                        return
+                    }
                     restoreUnmodifiedExperiment()
                     closeFinishExperimentModal()
                 }}
