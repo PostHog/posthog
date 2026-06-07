@@ -2,26 +2,32 @@ import { asNonEmptyString, joinWithUiHost, parseJsonResponse, slashDotDataAttrUn
 
 describe('utils', () => {
     describe('parseJsonResponse', () => {
-        it('parses a valid JSON body', async () => {
-            const res = new Response(JSON.stringify({ access_token: 'abc' }), { status: 200 })
-            await expect(parseJsonResponse(res)).resolves.toEqual({ access_token: 'abc' })
+        const successCases: Array<{ body: string; status: number; expected: unknown }> = [
+            { body: JSON.stringify({ access_token: 'abc' }), status: 200, expected: { access_token: 'abc' } },
+            // JSON error bodies on a non-2xx status are still parsed (e.g. OAuth `{ "error": … }`).
+            { body: JSON.stringify({ error: 'invalid_grant' }), status: 400, expected: { error: 'invalid_grant' } },
+        ]
+        it.each(successCases)('resolves a JSON body (status $status)', async ({ body, status, expected }) => {
+            const res = new Response(body, { status })
+            await expect(parseJsonResponse(res)).resolves.toEqual(expected)
         })
 
-        it('parses a JSON error body even on a non-2xx status', async () => {
-            const res = new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
-            await expect(parseJsonResponse(res)).resolves.toEqual({ error: 'invalid_grant' })
-        })
-
-        it('throws a descriptive error (not a raw SyntaxError) for an HTML body', async () => {
-            const html = '<!DOCTYPE html><html><body>Login</body></html>'
-            const res = new Response(html, { status: 200 })
-            await expect(parseJsonResponse(res)).rejects.toThrow(/non-JSON response \(status 200\)/)
-        })
-
-        it('includes the status and a body snippet in the thrown error', async () => {
-            const res = new Response('<!DOCTYPE html>', { status: 502 })
-            await expect(parseJsonResponse(res)).rejects.toThrow(/status 502.*<!DOCTYPE html>/)
-        })
+        const errorCases: Array<{ body: string; status: number; pattern: RegExp }> = [
+            {
+                body: '<!DOCTYPE html><html><body>Login</body></html>',
+                status: 200,
+                pattern: /non-JSON response \(status 200\)/,
+            },
+            // The thrown error includes the status and a body snippet, not a raw SyntaxError.
+            { body: '<!DOCTYPE html>', status: 502, pattern: /status 502.*<!DOCTYPE html>/ },
+        ]
+        it.each(errorCases)(
+            'throws a descriptive error for a non-JSON body (status $status)',
+            async ({ body, status, pattern }) => {
+                const res = new Response(body, { status })
+                await expect(parseJsonResponse(res)).rejects.toThrow(pattern)
+            }
+        )
     })
 
     describe('asNonEmptyString', () => {
