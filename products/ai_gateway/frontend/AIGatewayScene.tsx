@@ -19,6 +19,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { aiGatewayLogic } from './aiGatewayLogic'
 import { GatewayCredentials, profileUser } from './GatewayCredentials'
+import { UsageTiles } from './gatewayUsage'
 import { GatewayApi } from './generated/api.schemas'
 
 const AI_GATEWAY_DESCRIPTION =
@@ -33,7 +34,7 @@ export const scene: SceneExport = {
 }
 
 export function AIGatewayScene(): JSX.Element {
-    const { gateways, gatewaysLoading } = useValues(aiGatewayLogic)
+    const { gateways, gatewaysLoading, usage, usageLoading } = useValues(aiGatewayLogic)
     const { openNewGateway, openEditGateway, deleteGateway, loadCredentials } = useActions(aiGatewayLogic)
 
     const columns: LemonTableColumns<GatewayApi> = [
@@ -126,6 +127,10 @@ export function AIGatewayScene(): JSX.Element {
                 isEmpty={!gateways.length}
                 customHog={RobotHog}
             />
+            <section className="flex flex-col gap-2">
+                <h3 className="m-0">Usage · last 30 days</h3>
+                <UsageTiles usage={usage} loading={usageLoading} />
+            </section>
             <LemonTable
                 columns={columns}
                 dataSource={gateways}

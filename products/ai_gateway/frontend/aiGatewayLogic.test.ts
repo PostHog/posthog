@@ -21,6 +21,10 @@ jest.mock('./generated/api', () => ({
     gatewaysBindCredentialCreate: jest.fn(),
 }))
 
+jest.mock('./gatewayUsage', () => ({
+    fetchGatewayUsage: jest.fn().mockResolvedValue({ requests: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }),
+}))
+
 const mockList = gatewaysList as jest.MockedFunction<typeof gatewaysList>
 const mockCreate = gatewaysCreate as jest.MockedFunction<typeof gatewaysCreate>
 const mockUpdate = gatewaysPartialUpdate as jest.MockedFunction<typeof gatewaysPartialUpdate>

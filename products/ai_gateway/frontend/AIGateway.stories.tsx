@@ -51,6 +51,15 @@ const meta: Meta = {
                 'api/projects/:team_id/gateways/': () => [200, { count: GATEWAYS.length, results: GATEWAYS }],
                 'api/projects/:team_id/gateways/:id/credentials/': () => [200, BOUND_CREDENTIALS],
             },
+            post: {
+                'api/environments/:team_id/query/': () => [
+                    200,
+                    {
+                        results: [[128, 45000, 90000, 12.34]],
+                        columns: ['requests', 'input_tokens', 'output_tokens', 'cost_usd'],
+                    },
+                ],
+            },
         }),
     ],
 }

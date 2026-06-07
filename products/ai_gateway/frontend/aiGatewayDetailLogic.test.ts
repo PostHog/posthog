@@ -48,8 +48,8 @@ describe('aiGatewayDetailLogic', () => {
 
     it('filters the usage query by the gateway slug', async () => {
         await expectLogic(logic).toDispatchActions(['loadUsageSuccess'])
-        const query = (api.query as jest.Mock).mock.calls[0][0]
-        expect(query.values).toEqual({ slug: 'default' })
-        expect(query.query).toContain('$ai_gateway_slug')
+        const slugCall = (api.query as jest.Mock).mock.calls.find((c) => c[0]?.values?.slug === 'default')
+        expect(slugCall).not.toBeUndefined()
+        expect(slugCall![0].query).toContain('$ai_gateway_slug')
     })
 })

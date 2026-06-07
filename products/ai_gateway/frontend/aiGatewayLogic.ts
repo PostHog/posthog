@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { aiGatewayLogicType } from './aiGatewayLogicType'
+import { fetchGatewayUsage, GatewayUsage } from './gatewayUsage'
 import {
     gatewaysBindCredentialCreate,
     gatewaysCreate,
@@ -60,6 +61,13 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
                     ...values.credentialsByGateway,
                     [gatewayId]: await gatewaysCredentialsRetrieve(String(values.currentTeamId), gatewayId),
                 }),
+            },
+        ],
+        usage: [
+            null as GatewayUsage | null,
+            {
+                // Project-wide usage across every gateway-attributed event.
+                loadUsage: async () => await fetchGatewayUsage(),
             },
         ],
     })),
@@ -136,5 +144,8 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             lemonToast.success('Credential moved')
         },
     })),
-    afterMount(({ actions }) => actions.loadGateways()),
+    afterMount(({ actions }) => {
+        actions.loadGateways()
+        actions.loadUsage()
+    }),
 ])

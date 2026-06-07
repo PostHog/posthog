@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { humanFriendlyNumber } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -16,6 +15,7 @@ import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-gen
 
 import { aiGatewayDetailLogic, AIGatewayDetailLogicProps, EndpointTab } from './aiGatewayDetailLogic'
 import { GatewayCredentials } from './GatewayCredentials'
+import { UsageTiles } from './gatewayUsage'
 import { GatewayApi } from './generated/api.schemas'
 
 export const scene: SceneExport<AIGatewayDetailLogicProps> = {
@@ -63,7 +63,7 @@ export function AIGatewayDetailScene(): JSX.Element {
             <UsagePanel />
 
             <section className="flex flex-col gap-2">
-                <h3 className="m-0">Usage by model</h3>
+                <h3 className="m-0">Usage by model · last 30 days</h3>
                 <Query query={byModelQuery(gateway)} readOnly />
             </section>
 
@@ -168,33 +168,8 @@ function UsagePanel(): JSX.Element {
     return (
         <section className="flex flex-col gap-2">
             <h3 className="m-0">Usage · last 30 days</h3>
-            <div className="flex gap-2 flex-wrap">
-                <UsageTile
-                    label="Requests"
-                    value={usage ? humanFriendlyNumber(usage.requests) : null}
-                    loading={usageLoading}
-                />
-                <UsageTile
-                    label="Tokens"
-                    value={usage ? humanFriendlyNumber(usage.inputTokens + usage.outputTokens) : null}
-                    loading={usageLoading}
-                />
-                <UsageTile label="Cost" value={usage ? `$${usage.costUsd.toFixed(2)}` : null} loading={usageLoading} />
-            </div>
+            <UsageTiles usage={usage} loading={usageLoading} />
         </section>
-    )
-}
-
-function UsageTile({ label, value, loading }: { label: string; value: string | null; loading: boolean }): JSX.Element {
-    return (
-        <div className="border rounded p-4 min-w-32">
-            <div className="text-secondary text-xs uppercase">{label}</div>
-            {loading || value === null ? (
-                <LemonSkeleton className="h-7 w-16 mt-1" />
-            ) : (
-                <div className="text-2xl font-semibold">{value}</div>
-            )}
-        </div>
     )
 }
 
