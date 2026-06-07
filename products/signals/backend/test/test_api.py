@@ -159,7 +159,10 @@ class TestEmitSignalAnalytics:
         # Both the "started" marker and the final "emitted" event fire
         events = [call.kwargs["event"] for call in capture.call_args_list]
         assert events == ["signal_emission_started", "signal_emitted"]
+        # `extra` is flattened onto the event so per-source attribution is queryable
+        # downstream; the core `source_*` keys win on conflict.
         expected_properties = {
+            **GITHUB_ISSUE_EXTRA,
             "source_product": "github",
             "source_type": "issue",
             "source_id": "posthog/posthog#42",

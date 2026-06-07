@@ -80,7 +80,10 @@ async def emit_signal(
         source_id: Unique identifier within the source (e.g., experiment UUID)
         description: Human-readable description that will be embedded
         weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
-        extra: Optional product-specific metadata
+        extra: Optional product-specific metadata. Flattened onto the `signal_emission_started`
+            and `signal_emitted` analytics events alongside the core `source_*` keys (which win
+            on conflict), so per-source attribution (e.g. the scout harness's `scout_run_id` /
+            `skill_name`) is queryable downstream without a schema change.
 
     Example:
         await emit_signal(
@@ -150,6 +153,7 @@ async def emit_signal(
             event="signal_emission_started",
             distinct_id=str(team.uuid),
             properties={
+                **(extra or {}),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
@@ -206,6 +210,7 @@ async def emit_signal(
             event="signal_emitted",
             distinct_id=str(team.uuid),
             properties={
+                **(extra or {}),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
