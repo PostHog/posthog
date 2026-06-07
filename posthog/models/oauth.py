@@ -23,7 +23,7 @@ from posthog.helpers.encrypted_fields import EncryptedCharField
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
-    from posthog.models import Organization, User
+    from posthog.models import Gateway, Organization, User
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -119,6 +119,16 @@ class OAuthApplication(AbstractApplication):
             "When an admin last force-revoked every session for this app. Tokens issued before this "
             "are rejected on refresh, forcing re-authorization."
         ),
+    )
+
+    # Bound on the application, not the rotating access token. The gateway's slug
+    # is the $ai_gateway_slug attribution value; one gateway holds many keys.
+    gateway: "Gateway | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.Gateway",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="oauth_applications",
     )
 
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
