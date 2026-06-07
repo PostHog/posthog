@@ -281,6 +281,35 @@ async def test_config_within_interval_is_not_due(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_config_just_short_of_interval_is_due_within_grace(ateam):
+    # A few seconds short of the interval (stamp jitter) still counts as due — without this the
+    # scout skips every other tick and runs at half cadence.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    last_run = timezone.now() - timedelta(minutes=60) + timedelta(seconds=5)
+    await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=60, last_run_at=last_run
+    )
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-foo"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_config_short_beyond_grace_is_not_due(ateam):
+    # Short by more than the grace window → genuinely not due yet.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    last_run = timezone.now() - timedelta(minutes=60) + timedelta(seconds=120)
+    await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=60, last_run_at=last_run
+    )
+
+    assert await _run_activity() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_overdue_config_is_planned_without_stamping(ateam):
     # Planning only selects due runs — it must NOT advance last_run_at. The schedule is
     # stamped after dispatch (see test_stamp_activity_advances_dispatched_configs) so a
