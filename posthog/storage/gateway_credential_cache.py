@@ -2,10 +2,13 @@
 Gateway credential HyperCache — purpose-built projection for the Go
 ai-gateway's gateway-credential auth path (RFC #1103).
 
-Where the team-centric llm_gateway_policy.json blob admits a whole team by its
-phc_ project token, this one is credential-centric: one blob per phx_ personal
-API key / pha_ OAuth access token, keyed by the credential's hash so the secret
-never sits in a Redis key or S3 path.
+Gateway dispatch authenticates only with a phx_/pha_ gateway credential bound to
+one gateway. A phc_ project token is public and cannot dispatch — it is used only
+for AIO event emitting (stamping the $ai_generation envelope). This blob is
+therefore credential-centric: one per phx_ personal API key / pha_ OAuth access
+token, keyed by the credential's hash so the secret never sits in a Redis key or
+S3 path. (The separate team-centric llm_gateway_policy.json, keyed by the phc_
+project token, is the legacy team-token path — not a dispatch credential here.)
 
 Shape:
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
@@ -27,9 +30,11 @@ carries a single gateway_slug — not a product list, and not a per-team gateway
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex,
 which the gateway derives identically (PostHog/ai-gateway internal/auth).
-team_id and project_token are load-bearing: the gateway fails closed if either is
-missing, so the projection writes a blob only for a fully-resolvable credential and
-clears it otherwise. Written Redis-only (no S3): an OAuth token lives ~1h, and S3's
+team_id and project_token are load-bearing. project_token is the team's phc_ key,
+carried solely so the gateway can stamp the $ai_generation event envelope (AIO
+event emitting) — it never authorizes dispatch; the phx_/pha_ secret does. The
+gateway fails closed if either is missing, so the projection writes a blob only
+for a fully-resolvable credential and clears it otherwise. Written Redis-only (no S3): an OAuth token lives ~1h, and S3's
 fixed lifecycle would outlive it, resurrecting a stale blob on a cold Redis.
 """
 
