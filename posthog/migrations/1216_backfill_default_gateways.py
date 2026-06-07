@@ -34,9 +34,10 @@ def backfill_default_gateways(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Batched create across all teams — keep each batch its own transaction
-    # rather than one table-long lock.
-    atomic = False
+    # Atomic for rollback safety: only inserts into the freshly created (empty)
+    # Gateway table, so the single transaction takes no lock other code contends
+    # on; batching bounds per-statement size and memory. A failed run rolls back
+    # cleanly and re-runs idempotently via ignore_conflicts.
 
     dependencies = [
         ("posthog", "1215_gateway_credential_bindings"),
