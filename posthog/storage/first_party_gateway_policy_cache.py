@@ -44,11 +44,13 @@ from django.utils import timezone
 import structlog
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
+from posthog.constants import AvailableFeature
 from posthog.models.gateway import GATEWAY_SLUG_PATTERN, Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
+from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +65,10 @@ FIRST_PARTY_BILLING_MODE = "internal"
 # already enforces this on write; re-check here because the gateway does none of
 # its own and the slug flows straight onto the billing ledger.
 _GATEWAY_SLUG_RE = re.compile(GATEWAY_SLUG_PATTERN)
+
+# Minimum project access level a user needs for the bound team. The project read
+# level is the second-highest in the member ladder (none < member < admin).
+_PROJECT_READ_ACCESS_LEVEL = ordered_access_levels("project")[-2]
 
 FIRST_PARTY_POLICY_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
 FIRST_PARTY_POLICY_CACHE_MISS_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
@@ -186,10 +192,34 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     if credential.scoped_organizations and str(team.organization_id) not in credential.scoped_organizations:
         return HyperCacheStoreMissing()
 
-    # scoped_organizations is a static ceiling — it doesn't track the user leaving
-    # the org. The gateway can't re-check membership, so verify the user still
-    # belongs to the billed team's org here and fail closed otherwise.
-    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user.id).exists():
+    # The gateway authenticates from the cached blob alone, so every authorization
+    # input it can't see is enforced here (and re-checked by the hourly refresh).
+    # scoped_organizations is a static ceiling that doesn't track these changing.
+    membership = (
+        OrganizationMembership.objects.select_related("organization")
+        .filter(organization_id=team.organization_id, user_id=user.id)
+        .first()
+    )
+    if membership is None:
+        return HyperCacheStoreMissing()
+
+    # Org security setting can forbid non-admin members from using personal API
+    # keys; OAuth tokens are exempt, mirroring PersonalAPIKeyAuthentication.
+    if isinstance(credential, PersonalAPIKey):
+        org = membership.organization
+        if (
+            org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            and not org.members_can_use_personal_api_keys
+            and membership.level < OrganizationMembership.Level.ADMIN
+        ):
+            return HyperCacheStoreMissing()
+
+    # Project access controls can revoke a member's access to this project without
+    # touching org membership. check_access_level_for_object default-allows for org
+    # admins, creators, and orgs without the access-control feature, so this only
+    # fails closed on an explicit RBAC revocation.
+    user_access_control = UserAccessControl(user=user, team=team)
+    if not user_access_control.check_access_level_for_object(team, required_level=_PROJECT_READ_ACCESS_LEVEL):
         return HyperCacheStoreMissing()
 
     return {
@@ -276,11 +306,14 @@ def refresh_all_first_party_policies() -> int:
     reversed through a team pool the way the team-centric refresh does. Keeps
     entries warm; signal handlers and the per-OAuth-token TTL handle removal.
 
-    select_related pulls each credential's bound gateway and its team in the same
-    query, so there's no N+1 lookup. Streamed via .iterator() so the working set
-    stays flat as the number of gateway-scoped credentials grows. scope is a
-    space-separated TextField; whitespace-bounded so the literal doesn't
-    substring-match a longer scope.
+    select_related pulls each credential's bound gateway and team in one query, but
+    the authorization checks in _policy_for_credential (org membership, personal-key
+    restriction, project access control) each issue their own query — intentionally
+    O(n) in the credential count, bounded because llm_gateway:read is admin-granted.
+    Org-setting and access-control changes propagate through this hourly pass plus
+    the PAK TTL rather than a per-input signal. Streamed via .iterator() so the
+    working set stays flat. scope is a space-separated TextField; whitespace-bounded
+    so the literal doesn't substring-match a longer scope.
     """
     now = timezone.now()
     querysets = (

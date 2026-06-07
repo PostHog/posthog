@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -271,6 +272,49 @@ class TestFirstPartyPolicyFailClosed(FirstPartyPolicyTestMixin):
         self.organization_membership.delete()
         project_first_party_policy(credential)
         self.assertIsNone(self._read_blob(cache_hash))
+
+    @patch("posthog.models.organization.Organization.is_feature_available", return_value=True)
+    def test_org_disallowing_member_personal_keys_fails_closed(self, _mock_feature):
+        # Org security setting can forbid non-admin members from using personal keys.
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    @patch("posthog.models.organization.Organization.is_feature_available", return_value=True)
+    def test_org_disallowing_member_personal_keys_still_writes_for_admin(self, _mock_feature):
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(credential)
+        self.assertIsNotNone(self._read_blob(credential_hash(credential)))
+
+    @patch("posthog.models.organization.Organization.is_feature_available", return_value=True)
+    def test_org_disallowing_member_personal_keys_does_not_affect_oauth(self, _mock_feature):
+        # The personal-key restriction is PAK-only; OAuth tokens are exempt.
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        credential = self._make_oauth(GATEWAY_SCOPE)
+        project_first_party_policy(credential)
+        self.assertIsNotNone(self._read_blob(credential_hash(credential)))
+
+    @patch(
+        "posthog.storage.first_party_gateway_policy_cache.UserAccessControl.check_access_level_for_object",
+        return_value=False,
+    )
+    def test_project_access_control_revoked_fails_closed(self, _mock_access):
+        # Project RBAC removing the user's access to the bound project fails closed,
+        # even though org membership is intact.
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
 
 
 class TestFirstPartyPolicyRefresh(FirstPartyPolicyTestMixin):
