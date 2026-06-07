@@ -8,16 +8,8 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
-
-jest.mock('~/toolbar/toolbarPosthogJS', () => {
-    const actual = jest.requireActual('~/toolbar/toolbarPosthogJS')
-    return {
-        ...actual,
-        captureToolbarException: jest.fn(),
-    }
-})
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -43,18 +35,22 @@ function mockTokenExchangeSuccess(): void {
 
 describe('toolbar toolbarConfigLogic', () => {
     let mockOpen: jest.SpyInstance
+    // captureToolbarException delegates to toolbarPosthogJS.captureException, so spying
+    // the method here lets us assert exception reporting without mocking the module.
+    let captureExceptionSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
         ;(global.fetch as jest.Mock).mockClear()
-        ;(captureToolbarException as jest.Mock).mockClear()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
+        captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation((() => {}) as any)
     })
 
     afterEach(() => {
         mockOpen.mockRestore()
+        captureExceptionSpy.mockRestore()
     })
 
     it('is not authenticated without any token', () => {
@@ -357,34 +353,47 @@ describe('toolbar toolbarConfigLogic', () => {
         it('flips authStatus to error on a non-ok HEAD response without reporting an exception', async () => {
             // A 404 means we reached a server but /toolbar_oauth/ isn't proxied — an expected
             // reverse-proxy misconfig that should guide the user, not surface as noise.
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            // Only the reachability check 404s; other requests succeed so we isolate its handling.
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? Promise.resolve({ ok: false, status: 404 })
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            )
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
-            expect(captureToolbarException).not.toHaveBeenCalled()
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('opens the config modal on a non-ok HEAD response when a code exchange is pending', async () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            // Only the reachability check 404s; other requests succeed so we isolate its handling.
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? Promise.resolve({ ok: false, status: 404 })
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            )
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
-            await expectLogic(logic)
-                .delay(0)
-                .toMatchValues({ authStatus: 'error', uiHostConfigModalVisible: true })
-            expect(captureToolbarException).not.toHaveBeenCalled()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error', uiHostConfigModalVisible: true })
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
             window.history.pushState({}, '', '/')
         })
 
         it('reports a genuine network failure with the resolved host context', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            // Only the reachability check rejects; other requests succeed so we isolate its handling.
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? Promise.reject(new TypeError('Failed to fetch'))
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            )
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
             await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
-            expect(captureToolbarException).toHaveBeenCalledWith(
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
                 expect.any(TypeError),
-                'ui_host_check',
                 expect.objectContaining({
+                    toolbar_context: 'ui_host_check',
                     error_type: 'network_or_cors',
                     ui_host: 'https://selfhosted.example.com',
                     ui_host_source: expect.any(String),
