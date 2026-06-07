@@ -71,6 +71,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
+        // dispatched once a source's snapshots fail to load and the retries are exhausted —
+        // lets the player leave the buffering state instead of hanging forever
+        snapshotLoadingPermanentlyFailed: true,
         // dispatch after any mutation to cache.store or cache.scheduler —
         // these live outside Kea's reactivity and need explicit invalidation
         storeUpdated: true,
@@ -395,6 +398,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSourceFailure: async (_, breakpoint) => {
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             if (cache.loadFailureCount > 3) {
+                // Retries exhausted — signal a terminal failure so the player can surface an
+                // actionable error instead of staying stuck on "Buffering…" indefinitely.
+                actions.snapshotLoadingPermanentlyFailed()
                 return
             }
             await breakpoint(cache.loadFailureCount * 2000)

@@ -97,7 +97,11 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    RecordingBlockFetchError,
+    RecordingDeletedError,
+)
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -1403,6 +1407,17 @@ class SessionRecordingViewSet(
                 },
                 status=status.HTTP_410_GONE,
             )
+        except RecordingBlockFetchError as e:
+            logger.warning(
+                "recording_block_fetch_failed",
+                session_id=str(recording.session_id),
+                team_id=self.team.id,
+                failed_block_indices=e.failed_block_indices,
+            )
+            return Response(
+                {"error": "Failed to load recording block. Please try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -1807,7 +1822,18 @@ class SessionRecordingViewSet(
                 blocks_data.append(content)
 
         if block_errors:
-            raise exceptions.APIException("Failed to load recording block")
+            logger.error(
+                "fetch_blocks_failed",
+                recording_id=recording.session_id,
+                team_id=self.team.id,
+                failed_block_indices=block_errors,
+                blocks_requested=max_blob_key - min_blob_key + 1,
+                blocks_failed=len(block_errors),
+            )
+            # A failed block fetch is a transient / recoverable failure (recording-api error,
+            # timeout, or S3 / decompress failure) — surface it as a retriable response rather
+            # than a blanket 500 that the player can never recover from.
+            raise RecordingBlockFetchError("Failed to load recording block", failed_block_indices=block_errors)
 
         return blocks_data
 

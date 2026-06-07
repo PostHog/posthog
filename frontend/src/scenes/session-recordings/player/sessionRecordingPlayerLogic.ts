@@ -504,6 +504,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshots',
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
+                'snapshotLoadingPermanentlyFailed',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -1599,14 +1600,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
+                actions.endBuffer()
                 actions.setPlayerError('loadSnapshotsForSourceFailure')
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
+                actions.endBuffer()
                 actions.setPlayerError('loadSnapshotSourcesFailure')
             }
+        },
+        snapshotLoadingPermanentlyFailed: () => {
+            // A source's snapshots failed to load and the data logic exhausted its retries.
+            // Even when some snapshots already loaded, leave the BUFFER state and surface an
+            // actionable error so the player doesn't hang on "Buffering…" forever.
+            console.error('PostHog Recording Playback Error: snapshot loading permanently failed')
+            actions.endBuffer()
+            actions.setPlayerError('snapshotLoadingPermanentlyFailed')
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {

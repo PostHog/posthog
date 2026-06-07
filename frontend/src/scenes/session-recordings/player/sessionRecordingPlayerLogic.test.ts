@@ -11,7 +11,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { RecordingSegment } from '~/types'
+import { RecordingSegment, SessionPlayerState } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -358,6 +358,36 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
                 playerError: 'loadSnapshotSourcesFailure',
             })
+        })
+
+        it('leaves buffering and shows an error when snapshot loading permanently fails', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                autoPlay: true,
+            })
+            logic.mount()
+
+            silenceKeaLoadersErrors()
+
+            // Player is mid-load and sitting on the "Buffering…" overlay
+            await expectLogic(logic, () => {
+                logic.actions.startBuffer()
+            }).toMatchValues({ isBuffering: true })
+
+            // A block fetch failed and the data logic exhausted its retries
+            await expectLogic(logic, () => {
+                logic.actions.snapshotLoadingPermanentlyFailed()
+            })
+                .toDispatchActions(['snapshotLoadingPermanentlyFailed', 'endBuffer', 'setPlayerError'])
+                .toMatchValues({
+                    isBuffering: false,
+                    playerError: 'snapshotLoadingPermanentlyFailed',
+                    currentPlayerState: SessionPlayerState.ERROR,
+                })
+
+            resumeKeaLoadersErrors()
         })
 
         it('ensures the cache initialization is reset after the player is unmounted', async () => {

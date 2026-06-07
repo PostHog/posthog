@@ -1,3 +1,4 @@
+import { expectLogic } from 'kea-test-utils'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
@@ -69,6 +70,17 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.isRecordingDeleted).toBe(true)
             expect(logic.values.recordingDeletedAt).toBe(null)
             expect(logic.values.recordingDeletedBy).toBe(null)
+        })
+    })
+
+    describe('permanent load failure', () => {
+        it('signals a permanent failure once snapshot load retries are exhausted', async () => {
+            // Pretend the previous 3 retries already happened
+            logic.cache.loadFailureCount = 3
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('boom', new Error('boom'))
+            }).toDispatchActions(['snapshotLoadingPermanentlyFailed'])
         })
     })
 
