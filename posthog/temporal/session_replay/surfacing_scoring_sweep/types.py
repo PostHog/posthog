@@ -41,8 +41,8 @@ class ChunkSpec:
 class ListChunksResult:
     """Output of `list_chunks_activity`.
 
-    A single CH count tells the workflow whether the tick has work to do at
-    all (avoids fanning out N empty activities when nothing is unscored).
+    Always carries the full hash-bucket fan-out. The bucket-0 count is only
+    an extrapolated estimate for logging — empty buckets no-op cheaply.
     """
 
     chunks: list[ChunkSpec] = field(default_factory=list)

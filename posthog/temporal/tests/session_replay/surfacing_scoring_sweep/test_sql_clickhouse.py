@@ -24,6 +24,10 @@ class TestFetchFeaturesSqlShape:
         sql = fetch_features_sql()
         assert "(f.team_id, f.session_id) GLOBAL IN" in sql
 
+    def test_aggregated_stats_filters_features_by_lookback(self) -> None:
+        sql = fetch_features_sql()
+        assert "f.min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)" in sql
+
     def test_eligible_sessions_orders_before_limit(self) -> None:
         sql = fetch_features_sql()
         match = re.search(

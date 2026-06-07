@@ -24,12 +24,12 @@ The serving SELECT mirrors the training query:
 
     2. `aggregated_sufficient_statistics` — pulls raw aggregates from
        `session_replay_features` for those sessions, mirroring the
-       training query. We filter via `(team_id, session_id) GLOBAL IN ...`
-       so the lookup hits the (team_id, session_id) primary key on
-       `session_replay_features` for index-friendly granule skipping
-       instead of a full partition scan, and `GLOBAL IN` ships the
-       eligible-session set as a temp table to every shard so each shard
-       only scans its locally-resident replay rows.
+       training query (`feature_query.sql`). We filter via
+       `(team_id, session_id) GLOBAL IN ...` plus the same
+       `min_first_timestamp` lookback on `f` that training applies, so
+       stale feature rows outside the window never enter the aggregates.
+       `GLOBAL IN` ships the eligible-session set as a temp table to every
+       shard so each shard only scans its locally-resident replay rows.
 
     3. `replay_features` — derives the rates/ratios/stats the model was
        trained on. Same expressions as the training query. Carries
@@ -150,6 +150,7 @@ SELECT
     uniqCombinedMerge(12)(f.unique_form_field_count)   AS unique_form_fields
 FROM {features_table} AS f
 WHERE (f.team_id, f.session_id) GLOBAL IN (SELECT team_id, session_id FROM eligible_sessions)
+  AND f.min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)
 GROUP BY f.team_id, f.session_id
 """.strip()
 
