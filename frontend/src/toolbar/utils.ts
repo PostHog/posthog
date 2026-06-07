@@ -19,6 +19,24 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
 
+/**
+ * Parse a fetch Response body as JSON, guarding against non-JSON payloads. A
+ * misconfigured proxy/login/error page on the user's host can return an HTML
+ * document (e.g. `<!DOCTYPE …>`) where the toolbar expects JSON — calling
+ * `res.json()` on it throws an opaque `SyntaxError: Unexpected token '<'`.
+ * Reading the body as text first lets us throw a descriptive error (status +
+ * snippet) so callers can fail gracefully and we report something actionable.
+ */
+export async function parseJsonResponse(res: Response): Promise<any> {
+    const text = await res.text()
+    try {
+        return JSON.parse(text)
+    } catch {
+        const snippet = text.slice(0, 200)
+        throw new Error(`Expected JSON but received a non-JSON response (status ${res.status}): ${snippet}`)
+    }
+}
+
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'

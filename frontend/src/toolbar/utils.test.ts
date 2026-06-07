@@ -1,6 +1,29 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, parseJsonResponse, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
+    describe('parseJsonResponse', () => {
+        it('parses a valid JSON body', async () => {
+            const res = new Response(JSON.stringify({ access_token: 'abc' }), { status: 200 })
+            await expect(parseJsonResponse(res)).resolves.toEqual({ access_token: 'abc' })
+        })
+
+        it('parses a JSON error body even on a non-2xx status', async () => {
+            const res = new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+            await expect(parseJsonResponse(res)).resolves.toEqual({ error: 'invalid_grant' })
+        })
+
+        it('throws a descriptive error (not a raw SyntaxError) for an HTML body', async () => {
+            const html = '<!DOCTYPE html><html><body>Login</body></html>'
+            const res = new Response(html, { status: 200 })
+            await expect(parseJsonResponse(res)).rejects.toThrow(/non-JSON response \(status 200\)/)
+        })
+
+        it('includes the status and a body snippet in the thrown error', async () => {
+            const res = new Response('<!DOCTYPE html>', { status: 502 })
+            await expect(parseJsonResponse(res)).rejects.toThrow(/status 502.*<!DOCTYPE html>/)
+        })
+    })
+
     describe('asNonEmptyString', () => {
         const testCases: Array<{ input: unknown; expected: string | null }> = [
             { input: 'hello', expected: 'hello' },

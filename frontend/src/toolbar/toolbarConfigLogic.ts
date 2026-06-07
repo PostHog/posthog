@@ -15,6 +15,7 @@ import {
     generatePKCE,
     LOCALSTORAGE_KEY,
     OAUTH_LOCALSTORAGE_KEY,
+    parseJsonResponse,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
 } from './utils'
@@ -747,7 +748,7 @@ async function exchangeCodeForTokens(
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
         })
-        const data = await res.json()
+        const data = await parseJsonResponse(res)
         const access = asNonEmptyString(data?.access_token)
         const refresh = asNonEmptyString(data?.refresh_token)
         if (access && refresh) {

@@ -18,6 +18,7 @@ import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { parseJsonResponse } from '~/toolbar/utils'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -99,7 +100,7 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
         await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
             credentials: 'include',
         })
-            .then((response) => response.json())
+            .then((response) => parseJsonResponse(response))
             .then((data) => {
                 if (data.featureFlags) {
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })

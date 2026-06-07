@@ -2,7 +2,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { asNonEmptyString } from '~/toolbar/utils'
+import { asNonEmptyString, parseJsonResponse } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
@@ -39,7 +39,7 @@ export async function refreshOAuthTokens(
                 throw err
             }
 
-            const data = await response.json()
+            const data = await parseJsonResponse(response)
             toolbarPosthogJS.capture('toolbar token refresh', {
                 status: 'success',
                 duration_ms: Math.round(performance.now() - startTime),
