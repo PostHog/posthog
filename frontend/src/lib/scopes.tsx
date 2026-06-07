@@ -183,6 +183,7 @@ export const API_KEY_SCOPE_PRESETS: {
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'llm_gateway', label: 'LLM gateway access', scopes: ['llm_gateway:read'] },
     {
         value: 'project_management',
         label: 'Project & user management',

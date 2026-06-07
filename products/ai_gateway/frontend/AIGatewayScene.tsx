@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -17,6 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -32,6 +34,10 @@ const profileUser = (user: UserBasicApi): { first_name?: string; last_name?: str
     last_name: user.last_name,
     email: user.email,
 })
+
+// Deep-link to the personal API key settings, opening the create modal pre-filled
+// with the llm_gateway:read scope (the `preset` param is read by personalAPIKeysLogic).
+const CREATE_KEY_URL = combineUrl(urls.settings('user-api-keys'), { preset: 'llm_gateway' }).url
 
 export const scene: SceneExport = {
     component: AIGatewayScene,
@@ -167,7 +173,14 @@ function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.Element {
     )
 
     if (!credentials.personal_api_keys.length && !credentials.oauth_applications.length) {
-        return <div className="px-4 py-2 text-secondary">No credentials attribute usage to this gateway.</div>
+        return (
+            <div className="flex items-center gap-3 px-4 py-2">
+                <span className="text-secondary">No credentials attribute usage to this gateway yet.</span>
+                <LemonButton type="secondary" size="small" icon={<IconPlus />} to={CREATE_KEY_URL}>
+                    Create personal API key
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
