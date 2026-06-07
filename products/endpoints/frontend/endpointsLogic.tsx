@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
@@ -24,14 +24,8 @@ export const DEFAULT_FILTERS: EndpointsFilters = {
     tags: [],
 }
 
-export interface EndpointsLogicProps {
-    tabId: string
-}
-
 export const endpointsLogic = kea<endpointsLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsLogic']),
-    props({} as EndpointsLogicProps),
-    key((props) => props.tabId),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
