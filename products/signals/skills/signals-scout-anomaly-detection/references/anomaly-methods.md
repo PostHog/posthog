@@ -30,9 +30,10 @@ robust_z = |x - median| / (1.4826 * MAD)
   complete day is _yesterday_ (in the project's timezone — read it from the environment
   block); for hourly, the latest complete hour is the one before the current one. Exclude the
   current partial bucket from both scoring and baseline.
-- **Minimum-data guard.** Need at least ~12 comparable baseline buckets after seasonal
-  matching. Fewer → don't score; set the insight's cadence wider or mark it `low-data` on the
-  watchlist and move on.
+- **Minimum-data guard.** Need enough comparable baseline buckets after seasonal matching —
+  **≥ 6 same-weekday points for daily, ≥ 12 matched points for hourly** (matching the
+  Baseline windows table below). Fewer → don't score; widen the cadence or mark it `low-data`
+  on the watchlist and move on.
 - **MAD-zero guard.** If `MAD == 0` (a flat series, e.g. constant or mostly zeros), the
   z-score explodes on any movement. Fall back to: emit only if the absolute change is large
   _and_ the relative change clears the floor below; otherwise remember, don't emit.
@@ -86,7 +87,9 @@ query, with exact control over the bucket and the comparison window. Always
 `read-data-schema` to confirm the event/properties first, and `insight-get` to learn which
 event(s)/filters the insight actually uses so your SQL matches it.
 
-PostHog SQL is HogQL (ClickHouse dialect). Use the project timezone for bucket boundaries.
+PostHog SQL is HogQL (ClickHouse dialect). Its date functions (`toStartOfDay`,
+`toStartOfHour`, `now()`) already evaluate in the **project timezone** automatically — the
+buckets below come back project-local with no explicit timezone argument needed.
 
 **Daily series with same-weekday baseline** (score yesterday vs the last 8 same-weekdays):
 

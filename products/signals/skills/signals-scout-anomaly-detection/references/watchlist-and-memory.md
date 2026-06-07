@@ -85,7 +85,7 @@ say "checked items A–F; G–K still due next run."
 ## The four states (classify every candidate before emitting)
 
 1. **Net new** — no prior run or scratchpad entry covers this metric move. → Emit if it
-   clears the bar (robust z ≥ ~3.5, confidence ≥ 0.65, guards passed).
+   clears the bar (robust z ≥ ~3.5, weight ≥ 0.7, confidence ≥ 0.65, guards passed).
 2. **Material update** — a prior run surfaced this insight's anomaly, but there's new
    evidence (it's still firing, escalated, spread to related insights, or correlates with a
    fresh deploy). → Emit fresh, **cite the prior `finding_id`** in the description and
