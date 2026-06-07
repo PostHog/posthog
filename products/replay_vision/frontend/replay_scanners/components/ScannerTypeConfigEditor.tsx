@@ -14,8 +14,8 @@ const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; lab
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
-export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>

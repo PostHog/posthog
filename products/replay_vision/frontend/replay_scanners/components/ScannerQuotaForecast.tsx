@@ -8,7 +8,6 @@ import { replayScannerLogic } from '../replayScannerLogic'
 
 interface Props {
     scannerId: string
-    tabId: string
 }
 
 const STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
@@ -17,10 +16,8 @@ const STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
     danger: { bar: 'bg-danger', text: 'text-danger' },
 }
 
-export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element | null {
-    const { scanner, scannerEstimate, scannerEstimateLoading, isNew } = useValues(
-        replayScannerLogic({ id: scannerId, tabId })
-    )
+export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
+    const { scanner, scannerEstimate, scannerEstimateLoading, isNew } = useValues(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
 
     if (!scanner) {
