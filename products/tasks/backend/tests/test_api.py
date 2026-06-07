@@ -3,7 +3,6 @@ import time
 import uuid
 import base64
 import asyncio
-import threading
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import ClassVar, cast
@@ -47,11 +46,7 @@ from products.tasks.backend.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
-from products.tasks.backend.stream.redis_stream import (
-    TaskRunRedisStream,
-    get_task_run_stream_key,
-    publish_task_run_stream_event,
-)
+from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -5173,33 +5168,32 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
     def test_stream_start_latest_only_yields_new_events(self):
         task = self.create_task()
-        run = task.create_run()
+        run = task.create_run()  # publishes a task_run_state event the latest cursor must skip
 
-        def publish_future_events() -> None:
-            time.sleep(0.05)
-            publish_task_run_stream_event(
-                str(run.id),
-                {
-                    "type": "notification",
-                    "timestamp": "2026-01-01T00:00:01Z",
-                    "notification": {
-                        "jsonrpc": "2.0",
-                        "method": "_posthog/console",
-                        "params": {
-                            "sessionId": str(run.id),
-                            "level": "info",
-                            "message": "late hello",
-                        },
-                    },
-                },
-            )
-            self._mark_stream_complete(run)
+        new_event = {
+            "type": "notification",
+            "timestamp": "2026-01-01T00:00:01Z",
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/console",
+                "params": {"sessionId": str(run.id), "level": "info", "message": "late hello"},
+            },
+        }
 
-        publisher = threading.Thread(target=publish_future_events)
-        publisher.start()
-        response = self.client.get(self._stream_url(task, run) + "?start=latest")
-        events = self._collect_sse_events(response)
-        publisher.join()
+        # Append the new event the instant the handler captures the latest cursor, on the
+        # handler's own event loop. A background thread would mutate the shared in-memory
+        # fakeredis concurrently with the reader, which is racy and flakes in CI.
+        real_get_latest = TaskRunRedisStream.get_latest_stream_id
+
+        async def get_latest_then_publish(redis_stream: TaskRunRedisStream) -> str | None:
+            latest_id = await real_get_latest(redis_stream)
+            await redis_stream.write_event(new_event)
+            await redis_stream.mark_complete()
+            return latest_id
+
+        with patch.object(TaskRunRedisStream, "get_latest_stream_id", get_latest_then_publish):
+            response = self.client.get(self._stream_url(task, run) + "?start=latest")
+            events = self._collect_sse_events(response)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(events), 1)
