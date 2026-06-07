@@ -452,6 +452,10 @@ snapshots:
         hash: v1.k794b7964.ea8c43650b4092cbc2e77d3c1434956791b055450fc71b250d80ce2d3797ab95.NbHdkbeXdOFxKNuQGpkrJ6DhLvrMg8UzB_p4T4U3_Ww
     components-hogcharts-barchart--custom-corner-radius--light:
         hash: v1.k794b7964.0dac747f4e25c20af8ae87b1298ce78f740b1d61ffe17111e374beebbd4d4b67.qEe6wuSeislWK6Y_E6sW1cuocrbad55E7TCYPcqp9Fk
+    components-hogcharts-barchart--fill-styles--dark:
+        hash: v1.k794b7964.d6cadc93fb478e2708c459038ecf8e346aaaa853e2b8bf6be0704b5b725b8cae.SChUWxF3G94XS5uP9xKy4hYC76gLoOT-tCXrTAh5HCc
+    components-hogcharts-barchart--fill-styles--light:
+        hash: v1.k794b7964.4b98e3eb72e45de1042b2c623f54af0b41ade4b7161af608bd7a77353797e816.STp13FHni4h7ubxy2eOTkopHD5D6dfEBzo5U6gwmREs
     components-hogcharts-barchart--grouped--dark:
         hash: v1.k794b7964.519966f77e2f7f689d1ca8cc96a0af90e063e479964b28056a3a681457cd5d31.0phGCRGTRo6sxln_-Z2GAgJnsQBBTnZR4d9OH7anc60
     components-hogcharts-barchart--grouped--light:
@@ -5266,6 +5270,10 @@ snapshots:
         hash: v1.k794b7964.8aea696aaded1149932df0fef206cdc318e123ddb986bedab762c2cb6cccce4b.XWQDM2uZNH0Zp1eY4Vc1D5XnJrqtToEthNbKFNN95Ms
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--light:
         hash: v1.k794b7964.4ebf2f848b10c8b2859630215a9be1ff91fb825fc334005207556310261d3a5c.UcqJY3dqyJNbi3x7oYaZ2rEu95LAEdbGmMyEpI-Wlgc
+    scenes-app-mcp-analytics--dashboard--dark:
+        hash: v1.k794b7964.0c1b68368a8773b72c89be08cf37d26771e3ccf23c71ccca310c5a274a168b2f.uO4P8jw3-8Zxn5az8jg_3LJV8TsWHo-sAzWDGmwXHpk
+    scenes-app-mcp-analytics--dashboard--light:
+        hash: v1.k794b7964.09589f49fe0b959b79652e6dadf9e38981aecdf5fa383dc7a1bbfd4c1e0649aa.abSoArXwTLreeJ_FkcqqbgT3I2mTbbgPy_uvrfYJous
     scenes-app-notebooks--bullet-list--dark:
         hash: v1.k794b7964.92b730d52ab36684be26e6553326b5325ec30479049b955e0c21b680786a1b0a.DxqaNZeZRaXD6cbT74fO1NrIXGkrJt3Q_x5kz2xkgII
     scenes-app-notebooks--bullet-list--light:
