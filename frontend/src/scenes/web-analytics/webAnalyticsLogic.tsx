@@ -1,6 +1,6 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
@@ -17,8 +17,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import {
     UnexpectedNeverError,
     getDefaultInterval,
@@ -154,8 +153,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTourId: null,
             }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
-            webAnalyticsHealthLogic,
-            ['webAnalyticsHealthStatus'],
             webAnalyticsFilterLogic,
             [
                 'rawWebAnalyticsFilters',
@@ -2466,7 +2463,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
             const urlParams = new URLSearchParams(router.values.location.search)
 
@@ -2613,7 +2610,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {

@@ -1,10 +1,10 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils'
 import { applyTestAccountFilter, getDefaultSessionsSceneQuery } from 'scenes/activity/explore/defaults'
@@ -69,7 +69,7 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
             ],
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.activity(ActivityTab.ExploreSessions),
             {},
@@ -78,7 +78,7 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
         ],
     })),
 
-    tabAwareUrlToAction(({ actions, values, props }) => {
+    urlToAction(({ actions, values, props }) => {
         const sessionsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             // If query hasn't changed, do nothing
             if (equal(queryParam, values.query)) {

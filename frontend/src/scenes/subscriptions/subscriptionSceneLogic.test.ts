@@ -68,7 +68,7 @@ describe('subscriptionSceneLogic', () => {
             [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
         })
 
-        const logic = subscriptionSceneLogic({ id: '1', tabId: 'tab-filter' })
+        const logic = subscriptionSceneLogic({ id: '1' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(deliveriesRequestUrls).toHaveLength(1)
@@ -98,7 +98,7 @@ describe('subscriptionSceneLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {})
 
-        const logic = subscriptionSceneLogic({ id: '1', tabId: 'tab-a' })
+        const logic = subscriptionSceneLogic({ id: '1' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadSubscriptionSuccess'])
@@ -123,7 +123,7 @@ describe('subscriptionSceneLogic', () => {
             [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
         })
 
-        const logic = subscriptionSceneLogic({ id: '1', tabId: 'tab-b' })
+        const logic = subscriptionSceneLogic({ id: '1' })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -146,7 +146,7 @@ describe('subscriptionSceneLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {})
 
-        const logic = subscriptionSceneLogic({ id: '1', tabId: 'tab-c' })
+        const logic = subscriptionSceneLogic({ id: '1' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSubscriptionSuccess'])
         expect(deliveriesRequestUrls).toHaveLength(0)

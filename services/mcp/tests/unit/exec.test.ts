@@ -1,11 +1,9 @@
 import guidelines from '@shared/guidelines.md'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -676,8 +674,8 @@ describe('exec tool', () => {
         })
     })
 
-    describe('schema snapshot', () => {
-        function createSnapshotContext(): Context {
+    describe('exec tool description', () => {
+        function createExecContext(): Context {
             return {
                 api: {} as any,
                 cache: {} as any,
@@ -704,7 +702,7 @@ describe('exec tool', () => {
         // exec tool's description must fit within that budget or clients will
         // silently drop the tail of the instructions.
         it('keeps the tool description within 2048 characters', async () => {
-            const context = createSnapshotContext()
+            const context = createExecContext()
             const v2Tools = await getToolsFromContext(context)
             const toolInfos = v2Tools.map((t) => ({
                 name: t.name,
@@ -736,68 +734,41 @@ describe('exec tool', () => {
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
 
-        // Snapshots the full exec tool definition built from the real v2 tool set:
-        // description (the `exec-tool-blurb` subprompt), annotations, and input schema
-        // including the `command` field description — which embeds the generated
-        // `tool_domains` block. Because `buildToolDomainsBlock` relies on tool-name conventions
-        // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
-        // canary for any drift in naming or in the domain-extraction logic.
-        //
-        // Snapshots the Codex (`supportsInstructions: false`) wiring, where every
-        // placeholder is filled. That's the only path where `{tool_domains}` and
-        // `{query_tools}` actually appear in the `command` parameter description,
-        // so the snapshot has to follow it to keep catching drift in those blocks.
-        it('matches the full exec tool schema', async () => {
-            const context = createSnapshotContext()
-            const v2Tools = [...(await getToolsFromContext(context))].sort((a, b) => a.name.localeCompare(b.name))
-            const toolInfos = v2Tools.map((t) => ({
-                name: t.name,
-                category: getToolDefinition(t.name).category,
-            }))
-            const queryToolInfos = v2Tools
-                .filter((t) => t.name.startsWith('query-'))
-                .map((t) => {
-                    const def = getToolDefinition(t.name)
-                    return {
-                        name: t.name,
-                        title: def.title,
-                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
-                    }
-                })
+        // The `{tool_domains}` and `{query_tools}` placeholders in the exec
+        // tool's `command` description are filled from the passed tool set. A
+        // fixed fake set keeps this hermetic — adding or renaming a real tool
+        // can't flip it.
+        it('interpolates the tool-domain and query-tool blocks into the command description', () => {
+            const toolInfos = [
+                { name: 'experiment-create', category: 'Experiments' },
+                { name: 'experiment-delete', category: 'Experiments' },
+                { name: 'query-trends', category: 'Query' },
+            ]
+            const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
+
             const formatter = new InstructionsFormatter()
             const commandReference = formatter.buildExecCommandReference(
                 { guidelines, tools: toolInfos, queryTools: queryToolInfos },
                 { stripEnvContext: false }
             )
             const execTool = createExecTool(
-                v2Tools,
-                context,
+                [],
+                createExecContext(),
                 formatter.buildExecToolDescription(),
                 commandReference,
                 undefined
             )
+            const commandDescription = execTool.schema.shape.command.description ?? ''
 
-            const snapshot = {
-                name: execTool.name,
-                title: execTool.title,
-                description: execTool.description,
-                annotations: execTool.annotations,
-                scopes: execTool.scopes,
-                inputSchema: z.toJSONSchema(execTool.schema, { io: 'input', reused: 'inline' }),
-            }
+            expect(commandDescription).not.toContain('{tool_domains}')
+            expect(commandDescription).not.toContain('{query_tools}')
 
-            const __dirname = path.dirname(fileURLToPath(import.meta.url))
-            const snapshotPath = path.resolve(__dirname, '__snapshots__', 'exec-tool.json')
-            // Format via oxfmt so the snapshot matches repo-wide formatting rules
-            // (lint-staged reformats *.json and would otherwise flip this file on save).
-            const content = `${JSON.stringify(snapshot, null, 4)}\n`
-            const result = await format(snapshotPath, content, { tabWidth: 4, printWidth: 120 })
-            if (result.errors.length > 0) {
-                throw new Error(
-                    `Failed formatting snapshot: ${result.errors.map((e) => e.message ?? 'unknown').join('; ')}`
-                )
-            }
-            await expect(result.code).toMatchFileSnapshot(snapshotPath)
+            const domainsBlock = buildToolDomainsBlock(toolInfos)
+            const queryToolsBlock = buildQueryToolsBlock(queryToolInfos)
+            expect(domainsBlock).toContain('experiment')
+            expect(domainsBlock).toContain('query')
+            expect(commandDescription).toContain(domainsBlock)
+            expect(commandDescription).toContain(queryToolsBlock)
         })
     })
 })

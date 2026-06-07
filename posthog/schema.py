@@ -2396,7 +2396,7 @@ class FileSystemIconType(StrEnum):
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
