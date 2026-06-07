@@ -27,12 +27,13 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models.signals import post_init, post_save, pre_delete, pre_save
+from django.db.models.signals import post_delete, post_init, post_save, pre_delete, pre_save
 
 import structlog
 
 from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX
@@ -202,6 +203,18 @@ def _reproject_user_on_save(sender: type[User], instance: User, created: bool, *
     transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
 
 
+def _reproject_on_membership_delete(
+    sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
+) -> None:
+    # Losing org membership revokes gateway access, but it touches neither the
+    # credential nor is_active, so nothing else re-projects. Re-project the user's
+    # credentials — the policy now fails closed for a non-member and clears the blob.
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    user_id = instance.user_id
+    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+
+
 def _snapshot_gateway(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
@@ -272,6 +285,8 @@ def connect_signal_handlers() -> None:
 
     post_init.connect(_snapshot_user, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
+
+    post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
 
     post_init.connect(_snapshot_gateway, sender=Gateway)
     post_save.connect(_reproject_gateway_on_save, sender=Gateway)

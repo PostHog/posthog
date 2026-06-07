@@ -247,6 +247,18 @@ class TestFirstPartyPolicyFailClosed(FirstPartyPolicyTestMixin):
         project_first_party_policy(credential)
         self.assertIsNotNone(self._read_blob(credential_hash(credential)))
 
+    def test_non_member_user_fails_closed(self):
+        # A user removed from the billed team's org loses gateway access even
+        # though the key, gateway, and is_active are untouched.
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(credential)
+        cache_hash = credential_hash(credential)
+        assert self._read_blob(cache_hash) is not None
+
+        self.organization_membership.delete()
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(cache_hash))
+
 
 class TestFirstPartyPolicyRefresh(FirstPartyPolicyTestMixin):
     def test_refresh_projects_eligible_credentials(self):
@@ -374,6 +386,17 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
         user.save()
 
         mock_delay.assert_called_with(user.pk)
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_user_first_party_policies_task.delay")
+    def test_membership_delete_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.organization_membership.delete()
+
+        mock_delay.assert_called_with(self.user.pk)
 
     def test_reproject_task_clears_inactive_user_blobs(self):
         pak, _ = self._make_pak([GATEWAY_SCOPE])

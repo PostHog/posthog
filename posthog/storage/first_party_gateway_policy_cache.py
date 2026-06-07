@@ -46,6 +46,7 @@ import structlog
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.models.gateway import GATEWAY_SLUG_PATTERN, Gateway
 from posthog.models.oauth import OAuthAccessToken
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
@@ -138,7 +139,8 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
 
     The bound gateway is the source of truth for the billed team (not the user's
     current team), so team_id is deterministic. Fails closed on missing scope,
-    inactive user, expired token, unbound credential, or a team with no token.
+    inactive user, expired token, unbound credential, a team with no token, or a
+    user who is no longer a member of the billed team's org.
     """
     if not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
@@ -174,6 +176,12 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     if credential.scoped_teams and team_id not in credential.scoped_teams:
         return HyperCacheStoreMissing()
     if credential.scoped_organizations and str(team.organization_id) not in credential.scoped_organizations:
+        return HyperCacheStoreMissing()
+
+    # scoped_organizations is a static ceiling — it doesn't track the user leaving
+    # the org. The gateway can't re-check membership, so verify the user still
+    # belongs to the billed team's org here and fail closed otherwise.
+    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user.id).exists():
         return HyperCacheStoreMissing()
 
     return {
