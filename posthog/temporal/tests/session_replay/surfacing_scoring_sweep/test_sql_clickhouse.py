@@ -48,6 +48,11 @@ class TestFetchFeaturesSqlShape:
         assert "e.distinct_id," in sql
         assert "e.min_first_timestamp," in sql
 
+    def test_eligible_sessions_lookback_reuses_select_alias_in_having(self) -> None:
+        sql = fetch_features_sql()
+        assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)" in sql
+        assert "AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)" not in sql
+
     def test_count_unscored_includes_lookback_and_chunking(self) -> None:
         sql = count_unscored_sql()
         assert "%(lookback_days)s" in sql

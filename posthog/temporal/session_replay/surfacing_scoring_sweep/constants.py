@@ -11,6 +11,9 @@ WORKFLOW_NAME = "score-sessions-batch"
 SCHEDULE_ID = "surfacing-scoring-sweep-batch"
 SCHEDULE_TYPE = "surfacing-scoring-sweep"
 
+# Canonical object key for the production XGBoost booster in app-assets S3.
+MODEL_S3_KEY = "surfacing-scoring/surfacing_score_xgb_v1.ubj"
+
 # Pipeline cadence. Must align with the consumer's freshness expectation —
 # 5m gives the model 5 minutes of headroom between fetch and re-tick, which
 # is comfortable for chunks of TARGET_CHUNK_SIZE on a single libomp worker.

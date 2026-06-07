@@ -5,8 +5,8 @@ and local MinIO with no config changes. After upload, set on the worker:
     SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/<key>
 
 Examples:
-    ./bin/python manage.py upload_surfacing_model ./model.ubj
-    ./bin/python manage.py upload_surfacing_model ./model.ubj --bucket my-bucket --key surfacing-scoring/2026-05-27.ubj
+    ./bin/python manage.py upload_surfacing_model ./surfacing_score_xgb_v1.ubj
+    ./bin/python manage.py upload_surfacing_model ./surfacing_score_xgb_v1.ubj --bucket my-bucket --key surfacing-scoring/surfacing_score_xgb_v2.ubj
 """
 
 from __future__ import annotations
@@ -20,13 +20,12 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 import xgboost as xgb
 
 from posthog.storage import object_storage
+from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import MODEL_S3_KEY
 from posthog.temporal.session_replay.surfacing_scoring_sweep.feature_schema import (
     FeatureSchemaDriftError,
     assert_serving_schema_parity,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import MissingFeatureRangeError
-
-_DEFAULT_KEY = "surfacing-scoring/model.ubj"
 
 
 class Command(BaseCommand):
@@ -47,8 +46,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--key",
             type=str,
-            default=_DEFAULT_KEY,
-            help=f"Object key. Defaults to {_DEFAULT_KEY!r}.",
+            default=MODEL_S3_KEY,
+            help=f"Object key. Defaults to {MODEL_S3_KEY!r}.",
         )
         parser.add_argument(
             "--skip-validate",

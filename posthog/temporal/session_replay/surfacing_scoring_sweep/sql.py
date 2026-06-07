@@ -263,7 +263,7 @@ WITH eligible_sessions AS (
     WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
-      AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)
+      AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)
     -- ORDER BY makes LIMIT deterministic across the two CTE evaluations
     -- (CH inlines CTEs as subqueries — without a stable order, the GLOBAL IN
     -- subquery and the final FROM could pick different subsets and the

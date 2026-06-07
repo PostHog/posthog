@@ -176,6 +176,13 @@ class TestPublishScores:
             assert payload["first_timestamp"] == "2026-05-07 10:00:00.000001"
             assert payload["last_timestamp"] == "2026-05-07 10:00:00.000001"
 
+    def test_flush_timeout_raises_for_activity_retry(self, id_frame: pd.DataFrame) -> None:
+        with mock.patch(f"{ACTIVITIES_MODULE}.get_producer") as get_producer_mock:
+            producer = get_producer_mock.return_value
+            producer.flush.return_value = 2
+            with pytest.raises(RuntimeError, match="not delivered"):
+                _publish_scores(id_frame, np.array([0.1, 0.5, 0.9], dtype=np.float32))
+
     def test_score_dtype_is_python_float(self, id_frame: pd.DataFrame) -> None:
         # confluent-kafka-python's JSON serializer can't handle numpy scalars —
         # `float(score)` is the cast that protects us. Pin the behavior so a

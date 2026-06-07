@@ -200,12 +200,12 @@ worker image.
 ### Uploading a model to S3
 
 ```bash
-./bin/python manage.py upload_surfacing_model ./model.ubj
-# → s3://<settings.OBJECT_STORAGE_BUCKET>/surfacing-scoring/model.ubj
+./bin/python manage.py upload_surfacing_model ./surfacing_score_xgb_v1.ubj
+# → s3://<settings.OBJECT_STORAGE_BUCKET>/surfacing-scoring/surfacing_score_xgb_v1.ubj
 
-# Override bucket/key for date-stamped rollouts:
-./bin/python manage.py upload_surfacing_model ./model.ubj \
-    --bucket my-bucket --key surfacing-scoring/2026-05-27.ubj
+# Override bucket/key for versioned rollouts:
+./bin/python manage.py upload_surfacing_model ./surfacing_score_xgb_v2.ubj \
+    --bucket my-bucket --key surfacing-scoring/surfacing_score_xgb_v2.ubj
 ```
 
 The command uses the same `posthog.storage.object_storage` client the
@@ -215,7 +215,7 @@ validates the `.ubj` before upload (`--skip-validate` to bypass).
 Then on the worker pod, roll to pick up the new model:
 
 ```bash
-SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/surfacing-scoring/model.ubj
+SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/surfacing-scoring/surfacing_score_xgb_v1.ubj
 ```
 
 Plain `aws s3 cp` works too.

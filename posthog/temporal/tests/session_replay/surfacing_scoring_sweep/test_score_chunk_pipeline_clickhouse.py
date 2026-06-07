@@ -163,3 +163,50 @@ class TestScoreChunkPipelineClickhouse(ClickhouseTestMixin, BaseTest):
         df = _fetch_features_dataframe(spec)
 
         assert df.empty, "INNER JOIN should drop sessions with no replay features"
+
+    def test_already_scored_session_is_excluded(self) -> None:
+        insert_session_replay_event(
+            team_id=self.team.id,
+            session_id=self.session_id,
+            distinct_id=self.distinct_id,
+            start=self.session_start,
+            surfacing_score=0.75,
+        )
+        self._seed_replay_features()
+
+        spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
+        df = _fetch_features_dataframe(spec)
+        assert df.empty
+
+    def test_stale_features_outside_lookback_are_excluded(self) -> None:
+        self._seed_unscored_session()
+        sync_execute(
+            "INSERT INTO writable_session_replay_features ("
+            "  session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp, event_count"
+            ") SELECT %(session_id)s, %(team_id)s, %(distinct_id)s, "
+            "now64(6) - INTERVAL 30 DAY, now64(6) - INTERVAL 29 DAY, 100",
+            {"session_id": self.session_id, "team_id": self.team.id, "distinct_id": self.distinct_id},
+        )
+
+        spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
+        df = _fetch_features_dataframe(spec)
+        assert df.empty
+
+    def test_hash_partitioning_respects_chunk_id(self) -> None:
+        self._seed_unscored_session()
+        self._seed_replay_features()
+
+        matching_chunk = None
+        for chunk_id in range(8):
+            spec = ChunkSpec(chunk_id=chunk_id, of_chunks=8, chunk_size=10, lookback_days=7)
+            if not _fetch_features_dataframe(spec).empty:
+                matching_chunk = chunk_id
+                break
+
+        assert matching_chunk is not None, "session should land in exactly one hash bucket"
+
+        for chunk_id in range(8):
+            if chunk_id == matching_chunk:
+                continue
+            spec = ChunkSpec(chunk_id=chunk_id, of_chunks=8, chunk_size=10, lookback_days=7)
+            assert _fetch_features_dataframe(spec).empty
