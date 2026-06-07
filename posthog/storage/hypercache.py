@@ -168,7 +168,7 @@ class HyperCache:
         self.load_fn = load_fn
         self.token_based = token_based
         # Credential-centric mode: keys by an already-hashed credential string
-        # (sha256$<hex>) rather than a team. Used by the first-party gateway
+        # (sha256$<hex>) rather than a team. Used by the gateway credential
         # policy cache, where one blob exists per phx_/pha_ credential.
         self.hashed_credential_based = hashed_credential_based
         self.cache_ttl = cache_ttl
@@ -481,7 +481,7 @@ class HyperCache:
     def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
         """Hard-delete an entry from the given tiers (default redis + s3).
 
-        Production-safe: the first-party gateway projection uses this to revoke a
+        Production-safe: the gateway credential projection uses this to revoke a
         credential's blob immediately — a missing key fails closed at the gateway.
         """
         kinds = kinds or ["redis", "s3"]

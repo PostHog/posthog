@@ -1,5 +1,5 @@
 """
-Signal handlers that keep the first-party gateway policy cache in sync with
+Signal handlers that keep the gateway credential cache in sync with
 credential and user state.
 
 The blob is keyed by the credential's hash, so a revoke, scope removal, or token
@@ -38,23 +38,23 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX
-from posthog.storage.first_party_gateway_policy_cache import (
-    FIRST_PARTY_REQUIRED_SCOPE,
-    clear_first_party_policy,
+from posthog.storage.gateway_credential_cache import (
+    GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+    clear_gateway_credential,
     credential_has_gateway_scope,
 )
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
-from posthog.tasks.first_party_gateway_policy import (
-    reproject_gateway_first_party_policies_task,
-    reproject_oauth_application_first_party_policies_task,
-    reproject_team_first_party_policies_task,
-    reproject_user_first_party_policies_task,
-    update_first_party_policy_cache_task,
+from posthog.tasks.gateway_credential import (
+    reproject_gateway_bound_credentials_task,
+    reproject_oauth_application_gateway_credentials_task,
+    reproject_team_gateway_credentials_task,
+    reproject_user_gateway_credentials_task,
+    update_gateway_credential_cache_task,
 )
 
 logger = structlog.get_logger(__name__)
 
-_NAMESPACE = "first_party_gateway_policy"
+_NAMESPACE = "gateway_credential"
 
 _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
@@ -119,7 +119,7 @@ def _capture_old_pak_if_deferred(sender: type[PersonalAPIKey], instance: Persona
     if row is None:
         return
     instance.__dict__[_LOADED_HASH_ATTR] = row["secure_value"]
-    instance.__dict__[_LOADED_ELIGIBLE_ATTR] = FIRST_PARTY_REQUIRED_SCOPE in (row["scopes"] or [])
+    instance.__dict__[_LOADED_ELIGIBLE_ATTR] = GATEWAY_CREDENTIAL_REQUIRED_SCOPE in (row["scopes"] or [])
 
 
 def _capture_old_oauth_if_deferred(sender: type[OAuthAccessToken], instance: OAuthAccessToken, **kwargs: Any) -> None:
@@ -132,7 +132,7 @@ def _capture_old_oauth_if_deferred(sender: type[OAuthAccessToken], instance: OAu
         return
     checksum = row["token_checksum"]
     instance.__dict__[_LOADED_HASH_ATTR] = f"{SHA256_HASH_PREFIX}{checksum}" if checksum else None
-    instance.__dict__[_LOADED_ELIGIBLE_ATTR] = FIRST_PARTY_REQUIRED_SCOPE in (row["scope"] or "").split()
+    instance.__dict__[_LOADED_ELIGIBLE_ATTR] = GATEWAY_CREDENTIAL_REQUIRED_SCOPE in (row["scope"] or "").split()
 
 
 def _on_credential_save(
@@ -157,15 +157,15 @@ def _on_credential_save(
             # A rotated/changed hash leaves the old key live for the full TTL —
             # clear it synchronously so the stale secret stops authenticating now.
             if old_hash and old_hash != new_hash:
-                clear_first_party_policy(old_hash)
+                clear_gateway_credential(old_hash)
             if eligible_now:
-                update_first_party_policy_cache_task.delay(kind, str(instance.pk))
+                update_gateway_credential_cache_task.delay(kind, str(instance.pk))
             elif new_hash:
                 # Scope was removed: clear promptly rather than waiting for a task.
-                clear_first_party_policy(new_hash)
+                clear_gateway_credential(new_hash)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace=_NAMESPACE, operation="enqueue", result="failure").inc()
-            logger.exception("Failed to enqueue first-party policy cache update", kind=kind, error=str(e))
+            logger.exception("Failed to enqueue gateway credential cache update", kind=kind, error=str(e))
 
     transaction.on_commit(enqueue)
 
@@ -185,7 +185,7 @@ def _clear_pak_on_delete(sender: type[PersonalAPIKey], instance: PersonalAPIKey,
         return
     cache_hash = _pak_hash(instance)
     if cache_hash:
-        clear_first_party_policy(cache_hash)
+        clear_gateway_credential(cache_hash)
 
 
 def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccessToken, **kwargs: Any) -> None:
@@ -193,7 +193,7 @@ def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccess
         return
     cache_hash = _oauth_hash(instance)
     if cache_hash:
-        clear_first_party_policy(cache_hash)
+        clear_gateway_credential(cache_hash)
 
 
 def _reproject_user_on_save(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
@@ -209,7 +209,7 @@ def _reproject_user_on_save(sender: type[User], instance: User, created: bool, *
         return
 
     user_id = instance.pk
-    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
 
 
 def _reproject_on_membership_delete(
@@ -221,7 +221,7 @@ def _reproject_on_membership_delete(
     if not settings.AI_GATEWAY_REDIS_URL:
         return
     user_id = instance.user_id
-    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
 
 
 def _snapshot_oauth_application(sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any) -> None:
@@ -245,7 +245,7 @@ def _reproject_oauth_application_on_save(
         return
 
     application_id = str(instance.pk)
-    transaction.on_commit(lambda: reproject_oauth_application_first_party_policies_task.delay(application_id))
+    transaction.on_commit(lambda: reproject_oauth_application_gateway_credentials_task.delay(application_id))
 
 
 def _snapshot_team(sender: type[Team], instance: Team, **kwargs: Any) -> None:
@@ -257,7 +257,7 @@ def _snapshot_team(sender: type[Team], instance: Team, **kwargs: Any) -> None:
 
 def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     # project_token in the blob is the team's api_token; a rotation leaves every
-    # first-party blob on this team's gateways carrying the stale token.
+    # gateway credential blob on this team's gateways carrying the stale token.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_token = instance.__dict__.get(_LOADED_TEAM_API_TOKEN_ATTR)
@@ -266,7 +266,7 @@ def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, crea
         return
 
     team_id = instance.pk
-    transaction.on_commit(lambda: reproject_team_first_party_policies_task.delay(team_id))
+    transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
 def _snapshot_membership(sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any) -> None:
@@ -290,7 +290,7 @@ def _reproject_on_membership_save(
         return
 
     user_id = instance.user_id
-    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
 
 
 def _snapshot_gateway(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
@@ -312,7 +312,7 @@ def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created
         return
 
     gateway_id = str(instance.pk)
-    transaction.on_commit(lambda: reproject_gateway_first_party_policies_task.delay(gateway_id))
+    transaction.on_commit(lambda: reproject_gateway_bound_credentials_task.delay(gateway_id))
 
 
 def _bound_credential_hashes(gateway_id: UUID | str) -> list[str]:
@@ -320,7 +320,7 @@ def _bound_credential_hashes(gateway_id: UUID | str) -> list[str]:
     hashes = [
         secure_value
         for secure_value in PersonalAPIKey.objects.filter(
-            gateway_id=gateway_id, scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE]
+            gateway_id=gateway_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
         ).values_list("secure_value", flat=True)
         if secure_value
     ]
@@ -347,7 +347,7 @@ def _clear_gateway_on_delete(sender: type[Gateway], instance: Gateway, **kwargs:
 
 def _clear_policy_hashes(hashes: list[str]) -> None:
     for hash_key in hashes:
-        clear_first_party_policy(hash_key)
+        clear_gateway_credential(hash_key)
 
 
 def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: Any) -> None:
@@ -358,7 +358,7 @@ def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: A
     if not settings.AI_GATEWAY_REDIS_URL or instance.resource != "project" or instance.team_id is None:
         return
     team_id = instance.team_id
-    transaction.on_commit(lambda: reproject_team_first_party_policies_task.delay(team_id))
+    transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
 def _reproject_on_role_membership_change(sender: type, instance: Any, **kwargs: Any) -> None:
@@ -368,7 +368,7 @@ def _reproject_on_role_membership_change(sender: type, instance: Any, **kwargs: 
     if not settings.AI_GATEWAY_REDIS_URL or instance.user_id is None:
         return
     user_id = instance.user_id
-    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+    transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
 
 
 def connect_signal_handlers() -> None:

@@ -1,5 +1,5 @@
 """
-Gateway — a team's named bucket for first-party LLM gateway access (RFC #1103).
+Gateway — a team's named bucket for LLM gateway access (RFC #1103).
 
 A gateway's slug is the product its credentials attribute to: it equals the
 $ai_gateway_slug property the Go gateway sets at auth. Many keys can bind to one

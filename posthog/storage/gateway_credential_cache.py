@@ -1,6 +1,6 @@
 """
-First-party gateway policy HyperCache — purpose-built projection for the Go
-ai-gateway's first-party auth path (RFC #1103).
+Gateway credential HyperCache — purpose-built projection for the Go
+ai-gateway's gateway-credential auth path (RFC #1103).
 
 Where the team-centric llm_gateway_policy.json blob admits a whole team by its
 phc_ project token, this one is credential-centric: one blob per phx_ personal
@@ -8,7 +8,7 @@ API key / pha_ OAuth access token, keyed by the credential's hash so the secret
 never sits in a Redis key or S3 path.
 
 Shape:
-    Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/first_party_policy.json
+    Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
     Body:
         {
             "team_id": 12345,
@@ -19,14 +19,14 @@ Shape:
             "revoked_at": null
         }
 
-Each first-party credential is bound to exactly one gateway: the gateway's slug
+Each gateway credential is bound to exactly one gateway: the gateway's slug
 is the product, equal to the $ai_gateway_slug property (the value formerly known
 as $ai_product, now surfaced to non-PostHog orgs too) so internal billing stays
 continuous. The Go gateway resolves key → gateway → product at auth, so the blob
 carries a single gateway_slug — not a product list, and not a per-team gateway map.
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex,
-which the gateway derives identically (PostHog/ai-gateway internal/auth/firstparty.go).
+which the gateway derives identically (PostHog/ai-gateway internal/auth).
 team_id and project_token are load-bearing: the gateway fails closed if either is
 missing, so the projection writes a blob only for a fully-resolvable credential and
 clears it otherwise. Written Redis-only (no S3): an OAuth token lives ~1h, and S3's
@@ -55,11 +55,11 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyTy
 
 logger = structlog.get_logger(__name__)
 
-FIRST_PARTY_REQUIRED_SCOPE = "llm_gateway:read"
+GATEWAY_CREDENTIAL_REQUIRED_SCOPE = "llm_gateway:read"
 
 # billing_mode is provisional — the gateway treats it as opaque pass-through and
 # does not enforce it yet. Open: whether it is ever non-internal.
-FIRST_PARTY_BILLING_MODE = "internal"
+GATEWAY_CREDENTIAL_BILLING_MODE = "internal"
 
 # Backstop validation of gateway.slug before it lands in the blob. Gateway.save()
 # already enforces this on write; re-check here because the gateway does none of
@@ -70,14 +70,14 @@ _GATEWAY_SLUG_RE = re.compile(GATEWAY_SLUG_PATTERN)
 # level is the second-highest in the member ladder (none < member < admin).
 _PROJECT_READ_ACCESS_LEVEL = ordered_access_levels("project")[-2]
 
-FIRST_PARTY_POLICY_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
-FIRST_PARTY_POLICY_CACHE_MISS_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
+GATEWAY_CREDENTIAL_CACHE_TTL = int(os.environ.get("GATEWAY_CREDENTIAL_CACHE_TTL", str(60 * 60 * 24 * 7)))
+GATEWAY_CREDENTIAL_CACHE_MISS_TTL = int(os.environ.get("GATEWAY_CREDENTIAL_CACHE_MISS_TTL", str(60 * 60 * 24)))
 
 # Caps the PAK blob TTL so a signal-bypassing removal (e.g. .update()) self-heals
 # in hours, not the 7-day default. Must stay above the hourly refresh interval.
-FIRST_PARTY_POLICY_PAK_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_PAK_CACHE_TTL", str(60 * 60 * 6)))
+GATEWAY_CREDENTIAL_PAK_CACHE_TTL = int(os.environ.get("GATEWAY_CREDENTIAL_PAK_CACHE_TTL", str(60 * 60 * 6)))
 
-FIRST_PARTY_POLICY_FIELDS = [
+GATEWAY_CREDENTIAL_FIELDS = [
     "team_id",
     "project_token",
     "scopes",
@@ -106,13 +106,13 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
 
     The literal scope only — a "*" wildcard must NOT subsume the privileged
     gateway scope (RFC #1103). The gateway rejects a blob whose scopes are "*"
-    (firstparty_test.go), and the legacy "*" backward-compat wildcard is being
+    (enforced gateway-side), and the legacy "*" backward-compat wildcard is being
     retired (#60342); granting privileged gateway access off it would be an
     over-grant. A "*" client gets the scope only once it re-auths for the literal.
     """
     if isinstance(credential, PersonalAPIKey):
-        return FIRST_PARTY_REQUIRED_SCOPE in (credential.scopes or [])
-    return FIRST_PARTY_REQUIRED_SCOPE in credential.scope.split()
+        return GATEWAY_CREDENTIAL_REQUIRED_SCOPE in (credential.scopes or [])
+    return GATEWAY_CREDENTIAL_REQUIRED_SCOPE in credential.scope.split()
 
 
 def _gateway_for_credential(credential: Credential) -> Gateway | None:
@@ -135,7 +135,7 @@ def _ttl_for_credential(credential: Credential) -> float:
     hourly refresh keeps warm — a missed removal self-heals instead of lasting 7 days."""
     if isinstance(credential, OAuthAccessToken):
         return (credential.expires - timezone.now()).total_seconds()
-    return FIRST_PARTY_POLICY_PAK_CACHE_TTL
+    return GATEWAY_CREDENTIAL_PAK_CACHE_TTL
 
 
 def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
@@ -223,9 +223,9 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     return {
         "team_id": team_id,
         "project_token": project_token,
-        "scopes": [FIRST_PARTY_REQUIRED_SCOPE],
+        "scopes": [GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
         "gateway_slug": gateway.slug,
-        "billing_mode": FIRST_PARTY_BILLING_MODE,
+        "billing_mode": GATEWAY_CREDENTIAL_BILLING_MODE,
         "revoked_at": None,
     }
 
@@ -247,7 +247,7 @@ def _resolve_credential(hash_key: str) -> Credential | None:
     return None
 
 
-def _load_first_party_policy(hash_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
+def _load_gateway_credential(hash_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
     # Narrow except clause for the same reason as the team analog: only a genuine
     # miss or a transient DB error should write a negative entry; a bug must
     # propagate so the next read retries instead of 401ing for the miss TTL.
@@ -259,27 +259,27 @@ def _load_first_party_policy(hash_key: KeyType) -> dict[str, Any] | HyperCacheSt
             return HyperCacheStoreMissing()
         return _policy_for_credential(credential)
     except OperationalError as e:
-        logger.exception("Database error loading first-party gateway policy", error_type=type(e).__name__)
+        logger.exception("Database error loading gateway credential", error_type=type(e).__name__)
         return HyperCacheStoreMissing()
 
 
-# Write-only from Django: project_first_party_policy / clear_first_party_policy are
+# Write-only from Django: project_gateway_credential / clear_gateway_credential are
 # the only callers, and the Go gateway reads Redis directly. Do not call
 # get_from_cache on this instance — its lazy-fill ignores _ttl_for_credential and
 # would write the default cache_ttl (7 days), defeating the PAK cap. load_fn exists
 # only because HyperCache requires one.
-first_party_gateway_policy_hypercache = HyperCache(
+gateway_credential_hypercache = HyperCache(
     namespace="team_metadata",
-    value="first_party_policy.json",
+    value="gateway_credential.json",
     hashed_credential_based=True,
-    load_fn=_load_first_party_policy,
-    cache_ttl=FIRST_PARTY_POLICY_CACHE_TTL,
-    cache_miss_ttl=FIRST_PARTY_POLICY_CACHE_MISS_TTL,
+    load_fn=_load_gateway_credential,
+    cache_ttl=GATEWAY_CREDENTIAL_CACHE_TTL,
+    cache_miss_ttl=GATEWAY_CREDENTIAL_CACHE_MISS_TTL,
     cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),
 )
 
 
-def project_first_party_policy(credential: Credential) -> None:
+def project_gateway_credential(credential: Credential) -> None:
     """Write (or clear) the credential's policy blob from current DB state."""
     cache_hash = credential_hash(credential)
     if not cache_hash:
@@ -287,27 +287,27 @@ def project_first_party_policy(credential: Credential) -> None:
 
     policy = _policy_for_credential(credential)
     if isinstance(policy, HyperCacheStoreMissing):
-        first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
 
     ttl = _ttl_for_credential(credential)
     if ttl <= 0:  # OAuth token expired since the policy check — clear, don't write a 1s blob
-        first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
 
     # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
     # which Django treats as evict-immediately.
-    first_party_gateway_policy_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
 
 
-def clear_first_party_policy(credential_or_hash: Credential | str) -> None:
+def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
     cache_hash = credential_or_hash if isinstance(credential_or_hash, str) else credential_hash(credential_or_hash)
     if not cache_hash:
         return
-    first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+    gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
 
 
-def refresh_all_first_party_policies() -> int:
+def refresh_all_gateway_credentials() -> int:
     """Re-project every credential currently granted llm_gateway:read.
 
     Forward iteration because the cache key is a one-way hash — it can't be
@@ -327,7 +327,7 @@ def refresh_all_first_party_policies() -> int:
     now = timezone.now()
     querysets = (
         PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
-            scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE], user__is_active=True
+            scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE], user__is_active=True
         ),
         OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
@@ -340,7 +340,7 @@ def refresh_all_first_party_policies() -> int:
     count = 0
     for queryset in querysets:
         for credential in queryset.iterator(chunk_size=1000):
-            project_first_party_policy(credential)
+            project_gateway_credential(credential)
             count += 1
 
     return count
