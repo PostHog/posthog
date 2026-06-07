@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -18,6 +19,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { aiGatewayLogic } from './aiGatewayLogic'
 import { GatewayCredentials, profileUser } from './GatewayCredentials'
 import { GatewayApi } from './generated/api.schemas'
+
+const AI_GATEWAY_DESCRIPTION =
+    'An AI gateway routes your LLM requests through PostHog and attributes their usage, cost, and spend to a named slug. ' +
+    "Assign one or more personal API keys to a gateway, then call the gateway's endpoint with one of those keys — every " +
+    'request is attributed to that gateway. Create separate gateways to break usage down by app, team, or environment, ' +
+    'and rotate keys without downtime by assigning a new one before retiring the old.'
 
 export const scene: SceneExport = {
     component: AIGatewayScene,
@@ -109,6 +116,14 @@ export function AIGatewayScene(): JSX.Element {
                         New gateway
                     </LemonButton>
                 }
+            />
+            <ProductIntroduction
+                productName="AI gateway"
+                productKey={ProductKey.AI_GATEWAY}
+                thingName="gateway"
+                description={AI_GATEWAY_DESCRIPTION}
+                action={openNewGateway}
+                isEmpty={!gateways.length}
             />
             <LemonTable
                 columns={columns}
