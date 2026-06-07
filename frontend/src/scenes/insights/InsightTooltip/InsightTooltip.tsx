@@ -268,14 +268,17 @@ export function InsightTooltip({
                         showHeader={showHeader}
                         onRow={
                             onRowClick && numDataPoints === 1
-                                ? (datum) => ({
-                                      onClick: () => {
-                                          const seriesDatum = datum.seriesData[0]
-                                          if (seriesDatum) {
-                                              onRowClick(seriesDatum)
-                                          }
-                                      },
-                                  })
+                                ? (datum) =>
+                                      datum.id === 'total'
+                                          ? {}
+                                          : {
+                                                onClick: () => {
+                                                    const seriesDatum = datum.seriesData[0]
+                                                    if (seriesDatum) {
+                                                        onRowClick(seriesDatum)
+                                                    }
+                                                },
+                                            }
                                 : undefined
                         }
                     />
