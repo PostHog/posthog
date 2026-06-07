@@ -45,6 +45,7 @@ import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
@@ -235,37 +236,33 @@ export function TaxonomicFilterMenu({
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
 
+    // Only recents/pinned whose source group is one of this picker's groups —
+    // a global recent from a different picker (e.g. a cohort in an events-only
+    // picker) would otherwise be remapped onto a fallback group and shown under
+    // the wrong category.
+    const taxonomicGroupTypes = useMemo(() => groups.map((g) => g.type), [groups])
     const recentEntries = useMemo<MenuFilterEntry[]>(
-        () => mapShortcutItems(recentFilterItems as ShortcutItem[], groups),
-        [recentFilterItems, groups]
+        () =>
+            mapShortcutItems(
+                filterRecentsForContext(
+                    recentFilterItems as TaxonomicDefinitionTypes[],
+                    taxonomicGroupTypes
+                ) as ShortcutItem[],
+                groups
+            ),
+        [recentFilterItems, taxonomicGroupTypes, groups]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
-        () => mapShortcutItems(pinnedFilterItems as ShortcutItem[], groups),
-        [pinnedFilterItems, groups]
+        () =>
+            mapShortcutItems(
+                filterPinnedForContext(
+                    pinnedFilterItems as TaxonomicDefinitionTypes[],
+                    taxonomicGroupTypes
+                ) as ShortcutItem[],
+                groups
+            ),
+        [pinnedFilterItems, taxonomicGroupTypes, groups]
     )
-    /*
-     * Suggested = Recent ∪ Pinned across all groups, mirroring the
-     * legacy popover's "Suggested step" view. Recent comes first
-     * (chronologically more relevant to the user); pinned fills in
-     * the curated picks. Dedup on `(group.type, value)` so a pinned
-     * entry that's also recent only shows once. Each entry keeps its
-     * source `group` reference so the row's category label still
-     * reads "Events", "Actions", etc. (not "Suggested filters").
-     */
-    const suggestedEntries = useMemo<MenuFilterEntry[]>(() => {
-        const seen = new Set<string>()
-        const out: MenuFilterEntry[] = []
-        for (const entry of [...recentEntries, ...pinnedEntries]) {
-            const value = entry.group.getValue?.(entry.item) ?? entry.name
-            const key = `${entry.group.type}::${String(value)}`
-            if (seen.has(key)) {
-                continue
-            }
-            seen.add(key)
-            out.push(entry)
-        }
-        return out
-    }, [recentEntries, pinnedEntries])
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
     const hasHogql = groups.some((g) => g.type === TaxonomicFilterGroupType.HogQLExpression)
@@ -479,14 +476,12 @@ export function TaxonomicFilterMenu({
                                     ? recentEntries
                                     : state.drillTo === 'pinned'
                                       ? pinnedEntries
-                                      : state.drillTo === 'suggested'
-                                        ? suggestedEntries
-                                        : undefined
+                                      : undefined
                             }
-                            // Always pass `suggestedItems` so the chip
-                            // works in 'all' mode too (without forcing a
-                            // drill via the dropdown menu).
-                            suggestedItems={suggestedEntries}
+                            // Recents/pinned lead the default "All" surface
+                            // (fixed order: recents, then pinned).
+                            recentEntries={recentEntries}
+                            pinnedEntries={pinnedEntries}
                             placeholder={placeholder ?? inputProps.placeholder}
                             // Only override the default "Choose filter"
                             // header when on the All chip — drilled views

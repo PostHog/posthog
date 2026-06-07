@@ -2,10 +2,17 @@
 
 Two distinct skill families live in this directory:
 
-1. **Official PostHog skills** — `signals/`, `inbox-exploration/`. First-party PostHog
-   skills published via `products/posthog_ai/dist/skills/` and loaded by users through
-   the PostHog MCP. They teach a caller how to query, browse, and reason about signals
-   data. They are not part of the automated agent path — humans (and human-driven
+1. **Official PostHog skills** — `signals/`, `inbox-exploration/`,
+   `authoring-signals-scouts/`, `exploring-signals-scouts/`. First-party PostHog skills
+   published via `products/posthog_ai/dist/skills/` and loaded by users through the PostHog
+   MCP. They teach a caller how to query, browse, and reason about signals data. Two are
+   meta skills about the scout fleet itself: `authoring-signals-scouts/` teaches a user's
+   agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
+   in this directory), and `exploring-signals-scouts/` is its read-only counterpart —
+   teaching a caller how to observe and make sense of what a project's scouts are doing and
+   how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
+   / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
+   assessment). They are not part of the automated agent path — humans (and human-driven
    agents) reach for them on demand.
 2. **Scout fleet** — `signals-scout-*/`. Canonical default skills that the headless
    Signals agent loads into its system prompt at runtime. These are also the first
@@ -46,12 +53,20 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-csp-violations/` — anomaly watcher for Content Security Policy
   violations (`$csp_violation` blocked-URL clusters, per-directive bursts,
   post-deploy page-scoped regressions, suspicious third-party domains).
+- `signals-scout-anomaly-detection/` — anomaly watcher for the dashboards and
+  insights a team actually views. Discovers high-traffic insights (view counts +
+  dashboard access), curates a durable scratchpad watchlist, and balances
+  re-checking known items (exploit) against discovering new ones (explore) across
+  runs; scores the latest complete bucket by robust (MAD) deviation from each
+  insight's own seasonality-matched baseline. Unlike the other specialists it
+  bundles its own references (`anomaly-methods.md`, `watchlist-and-memory.md`,
+  `emit-contract.md`).
 
 ### How the coordinator decides what runs
 
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per
-`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 1440 =
-daily) and a `last_run_at` stamp. Every tick the coordinator:
+`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 60 =
+hourly) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's
    JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`,
@@ -77,7 +92,7 @@ will:
 
 - discover it via `lazy_seed.discover_canonical_skills()`,
 - create matching `LLMSkill` rows on each agent-enabled team,
-- auto-register an enabled, daily-schedule `SignalScoutConfig` for it so the next
+- auto-register an enabled, hourly-schedule `SignalScoutConfig` for it so the next
   due tick dispatches it.
 
 No coordinator-side code change is needed. Use `signals-scout-general` as the
@@ -101,10 +116,12 @@ fleet also reasons in terms of:
 - **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 
-The 7 specialists are each currently a single self-contained `SKILL.md` carrying
-their own domain discriminator + investigation patterns. A simplification pass to
-compress them and share the generalist's references is planned; until then, treat
-the generalist as the reference shape.
+The specialists each carry their own domain discriminator + investigation patterns.
+Most are a single self-contained `SKILL.md`; `signals-scout-anomaly-detection`
+additionally bundles its own references (`anomaly-methods.md`,
+`watchlist-and-memory.md`, `emit-contract.md`). A simplification pass to compress
+them and share the generalist's references is planned; until then, treat the
+generalist as the reference shape.
 
 ## When editing skills in this directory
 

@@ -123,6 +123,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 "provisioning_active",
                 "provisioning_skip_existing_user_consent",
                 "provisioning_can_issue_deep_links",
+                "provisioning_issues_personal_api_key",
                 "provisioning_can_create_accounts",
                 "provisioning_can_provision_resources",
                 "provisioning_rate_limit_account_requests",

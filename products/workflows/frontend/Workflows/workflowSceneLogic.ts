@@ -1,6 +1,6 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -52,7 +52,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             },
         ],
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/workflows/:id/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
                 actions.setCurrentTab(tab as WorkflowTab)

@@ -339,6 +339,7 @@ class TestBuildEmitExtra:
     def _minimal(self) -> dict:
         return _build_extra(
             run_id="run-uuid",
+            task_run_id="task-run-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=2,
@@ -355,6 +356,7 @@ class TestBuildEmitExtra:
         extra = self._minimal()
         # Required by schema:
         assert extra["scout_run_id"] == "run-uuid"
+        assert extra["task_run_id"] == "task-run-uuid"
         assert extra["finding_id"] == "finding-uuid"
         assert extra["skill_name"] == "signals-scout-errors"
         assert extra["confidence"] == 0.7
@@ -375,6 +377,7 @@ class TestBuildEmitExtra:
     def test_full_extra_includes_all_optional_fields(self) -> None:
         extra = _build_extra(
             run_id="run-uuid",
+            task_run_id="task-run-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=1,
@@ -490,6 +493,7 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
     assert call_kwargs["description"] == "Checkout 500s post-deploy"
     assert call_kwargs["weight"] == 0.7
     assert call_kwargs["extra"]["scout_run_id"] == str(arun_emit.id)
+    assert call_kwargs["extra"]["task_run_id"] == str(arun_emit.task_run_id)
     assert call_kwargs["extra"]["finding_id"] == "f-happy"
     assert call_kwargs["extra"]["skill_name"] == "signals-scout-errors"
     assert call_kwargs["extra"]["skill_version"] == 3.0

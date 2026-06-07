@@ -1,10 +1,8 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -84,7 +82,6 @@ const setQueryParams = (params: Record<string, string>): string => {
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
-    tabAwareScene(),
     connect(() => ({
         values: [
             customerAnalyticsConfigLogic,
@@ -904,13 +901,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ],
         ],
     }),
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
         setFilterTestAccounts: ({ filterTestAccounts }): string =>
             setQueryParams({ filter_test_accounts: String(filterTestAccounts) }),
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '*': (_, { date_from, date_to, filter_test_accounts }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
