@@ -12,7 +12,6 @@ import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
     type BarRoundedCorners,
-    type BarShadow,
     clipToRoundedRects,
     drawBarHighlight,
     drawBars,
@@ -23,7 +22,6 @@ import {
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { barColorAt } from '../../core/color-utils'
-import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
@@ -38,7 +36,6 @@ import {
 } from '../../core/scales'
 import type {
     BarChartConfig,
-    BarsConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartScales,
@@ -53,6 +50,7 @@ import type {
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { BarTooltip } from './BarTooltip'
+import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT, resolveBarShadow } from './utils/bar-config'
 import {
     type BarLayout,
     barContainsPointOnBandAxis,
@@ -76,14 +74,6 @@ export interface BarChartProps<Meta = unknown> {
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
-
-// Negative offsetY casts the shadow upward onto the visible track above the bar.
-const DEFAULT_BAR_SHADOW: BarShadow = { color: 'rgba(0,0,0,0.30)', blur: 12, offsetY: -4 }
-
-// Horizontal floor: each row gets at least this much px so tick labels don't crush; wrapper scrolls.
-const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
-// Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
-const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
 const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
 
@@ -114,16 +104,6 @@ function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[] {
         }
     }
     return [...byBand.values()]
-}
-
-function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
-    if (barShadow === true) {
-        return DEFAULT_BAR_SHADOW
-    }
-    if (barShadow === false || barShadow == null) {
-        return undefined
-    }
-    return barShadow
 }
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
@@ -167,18 +147,10 @@ function BarChartInner<Meta = unknown>({
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
-    // Fit-to-height drops overflow rows instead of growing the container, so it never sets a
-    // wrapper floor — the chart fills whatever height the tile gives it.
-    const wrapperMinHeight = useMemo(() => {
-        if (!isHorizontal || fitToHeight || resolvedMinBandSize <= 0) {
-            return undefined
-        }
-        const uniqueBands = new Set(labels).size
-        if (uniqueBands === 0) {
-            return undefined
-        }
-        return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
-    }, [isHorizontal, fitToHeight, resolvedMinBandSize, labels])
+    const wrapperMinHeight = useMemo(
+        () => computeWrapperMinHeight({ isHorizontal, fitToHeight, resolvedMinBandSize, labels }),
+        [isHorizontal, fitToHeight, resolvedMinBandSize, labels]
+    )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
