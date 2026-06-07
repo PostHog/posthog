@@ -3758,6 +3758,7 @@ class NodeKind(StrEnum):
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
+    SESSION_MESSAGES_QUERY = "SessionMessagesQuery"
     TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
@@ -8120,7 +8121,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8755,6 +8756,47 @@ class SessionBatchEventsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class SessionMessagesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTraceEvent] = Field(
+        ...,
+        description=("Every transcript AI event for the session, ordered by trace then timestamp."),
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -13153,6 +13195,58 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedSessionMessagesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTraceEvent] = Field(
+        ...,
+        description=("Every transcript AI event for the session, ordered by trace then timestamp."),
+    )
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -20549,10 +20643,11 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: list[str] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -20568,7 +20663,10 @@ class QueryResponseAlternative89(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[VectorSearchResponseItem]
+    results: list[LLMTraceEvent] = Field(
+        ...,
+        description=("Every transcript AI event for the session, ordered by trace then timestamp."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20605,7 +20703,7 @@ class QueryResponseAlternative90(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[UsageMetric]
+    results: list[VectorSearchResponseItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20624,6 +20722,43 @@ class QueryResponseAlternative90(BaseModel):
 
 
 class QueryResponseAlternative91(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[UsageMetric]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20670,7 +20805,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20707,7 +20842,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20749,7 +20884,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20786,7 +20921,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21205,6 +21340,24 @@ class SessionAttributionExplorerQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: SessionAttributionExplorerQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SessionMessagesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["SessionMessagesQuery"] = "SessionMessagesQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: SessionMessagesQueryResponse | None = None
+    sessionId: str = Field(
+        ...,
+        description=(
+            "Bulk-loads every AI event for the given session. Session id is"
+            " bloom-filter indexed, so no date range is needed."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -25433,6 +25586,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     ]
 ):
     root: (
@@ -25527,6 +25681,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     )
 
 
@@ -26563,6 +26718,7 @@ class HogQLAutocomplete(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -26651,6 +26807,7 @@ class HogQLMetadata(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -26774,6 +26931,7 @@ class MaxInsightContext(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -26894,6 +27052,7 @@ class QueryRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27006,6 +27165,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27088,6 +27248,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27175,6 +27336,7 @@ class QueryUpgradeRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27262,6 +27424,7 @@ class QueryUpgradeResponse(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27509,6 +27672,7 @@ class VisualizationArtifactContent(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionMessagesQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery

@@ -171,6 +171,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    SessionMessagesQuery = 'SessionMessagesQuery',
     TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
@@ -239,6 +240,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | SessionMessagesQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
@@ -343,6 +345,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | SessionMessagesQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
 
@@ -4990,6 +4993,19 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface SessionMessagesQueryResponse extends AnalyticsQueryResponseBase {
+    /** Every transcript AI event for the session, ordered by trace then timestamp. */
+    results: LLMTraceEvent[]
+    columns?: string[]
+}
+
+export interface SessionMessagesQuery extends DataNode<SessionMessagesQueryResponse> {
+    kind: NodeKind.SessionMessagesQuery
+    /** Bulk-loads every AI event for the given session. Session id is bloom-filter indexed,
+     * so no date range is needed. */
+    sessionId: string
+}
+
 export interface TraceNeighborsQueryResponse {
     /** ID of the newer trace (chronologically after current) */
     newerTraceId?: string
@@ -5020,6 +5036,7 @@ export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryRespons
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedSessionMessagesQueryResponse = CachedQueryResponse<SessionMessagesQueryResponse>
 export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
