@@ -6,6 +6,7 @@ import {
     beforeUnmount,
     connect,
     kea,
+    key,
     listeners,
     path,
     props,
@@ -27,7 +28,6 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -395,7 +395,7 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
-    tabAwareScene(),
+    key((props) => props.tabId),
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,

@@ -1,8 +1,7 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
@@ -49,17 +48,13 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     )
 }
 
-export interface EditorSceneLogicProps {
-    tabId: string
-}
+export const SQL_EDITOR_SCENE_TAB_ID = 'default'
 
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
-    props({} as EditorSceneLogicProps),
-    tabAwareScene(),
-    connect((props: EditorSceneLogicProps) => ({
+    connect(() => ({
         values: [
-            sqlEditorLogic({ tabId: props.tabId }),
+            sqlEditorLogic({ tabId: SQL_EDITOR_SCENE_TAB_ID }),
             [
                 'activeTab',
                 'dashboardId',

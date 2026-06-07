@@ -33,7 +33,7 @@ const MOCK_LINEAGE_SINGLE_NODE: LineageGraph = {
     edges: [],
 }
 
-const TAB_ID = 'story-tab'
+const TAB_ID = 'default'
 
 function GraphLoader({ lineage }: { lineage: LineageGraph }): JSX.Element {
     const { loadUpstreamSuccess } = useActions(sqlEditorLogic({ tabId: TAB_ID }))

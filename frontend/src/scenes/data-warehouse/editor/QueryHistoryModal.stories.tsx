@@ -9,11 +9,11 @@ import { editorSceneLogic } from './editorSceneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
-const STORY_TAB_ID = 'story-query-history'
+const STORY_TAB_ID = 'default'
 
 // Opens the modal immediately so the story renders it in the open state
 function OpenQueryHistoryModal(): JSX.Element {
-    const { openHistoryModal } = useActions(editorSceneLogic({ tabId: STORY_TAB_ID }))
+    const { openHistoryModal } = useActions(editorSceneLogic)
     const { updateTab } = useActions(sqlEditorLogic({ tabId: STORY_TAB_ID }))
     useEffect(() => {
         updateTab({
@@ -24,7 +24,7 @@ function OpenQueryHistoryModal(): JSX.Element {
         openHistoryModal()
     }, [openHistoryModal, updateTab])
     return (
-        <BindLogic logic={editorSceneLogic} props={{ tabId: STORY_TAB_ID }}>
+        <BindLogic logic={editorSceneLogic} props={{}}>
             <BindLogic logic={sqlEditorLogic} props={{ tabId: STORY_TAB_ID }}>
                 <QueryHistoryModal />
             </BindLogic>

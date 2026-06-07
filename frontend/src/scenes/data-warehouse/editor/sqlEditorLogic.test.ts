@@ -163,7 +163,7 @@ describe('sqlEditorLogic', () => {
     let logic: ReturnType<typeof sqlEditorLogic.build>
     let editorRootLogic: ReturnType<typeof editorSceneLogic.build> | undefined
     let databaseLogic: ReturnType<typeof databaseTableListLogic.build>
-    const TAB_ID = '1'
+    const TAB_ID = 'default'
     let queryEndpointMock: jest.Mock
 
     beforeEach(async () => {
@@ -376,7 +376,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             window.history.replaceState({}, '', `${urls.sqlEditor()}?open_view=test-view`)
@@ -391,7 +391,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             window.history.replaceState({}, '', `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT_SHORT_ID}`)
@@ -406,7 +406,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             window.history.replaceState(
@@ -449,7 +449,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             window.history.replaceState(
@@ -633,7 +633,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             logic.actions.createTab('SELECT 1')
@@ -657,7 +657,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             router.actions.push(urls.sqlEditor(), { open_insight: MOCK_DATA_TABLE_INSIGHT_SHORT_ID })
@@ -688,7 +688,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
@@ -751,7 +751,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
@@ -783,7 +783,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             const insightWithEmptyName = { ...MOCK_INSIGHT, name: '' } as QueryBasedInsightModel
@@ -887,7 +887,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             logic.actions.createTab('SELECT 1')
@@ -1048,7 +1048,7 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic = editorSceneLogic()
             editorRootLogic.mount()
 
             router.actions.push(urls.sqlEditor(), { source: 'endpoint' })

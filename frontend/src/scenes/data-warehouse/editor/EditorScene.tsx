@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { editorSceneLogic } from './editorSceneLogic'
+import { editorSceneLogic, SQL_EDITOR_SCENE_TAB_ID } from './editorSceneLogic'
 import { SQLEditor } from './SQLEditor'
 import { SQLEditorMode } from './sqlEditorModes'
 
@@ -17,9 +17,8 @@ export const scene: SceneExport = {
     component: EditorScene,
 }
 
-export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
-    const resolvedTabId = tabId ?? 'default'
-    const { shareTab } = useActions(editorSceneLogic({ tabId: resolvedTabId }))
+export function EditorScene(): JSX.Element {
+    const { shareTab } = useActions(editorSceneLogic)
 
     if (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Viewer)) {
         return (
@@ -28,6 +27,11 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     }
 
     return (
-        <SQLEditor tabId={resolvedTabId} mode={SQLEditorMode.FullScene} showDatabaseTree={true} onShareTab={shareTab} />
+        <SQLEditor
+            tabId={SQL_EDITOR_SCENE_TAB_ID}
+            mode={SQLEditorMode.FullScene}
+            showDatabaseTree={true}
+            onShareTab={shareTab}
+        />
     )
 }
