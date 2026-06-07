@@ -37,20 +37,20 @@ import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
-import { ReplayScannerSceneLogicProps, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
 
-export const scene: SceneExport<ReplayScannerSceneLogicProps> = {
+export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
     logic: replayScannerSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
 }
 
-export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.Element {
+export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
 
-    const scannerLogic = replayScannerLogic({ id: scannerId, tabId })
+    const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, originalScanner, scannerLoading, isScannerSubmitting, hasUnsavedChanges, isNew } =
@@ -73,8 +73,8 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             label: 'Observations',
             content: (
                 <div className="space-y-4">
-                    <SummarizerMaxChat scannerId={scannerId} tabId={tabId} />
-                    <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />
+                    <SummarizerMaxChat scannerId={scannerId} />
+                    <ScannerObservationsTable scannerId={scannerId} />
                 </div>
             ),
         },
@@ -151,7 +151,7 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                             </div>
                         )}
 
-                        <ScannerTypeConfigEditor scannerId={scannerId} tabId={tabId} />
+                        <ScannerTypeConfigEditor scannerId={scannerId} />
                     </SceneSection>
 
                     <SceneDivider />
@@ -183,7 +183,7 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                         description="Which completed recordings this scanner runs against."
                         titleSize="sm"
                     >
-                        <ScannerTriggers scannerId={scannerId} tabId={tabId} />
+                        <ScannerTriggers scannerId={scannerId} />
                     </SceneSection>
                 </div>
             ),
@@ -251,7 +251,7 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
 
             <QuotaBanner />
 
-            <Form logic={replayScannerLogic} props={{ id: scannerId, tabId }} formKey="scanner" enableFormOnSubmit>
+            <Form logic={replayScannerLogic} props={{ id: scannerId }} formKey="scanner" enableFormOnSubmit>
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as EditorTab)}

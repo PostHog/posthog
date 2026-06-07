@@ -12,13 +12,12 @@ import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export interface ReplayObservationLogicProps {
     id: string
-    tabId: string
 }
 
 export const replayObservationLogic = kea<replayObservationLogicType>([
     path(['products', 'replay_vision', 'frontend', 'observations', 'replayObservationLogic']),
     props({} as ReplayObservationLogicProps),
-    key((props) => `${props.tabId}:${props.id}`),
+    key((props) => props.id),
 
     // Mount the SSE progress stream alongside the page and listen for its completion to reload the row.
     connect((props: ReplayObservationLogicProps) => ({
@@ -58,7 +57,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 const response = await visionObservationsRetrieve(String(teamId), props.id)
                 actions.loadObservationSuccess(response)
                 // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
-                replayObservationSceneLogic({ tabId: props.tabId }).actions.setScannerContext(
+                replayObservationSceneLogic().actions.setScannerContext(
                     response.scanner_id,
                     response.scanner_snapshot?.name ?? null
                 )
