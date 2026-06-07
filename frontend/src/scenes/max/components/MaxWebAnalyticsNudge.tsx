@@ -42,10 +42,10 @@ export function MaxWebAnalyticsNudge({ message }: MaxWebAnalyticsNudgeProps): JS
                         place.
                     </span>
                     <div className="flex gap-2">
-                        <LemonButton type="primary" size="small" onClick={() => nudgeClicked()}>
+                        <LemonButton type="primary" size="small" onClick={nudgeClicked}>
                             View in Web analytics
                         </LemonButton>
-                        <LemonButton type="tertiary" size="small" onClick={() => nudgeDismissed()}>
+                        <LemonButton type="tertiary" size="small" onClick={nudgeDismissed}>
                             Dismiss
                         </LemonButton>
                     </div>

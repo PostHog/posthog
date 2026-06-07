@@ -137,7 +137,13 @@ describe('detectWebAnalyticsQuery', () => {
             expect(isWebAnalyticsRelatedQuestion(text)).toBe(true)
         })
 
-        it.each(['how many users signed up?', 'revenue by month', ''])('returns false for %s', (text) => {
+        it.each([
+            'how many users signed up?',
+            'revenue by month',
+            'how did our email campaign perform?',
+            'did users visit the new onboarding flow?',
+            '',
+        ])('returns false for %s', (text) => {
             expect(isWebAnalyticsRelatedQuestion(text)).toBe(false)
         })
 
