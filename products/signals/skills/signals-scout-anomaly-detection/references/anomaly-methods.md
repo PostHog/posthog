@@ -31,8 +31,8 @@ robust_z = |x - median| / (1.4826 * MAD)
   block); for hourly, the latest complete hour is the one before the current one. Exclude the
   current partial bucket from both scoring and baseline.
 - **Minimum-data guard.** Need enough comparable baseline buckets after seasonal matching —
-  **≥ 6 same-weekday points for daily, ≥ 12 matched points for hourly** (matching the
-  Baseline windows table below). Fewer → don't score; widen the cadence or mark it `low-data`
+  **≥ 6 same-weekday points for daily, ≥ 12 same-hour-of-day points for hourly** (matching
+  the Baseline windows table below). Fewer → don't score; widen the cadence or mark it `low-data`
   on the watchlist and move on.
 - **MAD-zero guard.** If `MAD == 0` (a flat series, e.g. constant or mostly zeros), the
   z-score explodes on any movement. Fall back to: emit only if the absolute change is large
@@ -72,10 +72,15 @@ Compare like with like — this is what separates a real anomaly from the normal
 
 ## Baseline windows (defaults)
 
-| Cadence | Baseline window    | Seasonal match    | Min buckets after matching |
-| ------- | ------------------ | ----------------- | -------------------------- |
-| Daily   | trailing 6–8 weeks | same day-of-week  | ≥ 6 same-weekday points    |
-| Hourly  | trailing 2–4 weeks | same hour-of-week | ≥ 12 matched points        |
+| Cadence | Baseline window    | Seasonal match     | Min buckets after matching   |
+| ------- | ------------------ | ------------------ | ---------------------------- |
+| Daily   | trailing 6–8 weeks | same day-of-week   | ≥ 6 same-weekday points      |
+| Hourly  | trailing 2–4 weeks | same hour-of-day † | ≥ 12 same-hour-of-day points |
+
+† Hour-of-day over 2–4 weeks gives ~14–28 comparable points, so the ≥ 12 floor is
+attainable. Upgrade to full **hour-of-week** (hour-of-day × weekday) only once you have ~8+
+weeks of history — same-hour-of-week yields just one point per week, far too few over 2–4
+weeks.
 
 Exclude the latest complete bucket itself from its own baseline, and exclude the current
 partial bucket entirely.
@@ -131,6 +136,12 @@ Score the latest complete `hour` against prior rows sharing its `(dow, hod)`.
 
 **Tips**
 
+- **Zero buckets produce no row — guard the drop-to-zero case.** `GROUP BY day`/`hour` omits
+  buckets that had zero events, so the most recent _returned_ row may not be the latest
+  complete bucket. Verify the expected latest bucket (yesterday / last complete hour) is
+  actually present; if it's missing, its true value is **0** — score that as a drop-to-zero
+  (the highest-signal shape), don't silently fall back to the prior non-zero row. A date/hour
+  spine (`arrayJoin`/`range` join) or an explicit presence check avoids the trap.
 - For unique-user or sum metrics, swap `count()` for `count(DISTINCT person_id)` or
   `sum(toFloat(properties.<prop>))` to match the insight's math.
 - If the insight is a saved one and you only need its standard windows, prefer `insight-query`

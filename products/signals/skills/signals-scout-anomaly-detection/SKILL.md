@@ -65,9 +65,11 @@ every time.
 
 Three cheap reads cold-start every run:
 
-- `signals-scout-scratchpad-search` (`text=watchlist` then `text=anomaly`) — your durable
-  watchlist, per-insight baselines, and what you've ruled out. This is what makes you
-  cheaper and smarter each run.
+- `signals-scout-scratchpad-search` (`text=watchlist` with `limit=100`, then `text=anomaly`)
+  — your durable watchlist, per-insight baselines, and what you've ruled out. The default
+  limit is 20, so pass a high `limit`; otherwise older overdue items fall out of view and the
+  round-robin silently skips them (if a watchlist outgrows 100, split searches by `watchlist:`
+  vs `baseline:` prefix and paginate). This is what makes you cheaper and smarter each run.
 - `signals-scout-runs-list` (last 7d) — what prior runs of this scout (and siblings)
   checked, found, and ruled out. Don't re-walk ground a recent run already covered.
 - `signals-scout-project-profile-get` — `recent_dashboards` (with `last_accessed_at` /
