@@ -160,31 +160,54 @@ class TestPollForTurnStaleSalvage:
         assert total_lines == 2
 
     @pytest.mark.asyncio
-    async def test_does_not_salvage_while_log_is_still_growing(self):
-        """An active turn that keeps streaming new lines must NOT be salvaged early —
-        staleness resets on each new line, so the real end_turn is what completes it."""
-        poll_1 = [_agent_message_line("working")]
-        poll_2 = [*poll_1, _agent_message_line("still working")]
-        poll_3 = [*poll_2, _agent_message_line("final answer"), _end_turn_line()]
-        logs = ["\n".join(poll_1), "\n".join(poll_2), "\n".join(poll_3)]
+    async def test_does_not_salvage_while_log_approaches_threshold(self):
+        # New lines arrive after 2 silent polls (stale climbs to 20, one poll short of the
+        # 30s threshold) and each tail carries the null-cost usage_update fingerprint. So the
+        # ONLY thing keeping this still-active turn from being salvaged is the staleness
+        # reset on each new line — it completes via its real end_turn, not the salvage path.
+        c1 = [_agent_message_line("working"), _usage_update_line()]
+        c2 = [*c1, _agent_message_line("still working"), _usage_update_line()]
+        final = [*c2, _agent_message_line("final answer"), _end_turn_line()]
+        logs = ["\n".join(c1)] * 3 + ["\n".join(c2)] * 3 + ["\n".join(final)]
         poll_iter = iter(logs)
 
         def next_log(*_args, **_kwargs):
-            return next(poll_iter)
+            return next(poll_iter, "\n".join(final))
 
         fake = FakeTaskRun()
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
-            # Threshold below per-poll elapsed: proves staleness reset (not a high threshold) is what holds.
-            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 5),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 30),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
             last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
 
         assert last_message == "final answer"
-        assert total_lines == len(poll_3)
+        assert total_lines == len(final)
+
+    @parameterized.expand(
+        [
+            ("no_usage_update_tail", []),
+            ("populated_cost_tail", [_usage_update_line(1000, cost=0.42)]),
+        ]
+    )
+    async def test_does_not_salvage_without_finalization_fingerprint(self, _name, tail_lines):
+        # Agent message present and the log is long-stale, but the tail is not a null-cost
+        # usage_update — a genuine mid-turn gap, not a dropped finalization. Must keep polling
+        # (here to the cap) rather than salvage an unfinished turn.
+        log = "\n".join([_agent_message_line("intermediate"), *tail_lines])
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 600),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await poll_for_turn(fake, skip_lines=0)
 
 
 class TestPollForTurnTerminalDrain:

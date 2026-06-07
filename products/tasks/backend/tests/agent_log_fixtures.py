@@ -55,7 +55,9 @@ def _agent_error_line(message: str, category: str | None = None) -> str:
     return json.dumps({"notification": {"method": "_posthog/error", "params": params}})
 
 
-def _usage_update_line(used: int = 1000) -> str:
+def _usage_update_line(used: int = 1000, cost: float | None = None) -> str:
+    # cost is null until the turn finalizes; a null-cost tail with no end_turn is the
+    # dropped-finalization fingerprint poll_for_turn salvages on.
     return json.dumps(
         {
             "notification": {
@@ -64,6 +66,7 @@ def _usage_update_line(used: int = 1000) -> str:
                     "update": {
                         "sessionUpdate": "usage_update",
                         "used": used,
+                        "cost": cost,
                     }
                 },
             }

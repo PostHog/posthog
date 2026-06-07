@@ -29,15 +29,12 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# Salvage threshold for a turn whose closing end_turn never arrives. The sandbox SDK
-# intermittently emits the agent's final message (and a final usage_update with a null
-# cost — cost is only computed at turn finalization) but never the ACP end_turn result,
-# so neither _check_logs nor the relay ever marks the turn finished. After this many
-# seconds of zero new log lines with a captured assistant message in hand, accept that
-# message as a degraded turn-end instead of polling until MAX_POLL_SECONDS and failing a
-# run that actually completed. Kept well above the gap between log lines during genuine
-# work (tool calls and thinking both stream events, resetting staleness) so a merely slow
-# step is never mistaken for a dropped turn; prod hangs sit silent for tens of minutes.
+# Salvage threshold for a turn whose closing end_turn never arrives. The sandbox emits the
+# agent's final message and a null-cost usage_update (cost is computed only at finalization)
+# but no end_turn, so the turn never reads as finished. After this many seconds of silence
+# carrying that fingerprint we accept the last message rather than polling to
+# MAX_POLL_SECONDS and failing a run that actually completed. Well above the gap between log
+# lines during genuine work, so a slow step is never mistaken for a dropped turn.
 STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
@@ -209,13 +206,18 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
-        # Salvage a turn whose closing end_turn never arrives (see STALE_TURN_SALVAGE_SECONDS).
-        # We have the agent's final message and the log has gone silent long enough to be
-        # conclusive, so accept it rather than burning the full MAX_POLL_SECONDS and failing.
-        if latest_assistant_text is not None and stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+        # Salvage only the dropped-finalization case: we have the agent's final message, the
+        # log tail is the null-cost usage_update fingerprint, and it's been silent long enough
+        # to be conclusive. Requiring the tail (not just any cached text) keeps a mid-turn
+        # tool/model gap from being cut off early. See STALE_TURN_SALVAGE_SECONDS.
+        if (
+            latest_assistant_text is not None
+            and stale_seconds >= STALE_TURN_SALVAGE_SECONDS
+            and _ended_on_pending_finalization(full_log)
+        ):
             logger.warning(
-                "custom_prompt - poll_for_turn: no end_turn but agent message present and log "
-                "stale for %ds — accepting last message as turn-end, run=%s total_lines=%d",
+                "custom_prompt - poll_for_turn: end_turn missing but turn-accounting tail present "
+                "and log stale for %ds — salvaging last message, run=%s total_lines=%d",
                 stale_seconds,
                 task_run.id,
                 total_lines,
@@ -468,6 +470,32 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     if agent_finished and latest_text is None:
         return False, None, log_content, total_lines, True
     return agent_finished, latest_text, log_content, total_lines, False
+
+
+def _ended_on_pending_finalization(full_log: str | None) -> bool:
+    """True when the log's last activity is a null-cost usage_update — the sandbox ran turn
+    accounting but the closing end_turn was dropped. A mid-turn tool/model gap ends on other
+    activity (or no usage_update at all), so it won't match."""
+    if not full_log:
+        return False
+    for line in reversed(full_log.strip().split("\n")):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            notification = json.loads(line).get("notification")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(notification, dict):
+            continue
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if isinstance(update, dict):
+            return update.get("sessionUpdate") == "usage_update" and update.get("cost") is None
+        # A trailing result (end_turn or otherwise) means the turn isn't sitting on accounting.
+        if isinstance(notification.get("result"), dict):
+            return False
+    return False
 
 
 def _extract_text(update: dict) -> str | None:
