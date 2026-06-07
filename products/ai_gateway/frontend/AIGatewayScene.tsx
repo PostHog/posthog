@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { RobotHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -21,10 +22,9 @@ import { GatewayCredentials, profileUser } from './GatewayCredentials'
 import { GatewayApi } from './generated/api.schemas'
 
 const AI_GATEWAY_DESCRIPTION =
-    'An AI gateway routes your LLM requests through PostHog and attributes their usage, cost, and spend to a named slug. ' +
-    "Assign one or more personal API keys to a gateway, then call the gateway's endpoint with one of those keys — every " +
-    'request is attributed to that gateway. Create separate gateways to break usage down by app, team, or environment, ' +
-    'and rotate keys without downtime by assigning a new one before retiring the old.'
+    'One endpoint for every major LLM, billed at cost — no markup on tokens. Point your app at a gateway and PostHog ' +
+    'tracks usage, cost, and spend for you, broken down by app, team, or environment. Spin up a gateway per use case ' +
+    'and add or rotate keys anytime, with no downtime.'
 
 export const scene: SceneExport = {
     component: AIGatewayScene,
@@ -109,7 +109,7 @@ export function AIGatewayScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="AI gateway"
-                description="Manage the gateways your LLM credentials attribute their usage and spend to. Each gateway's slug is the attribution key the LLM gateway records for every request."
+                description="Every major LLM through one endpoint, billed at cost."
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <LemonButton type="primary" icon={<IconPlus />} onClick={openNewGateway}>
@@ -124,6 +124,7 @@ export function AIGatewayScene(): JSX.Element {
                 description={AI_GATEWAY_DESCRIPTION}
                 action={openNewGateway}
                 isEmpty={!gateways.length}
+                customHog={RobotHog}
             />
             <LemonTable
                 columns={columns}
