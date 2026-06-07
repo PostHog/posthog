@@ -5,7 +5,8 @@ from django.conf import settings
 
 import aiohttp
 import structlog
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
+from prometheus_client import Counter
+from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
@@ -15,6 +16,15 @@ from posthog.session_recordings.recordings.errors import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Counts the in-place block-fetch retries so the retry's effectiveness is measurable, not just its
+# failures: "attempt" ticks once per retry, "recovered" ticks when a retried fetch finally succeeds.
+# Without this a rising upstream-flakiness trend is invisible until retries stop absorbing it.
+BLOCK_FETCH_RETRY_COUNTER = Counter(
+    "session_recording_block_fetch_retry_total",
+    "Recording-api block fetch retries, by outcome (attempt / recovered).",
+    ["outcome"],
+)
 
 # 4xx statuses that are still worth retrying: the recording-api is asking us to back off
 # (429 Too Many Requests) or the request timed out upstream (408 Request Timeout).
@@ -53,6 +63,13 @@ class RecordingApiClient:
         if decompress:
             params["decompress"] = "true"
 
+        retried = False
+
+        def _count_retry(_retry_state: RetryCallState) -> None:
+            nonlocal retried
+            retried = True
+            BLOCK_FETCH_RETRY_COUNTER.labels(outcome="attempt").inc()
+
         # Retry transient failures (connection errors, timeouts, recording-api 5xx) in place so a
         # single flaky block doesn't fail the whole snapshot request and force a full client retry.
         @retry(
@@ -60,6 +77,7 @@ class RecordingApiClient:
             reraise=True,
             wait=wait_random_exponential(multiplier=0.2, max=3),
             stop=stop_after_attempt(3),
+            before_sleep=_count_retry,
         )
         async def _fetch() -> bytes:
             async with self.session.get(url, params=params) as response:
@@ -83,7 +101,12 @@ class RecordingApiClient:
                 return await response.read()
 
         try:
-            return await _fetch()
+            content = await _fetch()
+            if retried:
+                # An earlier attempt failed transiently and a retry recovered it — count the
+                # silent save so the retry's effectiveness shows up, not only its failures.
+                BLOCK_FETCH_RETRY_COUNTER.labels(outcome="recovered").inc()
+            return content
         except (RecordingDeletedError, BlockFetchError):
             raise
         except (aiohttp.ClientError, TimeoutError) as e:

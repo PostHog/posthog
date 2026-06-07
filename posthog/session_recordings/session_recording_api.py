@@ -1834,11 +1834,22 @@ class SessionRecordingViewSet(
                 )
                 return block_index, None
 
-        tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+        tasks = [
+            asyncio.ensure_future(fetch_single_block(block_index))
+            for block_index in range(min_blob_key, max_blob_key + 1)
+        ]
         # gather runs without return_exceptions: transient failures are collected as None below,
         # while a terminal BlockNotFoundError / RecordingDeletedError raises out and takes
         # precedence over transient failures on sibling blocks (retrying wouldn't help anyway).
-        results = await asyncio.gather(*tasks)
+        # On that terminal raise, cancel the still-running sibling fetches and await them so we
+        # don't leak in-flight upstream requests or "Task was destroyed / never retrieved" warnings.
+        try:
+            results = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
         blocks_data: list[bytes] = []
         block_errors = []

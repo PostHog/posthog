@@ -8,7 +8,11 @@ from posthog.session_recordings.recordings.errors import (
     RecordingDeletedError,
     TransientBlockFetchError,
 )
-from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.recording_api_client import (
+    BLOCK_FETCH_RETRY_COUNTER,
+    RecordingApiClient,
+    recording_api_client,
+)
 
 
 class TestRecordingApiClient:
@@ -218,6 +222,35 @@ class TestFetchBlock:
 
         assert result == b"recovered-data"
         assert mock_session.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_counts_retry_attempt_and_recovery(self, client, mock_session):
+        attempts_before = BLOCK_FETCH_RETRY_COUNTER.labels(outcome="attempt")._value.get()
+        recovered_before = BLOCK_FETCH_RETRY_COUNTER.labels(outcome="recovered")._value.get()
+
+        mock_session.get = MagicMock(
+            side_effect=[
+                self._response_mock(200, raise_status=503),
+                self._response_mock(200, body=b"recovered-data"),
+            ]
+        )
+
+        await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        # One retry happened, and that retry recovered the fetch — both must be counted.
+        assert BLOCK_FETCH_RETRY_COUNTER.labels(outcome="attempt")._value.get() == attempts_before + 1
+        assert BLOCK_FETCH_RETRY_COUNTER.labels(outcome="recovered")._value.get() == recovered_before + 1
+
+    @pytest.mark.asyncio
+    async def test_does_not_count_recovery_on_first_try_success(self, client, mock_session):
+        recovered_before = BLOCK_FETCH_RETRY_COUNTER.labels(outcome="recovered")._value.get()
+
+        mock_session.get = MagicMock(return_value=self._response_mock(200, body=b"data"))
+
+        await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        # No retry was needed, so nothing recovered.
+        assert BLOCK_FETCH_RETRY_COUNTER.labels(outcome="recovered")._value.get() == recovered_before
 
     @pytest.mark.asyncio
     async def test_does_not_retry_404(self, client, mock_session):
