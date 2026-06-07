@@ -45,6 +45,7 @@ import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
@@ -235,13 +236,32 @@ export function TaxonomicFilterMenu({
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
 
+    // Only recents/pinned whose source group is one of this picker's groups —
+    // a global recent from a different picker (e.g. a cohort in an events-only
+    // picker) would otherwise be remapped onto a fallback group and shown under
+    // the wrong category.
+    const taxonomicGroupTypes = useMemo(() => groups.map((g) => g.type), [groups])
     const recentEntries = useMemo<MenuFilterEntry[]>(
-        () => mapShortcutItems(recentFilterItems as ShortcutItem[], groups),
-        [recentFilterItems, groups]
+        () =>
+            mapShortcutItems(
+                filterRecentsForContext(
+                    recentFilterItems as TaxonomicDefinitionTypes[],
+                    taxonomicGroupTypes
+                ) as ShortcutItem[],
+                groups
+            ),
+        [recentFilterItems, taxonomicGroupTypes, groups]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
-        () => mapShortcutItems(pinnedFilterItems as ShortcutItem[], groups),
-        [pinnedFilterItems, groups]
+        () =>
+            mapShortcutItems(
+                filterPinnedForContext(
+                    pinnedFilterItems as TaxonomicDefinitionTypes[],
+                    taxonomicGroupTypes
+                ) as ShortcutItem[],
+                groups
+            ),
+        [pinnedFilterItems, taxonomicGroupTypes, groups]
     )
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
