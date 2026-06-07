@@ -127,16 +127,14 @@ def _gateway_for_credential(credential: Credential) -> Gateway | None:
     return application.gateway if application is not None else None
 
 
-def _ttl_for_credential(credential: Credential) -> int | None:
-    """OAuth tokens expire (~1h); bound the Redis TTL so the blob can't outlive
-    the token. Personal keys never expire, so cap them at a short TTL the hourly
-    refresh keeps warm — a missed removal self-heals instead of lasting 7 days.
-
-    expires is non-nullable on OAuthAccessToken. max(1, …) floors the TTL at one
-    second so a token with sub-second remaining isn't written with timeout=0,
-    which Django treats as evict-immediately."""
+def _ttl_for_credential(credential: Credential) -> float:
+    """Seconds the blob may live. For OAuth, the token's remaining lifetime from a
+    single now() read — may be <= 0 if it expired since the policy was computed, in
+    which case the caller clears instead of writing (so the expiry decision and the
+    TTL share one now()). Personal keys never expire, so cap them at a short TTL the
+    hourly refresh keeps warm — a missed removal self-heals instead of lasting 7 days."""
     if isinstance(credential, OAuthAccessToken):
-        return max(1, int((credential.expires - timezone.now()).total_seconds()))
+        return (credential.expires - timezone.now()).total_seconds()
     return FIRST_PARTY_POLICY_PAK_CACHE_TTL
 
 
@@ -292,9 +290,14 @@ def project_first_party_policy(credential: Credential) -> None:
         first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
 
-    first_party_gateway_policy_hypercache.set_cache_value_redis_only(
-        cache_hash, policy, ttl=_ttl_for_credential(credential)
-    )
+    ttl = _ttl_for_credential(credential)
+    if ttl <= 0:  # OAuth token expired since the policy check — clear, don't write a 1s blob
+        first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+        return
+
+    # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
+    # which Django treats as evict-immediately.
+    first_party_gateway_policy_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
 
 
 def clear_first_party_policy(credential_or_hash: Credential | str) -> None:
