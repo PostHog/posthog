@@ -265,6 +265,11 @@ def _load_first_party_policy(hash_key: KeyType) -> dict[str, Any] | HyperCacheSt
         return HyperCacheStoreMissing()
 
 
+# Write-only from Django: project_first_party_policy / clear_first_party_policy are
+# the only callers, and the Go gateway reads Redis directly. Do not call
+# get_from_cache on this instance — its lazy-fill ignores _ttl_for_credential and
+# would write the default cache_ttl (7 days), defeating the PAK cap. load_fn exists
+# only because HyperCache requires one.
 first_party_gateway_policy_hypercache = HyperCache(
     namespace="team_metadata",
     value="first_party_policy.json",

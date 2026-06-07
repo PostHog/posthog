@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.constants import AvailableFeature
 from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
@@ -305,14 +307,35 @@ class TestFirstPartyPolicyFailClosed(FirstPartyPolicyTestMixin):
         project_first_party_policy(credential)
         self.assertIsNotNone(self._read_blob(credential_hash(credential)))
 
-    @patch(
-        "posthog.storage.first_party_gateway_policy_cache.UserAccessControl.check_access_level_for_object",
-        return_value=False,
-    )
-    def test_project_access_control_revoked_fails_closed(self, _mock_access):
-        # Project RBAC removing the user's access to the bound project fails closed,
-        # even though org membership is intact.
-        credential, _ = self._make_pak([GATEWAY_SCOPE])
+    @pytest.mark.ee
+    def test_project_access_control_revoked_fails_closed(self):
+        # A real access control revoking a member's access to the bound project
+        # fails closed, even though org membership is intact. Uses a real
+        # AccessControl (not a mock) so it also covers that a Team resolves to the
+        # "project" resource and the access-control keying matches.
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        member = User.objects.create_and_join(self.organization, "member@example.com", "password")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=member)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=membership,
+            access_level="none",
+        )
+        credential = PersonalAPIKey.objects.create(
+            label="member key",
+            user=member,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=[GATEWAY_SCOPE],
+            gateway=self.gateway,
+        )
         project_first_party_policy(credential)
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
