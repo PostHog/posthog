@@ -589,3 +589,36 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
         RoleMembership.objects.create(user=self.user, role=role)
 
         mock_delay.assert_called_with(self.user.pk)
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch(
+        "posthog.storage.first_party_gateway_policy_signal_handlers.reproject_oauth_application_first_party_policies_task.delay"
+    )
+    def test_oauth_application_gateway_rebind_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        # The gateway binding is on the application, not the token, so a rebind
+        # must reproject the app's tokens directly.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        oauth = self._make_oauth(GATEWAY_SCOPE)
+        other_gateway = Gateway.all_teams.create(team=self.team, slug="other_gw")
+        app = OAuthApplication.objects.get(pk=oauth.application_id)  # snapshot gateway under patched setting
+        app.gateway = other_gateway
+        app.save()
+
+        mock_delay.assert_called_with(str(app.pk))
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_team_first_party_policies_task.delay")
+    def test_team_api_token_rotation_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        # project_token in the blob is the team's api_token; rotation makes it stale.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        team = Team.objects.get(pk=self.team.pk)  # snapshot api_token under patched setting
+        team.api_token = "phc_rotated_for_test"
+        team.save()
+
+        mock_delay.assert_called_with(self.team.id)

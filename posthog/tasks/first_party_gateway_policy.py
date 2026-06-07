@@ -88,6 +88,17 @@ def reproject_gateway_first_party_policies_task(gateway_id: str) -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
+def reproject_oauth_application_first_party_policies_task(application_id: str) -> None:
+    """Re-project an OAuth application's tokens after its gateway binding changed.
+    The binding lives on the application, not the token, so a token save never fires."""
+    for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
+        application_id=application_id, scope__iregex=r"(^|\s)llm_gateway:read(\s|$)"
+    ):
+        project_first_party_policy(token)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def reproject_team_first_party_policies_task(team_id: int) -> None:
     """Re-project every credential bound to a gateway on this team after a project
     access-control change, since that flips the projection's RBAC check."""

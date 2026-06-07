@@ -60,6 +60,7 @@
     'posthog.tasks.exporter.export_asset',
     'posthog.tasks.first_party_gateway_policy.refresh_first_party_gateway_policies',
     'posthog.tasks.first_party_gateway_policy.reproject_gateway_first_party_policies_task',
+    'posthog.tasks.first_party_gateway_policy.reproject_oauth_application_first_party_policies_task',
     'posthog.tasks.first_party_gateway_policy.reproject_team_first_party_policies_task',
     'posthog.tasks.first_party_gateway_policy.reproject_user_first_party_policies_task',
     'posthog.tasks.first_party_gateway_policy.update_first_party_policy_cache_task',

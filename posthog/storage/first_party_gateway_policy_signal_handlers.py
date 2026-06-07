@@ -32,9 +32,10 @@ from django.db.models.signals import post_delete, post_init, post_save, pre_dele
 import structlog
 
 from posthog.models.gateway import Gateway
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX
 from posthog.storage.first_party_gateway_policy_cache import (
@@ -45,6 +46,7 @@ from posthog.storage.first_party_gateway_policy_cache import (
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.first_party_gateway_policy import (
     reproject_gateway_first_party_policies_task,
+    reproject_oauth_application_first_party_policies_task,
     reproject_team_first_party_policies_task,
     reproject_user_first_party_policies_task,
     update_first_party_policy_cache_task,
@@ -59,6 +61,11 @@ _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
 _LOADED_GATEWAY_SLUG_ATTR = "_fp_loaded_gateway_slug"
 _LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
+_LOADED_APP_GATEWAY_ATTR = "_fp_loaded_app_gateway_id"
+_LOADED_TEAM_API_TOKEN_ATTR = "_fp_loaded_team_api_token"
+
+# gateway_id is legitimately None (unbound), so distinguish "not snapshotted".
+_UNSET: Any = object()
 
 _PAK_KIND = "personal_api_key"
 _OAUTH_KIND = "oauth_access_token"
@@ -217,6 +224,51 @@ def _reproject_on_membership_delete(
     transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
 
 
+def _snapshot_oauth_application(sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    if "gateway" not in instance.get_deferred_fields():
+        instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = instance.gateway_id
+
+
+def _reproject_oauth_application_on_save(
+    sender: type[OAuthApplication], instance: OAuthApplication, created: bool, **kwargs: Any
+) -> None:
+    # The OAuth gateway binding lives on the application, not the token, so a
+    # rebind/unbind doesn't fire a token save. Reproject the app's tokens so they
+    # pick up the new slug/team (or clear when unbound).
+    if not settings.AI_GATEWAY_REDIS_URL or created:
+        return
+    old_gateway_id = instance.__dict__.get(_LOADED_APP_GATEWAY_ATTR, _UNSET)
+    instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = instance.gateway_id
+    if old_gateway_id is _UNSET or old_gateway_id == instance.gateway_id:
+        return
+
+    application_id = str(instance.pk)
+    transaction.on_commit(lambda: reproject_oauth_application_first_party_policies_task.delay(application_id))
+
+
+def _snapshot_team(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    if "api_token" not in instance.get_deferred_fields():
+        instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = instance.api_token
+
+
+def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
+    # project_token in the blob is the team's api_token; a rotation leaves every
+    # first-party blob on this team's gateways carrying the stale token.
+    if not settings.AI_GATEWAY_REDIS_URL or created:
+        return
+    old_token = instance.__dict__.get(_LOADED_TEAM_API_TOKEN_ATTR)
+    instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = instance.api_token
+    if not old_token or old_token == instance.api_token:
+        return
+
+    team_id = instance.pk
+    transaction.on_commit(lambda: reproject_team_first_party_policies_task.delay(team_id))
+
+
 def _snapshot_membership(sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
@@ -329,6 +381,12 @@ def connect_signal_handlers() -> None:
     pre_save.connect(_capture_old_oauth_if_deferred, sender=OAuthAccessToken)
     post_save.connect(_update_oauth_on_save, sender=OAuthAccessToken)
     pre_delete.connect(_clear_oauth_on_delete, sender=OAuthAccessToken)
+
+    post_init.connect(_snapshot_oauth_application, sender=OAuthApplication)
+    post_save.connect(_reproject_oauth_application_on_save, sender=OAuthApplication)
+
+    post_init.connect(_snapshot_team, sender=Team)
+    post_save.connect(_reproject_team_on_api_token_change, sender=Team)
 
     post_init.connect(_snapshot_user, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
