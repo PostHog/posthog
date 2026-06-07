@@ -45,6 +45,19 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
             scopes=["feature_flag:read"],
         )
 
+        # A second project whose gateway the scoped key should bind to, proving
+        # scoped_teams wins over the user's current_team (which is self.team).
+        project2 = Project.objects.create(id=987654322, organization=org, name="p2")
+        self.team2 = Team.objects.create(id=project2.id, name="t2", organization=org, project=project2)
+        self.default_gateway2 = Gateway._default_manager.create(team=self.team2, slug="default", is_default=True)
+        self.scoped_to_team2 = PersonalAPIKey.objects.create(
+            label="scoped",
+            user=user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=[GATEWAY_SCOPE],
+            scoped_teams=[self.team2.id],
+        )
+
         # OAuth scope lives on issued tokens; the migration binds the application.
         OAuthApplication = apps.get_model("posthog", "OAuthApplication")
         OAuthAccessToken = apps.get_model("posthog", "OAuthAccessToken")
@@ -80,6 +93,12 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
 
         self.assertEqual(eligible.gateway_id, self.default_gateway.pk)
         self.assertIsNone(ineligible.gateway_id)
+
+    def test_binds_personal_key_to_its_scoped_team(self):
+        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
+
+        scoped = PersonalAPIKey.objects.get(pk=self.scoped_to_team2.pk)
+        self.assertEqual(scoped.gateway_id, self.default_gateway2.pk)
 
     def test_binds_only_oauth_apps_with_an_eligible_token(self):
         OAuthApplication = self.apps.get_model("posthog", "OAuthApplication")  # type: ignore

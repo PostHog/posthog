@@ -35,15 +35,33 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
             )
         return default_gateway[canon]
 
-    # Personal keys carry the scope directly.
+    def org_root_team_id(organization_id: int | str | None) -> int | None:
+        if not organization_id:
+            return None
+        return (
+            Team.objects.filter(organization_id=organization_id, parent_team_id__isnull=True)
+            .values_list("id", flat=True)
+            .first()
+        )
+
+    # Personal keys carry the scope directly. Prefer the scoped team when there's a
+    # single unambiguous one: current_team_id is a mutable UI-session field, so use
+    # it only when there's nothing better (a multi-team or unscoped key has no single
+    # authoritative team, so current_team is best-effort).
     paks = PersonalAPIKey.objects.filter(scopes__contains=[_GATEWAY_SCOPE], gateway__isnull=True).select_related("user")
     for pak in paks.iterator():
-        gateway_id = default_gateway_id(pak.user.current_team_id if pak.user_id else None)
+        if pak.scoped_teams and len(pak.scoped_teams) == 1:
+            team_id = pak.scoped_teams[0]
+        else:
+            team_id = pak.user.current_team_id if pak.user_id else None
+        gateway_id = default_gateway_id(team_id)
         if gateway_id is not None:
             pak.gateway_id = gateway_id
             pak.save(update_fields=["gateway"])
 
-    # OAuth scope lives on issued tokens; the binding is per-application.
+    # OAuth scope lives on issued tokens; the binding is per-application. An app
+    # belongs to an organization, not a user session, so attribute it to the org's
+    # root team rather than the creator's current_team_id.
     app_ids = set(
         OAuthAccessToken.objects.filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", application_id__isnull=False
@@ -51,7 +69,11 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
     )
     apps_qs = OAuthApplication.objects.filter(id__in=app_ids, gateway__isnull=True).select_related("user")
     for application in apps_qs.iterator():
-        gateway_id = default_gateway_id(application.user.current_team_id if application.user_id else None)
+        if application.organization_id:
+            team_id = org_root_team_id(application.organization_id)
+        else:
+            team_id = application.user.current_team_id if application.user_id else None
+        gateway_id = default_gateway_id(team_id)
         if gateway_id is not None:
             application.gateway_id = gateway_id
             application.save(update_fields=["gateway"])
