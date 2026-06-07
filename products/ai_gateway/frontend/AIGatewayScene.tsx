@@ -24,8 +24,8 @@ import { GatewayApi } from './generated/api.schemas'
 
 const AI_GATEWAY_DESCRIPTION =
     'One endpoint for every major LLM, billed at cost — no markup on tokens. Point your app at a gateway and PostHog ' +
-    'tracks usage, cost, and spend for you, broken down by app, team, or environment. Spin up a gateway per use case ' +
-    'and add or rotate keys anytime, with no downtime.'
+    'tracks its usage, cost, and spend for you, per gateway and per model. Spin up a gateway per app, service, or ' +
+    'environment to keep their spend separate, and add or rotate keys anytime, with no downtime.'
 
 export const scene: SceneExport = {
     component: AIGatewayScene,
