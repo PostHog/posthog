@@ -30,14 +30,19 @@ describe('bar-config', () => {
             labels: ['a', 'b', 'c'],
         }
 
-        it('reserves the min band size per unique band plus chart margins', () => {
-            expect(computeWrapperMinHeight(base)).toBe(3 * HORIZONTAL_MIN_BAND_SIZE_DEFAULT + CHART_MARGIN_PX)
-        })
-
-        it('counts unique bands only', () => {
-            expect(computeWrapperMinHeight({ ...base, labels: ['a', 'a', 'b'] })).toBe(
-                2 * HORIZONTAL_MIN_BAND_SIZE_DEFAULT + CHART_MARGIN_PX
-            )
+        it.each([
+            {
+                desc: '3 distinct labels',
+                labels: ['a', 'b', 'c'],
+                expected: 3 * HORIZONTAL_MIN_BAND_SIZE_DEFAULT + CHART_MARGIN_PX,
+            },
+            {
+                desc: 'duplicate labels counted once',
+                labels: ['a', 'a', 'b'],
+                expected: 2 * HORIZONTAL_MIN_BAND_SIZE_DEFAULT + CHART_MARGIN_PX,
+            },
+        ])('reserves the min band size per unique band plus chart margins ($desc)', ({ labels, expected }) => {
+            expect(computeWrapperMinHeight({ ...base, labels })).toBe(expected)
         })
 
         it.each([
