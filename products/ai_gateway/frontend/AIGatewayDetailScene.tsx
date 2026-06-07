@@ -1,9 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { humanFriendlyNumber } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
-import { aiGatewayDetailLogic, AIGatewayDetailLogicProps } from './aiGatewayDetailLogic'
+import { aiGatewayDetailLogic, AIGatewayDetailLogicProps, EndpointTab } from './aiGatewayDetailLogic'
 import { CREATE_KEY_URL, GatewayCredentials } from './GatewayCredentials'
 import { GatewayApi } from './generated/api.schemas'
 
@@ -52,9 +54,11 @@ export function AIGatewayDetailScene(): JSX.Element {
             </LemonButton>
             <SceneTitleSection
                 name={gateway.slug}
-                description="Usage and credentials attributed to this gateway. The gateway is selected by the credential a request authenticates with — one key per gateway, no per-request selector."
+                description="Usage and keys for this gateway. A request is attributed to this gateway by using one of its keys; the gateway slug in the endpoint path mirrors that binding so calling code reads clearly."
                 resourceType={{ type: 'llm_analytics' }}
             />
+
+            <GatewayEndpoint gateway={gateway} />
 
             <UsagePanel />
 
@@ -64,9 +68,10 @@ export function AIGatewayDetailScene(): JSX.Element {
             </section>
 
             <section className="flex flex-col gap-2">
-                <h3 className="m-0">Bound credentials</h3>
+                <h3 className="m-0">Keys</h3>
                 <p className="text-secondary m-0">
-                    Requests authenticated with these credentials attribute their usage to this gateway.
+                    Keys assigned to this gateway. A key belongs to exactly one gateway — add a second to rotate, then
+                    remove the old one.
                 </p>
                 <div className="border rounded">
                     <GatewayCredentials gateway={gateway} />
@@ -75,6 +80,87 @@ export function AIGatewayDetailScene(): JSX.Element {
 
             <NextSteps />
         </SceneContent>
+    )
+}
+
+function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+    const { endpointTab } = useValues(aiGatewayDetailLogic)
+    const { setEndpointTab } = useActions(aiGatewayDetailLogic)
+
+    if (!preflight?.ai_gateway_url) {
+        return (
+            <section className="flex flex-col gap-2">
+                <h3 className="m-0">Endpoint</h3>
+                <p className="text-secondary m-0">
+                    Set <code>AI_GATEWAY_PUBLIC_URL</code> to show this gateway's endpoint and code examples.
+                </p>
+            </section>
+        )
+    }
+
+    const base = `${preflight.ai_gateway_url.replace(/\/$/, '')}/v1/${gateway.slug}`
+
+    const snippets: Record<EndpointTab, { language: Language; code: string }> = {
+        curl: {
+            language: Language.Bash,
+            code: `curl ${base}/messages \\
+  -H "Authorization: Bearer $POSTHOG_GATEWAY_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 512,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+        },
+        openai: {
+            language: Language.Python,
+            code: `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${base}",
+    api_key="<a key assigned to this gateway>",
+)
+client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello"}],
+)`,
+        },
+        anthropic: {
+            language: Language.Python,
+            code: `from anthropic import Anthropic
+
+client = Anthropic(
+    base_url="${base}",
+    auth_token="<a key assigned to this gateway>",  # sets the Bearer header
+)
+client.messages.create(
+    model="claude-sonnet-4.6",
+    max_tokens=512,
+    messages=[{"role": "user", "content": "Hello"}],
+)`,
+        },
+    }
+
+    return (
+        <section className="flex flex-col gap-2">
+            <h3 className="m-0">Endpoint</h3>
+            <p className="text-secondary m-0">
+                Point any OpenAI- or Anthropic-shaped client at this base URL and authenticate with a key assigned to
+                this gateway.
+            </p>
+            <CodeSnippet language={Language.Bash}>{base}</CodeSnippet>
+            <LemonTabs
+                activeKey={endpointTab}
+                onChange={setEndpointTab}
+                tabs={[
+                    { key: 'curl', label: 'cURL' },
+                    { key: 'openai', label: 'OpenAI' },
+                    { key: 'anthropic', label: 'Anthropic' },
+                ]}
+            />
+            <CodeSnippet language={snippets[endpointTab].language}>{snippets[endpointTab].code}</CodeSnippet>
+        </section>
     )
 }
 

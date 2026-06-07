@@ -245,6 +245,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
+            "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
         }
 
     return JsonResponse(response)

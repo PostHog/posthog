@@ -538,6 +538,10 @@ AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 
+# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
+# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured.
+AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "")
+
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")

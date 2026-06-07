@@ -66,6 +66,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
+            "ai_gateway_url": None,
             # we calculate this here because otherwise it is non-deterministic when running locally
             # it can be overridden in tests by passing in options
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
