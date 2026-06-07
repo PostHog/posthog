@@ -19208,7 +19208,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
       readonly bound_credentials_count: number;
     }
@@ -30676,7 +30676,7 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
-      readonly created_by?: UserBasic;
+      readonly created_by?: UserBasic | null;
       /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
       readonly bound_credentials_count?: number;
     }

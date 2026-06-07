@@ -34,7 +34,8 @@ class GatewaySerializer(serializers.ModelSerializer):
             "records for every request a bound credential makes."
         ),
     )
-    created_by = UserBasicSerializer(read_only=True)
+    # Null for auto-provisioned and backfilled gateways, which have no creating user.
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     bound_credentials_count = serializers.SerializerMethodField(
         help_text="Number of personal API keys and OAuth applications that attribute usage to this gateway."
     )

@@ -29,10 +29,10 @@ import { GatewayApi, UserBasicApi } from './generated/api.schemas'
 
 // The generated UserBasicApi isn't structurally assignable to ProfilePicture's
 // user prop (its hedgehog_config type differs), so narrow to the fields it reads.
-const profileUser = (user: UserBasicApi): { first_name?: string; last_name?: string; email?: string } => ({
-    first_name: user.first_name,
-    last_name: user.last_name,
-    email: user.email,
+const profileUser = (user: UserBasicApi | null): { first_name?: string; last_name?: string; email?: string } => ({
+    first_name: user?.first_name,
+    last_name: user?.last_name,
+    email: user?.email,
 })
 
 // Deep-link to the personal API key settings, opening the create modal pre-filled
@@ -63,12 +63,15 @@ export function AIGatewayScene(): JSX.Element {
         {
             title: 'Created by',
             dataIndex: 'created_by',
-            render: (_, gateway) => (
-                <div className="flex items-center gap-2">
-                    <ProfilePicture user={profileUser(gateway.created_by)} size="md" />
-                    <span>{gateway.created_by?.first_name || gateway.created_by?.email}</span>
-                </div>
-            ),
+            render: (_, gateway) =>
+                gateway.created_by ? (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={profileUser(gateway.created_by)} size="md" />
+                        <span>{gateway.created_by.first_name || gateway.created_by.email}</span>
+                    </div>
+                ) : (
+                    <span className="text-secondary">—</span>
+                ),
         },
         {
             title: 'Created',

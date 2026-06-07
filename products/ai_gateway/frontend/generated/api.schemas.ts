@@ -72,7 +72,7 @@ export interface GatewayApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
     readonly bound_credentials_count: number
 }
@@ -96,7 +96,7 @@ export interface PatchedGatewayApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     /** Number of personal API keys and OAuth applications that attribute usage to this gateway. */
     readonly bound_credentials_count?: number
 }
