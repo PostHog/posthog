@@ -21,7 +21,7 @@ A **scout** is a scheduled agent that wakes on its own interval, looks at one Po
 decides what's genuinely worth surfacing, and either emits it as a **finding** into the Signals
 inbox or closes out empty (a real, valid outcome). PostHog ships a fleet of canonical scouts — a
 cross-product generalist (`signals-scout-general`) plus per-surface specialists
-(`-error-tracking`, `-llm-analytics`, `-logs`, `-revenue-analytics`, `-surveys`,
+(`-error-tracking`, `-ai-observability`, `-logs`, `-revenue-analytics`, `-surveys`,
 `-csp-violations`, `-observability-gaps`). A project may also have **custom scouts** beyond the
 canonical fleet — any `signals-scout-*` skill a team authored (e.g. `-brand-mentions`,
 `-mcp-feedback`) shows up here too, so don't assume the roster is only the canonical set.

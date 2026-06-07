@@ -38,7 +38,7 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   emit contract) and `references/conventions.md` (scratchpad key prefixes + the
   four-states dedupe classifier + cross-project noise patterns). This is the entry
   point if you want to understand how a scout decides what to investigate end-to-end.
-- `signals-scout-llm-analytics/` — anomaly watcher for LLM analytics
+- `signals-scout-ai-observability/` — anomaly watcher for AI observability
   (cost / latency / error / token-share regressions).
 - `signals-scout-logs/` — anomaly watcher for logs (rate / level / pattern shifts).
 - `signals-scout-error-tracking/` — anomaly watcher for error tracking

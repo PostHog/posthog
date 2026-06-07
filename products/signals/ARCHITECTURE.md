@@ -1186,7 +1186,7 @@ products/signals/
 │   ├── signals/                     # Official PostHog skill (published via posthog_ai/dist): querying signals data
 │   ├── inbox-exploration/           # Official PostHog skill (published via posthog_ai/dist): browsing the inbox
 │   ├── signals-scout-general/       # Scout fleet: cross-product generalist (SKILL.md + emit.md + conventions.md)
-│   ├── signals-scout-llm-analytics/ # Scout fleet: LLM analytics anomaly watcher
+│   ├── signals-scout-ai-observability/ # Scout fleet: AI observability anomaly watcher
 │   ├── signals-scout-logs/          # Scout fleet: logs anomaly watcher
 │   ├── signals-scout-error-tracking/         # Scout fleet: error tracking anomaly watcher
 │   ├── signals-scout-revenue-analytics/      # Scout fleet: revenue anomaly watcher
