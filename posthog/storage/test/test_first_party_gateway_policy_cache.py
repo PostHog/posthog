@@ -478,6 +478,25 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
 
         mock_delay.assert_called_with(self.user.pk)
 
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_user_first_party_policies_task.delay")
+    def test_membership_level_change_reprojects_user(self, mock_delay, mock_settings, mock_transaction):
+        # A level change flips the RBAC admin-bypass and the personal-key
+        # restriction without touching the credential.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        membership = OrganizationMembership.objects.get(pk=self.organization_membership.pk)  # snapshot level
+        membership.level = (
+            OrganizationMembership.Level.ADMIN
+            if membership.level != OrganizationMembership.Level.ADMIN
+            else OrganizationMembership.Level.MEMBER
+        )
+        membership.save()
+
+        mock_delay.assert_called_with(membership.user_id)
+
     def test_reproject_task_clears_inactive_user_blobs(self):
         pak, _ = self._make_pak([GATEWAY_SCOPE])
         project_first_party_policy(pak)

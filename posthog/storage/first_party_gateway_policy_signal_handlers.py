@@ -58,6 +58,7 @@ _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
 _LOADED_GATEWAY_SLUG_ATTR = "_fp_loaded_gateway_slug"
+_LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
 
 _PAK_KIND = "personal_api_key"
 _OAUTH_KIND = "oauth_access_token"
@@ -216,6 +217,30 @@ def _reproject_on_membership_delete(
     transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
 
 
+def _snapshot_membership(sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    if "level" not in instance.get_deferred_fields():
+        instance.__dict__[_LOADED_MEMBERSHIP_LEVEL_ATTR] = instance.level
+
+
+def _reproject_on_membership_save(
+    sender: type[OrganizationMembership], instance: OrganizationMembership, created: bool, **kwargs: Any
+) -> None:
+    # level feeds the org-admin RBAC bypass and the personal-key restriction, so a
+    # level change can flip _policy_for_credential. Creation grants nothing on its
+    # own (the credential must already exist); deletion is handled separately.
+    if not settings.AI_GATEWAY_REDIS_URL or created:
+        return
+    old_level = instance.__dict__.get(_LOADED_MEMBERSHIP_LEVEL_ATTR)
+    instance.__dict__[_LOADED_MEMBERSHIP_LEVEL_ATTR] = instance.level
+    if old_level is None or old_level == instance.level:
+        return
+
+    user_id = instance.user_id
+    transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+
+
 def _snapshot_gateway(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
@@ -308,6 +333,8 @@ def connect_signal_handlers() -> None:
     post_init.connect(_snapshot_user, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
 
+    post_init.connect(_snapshot_membership, sender=OrganizationMembership)
+    post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
 
     post_init.connect(_snapshot_gateway, sender=Gateway)
