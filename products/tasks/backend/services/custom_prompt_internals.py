@@ -29,10 +29,15 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# Continuous log silence required before salvaging a dropped-finalization turn, so a turn still
-# emitting near the deadline (possibly live) isn't cut off. Heuristic: the relay's true ceiling is
-# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully waited inside the 1800s poll budget.
-STALE_TURN_SALVAGE_SECONDS = 1500
+# Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
+# (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
+# is the real safety gate; this floor only rules out salvaging a turn caught mid-stream. It must sit
+# well below the 1800s poll budget: a floor near the budget would only salvage turns that fell silent
+# in the first few minutes and reject a turn that does real work late and *then* drops end_turn — the
+# exact case this path exists to recover. The relay's true continuous-silence ceiling is
+# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully observed inside the 1800s budget; keying
+# salvage off a real terminal signal instead of the poll deadline stays the layer-2 follow-up.
+STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -129,6 +134,9 @@ async def poll_for_turn(
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
+    # Newest absolute log-line count seen by the loop — handed to salvage so it can tell whether its
+    # reread surfaced lines the last poll missed (i.e. the turn isn't actually silent).
+    total_lines = 0
     # Elapsed time when we last saw new log lines
     last_new_lines_at = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
@@ -261,6 +269,7 @@ async def poll_for_turn(
             task_run,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
+            prev_total_lines=total_lines,
             elapsed=elapsed,
             stale_seconds=stale_seconds,
             verbose=verbose,
@@ -271,11 +280,42 @@ async def poll_for_turn(
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
 
 
+async def _read_turn_log_with_retry(
+    task_run, *, skip_lines: int, context: str
+) -> tuple[bool, str | None, str | None, int, bool]:
+    """Read the turn log via _check_logs, retrying transient ObjectStorageError up to
+    MAX_CONSECUTIVE_STORAGE_ERRORS times (one POLL_INTERVAL_SECONDS apart). Re-raises the error
+    if every attempt fails, so a single S3 blip doesn't fail an otherwise-recoverable turn.
+    `context` names the caller in the warning log. Shared by the terminal drain and the salvage
+    path so the bounded-retry loop lives in one place."""
+    for attempt in range(1, MAX_CONSECUTIVE_STORAGE_ERRORS + 1):
+        try:
+            return await sync_to_async(
+                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
+                _check_logs,
+                thread_sensitive=False,
+            )(task_run, skip_lines=skip_lines)
+        except ObjectStorageError:
+            logger.warning(
+                "custom_prompt - %s: storage error on final log read (%d/%d), run=%s",
+                context,
+                attempt,
+                MAX_CONSECUTIVE_STORAGE_ERRORS,
+                task_run.id,
+                exc_info=True,
+            )
+            if attempt >= MAX_CONSECUTIVE_STORAGE_ERRORS:
+                raise
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    raise AssertionError("unreachable: loop returns on success or raises on exhaustion")  # pragma: no cover
+
+
 async def _salvage_dropped_finalization(
     task_run,
     *,
     printed_lines: int,
     original_skip_lines: int,
+    prev_total_lines: int,
     elapsed: int,
     stale_seconds: int,
     verbose: bool,
@@ -286,16 +326,21 @@ async def _salvage_dropped_finalization(
     full. Returns None when the tail isn't the dropped-finalization fingerprint or no message is
     recoverable, so the caller falls back to the timeout failure."""
     try:
-        _, last_message, full_log, total_lines, _ = await sync_to_async(
-            # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
-            _check_logs,
-            thread_sensitive=False,
-        )(task_run, skip_lines=original_skip_lines)
+        _, last_message, full_log, total_lines, _ = await _read_turn_log_with_retry(
+            task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
+        )
     except ObjectStorageError:
+        return None
+    # The reread can surface lines the final poll missed (S3 eventual consistency, or the agent wrote
+    # between that poll and now). New lines mean the turn wasn't actually silent for stale_seconds —
+    # the silence gate was decided on stale data, so decline rather than truncate a possibly-live turn.
+    if total_lines > prev_total_lines:
         logger.warning(
-            "custom_prompt - salvage_dropped_finalization: storage error on final read, run=%s",
+            "custom_prompt - salvage_dropped_finalization: %d new line(s) on reread (poll saw %d) — turn "
+            "not silent, declining salvage, run=%s",
+            total_lines - prev_total_lines,
+            prev_total_lines,
             task_run.id,
-            exc_info=True,
         )
         return None
     if last_message is None or not _ended_on_pending_finalization(full_log):
@@ -333,28 +378,9 @@ async def _drain_final_log(
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
-    final_message = None
-    final_log = None
-    final_lines = 0
-    final_empty_end_turn = False
-    for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
-        try:
-            _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(
-                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
-                _check_logs,
-                thread_sensitive=False,
-            )(task_run, skip_lines=original_skip_lines)
-            break
-        except ObjectStorageError:
-            logger.warning(
-                "custom_prompt - drain_final_log: storage error on final log read (%d/%d)",
-                attempt + 1,
-                MAX_CONSECUTIVE_STORAGE_ERRORS,
-                exc_info=True,
-            )
-            if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
-                raise
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    _, final_message, final_log, final_lines, final_empty_end_turn = await _read_turn_log_with_retry(
+        task_run, skip_lines=original_skip_lines, context="drain_final_log"
+    )
     printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_message:
         return final_message, final_log, final_lines, printed_lines
