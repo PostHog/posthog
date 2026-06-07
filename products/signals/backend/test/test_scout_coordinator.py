@@ -284,8 +284,8 @@ async def test_config_within_interval_is_not_due(ateam):
 @pytest.mark.parametrize(
     "seconds_short,expected_skill_names",
     [
-        (5, ["signals-scout-foo"]),    # within grace — stamp jitter shouldn't halve cadence
-        (120, []),                     # beyond grace — genuinely not due yet
+        (5, ["signals-scout-foo"]),  # within grace — stamp jitter shouldn't halve cadence
+        (120, []),  # beyond grace — genuinely not due yet
     ],
 )
 async def test_due_check_grace_boundary(ateam, seconds_short, expected_skill_names):
