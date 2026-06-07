@@ -11,7 +11,6 @@ import type { messageTemplateSceneLogicType } from './messageTemplateSceneLogicT
 export interface MessageTemplateSceneLogicProps {
     id: string
     messageId?: string | null
-    tabId?: string
 }
 
 export const messageTemplateSceneLogic = kea<messageTemplateSceneLogicType>([
