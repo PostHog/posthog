@@ -8,7 +8,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { objectsEqual, pluralize } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -31,7 +30,6 @@ import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
 export interface SourceSettingsLogicProps {
     id: string
-    tabId?: string
     availableSources?: Record<string, SourceConfig>
 }
 
@@ -263,7 +261,7 @@ function reportBulkResult(verb: string, total: number, failed: number, skipped: 
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
-    key(({ id, tabId }) => (tabId ? `${id}-${tabId}` : id)),
+    key(({ id }) => id),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
         actions: [sourcesDataLogic, ['updateSource']],
@@ -774,10 +772,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
-                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id, tabId })
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                    sourceSceneLogic.findMounted({ id: props.id })
 
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },

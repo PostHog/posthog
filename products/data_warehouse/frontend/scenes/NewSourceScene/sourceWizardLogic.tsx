@@ -290,7 +290,6 @@ function syncExpandedDirectQuerySchemaKeys(
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
-    tabId?: string
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
 }
@@ -298,7 +297,7 @@ export interface SourceWizardLogicProps {
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
-    key((props) => props.tabId ?? 'default'),
+    key(() => 'new-source'),
     actions({
         selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
             connector,
