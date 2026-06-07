@@ -475,8 +475,14 @@ class HyperCache:
         return self._set_cache_value_redis(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
-        """
-        Only meant for use in tests
+        """Test helper alias for delete_cache_entry."""
+        return self.delete_cache_entry(key, kinds)
+
+    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+        """Hard-delete an entry from the given tiers (default redis + s3).
+
+        Production-safe: the first-party gateway projection uses this to revoke a
+        credential's blob immediately — a missing key fails closed at the gateway.
         """
         kinds = kinds or ["redis", "s3"]
         try:

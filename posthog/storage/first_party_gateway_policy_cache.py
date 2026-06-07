@@ -71,6 +71,10 @@ _GATEWAY_SLUG_RE = re.compile(r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 FIRST_PARTY_POLICY_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
 FIRST_PARTY_POLICY_CACHE_MISS_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
 
+# Caps the PAK blob TTL so a signal-bypassing removal (e.g. .update()) self-heals
+# in hours, not the 7-day default. Must stay above the hourly refresh interval.
+FIRST_PARTY_POLICY_PAK_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_PAK_CACHE_TTL", str(60 * 60 * 6)))
+
 FIRST_PARTY_POLICY_FIELDS = [
     "team_id",
     "project_token",
@@ -117,14 +121,15 @@ def _derive_gateway_slug(credential: Credential) -> str:
 
 def _ttl_for_credential(credential: Credential) -> int | None:
     """OAuth tokens expire (~1h); bound the Redis TTL so the blob can't outlive
-    the token. Personal keys have no expiry, so use the default cache TTL.
+    the token. Personal keys never expire, so cap them at a short TTL the hourly
+    refresh keeps warm — a missed removal self-heals instead of lasting 7 days.
 
     expires is non-nullable on OAuthAccessToken. max(1, …) floors the TTL at one
     second so a token with sub-second remaining isn't written with timeout=0,
     which Django treats as evict-immediately."""
     if isinstance(credential, OAuthAccessToken):
         return max(1, int((credential.expires - timezone.now()).total_seconds()))
-    return None
+    return FIRST_PARTY_POLICY_PAK_CACHE_TTL
 
 
 def _policy_for_credential(
@@ -247,7 +252,7 @@ def project_first_party_policy(credential: Credential, teams_by_id: dict[int, di
 
     policy = _policy_for_credential(credential, teams_by_id=teams_by_id)
     if isinstance(policy, HyperCacheStoreMissing):
-        first_party_gateway_policy_hypercache.clear_cache(cache_hash, kinds=["redis"])
+        first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
 
     first_party_gateway_policy_hypercache.set_cache_value_redis_only(
@@ -259,7 +264,7 @@ def clear_first_party_policy(credential_or_hash: Credential | str) -> None:
     cache_hash = credential_or_hash if isinstance(credential_or_hash, str) else credential_hash(credential_or_hash)
     if not cache_hash:
         return
-    first_party_gateway_policy_hypercache.clear_cache(cache_hash, kinds=["redis"])
+    first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
 
 
 def get_first_party_policy(hash_key: str) -> dict[str, Any] | None:

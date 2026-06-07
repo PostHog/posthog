@@ -69,7 +69,9 @@ def reproject_user_first_party_policies_task(user_id: int) -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def refresh_first_party_gateway_policies() -> None:
     """Hourly: re-project every credential granted llm_gateway:read so the cache
-    stays warm and self-heals from any missed signal."""
+    stays warm. This only refreshes still-eligible credentials, so it heals missed
+    *additions*, not removals — a revoked credential is cleared by its signal or,
+    failing that, by blob TTL expiry."""
     if not settings.AI_GATEWAY_REDIS_URL:
         logger.info("AI gateway Redis URL not set, skipping first-party policy refresh")
         return
