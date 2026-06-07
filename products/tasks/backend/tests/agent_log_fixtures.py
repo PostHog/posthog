@@ -25,6 +25,24 @@ def _agent_message_line(text: str) -> str:
     )
 
 
+def _agent_message_chunk_line(text: str) -> str:
+    # The agent sometimes streams its response as consecutive agent_message_chunk slices;
+    # _check_logs concatenates them when reconstructing the turn's final message.
+    return json.dumps(
+        {
+            "notification": {
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    }
+                },
+            }
+        }
+    )
+
+
 def _end_turn_line() -> str:
     return json.dumps({"notification": {"result": {"stopReason": "end_turn"}}})
 

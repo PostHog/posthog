@@ -29,12 +29,6 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# After this many seconds of silence carrying the null-cost usage_update fingerprint, accept
-# the last message instead of polling to MAX_POLL_SECONDS and failing a run that completed.
-# Set to the relay's continuous-silence ceiling (relay_sandbox_events.py: MAX_RECONNECT_ATTEMPTS
-# * SSE_READ_TIMEOUT_SECONDS = 5 * 300) so we never cut off a turn the relay still treats as
-# active; past that the relay has given up and the run is terminal. Keep in sync if those change.
-STALE_TURN_SALVAGE_SECONDS = 1500
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -205,23 +199,6 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
-        # Salvage only the dropped-finalization case: we have the agent's final message, the
-        # log tail is the null-cost usage_update fingerprint, and it's been silent long enough
-        # to be conclusive. Requiring the tail (not just any cached text) keeps a mid-turn
-        # tool/model gap from being cut off early. See STALE_TURN_SALVAGE_SECONDS.
-        if (
-            latest_assistant_text is not None
-            and stale_seconds >= STALE_TURN_SALVAGE_SECONDS
-            and _ended_on_pending_finalization(full_log)
-        ):
-            logger.warning(
-                "custom_prompt - poll_for_turn: end_turn missing but turn-accounting tail present "
-                "and log stale for %ds — salvaging last message, run=%s total_lines=%d",
-                stale_seconds,
-                task_run.id,
-                total_lines,
-            )
-            return latest_assistant_text, full_log, total_lines, printed_lines
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return
         # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
         skip_lines = max(skip_lines, total_lines)
@@ -250,7 +227,87 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
+    # Poll budget exhausted. MAX_POLL_SECONDS coincides with the relay's continuous-silence
+    # ceiling — relay_sandbox_events.py allows (MAX_RECONNECT_ATTEMPTS + 1) read windows of
+    # SSE_READ_TIMEOUT_SECONDS (6 × 300s) — so by here the relay has stopped treating the turn as
+    # active. Honour a terminal status first (drains cancelled/failed correctly, no race with an
+    # in-loop salvage), then try to salvage a dropped-finalization turn before declaring a timeout.
+    # Keying salvage off a real terminal signal rather than the poll deadline stays a follow-up.
+    refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    if refreshed.status in {
+        TaskRun.Status.COMPLETED,
+        TaskRun.Status.FAILED,
+        TaskRun.Status.CANCELLED,
+    }:
+        logger.warning(
+            "custom_prompt - poll_for_turn: terminal status=%s at poll timeout, run=%s, elapsed=%ds",
+            refreshed.status,
+            task_run.id,
+            elapsed,
+        )
+        return await _drain_final_log(
+            task_run,
+            refreshed_status=refreshed.status,
+            error_message=refreshed.error_message,
+            printed_lines=printed_lines,
+            original_skip_lines=original_skip_lines,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+    salvaged = await _salvage_dropped_finalization(
+        task_run,
+        printed_lines=printed_lines,
+        original_skip_lines=original_skip_lines,
+        elapsed=elapsed,
+        verbose=verbose,
+        output_fn=output_fn,
+    )
+    if salvaged is not None:
+        return salvaged
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+
+
+async def _salvage_dropped_finalization(
+    task_run,
+    *,
+    printed_lines: int,
+    original_skip_lines: int,
+    elapsed: int,
+    verbose: bool,
+    output_fn: OutputFn,
+) -> tuple[str, str | None, int, int] | None:
+    """Recover a turn whose closing end_turn was dropped: the agent wrote its final message and
+    the SDK's null-cost usage_update accounting, then went silent until the poll budget ran out.
+
+    Re-reads from the start-of-turn cursor (like _drain_final_log) so a response split across
+    agent_message_chunk slices is recovered in full, not just the last chunk that happened to land
+    in the most recent poll window. Returns None when the log tail is not the dropped-finalization
+    fingerprint or no message is recoverable, so the caller falls back to the timeout failure
+    rather than salvaging an unfinished or failed turn."""
+    try:
+        _, last_message, full_log, total_lines, _ = await sync_to_async(
+            # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
+            _check_logs,
+            thread_sensitive=False,
+        )(task_run, skip_lines=original_skip_lines)
+    except ObjectStorageError:
+        logger.warning(
+            "custom_prompt - salvage_dropped_finalization: storage error on final read, run=%s",
+            task_run.id,
+            exc_info=True,
+        )
+        return None
+    if last_message is None or not _ended_on_pending_finalization(full_log):
+        return None
+    printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    logger.warning(
+        "custom_prompt - poll_for_turn: end_turn missing but turn-accounting tail present at poll "
+        "timeout (%ds) — salvaging last message, run=%s total_lines=%d",
+        elapsed,
+        task_run.id,
+        total_lines,
+    )
+    return last_message, full_log, total_lines, printed_lines
 
 
 async def _drain_final_log(
