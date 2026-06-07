@@ -473,9 +473,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
 
 
 def _ended_on_pending_finalization(full_log: str | None) -> bool:
-    """True when the log's last activity is a null-cost usage_update — the sandbox ran turn
-    accounting but the closing end_turn was dropped. A mid-turn tool/model gap ends on other
-    activity (or no usage_update at all), so it won't match."""
+    """True when the log's last notification is a usage_update carrying an explicit null cost —
+    the sandbox ran turn accounting but the closing end_turn was dropped. The cost key must be
+    present and null: older usage_update lines omit it entirely and are not this fingerprint.
+    Any other trailing notification (an end_turn/result, a `_posthog/error`, a mid-turn update)
+    is decisive that this is not the dropped-finalization case, so we don't salvage and let the
+    normal completion / terminal-status drain handle it."""
     if not full_log:
         return False
     for line in reversed(full_log.strip().split("\n")):
@@ -490,11 +493,10 @@ def _ended_on_pending_finalization(full_log: str | None) -> bool:
             continue
         params = notification.get("params")
         update = params.get("update") if isinstance(params, dict) else None
-        if isinstance(update, dict):
-            return update.get("sessionUpdate") == "usage_update" and update.get("cost") is None
-        # A trailing result (end_turn or otherwise) means the turn isn't sitting on accounting.
-        if isinstance(notification.get("result"), dict):
+        if not isinstance(update, dict):
+            # The last notification is a result/error/other — not a turn sitting on accounting.
             return False
+        return update.get("sessionUpdate") == "usage_update" and "cost" in update and update["cost"] is None
     return False
 
 

@@ -25,6 +25,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
     _agent_message_line,
+    _cost_less_usage_update_line,
     _end_turn_line,
     _usage_update_line,
     _user_message_line,
@@ -191,12 +192,15 @@ class TestPollForTurnStaleSalvage:
         [
             ("no_usage_update_tail", []),
             ("populated_cost_tail", [_usage_update_line(1000, cost=0.42)]),
+            ("cost_key_absent", [_cost_less_usage_update_line()]),
+            ("error_after_usage_update", [_usage_update_line(), _agent_error_line("provider 500", "provider_error")]),
         ]
     )
     async def test_does_not_salvage_without_finalization_fingerprint(self, _name, tail_lines):
-        # Agent message present and the log is long-stale, but the tail is not a null-cost
-        # usage_update — a genuine mid-turn gap, not a dropped finalization. Must keep polling
-        # (here to the cap) rather than salvage an unfinished turn.
+        # Agent message present and the log is long-stale, but the tail is not an explicit
+        # null-cost usage_update — a mid-turn gap, an old cost-less usage line, or a terminal
+        # error after accounting. None are the dropped-finalization case, so keep polling
+        # (here to the cap) rather than salvage an unfinished or failed turn.
         log = "\n".join([_agent_message_line("intermediate"), *tail_lines])
         fake = FakeTaskRun()
         with (

@@ -56,8 +56,8 @@ def _agent_error_line(message: str, category: str | None = None) -> str:
 
 
 def _usage_update_line(used: int = 1000, cost: float | None = None) -> str:
-    # cost is null until the turn finalizes; a null-cost tail with no end_turn is the
-    # dropped-finalization fingerprint poll_for_turn salvages on.
+    # cost is null until the turn finalizes; an explicit null-cost tail with no end_turn is
+    # the dropped-finalization fingerprint poll_for_turn salvages on.
     return json.dumps(
         {
             "notification": {
@@ -69,6 +69,18 @@ def _usage_update_line(used: int = 1000, cost: float | None = None) -> str:
                         "cost": cost,
                     }
                 },
+            }
+        }
+    )
+
+
+def _cost_less_usage_update_line(used: int = 1000) -> str:
+    # Older sandbox builds omit cost entirely — must NOT read as the null-cost fingerprint.
+    return json.dumps(
+        {
+            "notification": {
+                "method": "session/update",
+                "params": {"update": {"sessionUpdate": "usage_update", "used": used}},
             }
         }
     )
