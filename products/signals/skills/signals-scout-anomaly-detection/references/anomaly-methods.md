@@ -133,10 +133,11 @@ ORDER BY hour DESC
 ```
 
 Score the latest complete `hour` against prior rows sharing its `hod` (same-hour-of-day) —
-~14–28 comparable points over 21 days, so the ≥ 12 baseline floor is reachable. Only upgrade
-to full hour-of-week (rows sharing both `dow` and `hod`) once you have ~8+ weeks of history,
-since same-hour-of-week yields just one point per week. (`dow` is still selected above so the
-upgrade needs no query change.)
+~14–28 comparable points over 21 days, so the ≥ 12 baseline floor is reachable. To upgrade to
+a full hour-of-week baseline (rows sharing both `dow` and `hod`), **first widen the `WHERE
+timestamp >= ...` window to ~8+ weeks** — at 21 days `(dow, hod)` yields only ~3 points per
+bucket, far below the floor. (`dow` is already selected above, so only the window needs to
+change.)
 
 **Tips**
 

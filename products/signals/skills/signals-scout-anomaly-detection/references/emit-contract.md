@@ -75,8 +75,10 @@ when relevant. Include 1–2.
 ## finding_id (not a dedupe key)
 
 A stable, human-readable trace id tying the signal to its run — e.g.
-`anomaly-revenue-over-time-ym0K91uz-2026-06-07`. It is **not** used for idempotency:
-`emit_signal` dedupes on its own `document_id` and your `dedupe_keys`, never on `finding_id`.
+`anomaly-revenue-over-time-ym0K91uz-2026-06-07`. It is **not** used for idempotency: the
+pipeline assigns every signal a fresh random `document_id` and dedupes on that, never on
+`finding_id` — and never on your `dedupe_keys` either (those are stored in `extra` for the
+inbox to group on _after_ ingest, they don't make a repeat emit idempotent).
 **Re-calling emit with the same `finding_id` writes a second signal — never retry an emit that
 may already have succeeded.** A recurrence on a later day is a new finding citing the prior id.
 
