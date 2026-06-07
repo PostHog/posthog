@@ -133,6 +133,11 @@ loop is **dry-run + inspect**:
 Repo contributors get a faster loop — `hogli sync:skill` and the harness's local run path;
 see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md).
 
+To **read** what your scouts are doing rather than change them — surveying the fleet, inspecting
+individual runs, the scratchpad memory, and assessing performance — use the read-only companion
+skill [`exploring-signals-scouts`](../exploring-signals-scouts/SKILL.md). Keep the two in sync when
+the scout config / run / scratchpad surfaces change.
+
 ## Quality bar for a v1 scout
 
 - A named, cheap **signal-vs-noise discriminator** anchored near the top.
