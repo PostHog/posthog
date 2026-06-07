@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pydantic
 import temporalio.exceptions
 
-from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.facade.api import _MAX_TELEMETRY_STR_LEN, _telemetry_props_from_extra, emit_signal
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -159,10 +159,15 @@ class TestEmitSignalAnalytics:
         # Both the "started" marker and the final "emitted" event fire
         events = [call.kwargs["event"] for call in capture.call_args_list]
         assert events == ["signal_emission_started", "signal_emitted"]
-        # `extra` is flattened onto the event so per-source attribution is queryable
-        # downstream; the core `source_*` keys win on conflict.
+        # Only top-level scalar `extra` values are flattened onto the event (the `labels`
+        # list is dropped); the core `source_*` keys win on conflict.
         expected_properties = {
-            **GITHUB_ISSUE_EXTRA,
+            "html_url": "https://github.com/org/repo/issues/42",
+            "number": 42,
+            "created_at": "2025-06-01T12:00:00Z",
+            "updated_at": "2025-06-02T08:00:00Z",
+            "locked": False,
+            "state": "open",
             "source_product": "github",
             "source_type": "issue",
             "source_id": "posthog/posthog#42",
@@ -170,4 +175,29 @@ class TestEmitSignalAnalytics:
         for call in capture.call_args_list:
             assert call.kwargs["distinct_id"] == str(team_stub.uuid)
             assert call.kwargs["properties"] == expected_properties
+            assert "labels" not in call.kwargs["properties"]
             assert "project" in call.kwargs["groups"]
+
+
+class TestTelemetryPropsFromExtra:
+    def test_none_and_empty(self) -> None:
+        assert _telemetry_props_from_extra(None) == {}
+        assert _telemetry_props_from_extra({}) == {}
+
+    def test_keeps_scalars_drops_nested(self) -> None:
+        props = _telemetry_props_from_extra(
+            {
+                "scout_run_id": "run-1",
+                "number": 42,
+                "confidence": 0.9,
+                "locked": False,
+                "labels": ["bug", "p1"],  # list — dropped
+                "references": [{"queryText": "SELECT * FROM customers"}],  # nested — dropped
+                "time_range": {"date_from": "a", "date_to": "b"},  # dict — dropped
+            }
+        )
+        assert props == {"scout_run_id": "run-1", "number": 42, "confidence": 0.9, "locked": False}
+
+    def test_truncates_long_strings(self) -> None:
+        props = _telemetry_props_from_extra({"error_message": "x" * 1000})
+        assert len(props["error_message"]) == _MAX_TELEMETRY_STR_LEN

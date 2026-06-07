@@ -58,6 +58,27 @@ for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
             _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
+# Telemetry only forwards top-level *scalar* `extra` values, each truncated — never nested
+# lists/dicts. Source `extra` payloads nest customer-derived content (pganalyze
+# `references[].queryText` raw SQL, session-replay `event_history`, scout `evidence`
+# summaries) that must not leak into product analytics; scalars are the cheap-to-query
+# attribution we actually want (`scout_run_id`, `task_run_id`, `skill_name`, …). The cap
+# bounds top-level strings that could still be large (e.g. an `error_message`).
+_MAX_TELEMETRY_STR_LEN = 256
+
+
+def _telemetry_props_from_extra(extra: dict | None) -> dict:
+    if not extra:
+        return {}
+    props: dict = {}
+    for key, value in extra.items():
+        if isinstance(value, str):
+            props[key] = value[:_MAX_TELEMETRY_STR_LEN]
+        elif isinstance(value, (bool, int, float)):
+            props[key] = value
+    return props
+
+
 async def emit_signal(
     team: Team,
     source_product: str,
@@ -80,10 +101,12 @@ async def emit_signal(
         source_id: Unique identifier within the source (e.g., experiment UUID)
         description: Human-readable description that will be embedded
         weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
-        extra: Optional product-specific metadata. Flattened onto the `signal_emission_started`
-            and `signal_emitted` analytics events alongside the core `source_*` keys (which win
-            on conflict), so per-source attribution (e.g. the scout harness's `scout_run_id` /
-            `skill_name`) is queryable downstream without a schema change.
+        extra: Optional product-specific metadata. Its top-level scalar values (truncated) are
+            flattened onto the `signal_emission_started` and `signal_emitted` analytics events
+            alongside the core `source_*` keys (which win on conflict) — see
+            `_telemetry_props_from_extra` — so per-source attribution (e.g. the scout harness's
+            `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
+            Nested lists/dicts are never forwarded.
 
     Example:
         await emit_signal(
@@ -153,7 +176,7 @@ async def emit_signal(
             event="signal_emission_started",
             distinct_id=str(team.uuid),
             properties={
-                **(extra or {}),
+                **_telemetry_props_from_extra(extra),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
@@ -210,7 +233,7 @@ async def emit_signal(
             event="signal_emitted",
             distinct_id=str(team.uuid),
             properties={
-                **(extra or {}),
+                **_telemetry_props_from_extra(extra),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
