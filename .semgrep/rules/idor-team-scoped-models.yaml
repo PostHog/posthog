@@ -133,6 +133,7 @@ rules:
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -368,6 +369,7 @@ rules:
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan

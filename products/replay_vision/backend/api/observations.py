@@ -506,7 +506,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         raise NotFound()
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["GET"], url_path="progress")
+    @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
     def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 

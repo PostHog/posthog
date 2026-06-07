@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+// eslint-disable-next-line react/forbid-elements -- Storybook internal navigation links
+const Link = (props: React.AnchorHTMLAttributes<HTMLAnchorElement>): React.ReactElement => <a {...props} />
+
 const meta = {
     title: 'Tokens/Typography',
     tags: ['autodocs'],
@@ -23,17 +26,17 @@ export const Default: Story = {
                 </div>
                 <p className="text-sm text-muted-foreground">
                     These are the raw type tokens. For components that apply them, see the{' '}
-                    <a
+                    <Link
                         className="underline"
                         target="_top"
                         href="./?path=/docs/typography-heading--docs"
                     >
                         Heading
-                    </a>{' '}
+                    </Link>{' '}
                     and{' '}
-                    <a className="underline" target="_top" href="./?path=/docs/typography-text--docs">
+                    <Link className="underline" target="_top" href="./?path=/docs/typography-text--docs">
                         Text
-                    </a>{' '}
+                    </Link>{' '}
                     primitives.
                 </p>
             </div>

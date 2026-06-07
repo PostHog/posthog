@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -8,10 +8,6 @@ import { dateStringToDayJs } from 'lib/utils'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
-
-export interface MetricsViewerLogicProps {
-    tabId: string
-}
 
 export interface MetricsViewerPoint {
     time: string
@@ -32,8 +28,6 @@ const resolveDate = (value: string | null | undefined): string | null => {
 
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
-    props({} as MetricsViewerLogicProps),
-    key((p) => p.tabId),
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
