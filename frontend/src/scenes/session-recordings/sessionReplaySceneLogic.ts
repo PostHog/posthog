@@ -12,10 +12,6 @@ import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'
 
-export interface SessionReplaySceneLogicProps {
-    tabId?: string
-}
-
 export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
         case ReplayTabs.Home:
