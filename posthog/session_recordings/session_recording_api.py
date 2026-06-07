@@ -1846,6 +1846,9 @@ class SessionRecordingViewSet(
         try:
             results = await asyncio.gather(*tasks)
         except BaseException:
+            # BaseException (not Exception) on purpose: it also catches CancelledError, so if *we*
+            # are cancelled mid-gather we still tear down the children. Narrowing to Exception would
+            # silently re-leak the in-flight fetches on cancellation.
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)

@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 
 from django.conf import settings
@@ -20,11 +20,14 @@ from posthog.session_recordings.recordings.errors import (
 logger = structlog.get_logger(__name__)
 
 # Counts the in-place block-fetch retries so the retry's effectiveness is measurable, not just its
-# failures: "attempt" ticks once per retry, "recovered" ticks when a retried fetch finally succeeds.
-# Without this a rising upstream-flakiness trend is invisible until retries stop absorbing it.
+# failures: "attempt" ticks once per retry (so a fetch that retries twice ticks it twice),
+# "recovered" ticks at most once per fetch_block call, when a retried fetch finally succeeds. The
+# two have different denominators (per-retry vs per-call) so their ratio is NOT a recovery rate;
+# the give-up rate lives in BLOCK_FETCH_FAILURE_COUNTER{reason=transient}. Without this a rising
+# upstream-flakiness trend is invisible until retries stop absorbing it.
 BLOCK_FETCH_RETRY_COUNTER = Counter(
     "session_recording_block_fetch_retry_total",
-    "Recording-api block fetch retries, by outcome (attempt / recovered).",
+    "Recording-api block fetch retries: outcome=attempt per retry, outcome=recovered per call that a retry rescued.",
     ["outcome"],
 )
 
@@ -71,8 +74,8 @@ def _parse_retry_after(value: str) -> float | None:
     if retry_at is None:
         return None
     if retry_at.tzinfo is None:
-        retry_at = retry_at.replace(tzinfo=timezone.utc)
-    return (retry_at - datetime.now(timezone.utc)).total_seconds()
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return (retry_at - datetime.now(UTC)).total_seconds()
 
 
 def _wait_block_fetch_retry(retry_state: RetryCallState) -> float:

@@ -265,6 +265,22 @@ class TestFetchBlock:
         # A large Retry-After is clamped so it can't pin the request handler.
         sleep_mock.assert_awaited_once_with(_MAX_RETRY_AFTER_SECONDS)
 
+    @pytest.mark.asyncio
+    async def test_clamps_negative_retry_after_to_zero(self, client, mock_session):
+        # An HTTP-date Retry-After in the past parses to a negative delay; the wait must floor it
+        # to 0 rather than passing a negative sleep through.
+        mock_session.get = MagicMock(
+            side_effect=[
+                self._response_mock(200, raise_status=503, headers={"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}),
+                self._response_mock(200, body=b"recovered-data"),
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            await client.fetch_block("key", 0, 100, "session-123", 1)
+
+        sleep_mock.assert_awaited_once_with(0.0)
+
     @pytest.mark.parametrize(
         "value,expected",
         [
@@ -277,6 +293,14 @@ class TestFetchBlock:
     )
     def test_parse_retry_after(self, value, expected):
         assert _parse_retry_after(value) == expected
+
+    def test_parse_retry_after_http_date(self):
+        # A past HTTP-date is negative seconds-from-now; a far-future one is positive. Locks the
+        # date branch and its tz-naive handling without depending on the exact current time.
+        past = _parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT")
+        future = _parse_retry_after("Mon, 01 Jan 2099 00:00:00 GMT")
+        assert past is not None and past < 0
+        assert future is not None and future > 0
 
     @pytest.mark.asyncio
     async def test_counts_retry_attempt_and_recovery(self, client, mock_session):
