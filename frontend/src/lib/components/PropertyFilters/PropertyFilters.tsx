@@ -1,7 +1,7 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -100,12 +100,8 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
-
-    useEffect(() => {
-        setFilters(propertyFilters ?? [])
-    }, [propertyFilters, setFilters])
 
     const displayedFilters = allowNew && editable ? filtersWithNew : filters
     const displayedFilterIds = allowNew && editable ? filterIdsWithNew : filterIds
