@@ -18,11 +18,8 @@ export interface MenuFilterEntry {
     friendlyLabel?: string
 }
 
-/** Synthetic categories the combobox panel can be drilled into.
- *  - `'suggested'` mixes Recent ∪ Pinned across groups, mirroring the
- *    legacy popover's "Suggested step" view; the row's category label
- *    still names the original source group. */
-export type DrillCategory = 'all' | 'recent' | 'pinned' | 'suggested' | TaxonomicFilterGroupType
+/** Synthetic categories the combobox panel can be drilled into. */
+export type DrillCategory = 'all' | 'recent' | 'pinned' | TaxonomicFilterGroupType
 
 /** Top-level state machine. One union type, one transition per action. */
 export type MenuFilterState =

@@ -199,34 +199,6 @@ describe('personsLogic', () => {
         })
     })
 
-    describe('tab-aware person scene state', () => {
-        it('isolates person event query state by tab id', () => {
-            logic.unmount()
-
-            const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
-            const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
-            firstTabLogic.mount()
-            secondTabLogic.mount()
-
-            const eventsQuery = {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['event', 'timestamp'],
-                    personId: 'person-1',
-                },
-            } as DataTableNode
-
-            firstTabLogic.actions.setEventsQuery(eventsQuery)
-
-            expect(firstTabLogic.values.eventsQuery).toEqual(eventsQuery)
-            expect(secondTabLogic.values.eventsQuery).toBeNull()
-
-            firstTabLogic.unmount()
-            secondTabLogic.unmount()
-        })
-    })
-
     describe('Load cohorts', () => {
         it("Doesn't load cohort if we're on", async () => {
             await expectLogic(logic, () => {

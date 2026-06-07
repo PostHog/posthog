@@ -10,8 +10,10 @@ pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review along 
 the `findings` field itself; this module no longer persists any scout-side state and
 provides no dedupe, so callers must not retry an emit that may have already succeeded.
 
-Attribution (`scout_run_id`, `finding_id`, `skill_name`, `skill_version`) is read
-off the run row so the agent never has to plumb it through. The `SignalsScoutSignalExtra`
+Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_version`)
+is read off the run row so the agent never has to plumb it through. `task_run_id` is the
+join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
+is not on that view). The `SignalsScoutSignalExtra`
 shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
 in `products/signals/backend/api.py` validates against.
 """
@@ -98,6 +100,7 @@ async def emit_finding(
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
+        task_run_id=str(run.task_run_id),
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -178,6 +181,7 @@ def emit_finding_sync(
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
+        task_run_id=str(run.task_run_id),
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -266,6 +270,7 @@ def _validate_inputs(
 def _build_extra(
     *,
     run_id: str,
+    task_run_id: str,
     finding_id: str,
     skill_name: str,
     skill_version: int,
@@ -282,6 +287,7 @@ def _build_extra(
     fields that don't accept it."""
     extra: dict[str, Any] = {
         "scout_run_id": run_id,
+        "task_run_id": task_run_id,
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": float(skill_version),

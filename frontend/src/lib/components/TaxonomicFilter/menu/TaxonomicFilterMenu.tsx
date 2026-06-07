@@ -243,29 +243,6 @@ export function TaxonomicFilterMenu({
         () => mapShortcutItems(pinnedFilterItems as ShortcutItem[], groups),
         [pinnedFilterItems, groups]
     )
-    /*
-     * Suggested = Recent ∪ Pinned across all groups, mirroring the
-     * legacy popover's "Suggested step" view. Recent comes first
-     * (chronologically more relevant to the user); pinned fills in
-     * the curated picks. Dedup on `(group.type, value)` so a pinned
-     * entry that's also recent only shows once. Each entry keeps its
-     * source `group` reference so the row's category label still
-     * reads "Events", "Actions", etc. (not "Suggested filters").
-     */
-    const suggestedEntries = useMemo<MenuFilterEntry[]>(() => {
-        const seen = new Set<string>()
-        const out: MenuFilterEntry[] = []
-        for (const entry of [...recentEntries, ...pinnedEntries]) {
-            const value = entry.group.getValue?.(entry.item) ?? entry.name
-            const key = `${entry.group.type}::${String(value)}`
-            if (seen.has(key)) {
-                continue
-            }
-            seen.add(key)
-            out.push(entry)
-        }
-        return out
-    }, [recentEntries, pinnedEntries])
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
     const hasHogql = groups.some((g) => g.type === TaxonomicFilterGroupType.HogQLExpression)
@@ -479,14 +456,12 @@ export function TaxonomicFilterMenu({
                                     ? recentEntries
                                     : state.drillTo === 'pinned'
                                       ? pinnedEntries
-                                      : state.drillTo === 'suggested'
-                                        ? suggestedEntries
-                                        : undefined
+                                      : undefined
                             }
-                            // Always pass `suggestedItems` so the chip
-                            // works in 'all' mode too (without forcing a
-                            // drill via the dropdown menu).
-                            suggestedItems={suggestedEntries}
+                            // Recents/pinned lead the default "All" surface
+                            // (fixed order: recents, then pinned).
+                            recentEntries={recentEntries}
+                            pinnedEntries={pinnedEntries}
                             placeholder={placeholder ?? inputProps.placeholder}
                             // Only override the default "Choose filter"
                             // header when on the All chip — drilled views
