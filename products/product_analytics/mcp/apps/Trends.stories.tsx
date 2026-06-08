@@ -2,9 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
 
+import {
+    buildTrendsBarValueConfig,
+    buildTrendsBarValueSeries,
+    type TrendsBarValueItem,
+} from '../../frontend/insights/trends/TrendsBarValueChart/trendsBarValueChartTransforms'
 import {
     buildTrendsLineTimeSeriesConfig,
     buildTrendsSeries,
@@ -25,6 +30,7 @@ const CHART_THEME: ChartTheme = {
 }
 
 const getColor = (_r: TrendsResultLike, i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
+const barColor = (i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
 
 const DAYS = ['2025-05-26', '2025-05-27', '2025-05-28', '2025-05-29', '2025-05-30', '2025-05-31', '2025-06-01']
 
@@ -89,4 +95,56 @@ export const AreaChart: Story = {
         />
     ),
     name: 'Area chart',
+}
+
+// Renders ActionsBarValue the same way the MCP app does: assemble series + config from aggregated
+// totals, then hand them to quill's BarChart. Fixed pixel size for the same headless-snapshot reason
+// as the line demo above.
+function TrendsBarValueChartDemo({
+    items,
+    height = 300,
+}: {
+    items: TrendsBarValueItem[]
+    height?: number
+}): ReactElement {
+    const series = buildTrendsBarValueSeries(items, { getColor: barColor })
+    const config = buildTrendsBarValueConfig()
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', width: 640, height }}>
+            <BarChart series={series} labels={items.map((item) => item.label)} theme={CHART_THEME} config={config} />
+        </div>
+    )
+}
+
+export const BarValueFewSeries: Story = {
+    render: () => (
+        <TrendsBarValueChartDemo
+            items={[
+                { label: 'Chrome', value: 8421 },
+                { label: 'Firefox', value: 3204 },
+                { label: 'Safari', value: 2817 },
+            ]}
+        />
+    ),
+    name: 'Bar value — few series',
+}
+
+export const BarValueManyBreakdowns: Story = {
+    render: () => (
+        <TrendsBarValueChartDemo
+            items={[
+                { label: 'United States', value: 14320 },
+                { label: 'United Kingdom', value: 6210 },
+                { label: 'Germany', value: 4890 },
+                { label: 'France', value: 3720 },
+                { label: 'Canada', value: 2940 },
+                { label: 'Australia', value: 2310 },
+                { label: 'Netherlands', value: 1870 },
+                { label: 'India', value: 1640 },
+            ]}
+            height={400}
+        />
+    ),
+    name: 'Bar value — many breakdowns',
 }
