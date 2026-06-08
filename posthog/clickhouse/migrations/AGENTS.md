@@ -77,7 +77,7 @@ If you create a new table inside such a guard, also add its SQL function to
 | Dictionary             | `CREATE_DICTIONARY_QUERIES`        |
 
 The only exception is tables whose definition intentionally differs per environment and is
-not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` tables above).
+not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table above).
 
 # Migration basics
 
@@ -174,17 +174,10 @@ engine=Distributed(
 > `ALTER TABLE IF EXISTS ADD COLUMN`
 
 > [!CAUTION]
-> Never drop or recreate the `clickhouse_events_json` Kafka consumers or their materialized views.
-> These tables are a no-go zone:
->
-> - `kafka_events_json_ws` — WarpStream Kafka consumer for events
-> - `events_json_ws_mv` — materialized view reading from `kafka_events_json_ws`
-> - `kafka_ai_events_json_ws` — WarpStream Kafka consumer for AI events
-> - `ai_events_json_ws_mv` — materialized view reading from `kafka_ai_events_json_ws`
->
-> The MV definitions differ between US prod, EU prod, and dev (dozens of environment-specific
-> `mat_*` materialized columns) and those differences are **not reflected in the repo**.
-> Dropping and recreating these tables from repo SQL would destroy the environment-specific
+> Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`. These tables are a
+> no-go zone. The MV definition differs between US prod, EU prod, and dev (dozens of
+> environment-specific `mat_*` materialized columns) and those differences are **not reflected
+> in the repo**. Dropping and recreating from repo SQL would destroy the environment-specific
 > schema and break event ingestion. Any change must go through the ClickHouse team.
 
 > [!INFO]

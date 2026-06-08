@@ -50,13 +50,7 @@ Distributed engine:
 - Use `sharded=True` when altering sharded tables
 - Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
 - **Never write a `DROP COLUMN` migration yourself** — `DROP COLUMN` can get stuck in ClickHouse and block releases. Column removal is a two-step process: (1) the ClickHouse team drops the column directly on the cluster, then (2) you write a migration with the matching `DROP COLUMN` so the codebase schema stays in sync. Never initiate the drop from a migration without the ClickHouse team having done step 1 first.
-- **Never drop or recreate the `clickhouse_events_json` Kafka consumers or their materialized views** — these tables are a no-go zone. The tables are:
-  - `kafka_events_json_ws` — WarpStream Kafka consumer for events
-  - `events_json_ws_mv` — materialized view that reads from `kafka_events_json_ws`
-  - `kafka_ai_events_json_ws` — WarpStream Kafka consumer for AI events
-  - `ai_events_json_ws_mv` — materialized view that reads from `kafka_ai_events_json_ws`
-
-  The MV definitions differ significantly between US prod, EU prod, and dev environments (dozens of environment-specific `mat_*` columns) and those differences are **not reflected in the repo**. Dropping and recreating them from repo SQL would destroy the environment-specific schema and break event ingestion. Any change to these tables must go through the ClickHouse team.
+- **Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`** — these tables are a no-go zone. The MV definition differs significantly between US prod, EU prod, and dev (dozens of environment-specific `mat_*` columns) and those differences are **not reflected in the repo**. Dropping and recreating from repo SQL would destroy the environment-specific schema and break event ingestion. Any change must go through the ClickHouse team.
 
 ### PR scope
 
@@ -93,7 +87,7 @@ If you create a new table inside such a guard, you must also add its SQL functio
 | Non-materialized view  | `CREATE_VIEW_QUERIES`              |
 | Dictionary             | `CREATE_DICTIONARY_QUERIES`        |
 
-The only exception is tables whose definition intentionally differs per environment and is not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` tables).
+The only exception is tables whose definition intentionally differs per environment and is not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table).
 
 ### Testing
 
