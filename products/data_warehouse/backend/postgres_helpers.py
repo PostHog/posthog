@@ -33,6 +33,7 @@ from products.data_warehouse.backend.direct_postgres import (
     rename_direct_postgres_join_references,
     upsert_direct_postgres_table,
 )
+from products.data_warehouse.backend.sql_warehouse_migration import _normalize_default_schema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.util import (
     postgres_column_to_dwh_column,
@@ -50,13 +51,6 @@ filter_dwh_columns_by_enabled_columns = _filter_dwh_columns_by_enabled_columns
 
 type PostgresDwhColumns = dict[str, dict[str, Any]]
 type PostgresSourceLocation = tuple[str | None, str, str]
-
-
-def _normalize_default_schema(default_schema: str | None) -> str | None:
-    if not isinstance(default_schema, str):
-        return None
-    normalized = default_schema.strip()
-    return normalized or None
 
 
 def postgres_schema_metadata(

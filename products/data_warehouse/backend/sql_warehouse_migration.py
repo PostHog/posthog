@@ -29,7 +29,7 @@ def _source_has_optional_schema_field(source: Any) -> bool:
         return False
     try:
         fields = source.get_source_config.fields
-    except Exception:
+    except (AttributeError, TypeError):
         return False
     return any(
         getattr(field, "name", None) == "schema" and getattr(field, "required", True) is False for field in fields
