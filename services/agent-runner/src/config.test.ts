@@ -42,6 +42,22 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.sandboxBackend).toBe('modal')
     })
 
+    it('defaults sandboxHostImage to the locally-built dev tag in dev so bin/start works without configuration', () => {
+        const cfg = loadAgentRunnerConfig({})
+        expect(cfg.sandboxHostImage).toBe('posthog/agent-sandbox-host:dev')
+    })
+
+    it('leaves sandboxHostImage unset in prod so SANDBOX_HOST_IMAGE must be set explicitly', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        const cfg = loadAgentRunnerConfig({})
+        expect(cfg.sandboxHostImage).toBeUndefined()
+    })
+
+    it('explicit SANDBOX_HOST_IMAGE wins over the dev default', () => {
+        const cfg = loadAgentRunnerConfig({ SANDBOX_HOST_IMAGE: 'ghcr.io/posthog/posthog-agent-sandbox-host:master' })
+        expect(cfg.sandboxHostImage).toBe('ghcr.io/posthog/posthog-agent-sandbox-host:master')
+    })
+
     it('AGENT_USE_AI_GATEWAY=1 parses to true', () => {
         const cfg = loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: '1' })
         expect(cfg.useAiGateway).toBe(true)

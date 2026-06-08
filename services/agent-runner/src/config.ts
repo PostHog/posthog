@@ -165,8 +165,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     sandboxHostImage: z
         .string()
         .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? 'posthog/agent-sandbox-host:dev' : undefined))
         .describe(
-            'Canonical `posthog-agent-sandbox-host` image reference (pinned by SHA in prod). Applies to both backends unless an `AGENT_SANDBOX_{DOCKER,MODAL}_IMAGE` override is set.'
+            'Canonical `posthog-agent-sandbox-host` image reference (pinned by SHA in prod). Applies to both backends unless an `AGENT_SANDBOX_{DOCKER,MODAL}_IMAGE` override is set. Defaults to the locally-built `posthog/agent-sandbox-host:dev` tag under `isDev()` (matches `services/agent-sandbox-host/README.md` build instructions) so `bin/start` works without configuration; prod must set this explicitly.'
         ),
     sandboxDockerImage: z
         .string()
