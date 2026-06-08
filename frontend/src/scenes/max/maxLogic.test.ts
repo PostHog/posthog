@@ -185,7 +185,11 @@ describe('maxLogic', () => {
     // the route, whereas the scene instance owns /ai. The harness prefixes the project id
     // (/project/<id>/…), so match the path suffix.
     it.each([
-        { scenario: 'side panel chat keeps the current page', props: { sidePanel: true }, expectedSuffix: '/insights/abc123' },
+        {
+            scenario: 'side panel chat keeps the current page',
+            props: { sidePanel: true },
+            expectedSuffix: '/insights/abc123',
+        },
         { scenario: 'scene chat navigates to /ai', props: { tabId: 'test' }, expectedSuffix: urls.ai() },
     ])('startNewConversation: $scenario', async ({ props, expectedSuffix }) => {
         router.actions.push('/insights/abc123')
