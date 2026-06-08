@@ -747,6 +747,7 @@ def _handle_new_user(
     cache.set(
         cache_key,
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
