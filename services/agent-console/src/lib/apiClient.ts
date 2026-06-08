@@ -448,7 +448,21 @@ function conversationToTurns(messages: AgentConversationMessageApi[], sessionId:
         const iso = new Date(m.timestamp).toISOString()
         const id = `${sessionId}:${i}`
         if (m.role === 'user') {
-            turns.push({ kind: 'user', id, timestamp: iso, text: userMessageText(m.content) })
+            const text = userMessageText(m.content)
+            // Interactive client-tool wake messages get rerouted onto the
+            // matching tool_call's result instead of rendering as a bubble.
+            const wake = parseClientToolWake(text)
+            if (wake) {
+                const target = toolCallIndex.get(wake.call_id)
+                if (target) {
+                    target.fulfillment = 'client'
+                    target.result = wake.ok
+                        ? { ok: true, body: wake.result ?? null }
+                        : { ok: false, error: wake.error || 'client_tool_failed' }
+                    continue
+                }
+            }
+            turns.push({ kind: 'user', id, timestamp: iso, text })
             continue
         }
         if (m.role === 'assistant') {
@@ -516,7 +530,53 @@ function attachToolResult(
         return
     }
     const text = Array.isArray(m.content) ? m.content.map((p) => (isTextPart(p) ? p.text : '')).join('') : ''
+    // Interactive client tools persist a synthetic queued envelope. Mark
+    // the call as client-fulfilled so the inline form remounts on reload,
+    // and leave `result` unset until the wake message lands.
+    if (!m.isError && isInteractiveQueuedEnvelopeText(text)) {
+        target.fulfillment = 'client'
+        return
+    }
     target.result = m.isError ? { ok: false, error: text || 'tool error' } : { ok: true, body: text }
+}
+
+function isInteractiveQueuedEnvelopeText(text: string): boolean {
+    if (!text || text.length > 2000) {
+        return false
+    }
+    try {
+        const parsed = JSON.parse(text) as Record<string, unknown>
+        return parsed.queued === true && parsed.interactive === true && typeof parsed.call_id === 'string'
+    } catch {
+        return false
+    }
+}
+
+interface ClientToolWake {
+    call_id: string
+    ok: boolean
+    result?: unknown
+    error?: string
+}
+
+function parseClientToolWake(text: string): ClientToolWake | null {
+    if (!text || text.length > 100_000) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(text) as Record<string, unknown>
+        if (typeof parsed.call_id !== 'string' || typeof parsed.ok !== 'boolean') {
+            return null
+        }
+        return {
+            call_id: parsed.call_id,
+            ok: parsed.ok,
+            result: parsed.result,
+            error: typeof parsed.error === 'string' ? parsed.error : undefined,
+        }
+    } catch {
+        return null
+    }
 }
 
 /* ── Narrowing helpers for `unknown`-typed wire content ───────────── */

@@ -7,7 +7,7 @@
 import { Request, Response, Router } from 'express'
 import { z } from 'zod'
 
-import { CredentialBroker, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
+import { buildClientToolResultMarker, CredentialBroker, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
@@ -125,7 +125,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 badRequest(res, parsed.error)
                 return
             }
-            const { session_id: sessionId, message } = parsed.data
+            const { session_id: sessionId, message, client_tool_result } = parsed.data
             const existing = await deps.queue.get(sessionId)
             if (!existing) {
                 res.status(404).json({ error: 'session_not_found' })
@@ -154,13 +154,18 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             const incomingPrincipal = auth.principal
             const aclCheck = requireAclAccess(existing, incomingPrincipal)
             if (aclCheck.kind === 'denied') {
+                const proposed: string =
+                    message ??
+                    (client_tool_result
+                        ? `[client_tool_result for ${client_tool_result.call_id}]`
+                        : '[unknown payload]')
                 const req = await recordElevationRequest(deps.queue, existing, {
                     requester: incomingPrincipal,
                     requesterDisplay: principalDisplay(incomingPrincipal),
                     trigger: 'chat',
                     proposedMessage: {
                         role: 'user',
-                        content: message,
+                        content: proposed,
                         timestamp: Date.now(),
                         sender: incomingPrincipal,
                     },
@@ -187,12 +192,27 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                     return
                 }
             }
-            await deps.queue.appendPendingInput(sessionId, {
-                role: 'user',
-                content: message,
-                timestamp: Date.now(),
-                sender: incomingPrincipal,
-            })
+            if (client_tool_result) {
+                const payload = client_tool_result.error
+                    ? { call_id: client_tool_result.call_id, error: client_tool_result.error }
+                    : {
+                          call_id: client_tool_result.call_id,
+                          result: (client_tool_result.result ?? {}) as Record<string, unknown>,
+                      }
+                await deps.queue.appendPendingInput(sessionId, {
+                    role: 'user',
+                    content: buildClientToolResultMarker(payload),
+                    timestamp: Date.now(),
+                    sender: incomingPrincipal,
+                })
+            } else {
+                await deps.queue.appendPendingInput(sessionId, {
+                    role: 'user',
+                    content: message!,
+                    timestamp: Date.now(),
+                    sender: incomingPrincipal,
+                })
+            }
             await deps.queue.update(sessionId, { state: 'queued' })
             // Refresh broker creds with whatever the client just supplied —
             // OAuth tokens may have been rotated since /run, and the

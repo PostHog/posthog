@@ -150,6 +150,29 @@ export async function sendMessage(
     )
 }
 
+/**
+ * Post an interactive client-tool outcome via `/send`. Routes to the
+ * pending_inputs marker path; the runner injects a wake message on
+ * resume. Sync tools use `postClientToolResult` (bus) instead.
+ */
+export async function sendClientToolResult(
+    slug: string,
+    sessionId: string,
+    callId: string,
+    body: { result: Record<string, unknown> } | { error: string },
+    opts: { preview?: PreviewOpts } = {}
+): Promise<{ ok: true }> {
+    const payload =
+        'error' in body
+            ? { session_id: sessionId, client_tool_result: { call_id: callId, error: body.error } }
+            : { session_id: sessionId, client_tool_result: { call_id: callId, result: body.result } }
+    return postJson<typeof payload, { ok: true }>(
+        buildUrl(slug, 'send', opts.preview, undefined, false),
+        payload,
+        previewHeaders(opts.preview)
+    )
+}
+
 export async function cancelSession(
     slug: string,
     sessionId: string,

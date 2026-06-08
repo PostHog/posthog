@@ -173,6 +173,26 @@ def load_bundle_files() -> dict[str, str]:
     return files
 
 
+def build_typed_bundle(files: dict[str, str], spec: dict) -> dict:
+    """Shape for PUT /bundle/: { agent_md, skills, tools, spec }. Spec slice
+    is strict and excludes skills[]/tools[] (derived at freeze)."""
+    skills_payload: list[dict] = []
+    for skill_ref in spec.get("skills", []):
+        skill_id = skill_ref.get("id")
+        if not skill_id:
+            continue
+        path = skill_ref.get("path", f"skills/{skill_id}.md")
+        skills_payload.append(
+            {
+                "id": skill_id,
+                "description": skill_ref.get("description", ""),
+                "body": files.get(path, ""),
+            }
+        )
+    author_spec = {k: v for k, v in spec.items() if k not in ("skills", "tools")}
+    return {"agent_md": files.get("agent.md", ""), "skills": skills_payload, "tools": [], "spec": author_spec}
+
+
 def per_file_sha256(files: dict[str, str]) -> dict[str, str]:
     """Per-file sha256, mirroring what the janitor stores in its manifest.
     Used to diff against the live revision's manifest for idempotency."""
@@ -230,14 +250,18 @@ def create_draft(app_id: str, parent: str | None, spec: dict) -> str:
     return payload["id"]
 
 
-def push_bundle(app_id: str, rev_id: str, files: dict[str, str]) -> None:
-    log(f"pushing {len(files)} bundle files (mode=replace)")
+def push_bundle(app_id: str, rev_id: str, files: dict[str, str], spec: dict) -> None:
+    typed = build_typed_bundle(files, spec)
+    log(
+        f"pushing typed bundle (agent_md={len(typed['agent_md'])}c, "
+        f"skills={len(typed['skills'])}, tools={len(typed['tools'])})"
+    )
     if DRY_RUN:
         return
     status, payload = _req(
         "PUT",
         f"/agent_applications/{app_id}/revisions/{rev_id}/bundle/",
-        {"files": files, "mode": "replace"},
+        typed,
     )
     if status != 200:
         die(f"bundle update failed: {status} {payload}")
@@ -329,7 +353,7 @@ def main() -> None:
         log("bundle drifted — re-promoting")
 
     rev_id = create_draft(app_id, parent=live_rev, spec=spec)
-    push_bundle(app_id, rev_id, files)
+    push_bundle(app_id, rev_id, files, spec)
     patch_spec(app_id, rev_id, spec)
     validate(app_id, rev_id)
     new_sha = freeze(app_id, rev_id)

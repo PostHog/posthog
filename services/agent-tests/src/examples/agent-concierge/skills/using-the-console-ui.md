@@ -20,12 +20,15 @@ All are no-ops if the client doesn't handle them; the runner hides
 them from your tool surface. If they're in your tool list, the
 console is on the other end.
 
-`set_secret` is the first **render-style** client tool — instead
+`set_secret` is the first **render-style, interactive** client tool — instead
 of running a synchronous handler, the console mounts a UI inside
-the tool-call card and resolves the call when the user submits.
-Tools that need user input belong here; tools that the host can
-fulfill silently (navigation, toasts, context reads) stay
-synchronous.
+the tool-call card and the runner parks the session while the user
+fills it in. Your call returns a synthetic `{queued:true, interactive:true, call_id}`
+envelope immediately; end the turn cleanly and the real outcome
+arrives as a wake message on a fresh turn (see
+`skills/secrets-and-integrations` Path A for the full loop). Tools
+that need user input belong here; tools the host can fulfill
+silently (navigation, toasts, context reads) stay synchronous.
 
 ## `focus_*` etiquette
 

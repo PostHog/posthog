@@ -255,11 +255,17 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
          */
         required: z.boolean().default(false),
         /**
-         * Per-call timeout in ms. Default 5s — UI tools should answer in
-         * <100ms; if they don't, the user closed the tab or follow-mode
-         * is off. Author may raise for slower client operations.
+         * Per-call timeout in ms. Only consulted when `interactive` is
+         * false; interactive tools park the session persistently and
+         * have no in-process timeout. Default 5s for sync UI tools.
          */
-        timeout_ms: z.number().int().positive().max(60_000).default(5_000),
+        timeout_ms: z.number().int().positive().max(600_000).default(5_000),
+        /**
+         * Park the session and resume on `/send` (client_tool_result
+         * variant) instead of awaiting the bus result in-process. Use
+         * for render-style tools whose UI needs unbounded user time.
+         */
+        interactive: z.boolean().default(false),
     }),
 ])
 

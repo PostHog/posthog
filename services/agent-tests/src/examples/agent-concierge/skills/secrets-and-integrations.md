@@ -118,7 +118,17 @@ paths, picked by what the client supports — preferred to least.
 The console fulfills a `set_secret` client tool by rendering an
 inline form **inside the matching tool-call card**, right in the
 chat transcript. The user fills it in without leaving the
-conversation. Loop:
+conversation.
+
+`set_secret` is an **interactive** client tool — the platform's
+park + wake pattern (`spec.tools[].interactive: true`). It behaves
+differently from a normal tool, and you need to read the rest of
+this section before invoking it. TL;DR: your call returns a
+`queued` envelope synchronously, you end the turn, the user
+responds on their own time, and on a fresh turn you receive a
+wake message with the real outcome.
+
+Loop:
 
 1. **Check current state** with `agent-applications-env-keys-get`
    `{ id: "<slug>", key: "ANTHROPIC_KEY" }` — returns `{ key, is_set }`.
@@ -130,17 +140,34 @@ conversation. Loop:
      screen" — the user may navigate while the form is up.
    - `purpose` is a one-line hint shown above the input. Keep it
      factual ("Used for the daily summary call"), no value hints.
-3. **Wait.** The tool resolves with `{ key, action: "set" }` on
-   success, `{ error: "user_cancelled" }` if they cancel, or a
-   string error on a save failure. Don't add chatter while the
-   user is mid-form — they can see what's happening.
-4. **Continue** with whatever you were doing. No need to re-check
-   `env-keys-get`; the tool's success result already confirms the
-   write landed.
+3. **The tool result is immediate and synthetic.** You will receive
+   a JSON envelope like
+   `{ "queued": true, "interactive": true, "call_id": "<uuid>", "tool_id": "set_secret", "message": "Awaiting user input. The result will arrive on the next turn — end this turn now." }`.
+   That is NOT the user's answer — it's the platform telling you the
+   form has been mounted and the runner has parked the session.
+4. **End the turn cleanly.** Acknowledge briefly in plain text
+   ("I've put up a form for you to enter the value.") and stop.
+   The model that keeps emitting tool calls after seeing a
+   `queued: true` envelope wastes turns; do not retry, do not
+   poll, do not call `env-keys-get` again.
+5. **Wait for the wake.** The session is parked — your worker
+   slot is freed and the user has unbounded time to respond. When
+   they submit (or cancel), a fresh turn starts and the very first
+   `user` message you see carries an envelope like
+   `{ "call_id": "<the same uuid>", "ok": true, "result": { "key": "ANTHROPIC_KEY", "action": "set" } }`
+   on success or `{ "call_id": "...", "ok": false, "error": "user_cancelled" }` on cancel
+   / failure. Match by `call_id` to be safe.
+6. **Continue** with whatever you were doing. On `ok: true` no
+   need to re-check `env-keys-get`; the wake envelope confirms the
+   write landed. On `ok: false` with `error: "user_cancelled"`,
+   tell the user the form was cancelled and ask whether they want
+   to retry. On any other error, surface the error text and
+   suggest the user retry or use the deep-link fallback (Path B).
 
-This path is the default for `client.kind = agent-console`. If the
-runtime returns `unhandled_client_tool` (an older console version
-that doesn't yet know `set_secret`), fall through to path B.
+If the runtime returns `unhandled_client_tool` _immediately_ (older
+console version that doesn't yet know `set_secret`), fall through
+to path B — the runner returns the unhandled error directly, no
+park + wake.
 
 ### Path B — `client.kind = agent-console`, deep link
 

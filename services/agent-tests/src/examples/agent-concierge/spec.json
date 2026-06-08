@@ -23,7 +23,6 @@
         { "kind": "native", "id": "@posthog/agent-applications-revisions-retrieve" },
         { "kind": "native", "id": "@posthog/agent-applications-revisions-system-prompt" },
         { "kind": "native", "id": "@posthog/agent-applications-revisions-manifest-retrieve" },
-        { "kind": "native", "id": "@posthog/agent-applications-revisions-file-retrieve" },
         { "kind": "native", "id": "@posthog/agent-applications-sessions-list" },
         { "kind": "native", "id": "@posthog/agent-applications-sessions-retrieve" },
         { "kind": "native", "id": "@posthog/agent-applications-session-logs" },
@@ -134,7 +133,8 @@
         {
             "kind": "client",
             "id": "set_secret",
-            "description": "Punch out to the user to set one secret on an agent. The console renders an inline form next to your tool call; the user enters the value, the form saves it via the encrypted env API, and the tool resolves with `{ key, action }` so you can continue. The value never reaches your tool-call history — `purpose` is the only string you see. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. On non-console clients this tool returns `unhandled_client_tool` — fall back to the URL handoff documented in `secrets-and-integrations`.",
+            "interactive": true,
+            "description": "Punch out to the user to set one secret on an agent. INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately — that is NOT the user's answer. End your turn after a brief acknowledgement. The session parks; the user fills out the inline form on their own time. On a fresh turn you receive a wake message `{call_id, ok, result|error}` carrying the real outcome (`{key, action: 'set'}` on success, `user_cancelled` if they cancel). Match by `call_id`. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. The value never reaches your tool-call history — `purpose` is the only string you see. On non-console clients this tool returns `unhandled_client_tool` immediately — fall back to the URL handoff documented in `secrets-and-integrations`.",
             "args_schema": {
                 "type": "object",
                 "properties": {

@@ -62,14 +62,15 @@ import {
     LogLevel,
     LogSink,
     MemoryStore,
-    TabularStore,
     NoopAnalyticsSink,
+    parseClientToolResultMarker,
     Sandbox,
     SecretBroker,
     SessionEvent,
     SessionEventBus,
     SessionEventKind,
     SessionInputsStore,
+    TabularStore,
     toolSpanId,
 } from '@posthog/agent-shared'
 
@@ -346,6 +347,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             memoryStore: deps.memoryStore,
             tabularStore: deps.tabularStore,
             dispatchClientTool,
+            emitClientToolCall: async (callId, toolId, args) => {
+                await emit('client_tool_call', { call_id: callId, tool_id: toolId, args })
+            },
             credentialBroker: deps.credentialBroker,
             mcpClients: deps.mcpClients,
             http: deps.http,
@@ -730,6 +734,43 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         const out: ConversationMessage[] = []
                         const kept: ConversationMessage[] = []
                         for (const msg of pending) {
+                            // Interactive client-tool result marker (from /send).
+                            const clientToolResult = parseClientToolResultMarker(
+                                typeof msg.content === 'string'
+                                    ? msg.content
+                                    : Array.isArray(msg.content) &&
+                                        msg.content.length === 1 &&
+                                        msg.content[0].type === 'text'
+                                      ? msg.content[0].text
+                                      : ''
+                            )
+                            if (clientToolResult) {
+                                const isError = 'error' in clientToolResult
+                                const envelope: Record<string, unknown> = isError
+                                    ? {
+                                          call_id: clientToolResult.call_id,
+                                          ok: false,
+                                          error: clientToolResult.error,
+                                      }
+                                    : {
+                                          call_id: clientToolResult.call_id,
+                                          ok: true,
+                                          result: clientToolResult.result,
+                                      }
+                                const wake: ConversationMessage = {
+                                    role: 'user',
+                                    content: [{ type: 'text', text: JSON.stringify(envelope) }],
+                                    timestamp: msg.timestamp,
+                                }
+                                out.push(wake)
+                                await emit('client_tool_result', {
+                                    call_id: clientToolResult.call_id,
+                                    ...(isError
+                                        ? { error: clientToolResult.error }
+                                        : { result: clientToolResult.result }),
+                                })
+                                continue
+                            }
                             const requestId = deps.approvals ? approvalMarkerRequestId(msg) : null
                             if (!requestId || !deps.approvals) {
                                 // Plain steering input (e.g. /send) — consume it.

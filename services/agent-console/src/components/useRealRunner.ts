@@ -36,6 +36,7 @@ import {
     listen,
     postClientToolResult,
     type PreviewOpts,
+    sendClientToolResult,
     sendMessage,
     startRun,
     type SessionEvent,
@@ -548,6 +549,7 @@ export function useRealRunner({
         [agentSlug]
     )
 
+    // Render-style resolves go via /send so the session can park.
     const resolveClientTool = useCallback(
         (callId: string, outcome: ClientToolOutcome): void => {
             const sessionId = sessionIdRef.current
@@ -555,7 +557,7 @@ export function useRealRunner({
                 return
             }
             const payload = outcome.ok ? { result: outcome.body } : { error: outcome.error }
-            void postClientToolResult(agentSlug, sessionId, callId, payload).catch(() => undefined)
+            void sendClientToolResult(agentSlug, sessionId, callId, payload).catch(() => undefined)
         },
         [agentSlug]
     )

@@ -43,6 +43,7 @@ export * from './sandbox/secret-broker'
 
 export * from './runtime/analytics-sink'
 export * from './runtime/bus'
+export * from './runtime/client-tool-result-marker'
 export * from './runtime/credential-broker'
 export * from './runtime/pg-credential-broker'
 export * from './runtime/log-sink'

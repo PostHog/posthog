@@ -120,6 +120,8 @@ export interface AgentToolDeps {
      * unset for tests that don't exercise client tools.
      */
     dispatchClientTool?: ClientToolDispatcher
+    /** Emit `client_tool_call` for interactive tools (no in-process await). */
+    emitClientToolCall?: (callId: string, toolId: string, args: Record<string, unknown>) => Promise<void>
     /**
      * Per-session credential broker, populated by ingress at /run + /send.
      * Native tools read through this for user auth materials (PostHog
@@ -345,7 +347,13 @@ function makeCustomTool(
  * error as a tool_result for the model to adapt to.
  */
 function makeClientTool(
-    spec: { id: string; description: string; args_schema: Record<string, unknown>; timeout_ms: number },
+    spec: {
+        id: string
+        description: string
+        args_schema: Record<string, unknown>
+        timeout_ms: number
+        interactive: boolean
+    },
     deps: AgentToolDeps
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
@@ -353,9 +361,23 @@ function makeClientTool(
         label: spec.id,
         description: spec.description,
         parameters: spec.args_schema as unknown as TSchema,
-        execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+        execute: async (callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             if (!deps.dispatchClientTool) {
                 throw new Error(`client tool ${spec.id} dispatcher not wired on this driver`)
+            }
+            if (spec.interactive) {
+                if (!deps.emitClientToolCall) {
+                    throw new Error(`client tool ${spec.id} interactive emit not wired on this driver`)
+                }
+                await deps.emitClientToolCall(callId, spec.id, args as Record<string, unknown>)
+                const queued = {
+                    queued: true,
+                    interactive: true,
+                    call_id: callId,
+                    tool_id: spec.id,
+                    message: 'Awaiting user input. The result will arrive on the next turn — end this turn now.',
+                }
+                return { content: [{ type: 'text', text: JSON.stringify(queued) }], details: { output: queued } }
             }
             const result = await deps.dispatchClientTool(spec.id, args as Record<string, unknown>, spec.timeout_ms)
             return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }

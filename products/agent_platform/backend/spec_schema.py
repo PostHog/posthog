@@ -208,9 +208,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "timeout_ms": {
                                 "type": "integer",
                                 "minimum": 1,
-                                "maximum": 60000,
+                                "maximum": 600000,
                                 "default": 5000,
                             },
+                            "interactive": {"type": "boolean", "default": False},
                         },
                         "required": ["kind", "id", "description"],
                         "additionalProperties": False,

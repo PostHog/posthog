@@ -16,10 +16,35 @@ export const ChatRunBodySchema = z.object({
     external_key: z.string().optional(),
 })
 
-export const ChatSendBodySchema = z.object({
-    session_id: z.string().uuid('session_id must be a UUID'),
-    message: z.string().min(1, 'message must be a non-empty string'),
-})
+/**
+ * Body for `POST /agents/<slug>/send`. Either a chat `message`, or a
+ * `client_tool_result` for interactive (parked) client tools.
+ */
+export const ChatSendBodySchema = z
+    .object({
+        session_id: z.string().uuid('session_id must be a UUID'),
+        message: z.string().min(1, 'message must be a non-empty string').optional(),
+        client_tool_result: z
+            .object({
+                call_id: z.string().min(1, 'call_id is required'),
+                result: z.record(z.string(), z.unknown()).optional(),
+                error: z.string().optional(),
+            })
+            .refine((v) => v.result !== undefined || typeof v.error === 'string', {
+                message: 'exactly one of `result` or `error` must be set',
+                path: ['result'],
+            })
+            .optional(),
+    })
+    .refine(
+        (v) =>
+            (v.message !== undefined && v.client_tool_result === undefined) ||
+            (v.message === undefined && v.client_tool_result !== undefined),
+        {
+            message: 'exactly one of `message` or `client_tool_result` must be set',
+            path: ['message'],
+        }
+    )
 
 export const ChatCancelBodySchema = z.object({
     session_id: z.string().uuid('session_id must be a UUID'),
