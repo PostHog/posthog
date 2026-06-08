@@ -40,6 +40,9 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.query !== undefined) {
             body['query'] = params.query
         }
@@ -171,8 +174,13 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
 })
 
 const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
-    EndpointsPartialUpdateBody.omit({ name: true, derived_from_insight: true, bucket_overrides: true, deleted: true })
-        .shape
+    EndpointsPartialUpdateBody.omit({
+        name: true,
+        display_name: true,
+        derived_from_insight: true,
+        bucket_overrides: true,
+        deleted: true,
+    }).shape
 )
 
 const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
