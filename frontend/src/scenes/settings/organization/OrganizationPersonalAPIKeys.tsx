@@ -5,6 +5,7 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { fullName } from 'lib/utils'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
 
 import { AvailableFeature } from '~/types'
@@ -23,10 +24,6 @@ function AccessScope({ accessScope }: { accessScope: OrganizationPersonalAPIKeyA
     return <TagList tags={(accessScope.projects ?? []).map((project) => project.name)} />
 }
 
-function ownerName(owner: OrganizationPersonalAPIKeyApi['owner']): string {
-    return [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email
-}
-
 export function OrganizationPersonalAPIKeys(): JSX.Element {
     const { keys, keysLoading } = useValues(organizationPersonalAPIKeysLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
@@ -41,7 +38,7 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
             key: 'owner',
             render: (_, key) => (
                 <div className="flex flex-col">
-                    <span>{ownerName(key.owner)}</span>
+                    <span>{fullName(key.owner) || key.owner.email}</span>
                     <span className="text-muted text-xs">{key.owner.email}</span>
                 </div>
             ),
