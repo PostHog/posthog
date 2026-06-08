@@ -40,6 +40,12 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .describe(
             "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies x-agent-preview-token on non-live invokes (aud = agent-ingress.preview). Unset → preview gate bypassed (dev / harness only). See docs/agent-platform/plans/draft-preview-auth.md."
         ),
+    publicUrl: z
+        .string()
+        .optional()
+        .describe(
+            'Public URL this ingress is reachable at from the outside world (e.g. `https://agents.us.posthog.com`, or a `https://<id>.trycloudflare.com` in local dev via `bin/agent-tunnel`). Logged on boot for debuggability so you can spot mismatches with what Slack / webhooks are pointed at. Unset → boot log says "no public URL configured", and Django omits `slack_events_url` from agent retrieve responses.'
+        ),
 })
 
 export type AgentIngressConfig = z.infer<typeof AgentIngressConfigSchema>
@@ -51,6 +57,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
     DOMAIN_SUFFIX: 'domainSuffix',
     PATH_PREFIX: 'pathPrefix',
     AGENT_INTERNAL_SIGNING_KEY: 'internalSigningKey',
+    AGENT_INGRESS_PUBLIC_URL: 'publicUrl',
 })
 
 export function loadAgentIngressConfig(env: NodeJS.ProcessEnv = process.env): AgentIngressConfig {

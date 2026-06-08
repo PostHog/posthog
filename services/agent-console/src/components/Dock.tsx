@@ -729,6 +729,8 @@ function RealConciergeDock({
                         onOpenSession={(sessionId) =>
                             router.push(`/agents/${agentRef.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
                         }
+                        sessionHistory={runner.sessionHistory}
+                        onResumeSession={(id) => void runner.switchToSession(id)}
                         busy={sending}
                         reconnectAttempt={runner.reconnectAttempt}
                         renderMarkdown={renderMarkdown}

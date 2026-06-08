@@ -1008,3 +1008,7 @@ environment:
         bin_script: start-ai-gateway
         description: 'TODO: add description for start-ai-gateway'
         hidden: true
+    agent:tunnel:
+        bin_script: agent-tunnel
+        description: 'TODO: add description for agent-tunnel'
+        hidden: true

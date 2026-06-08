@@ -130,7 +130,7 @@ class TestFreezeRegistryIntegration(APIBaseTest):
 
         spec = {
             "model": "anthropic/claude-haiku-4-5",
-            "auth": {"modes": [{"type": "public"}]},
+            "auth": {"modes": [{"type": "public", "acknowledge_public_exposure": True}]},
             "skills": [
                 {
                     "id": "acct-flow",

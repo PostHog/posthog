@@ -13,9 +13,13 @@
  * matches `agent-applications-list` in `services/mcp/definitions/agent_platform.yaml`)
  * so a future migration to MCP-routed dispatch keeps the same surface.
  *
- * **Read-only for v0.** Write operations (new_draft, file_update,
- * validate, freeze, promote) are deliberately not here yet — they want
- * the approval gating + user-confirmation skills before landing.
+ * **Reads + writes.** Authoring writes (create, partial-update, new-draft,
+ * file-update, validate, freeze, promote, archive, set-env) live here too.
+ * Server-side approval gating is NOT enforced — the concierge agent.md
+ * (hard rules #3 + #5) requires the model to confirm before destructive
+ * edits in chat, which matches what users expect from a chat-driven
+ * authoring surface. Move sensitive writes back behind the runner's
+ * approval pipeline if/when the dispatcher gets per-tool gating.
  */
 
 import { defineNativeTool, type ToolContext, Type } from '@posthog/agent-shared'
@@ -327,6 +331,351 @@ export const posthogAgentApplicationsSessionsRetrieveV1 = defineNativeTool({
         return callPosthogApi(ctx, {
             method: 'GET',
             path: projectPath(ctx, `/agent_applications/${id}/sessions/${args.session_id}/`),
+        })
+    },
+})
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Agent applications — writes
+ *
+ * The full authoring surface: create / partial-update / set-env / env-keys
+ * inspection. Each tool wraps a single Django endpoint; the model composes
+ * them per the editing-agents-safely / authoring-new-agents skills.
+ * ────────────────────────────────────────────────────────────────────── */
+
+export const posthogAgentApplicationsCreateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-create',
+    description:
+        'Mint a brand-new agent application. Body requires `name` + `slug`; description is optional. Returns the created application — no revisions until you create one with `@posthog/agent-applications-revisions-create`.',
+    args: Type.Object({
+        name: Type.String({ description: 'Human-readable name (shown in lists + headers).' }),
+        slug: Type.String({
+            description:
+                'URL-safe stable identifier (lowercase alphanumeric + hyphens). Used in every subsequent tool call.',
+        }),
+        description: Type.Optional(
+            Type.String({
+                description: 'One-paragraph description of what the agent does. Surfaces in the agents-list overview.',
+            })
+        ),
+    }),
+    returns: AgentApplicationSchema,
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, '/agent_applications/'),
+            body: {
+                name: args.name,
+                slug: args.slug,
+                description: args.description ?? '',
+                archived: false,
+            },
+        })
+    },
+})
+
+export const posthogAgentApplicationsPartialUpdateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-partial-update',
+    description:
+        'Patch the top-level fields of an agent application (`name`, `description`). To change the live revision use the freeze + promote tools; to manage env use `set-env-create`.',
+    args: Type.Object({
+        ...agentRefFields,
+        name: Type.Optional(Type.String()),
+        description: Type.Optional(Type.String()),
+    }),
+    returns: AgentApplicationSchema,
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        const body: Record<string, unknown> = {}
+        if (args.name !== undefined) {
+            body.name = args.name
+        }
+        if (args.description !== undefined) {
+            body.description = args.description
+        }
+        return callPosthogApi(ctx, {
+            method: 'PATCH',
+            path: projectPath(ctx, `/agent_applications/${id}/`),
+            body,
+        })
+    },
+})
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Revisions — writes
+ * ────────────────────────────────────────────────────────────────────── */
+
+export const posthogAgentApplicationsRevisionsCreateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-create',
+    description:
+        'Open a fresh empty draft revision under an application. Use when starting from scratch (no parent revision). For branching the current live revision use `@posthog/agent-applications-revisions-new-draft-create` instead — that one clones the bundle in the same call.',
+    args: Type.Object({
+        ...agentRefFields,
+        spec: Type.Record(Type.String(), Type.Unknown(), {
+            description:
+                'AgentSpec JSON: model, triggers, tools, skills, secrets, limits, auth. Validated server-side against the spec schema.',
+        }),
+        bundle_uri: Type.Optional(
+            Type.String({ description: 'Optional bundle URI for the revision (default server-assigned).' })
+        ),
+    }),
+    returns: RevisionSchema,
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        const body: Record<string, unknown> = { application_id: id, spec: args.spec }
+        if (args.bundle_uri) {
+            body.bundle_uri = args.bundle_uri
+        }
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/`),
+            body,
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsNewDraftV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-new-draft-create',
+    description:
+        'One-shot helper: creates a draft revision and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use for the common "edit live" workflow — branch from current live, mutate files, freeze, promote.',
+    args: Type.Object({
+        ...agentRefFields,
+        source_revision_id: Type.String({ description: 'Revision UUID to clone bundle + spec from.' }),
+    }),
+    returns: Type.Object({ revision: RevisionSchema, source_revision_id: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/new_draft/`),
+            body: { application_id: id, source_revision_id: args.source_revision_id },
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-partial-update',
+    description:
+        'Replace `spec` on a draft revision. Only `state=draft` accepts spec edits — promoting flips to `ready` which freezes the spec. Validation against AgentSpec runs server-side; an invalid spec surfaces at the next session start, not here.',
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
+        spec: Type.Record(Type.String(), Type.Unknown(), {
+            description:
+                'Full AgentSpec to replace the current spec with. Partial-spec patching is not supported — pass the complete shape.',
+        }),
+    }),
+    returns: RevisionSchema,
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'PATCH',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/`),
+            body: { spec: args.spec },
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsFileUpdateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-file-update',
+    description:
+        "Write or overwrite one bundle file in a draft revision. Path is bundle-relative (e.g. `agent.md`, `skills/research/SKILL.md`). For bulk pushes use `bundle-update` (not yet wired natively — fall back to per-file). Creates the path if it doesn't exist.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
+        path: Type.String({ description: 'Bundle-relative file path, e.g. `agent.md`.' }),
+        content: Type.String({ description: 'Full file content. UTF-8.' }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), path: Type.String(), bytes: Type.Number() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'PUT',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/file/`),
+            query: { path: args.path },
+            body: { content: args.content },
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsValidateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-validate-create',
+    description:
+        "Pre-flight check on any revision state. Surfaces missing entrypoints, unknown tool ids, custom tools missing compiled.js / schema.json, skill paths that don't exist, declared secrets that aren't set. Always run before freeze. Returns `{ ok, errors, resolved_natives }`.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID.' }),
+    }),
+    returns: Type.Object({
+        ok: Type.Boolean(),
+        revision_id: Type.String(),
+        revision_state: Type.String(),
+        errors: Type.Array(Type.Record(Type.String(), Type.Unknown())),
+        resolved_natives: Type.Optional(Type.Array(Type.String())),
+    }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/validate/`),
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsFreezeV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-freeze-create',
+    description:
+        'Walk the bundle, compute a manifest sha256, stamp it on the row, flip state `draft → ready`. After freeze the bundle is immutable. Idempotent — freezing a `ready` revision returns the existing sha256.',
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft` or `ready`).' }),
+    }),
+    returns: Type.Object({
+        ok: Type.Boolean(),
+        state: Type.String(),
+        bundle_sha256: Type.String(),
+        revision: RevisionSchema,
+    }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/freeze/`),
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsPromoteV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-promote-create',
+    description:
+        "Flip a `ready` revision to `live` and set the parent application's `live_revision`. The previously-live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent. SERVER-SIDE GATE: refuses with a clear error if trigger-required secrets (e.g. `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` for slack triggers) are missing from the agent's `encrypted_env` — see `skills/setting-up-slack-app`. PER AGENT.MD HARD RULE #3: confirm with the user explicitly before calling.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=ready`).' }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), state: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/promote/`),
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-archive-create',
+    description:
+        "Archive any revision. Clears the parent application's `live_revision` if the archived revision was live. DESTRUCTIVE per agent.md hard rule #5 — confirm with the user before calling.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID to archive.' }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), state: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/archive/`),
+        })
+    },
+})
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Encrypted env — list / get / clear individual keys
+ *
+ * Writes (set / rotate) deliberately route through the `set_secret`
+ * client tool in the agent-console dock — not through a native tool.
+ * That keeps secret values out of the session tool-call history. See
+ * `skills/secrets-and-integrations`.
+ *
+ * `set-env-create` (raw API for CI scripts) is wired anyway so the
+ * concierge can recover from the rare case where the punch-out form is
+ * broken or unavailable. The model is told to prefer the client tool.
+ * ────────────────────────────────────────────────────────────────────── */
+
+const EnvKeyRowSchema = Type.Object({
+    key: Type.String(),
+    is_set: Type.Boolean(),
+})
+
+export const posthogAgentApplicationsEnvKeysListV1 = defineNativeTool({
+    id: '@posthog/agent-applications-env-keys-list',
+    description:
+        'List every encrypted_env key set on an agent, with `is_set` per row. Does NOT return the values — those are encrypted at rest and never read back through this surface. Use to audit which secrets the agent has configured before freeze + promote.',
+    args: Type.Object({ ...agentRefFields }),
+    returns: Type.Object({ keys: Type.Array(EnvKeyRowSchema) }),
+    requires: { integrations: [], scopes: ['agents:read'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'GET',
+            path: projectPath(ctx, `/agent_applications/${id}/env_keys/`),
+        })
+    },
+})
+
+export const posthogAgentApplicationsEnvKeysGetV1 = defineNativeTool({
+    id: '@posthog/agent-applications-env-keys-get',
+    description:
+        'Probe whether a single encrypted_env key is set on an agent. Returns `{ key, is_set }`. Never returns the value. Use as the precheck before triggering the `set_secret` punch-out flow.',
+    args: Type.Object({
+        ...agentRefFields,
+        key: Type.String({ description: 'Env key to probe, e.g. `SLACK_BOT_TOKEN`.' }),
+    }),
+    returns: EnvKeyRowSchema,
+    requires: { integrations: [], scopes: ['agents:read'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'GET',
+            path: projectPath(ctx, `/agent_applications/${id}/env_keys/${args.key}/`),
+        })
+    },
+})
+
+export const posthogAgentApplicationsSetEnvV1 = defineNativeTool({
+    id: '@posthog/agent-applications-set-env-create',
+    description:
+        'Replace the entire encrypted_env block. WARNING: puts secret values in the session tool-call history. Per `skills/secrets-and-integrations`, prefer the `set_secret` client tool (UI punch-out, never logs values). Use this raw API only when the user explicitly opts in (broken punch-out, CI script, etc.) — confirm before calling and warn about the trace.',
+    args: Type.Object({
+        ...agentRefFields,
+        env: Type.Record(Type.String(), Type.String(), {
+            description:
+                'Key/value map of env entries. REPLACES the existing block — keys not in this map are deleted.',
+        }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'POST',
+            path: projectPath(ctx, `/agent_applications/${id}/set_env/`),
+            body: { env: args.env },
         })
     },
 })

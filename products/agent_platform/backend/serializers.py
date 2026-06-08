@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
+
 import jsonschema
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -46,6 +48,20 @@ def _validate_mcp_tool_names_unique(spec: Any) -> None:
 
 
 class AgentApplicationSerializer(serializers.ModelSerializer):
+    slack_events_url = serializers.SerializerMethodField(
+        help_text=(
+            "Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. "
+            "Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no "
+            "public agent-ingress URL configured (e.g. local dev without a tunnel)."
+        ),
+    )
+    slack_interactivity_url = serializers.SerializerMethodField(
+        help_text=(
+            "Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. "
+            "Same source + null behaviour as `slack_events_url`."
+        ),
+    )
+
     class Meta:
         model = AgentApplication
         fields = [
@@ -60,10 +76,37 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "slack_events_url",
+            "slack_interactivity_url",
         ]
         # encrypted_env is set/cleared via the dedicated `set_env` action;
         # never round-tripped through the standard CRUD payload.
-        read_only_fields = ["id", "team", "live_revision", "archived_at", "created_by", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "team",
+            "live_revision",
+            "archived_at",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "slack_events_url",
+            "slack_interactivity_url",
+        ]
+
+    @extend_schema_field({"type": "string", "format": "uri", "nullable": True})
+    def get_slack_events_url(self, obj: AgentApplication) -> str | None:
+        return _slack_path_url(obj.slug, "events")
+
+    @extend_schema_field({"type": "string", "format": "uri", "nullable": True})
+    def get_slack_interactivity_url(self, obj: AgentApplication) -> str | None:
+        return _slack_path_url(obj.slug, "interactivity")
+
+
+def _slack_path_url(slug: str, suffix: str) -> str | None:
+    base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
+    if not base or not slug:
+        return None
+    return f"{base}/agents/{slug}/slack/{suffix}"
 
 
 @extend_schema_field(AGENT_SPEC_JSON_SCHEMA)

@@ -35,7 +35,7 @@ export const SlackTrigger: Story = {
             triggers: [{ type: 'slack', config: { trusted_workspaces: ['T01ABC', 'T02DEF'] } }],
             secrets: ['SLACK_BOT_TOKEN'],
             limits: { max_turns: 12, max_tool_calls: 40, max_wall_seconds: 90 },
-            auth: { mode: 'public' },
+            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
         },
     },
 }
@@ -47,7 +47,7 @@ export const Webhook: Story = {
             triggers: [{ type: 'webhook', config: { path: '/incidents/triage' } }],
             secrets: ['PAGERDUTY_TOKEN'],
             limits: { max_turns: 15, max_tool_calls: 60, max_wall_seconds: 180 },
-            auth: { mode: 'pat' },
+            auth: { modes: [{ type: 'pat' }] },
         },
     },
 }

@@ -75,6 +75,7 @@ import {
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
+import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
 import type { IsAskerInApproverScope } from './per-asker-auth'
@@ -196,6 +197,8 @@ export interface RunSessionDeps {
     http: HttpFetcher
     /** Base URL for the PostHog API. Forwarded into `ToolContext.posthogApiBaseUrl`. */
     posthogApiBaseUrl: string
+    /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps below model.maxTokens. */
+    maxOutputTokensOverride?: number
 }
 
 export type RunOutcome =
@@ -680,6 +683,24 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         const streamFn = sanitizingStreamFn(baseStreamFn, nameToId)
 
+        const resolvedMaxTokens = resolveMaxOutputTokens({
+            modelMaxTokens: deps.model.maxTokens,
+            configOverride: deps.maxOutputTokensOverride,
+            specRequested: rev.spec.limits.max_output_tokens,
+            reasoning: rev.spec.reasoning,
+        })
+        if (resolvedMaxTokens.clamped) {
+            runLog.warn(
+                {
+                    requested: resolvedMaxTokens.clamped.requested,
+                    ceiling: resolvedMaxTokens.clamped.ceiling,
+                    source: resolvedMaxTokens.clamped.source,
+                    model: deps.model.id,
+                },
+                'max_output_tokens.clamped'
+            )
+        }
+
         try {
             await runAgentLoop(
                 [],
@@ -687,7 +708,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 {
                     model: deps.model,
                     apiKey: deps.apiKey,
-                    maxTokens: 4096,
+                    maxTokens: resolvedMaxTokens.value,
                     // pi-ai ignores `reasoning` for non-reasoning models, so forward unconditionally.
                     reasoning: rev.spec.reasoning,
                     convertToLlm: (messages) => messages as unknown as Message[],
@@ -866,8 +887,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return { state: 'failed', reason: lastError ?? 'model_error', turns: turn }
         }
         if (lastStopReason === 'length') {
-            await emitFailure('max_tokens', { turns: turn, ...errorContext() })
-            return { state: 'failed', reason: 'max_tokens', turns: turn }
+            await emitFailure('output_truncated', { turns: turn, ...errorContext() })
+            return { state: 'failed', reason: 'output_truncated', turns: turn }
         }
 
         // Stamps the failure source (gateway vs direct provider) + model id on

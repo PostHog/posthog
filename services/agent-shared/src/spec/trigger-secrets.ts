@@ -33,6 +33,10 @@ export interface TriggerSecretRequirement {
 /** Conventional name for the Slack app signing secret. Exported so the slack
  *  trigger handler imports the same constant the registry uses. */
 export const SLACK_SIGNING_SECRET_KEY = 'SLACK_SIGNING_SECRET'
+/** Conventional name for the Slack bot user OAuth token. Native slack tools
+ *  (`@posthog/slack-post-message` etc.) read this via `ctx.secret()` — the
+ *  platform deliberately does not use the team-wide Slack OAuth integration. */
+export const SLACK_BOT_TOKEN_KEY = 'SLACK_BOT_TOKEN'
 
 export const TRIGGER_REQUIRED_SECRETS: Record<TriggerType, TriggerSecretRequirement[]> = {
     chat: [],
@@ -45,6 +49,13 @@ export const TRIGGER_REQUIRED_SECRETS: Record<TriggerType, TriggerSecretRequirem
             label: 'Slack signing secret',
             description:
                 "Your Slack app's signing secret. Find it under Settings → Basic Information → Signing Secret. Required to verify inbound Slack event signatures.",
+            required: true,
+        },
+        {
+            key: SLACK_BOT_TOKEN_KEY,
+            label: 'Slack bot user OAuth token',
+            description:
+                "Your Slack app's bot token (starts with `xoxb-`). Find it under Settings → Install App → Bot User OAuth Token after installing the app to your workspace. Used by native slack tools to call the Slack API.",
             required: true,
         },
     ],

@@ -49,6 +49,11 @@ async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: Age
                 { type: 'webhook', config: { path: '/webhook' } },
                 { type: 'mcp', config: {} },
             ],
+            // These tests exercise the routing surface, not auth — keep
+            // the legacy "open agent" behaviour so request flows still
+            // succeed without a verifier. Public exposure is now opt-in
+            // (see AuthModeSchema) so we set it explicitly.
+            auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
         }),
     })
     await store.setRevisionState(rev.id, 'live')
@@ -315,9 +320,12 @@ describe('ingress HTTP server (path mode)', () => {
             minLength: 1,
         })
         expect(routesByPath['POST /run'].bodySchema!.required).toContain('message')
-        // seedApp's agent has no custom auth → spec.auth.modes defaults to
-        // [{ type: 'public' }] → every chat route advertises that verbatim.
-        expect(routesByPath['POST /run'].auth).toEqual({ modes: [{ type: 'public' }] })
+        // seedApp deliberately opts into public exposure (these tests
+        // exercise the routing surface, not auth) → every chat route
+        // advertises the modes verbatim.
+        expect(routesByPath['POST /run'].auth).toEqual({
+            modes: [{ type: 'public', acknowledge_public_exposure: true }],
+        })
         expect(routesByPath['GET /listen'].querySchema).not.toBeUndefined()
     })
 

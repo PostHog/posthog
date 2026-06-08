@@ -8,7 +8,13 @@ describe('loadAgentIngressConfig', () => {
         expect(cfg.routingMode).toBe('path')
         expect(cfg.pathPrefix).toBe('/agents')
         expect(cfg.internalSigningKey).toBeUndefined()
+        expect(cfg.publicUrl).toBeUndefined()
         expect(cfg.logLevel).toBe('info')
+    })
+
+    it('publicUrl comes from AGENT_INGRESS_PUBLIC_URL', () => {
+        const cfg = loadAgentIngressConfig({ AGENT_INGRESS_PUBLIC_URL: 'https://x.trycloudflare.com' })
+        expect(cfg.publicUrl).toBe('https://x.trycloudflare.com')
     })
 
     it('coerces numeric env strings', () => {

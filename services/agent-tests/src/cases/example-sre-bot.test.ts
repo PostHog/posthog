@@ -16,11 +16,18 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxCallTool, fauxText } from '../harness'
+
+const WEBHOOK_SECRET = 'sre-test-webhook-secret'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/sre-slack-bot')
-const BUNDLE_FILES = ['agent.md', 'skills/triage-playbook/SKILL.md', 'skills/slack-thread-protocol/SKILL.md'] as const
+const BUNDLE_FILES = [
+    'agent.md',
+    'skills/triage-playbook/SKILL.md',
+    'skills/slack-thread-protocol/SKILL.md',
+    'skills/incident-io-playbook/SKILL.md',
+] as const
 
 async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
     const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as Record<string, unknown>
@@ -40,7 +47,12 @@ describe('example: sre-slack-bot bundle', () => {
             // a `SLACK_BOT_TOKEN` secret — the runner substitutes the value
             // into `Authorization: Bearer ${SLACK_BOT_TOKEN}` before dispatch.
             // No platform-managed Slack integration is needed.
-            resolveSecrets: async () => ({ SLACK_BOT_TOKEN: 'xoxb-test-token' }),
+            resolveSecrets: async () => ({
+                SLACK_BOT_TOKEN: 'xoxb-test-token',
+                SLACK_SIGNING_SECRET: 'test-signing-secret',
+                INCIDENT_IO_TOKEN: 'inc_test_token',
+            }),
+            authProvider: fakeAuthProvider({ shared: WEBHOOK_SECRET }),
         })
     })
 
@@ -75,6 +87,7 @@ describe('example: sre-slack-bot bundle', () => {
         // HttpClient — bare global.fetch wouldn't intercept anymore now that
         // tools dispatch through `ctx.http.fetch`.
         const slackCalls: Array<{ url: string; method?: string; auth?: string; body?: unknown }> = []
+        const incidentCalls: Array<{ url: string; method?: string; auth?: string; body?: unknown }> = []
         const recorderHttp = {
             fetch: (input: string | URL, init?: RequestInit): Promise<Response> => {
                 const url = typeof input === 'string' ? input : input.toString()
@@ -91,6 +104,28 @@ describe('example: sre-slack-bot bundle', () => {
                         status: 200,
                         json: async () => ({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
                         text: async () => JSON.stringify({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
+                        headers: new Map([['content-type', 'application/json']]),
+                    } as unknown as Response)
+                }
+                if (url.includes('api.incident.io/')) {
+                    const headers = (init?.headers ?? {}) as Record<string, string>
+                    incidentCalls.push({
+                        url,
+                        method: init?.method,
+                        auth: headers.Authorization,
+                        body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
+                    })
+                    // Shape mirrors incident.io's POST .../updates response.
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            incident_update: { id: 'IU_01', incident_id: '01HXYZ', message: 'triage posted' },
+                        }),
+                        text: async () =>
+                            JSON.stringify({
+                                incident_update: { id: 'IU_01', incident_id: '01HXYZ', message: 'triage posted' },
+                            }),
                         headers: new Map([['content-type', 'application/json']]),
                     } as unknown as Response)
                 }
@@ -115,7 +150,12 @@ describe('example: sre-slack-bot bundle', () => {
         // start fresh so the runner threads the recorder into ToolContext.http.
         await c.teardown()
         c = await buildCluster({
-            resolveSecrets: async () => ({ SLACK_BOT_TOKEN: 'xoxb-test-token' }),
+            resolveSecrets: async () => ({
+                SLACK_BOT_TOKEN: 'xoxb-test-token',
+                SLACK_SIGNING_SECRET: 'test-signing-secret',
+                INCIDENT_IO_TOKEN: 'inc_test_token',
+            }),
+            authProvider: fakeAuthProvider({ shared: WEBHOOK_SECRET }),
             http: recorderHttp,
         })
 
@@ -138,6 +178,16 @@ describe('example: sre-slack-bot bundle', () => {
                 table: 'incidents',
                 where: { alert_signature: 'ingestion-500s' },
                 limit: 5,
+            }),
+            // Phase 2b: load the incident.io playbook then check for an
+            // active incident covering this signature. Proves the
+            // ${INCIDENT_IO_TOKEN} substitution wires up the same way
+            // ${SLACK_BOT_TOKEN} does.
+            fauxCallTool('@posthog/load-skill', { id: 'incident-io-playbook' }),
+            fauxCallTool('@posthog/http-request', {
+                url: 'https://api.incident.io/v2/incidents?status_category%5Bone_of%5D=active&page_size=25',
+                method: 'GET',
+                headers: { Authorization: 'Bearer ${INCIDENT_IO_TOKEN}' },
             }),
             // Phase 3: load the triage skill.
             fauxCallTool('@posthog/load-skill', { id: 'triage-playbook' }),
@@ -165,7 +215,7 @@ describe('example: sre-slack-bot bundle', () => {
                     text: ':mag: *TL;DR:* ingest 500s correlate with kafka consumer lag.\n\n*Suggested next step* cc oncall',
                 },
             }),
-            // Phase 8: record the resolved outcome so future alerts can
+            // Phase 8a: record the resolved outcome so future alerts can
             // short-circuit. Dedupe on thread_url.
             fauxCallTool('@posthog/table-append', {
                 table: 'incidents',
@@ -177,9 +227,22 @@ describe('example: sre-slack-bot bundle', () => {
                         mitigation: 'scaled consumer group, lag drained in 4m',
                         thread_url: 'https://slack.com/archives/C-incidents/p1700000099000000',
                         resolved_at: '2026-05-29T15:10:00Z',
+                        incident_io_id: '01HXYZ',
                     },
                 ],
                 dedupe_on: 'thread_url',
+            }),
+            // Phase 8b: post the final summary onto the incident.io
+            // timeline so the post-mortem record matches Slack.
+            fauxCallTool('@posthog/http-request', {
+                url: 'https://api.incident.io/v2/incidents/01HXYZ/updates',
+                method: 'POST',
+                headers: { Authorization: 'Bearer ${INCIDENT_IO_TOKEN}' },
+                body: {
+                    incident_id: '01HXYZ',
+                    message:
+                        '*Resolved.* Root cause: kafka consumer-group `events-main` under-provisioned after morning deploy. Mitigation: scaled 12→18 pods; lag drained in 4m.',
+                },
             }),
             // Close the turn.
             fauxText('Triage posted, outcome recorded, ending session.'),
@@ -196,7 +259,14 @@ describe('example: sre-slack-bot bundle', () => {
                 },
             ],
         }
-        const res = await request(c.ingress).post('/agents/sre-slack-bot/webhook').send(alertPayload)
+        // The example bundle's webhook is gated by spec.auth.modes — the
+        // shared_secret mode expects the value in the `X-Webhook-Secret`
+        // header. Production callers (incident.io webhook config, Grafana
+        // alertmanager headers, …) set this verbatim.
+        const res = await request(c.ingress)
+            .post('/agents/sre-slack-bot/webhook')
+            .set('x-webhook-secret', WEBHOOK_SECRET)
+            .send(alertPayload)
         expect(res.status).toBe(200)
         await c.drain({ iterations: 100 })
 
@@ -207,14 +277,17 @@ describe('example: sre-slack-bot bundle', () => {
             .filter((m) => m.role === 'toolResult')
             .map((m) => (m as { toolName?: string }).toolName)
         expect(calledTools).toEqual([
-            '@posthog/http-request',
+            '@posthog/http-request', // reactions.add (slack)
             '@posthog/table-query',
-            '@posthog/load-skill',
-            '@posthog/http-request',
+            '@posthog/load-skill', // incident-io-playbook
+            '@posthog/http-request', // list active incidents (incident.io)
+            '@posthog/load-skill', // triage-playbook
+            '@posthog/http-request', // conversations.history (slack)
             '@posthog/web-fetch',
-            '@posthog/load-skill',
-            '@posthog/http-request',
+            '@posthog/load-skill', // slack-thread-protocol
+            '@posthog/http-request', // chat.postMessage (slack)
             '@posthog/table-append',
+            '@posthog/http-request', // post incident.io update
         ])
 
         // Prove the bring-your-own-token wiring actually fired. The agent's
@@ -230,6 +303,21 @@ describe('example: sre-slack-bot bundle', () => {
         // Spot-check the three Slack endpoints we expected to hit.
         const endpoints = slackCalls.map((c) => c.url.replace('https://slack.com/api/', '')).sort()
         expect(endpoints).toEqual(['chat.postMessage', 'conversations.history', 'reactions.add'])
+
+        // incident.io substitution mirrors the Slack flow: the two
+        // recorded calls (list active incidents + post resolved update)
+        // must carry the resolved INCIDENT_IO_TOKEN, never the placeholder.
+        expect(incidentCalls).toHaveLength(2)
+        for (const call of incidentCalls) {
+            expect(call.auth).toBe('Bearer inc_test_token')
+            expect(call.auth).not.toContain('${')
+        }
+        const incidentEndpoints = incidentCalls
+            .map((c) => c.url.replace('https://api.incident.io/v2/', '').split('?')[0])
+            .sort()
+        expect(incidentEndpoints).toEqual(['incidents', 'incidents/01HXYZ/updates'])
+        expect(incidentCalls[1].method).toBe('POST')
+        expect(incidentCalls[1].body).toMatchObject({ incident_id: '01HXYZ' })
 
         // Confirm the row actually landed in the tabular store — proves the
         // tool wired through to a real S3 backend, not just executed in a vacuum.

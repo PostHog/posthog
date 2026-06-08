@@ -110,10 +110,17 @@ def load_v0_spec() -> dict:
     if auth_mode_override:
         if auth_mode_override == "shared_secret":
             die("AUTH_MODE=shared_secret requires a header — use the bundle's modes instead")
-        spec["auth"] = {"modes": [{"type": auth_mode_override}]}
+        if auth_mode_override == "public":
+            # Opt-in public exposure must carry the explicit ack field; see
+            # AuthModeSchema in services/agent-shared/src/spec/spec.ts.
+            spec["auth"] = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
+        else:
+            spec["auth"] = {"modes": [{"type": auth_mode_override}]}
     elif "modes" not in spec.get("auth", {}):
         # Backstop for older bundles that still use single-mode shape.
-        spec["auth"] = {"modes": [{"type": "public"}]}
+        # Default to the closed `posthog_internal` mode — public exposure is
+        # opt-in and requires the explicit ack flag.
+        spec["auth"] = {"modes": [{"type": "posthog_internal"}]}
 
     spec.pop("resume", None)
 

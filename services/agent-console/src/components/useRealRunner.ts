@@ -114,6 +114,24 @@ export interface RealRunnerControls {
      * unblocks. Same wire path as the sync handler flow.
      */
     resolveClientTool: (callId: string, outcome: ClientToolOutcome) => void
+    /**
+     * Recent sessions started from this browser, most-recent first.
+     * Backed by localStorage (`agent-console:session-history:<slug>:<rev>`).
+     * The dock surfaces this as a history menu so the user can resume
+     * a past conversation without going to the team-wide sessions list
+     * (which spans all principals and isn't safe to drop a continue
+     * button onto). Excludes terminal sessions — they're pruned on
+     * `failed` / `closed` SSE events.
+     */
+    sessionHistory: SessionHistoryEntry[]
+    /**
+     * Resume a session from history (or any id the caller hands us).
+     * Closes the current SSE, fetches the conversation via Django,
+     * re-opens listen. On 404 / hard-terminal state the entry is
+     * dropped from history and the dock falls back to an empty chat.
+     * No-op when the id is already the active session.
+     */
+    switchToSession: (id: string) => Promise<void>
 }
 
 function emptySession(agentRef: AgentApplicationRef, principal: SessionPrincipal): ChatSession {
@@ -164,6 +182,176 @@ function clearStoredSessionId(agentSlug: string, previewRevisionId: string | und
     window.localStorage.removeItem(sessionStorageKey(agentSlug, previewRevisionId))
 }
 
+/**
+ * Per-(agent + preview revision) localStorage list of recently-used sessions.
+ *
+ * Distinct from the active-session slot above: that's "what was I last
+ * looking at"; this is "what threads has this browser ever started with
+ * this agent". The dock surfaces it as a ChatGPT-style history menu so the
+ * user can pick a previous conversation to resume without going to the
+ * server-side sessions list (which spans all principals on the team and
+ * isn't safe to drop a "continue chatting" button onto).
+ *
+ * Implicit principal scoping: only sessions started from this browser
+ * land here, so the entries are by construction conversations the
+ * viewer initiated. Cross-device drift is acceptable — same UX shape as
+ * Claude / ChatGPT, where each browser has its own thread list.
+ *
+ * Entries are capped at SESSION_HISTORY_LIMIT, FIFO eviction by
+ * `lastTouchedAt`. Terminal sessions (`failed` / `closed`) are pruned on
+ * SSE event; sessions the server has forgotten are pruned lazily on
+ * click (the `switchToSession` 404 path drops the entry).
+ */
+const SESSION_HISTORY_PREFIX = 'agent-console:session-history'
+const SESSION_HISTORY_LIMIT = 20
+const FIRST_MESSAGE_PREVIEW_LIMIT = 80
+
+export interface SessionHistoryEntry {
+    id: string
+    /** ms since epoch. */
+    createdAt: number
+    /** ms since epoch. Bumped on every `send` to this session. */
+    lastTouchedAt: number
+    /**
+     * Short slice of the first user message in the session, used as a
+     * human label in the history menu. Truncated to
+     * `FIRST_MESSAGE_PREVIEW_LIMIT` chars at write time.
+     */
+    firstMessage?: string
+    /**
+     * True once the session reaches a state that rejects further
+     * `/send`s — `failed`, `closed`, or a 410 from ingress. The entry
+     * stays in history so the user can still open the transcript in
+     * playback; the UI just routes the click to the session-view page
+     * instead of attempting an in-dock resume. Entries that the server
+     * has fully forgotten (404 on resume) ARE dropped — there's no
+     * transcript to view either.
+     */
+    terminal?: boolean
+}
+
+function sessionHistoryKey(agentSlug: string, previewRevisionId: string | undefined): string {
+    return `${SESSION_HISTORY_PREFIX}:${agentSlug}:${previewRevisionId ?? 'live'}`
+}
+
+function readSessionHistory(agentSlug: string, previewRevisionId: string | undefined): SessionHistoryEntry[] {
+    if (typeof window === 'undefined') {
+        return []
+    }
+    const raw = window.localStorage.getItem(sessionHistoryKey(agentSlug, previewRevisionId))
+    if (!raw) {
+        return []
+    }
+    try {
+        const parsed = JSON.parse(raw) as unknown
+        if (!Array.isArray(parsed)) {
+            return []
+        }
+        // Defensive filter — bad shapes from older versions are dropped
+        // silently rather than crashing the dock.
+        return parsed.filter(
+            (e): e is SessionHistoryEntry =>
+                typeof e === 'object' &&
+                e !== null &&
+                typeof (e as SessionHistoryEntry).id === 'string' &&
+                typeof (e as SessionHistoryEntry).createdAt === 'number' &&
+                typeof (e as SessionHistoryEntry).lastTouchedAt === 'number'
+        )
+    } catch {
+        return []
+    }
+}
+
+function writeSessionHistory(
+    agentSlug: string,
+    previewRevisionId: string | undefined,
+    history: SessionHistoryEntry[]
+): void {
+    if (typeof window === 'undefined') {
+        return
+    }
+    window.localStorage.setItem(sessionHistoryKey(agentSlug, previewRevisionId), JSON.stringify(history))
+}
+
+/**
+ * Insert or update an entry, bump it to the front (most recent), and
+ * trim to SESSION_HISTORY_LIMIT. Pure — caller writes the result back.
+ *
+ * If `entry.firstMessage` is provided and the existing entry lacks one,
+ * we adopt it. If both have one, the existing wins — we never overwrite
+ * a real first message with a later one.
+ */
+export function upsertSessionHistoryEntry(
+    prev: SessionHistoryEntry[],
+    entry: { id: string; firstMessage?: string },
+    now: number = Date.now()
+): SessionHistoryEntry[] {
+    const existing = prev.find((e) => e.id === entry.id)
+    const others = prev.filter((e) => e.id !== entry.id)
+    const next: SessionHistoryEntry = existing
+        ? {
+              ...existing,
+              lastTouchedAt: now,
+              firstMessage: existing.firstMessage ?? entry.firstMessage,
+          }
+        : {
+              id: entry.id,
+              createdAt: now,
+              lastTouchedAt: now,
+              firstMessage: entry.firstMessage,
+          }
+    return [next, ...others].slice(0, SESSION_HISTORY_LIMIT)
+}
+
+/**
+ * Mark an entry as terminal in-place — order preserved. The session
+ * stays in history so the user can still open it for playback; the
+ * UI uses the flag to route the click to the read-only session view
+ * instead of attempting an in-dock resume that would 410.
+ *
+ * No-op when the id isn't in history (e.g. terminal event fired for
+ * a session that was started server-side, not from this browser).
+ */
+export function markSessionHistoryTerminal(prev: SessionHistoryEntry[], id: string): SessionHistoryEntry[] {
+    let changed = false
+    const next = prev.map((e) => {
+        if (e.id === id && !e.terminal) {
+            changed = true
+            return { ...e, terminal: true }
+        }
+        return e
+    })
+    return changed ? next : prev
+}
+
+export function removeSessionHistoryEntry(prev: SessionHistoryEntry[], id: string): SessionHistoryEntry[] {
+    return prev.filter((e) => e.id !== id)
+}
+
+function truncateFirstMessage(text: string): string {
+    const trimmed = text.trim()
+    if (trimmed.length <= FIRST_MESSAGE_PREVIEW_LIMIT) {
+        return trimmed
+    }
+    return trimmed.slice(0, FIRST_MESSAGE_PREVIEW_LIMIT - 1).trimEnd() + '…'
+}
+
+/**
+ * Extract the first user-authored message from a restored session, used
+ * to backfill `firstMessage` on history entries we picked up via resume
+ * rather than first /run. Returns undefined if the session has no user
+ * turns yet (which shouldn't happen for a session you can resume, but
+ * defensive).
+ */
+function firstUserText(session: ChatSession): string | undefined {
+    for (const turn of session.turns) {
+        if (turn.kind === 'user' && typeof turn.text === 'string' && turn.text.trim()) {
+            return truncateFirstMessage(turn.text)
+        }
+    }
+    return undefined
+}
+
 export function useRealRunner({
     agentSlug,
     agentRef,
@@ -179,6 +367,31 @@ export function useRealRunner({
     const sessionIdRef = useRef<string | null>(null)
     const closeListenRef = useRef<(() => void) | null>(null)
     const previewRevisionId = preview?.revisionId
+    const [sessionHistory, setSessionHistory] = useState<SessionHistoryEntry[]>(() =>
+        readSessionHistory(agentSlug, previewRevisionId)
+    )
+
+    // Reload the persisted history when the (agent, preview-rev) tuple
+    // changes — keeps the menu in sync if the dock swaps agents without
+    // unmounting (rare but supported).
+    useEffect(() => {
+        setSessionHistory(readSessionHistory(agentSlug, previewRevisionId))
+    }, [agentSlug, previewRevisionId])
+
+    // Single mutator that updates the React state AND writes through to
+    // localStorage in one step. Every callsite goes through this so the
+    // two stay in lockstep — divergence would mean the menu shows entries
+    // the next reload won't find (or vice versa).
+    const mutateHistory = useCallback(
+        (mutator: (prev: SessionHistoryEntry[]) => SessionHistoryEntry[]) => {
+            setSessionHistory((prev) => {
+                const next = mutator(prev)
+                writeSessionHistory(agentSlug, previewRevisionId, next)
+                return next
+            })
+        },
+        [agentSlug, previewRevisionId]
+    )
     // Cached preview JWT + when it goes stale. Tokens TTL ~60s; we
     // refresh proactively a few seconds before expiry so an in-flight
     // turn doesn't trip a mid-stream 401.
@@ -236,6 +449,15 @@ export function useRealRunner({
                 }
                 sessionIdRef.current = restored.id
                 setSession({ ...restored, principal })
+                // Resume-on-reload also touches history so the menu shows
+                // the resumed thread at the top, with a firstMessage
+                // recovered from the restored conversation when present.
+                mutateHistory((prev) =>
+                    upsertSessionHistoryEntry(prev, {
+                        id: restored.id,
+                        firstMessage: firstUserText(restored),
+                    })
+                )
                 await openListenRef.current?.(restored.id)
             } catch (err) {
                 if (cancelled) {
@@ -338,6 +560,14 @@ export function useRealRunner({
         [agentSlug]
     )
 
+    // mutateHistory is invoked from onEvent — keep it in a ref so a
+    // dependency change in mutateHistory doesn't tear down the SSE
+    // subscription (`openListen` depends on `onEvent`).
+    const mutateHistoryRef = useRef(mutateHistory)
+    useEffect(() => {
+        mutateHistoryRef.current = mutateHistory
+    }, [mutateHistory])
+
     const onEvent = useCallback(
         (event: SessionEvent) => {
             // Any event means the stream is healthy — clear the
@@ -355,11 +585,17 @@ export function useRealRunner({
                 setPlaying(false)
             }
             // Terminal upstream states → drop the persisted id so a
-            // reload doesn't try to resume a dead session. `completed`
+            // reload doesn't try to resume a dead session, and mark
+            // the entry terminal in history. Entry stays so the user
+            // can still open the transcript in playback. `completed`
             // is open (the user can keep /send-ing), so we leave it.
             if (event.kind === 'failed' || event.kind === 'closed') {
+                const terminalId = sessionIdRef.current
                 sessionIdRef.current = null
                 clearStoredSessionId(agentSlug, previewRevisionId)
+                if (terminalId) {
+                    mutateHistoryRef.current((prev) => markSessionHistoryTerminal(prev, terminalId))
+                }
             }
         },
         [agentSlug, previewRevisionId, dispatchClientToolCall]
@@ -444,11 +680,23 @@ export function useRealRunner({
                 const previewOpts = await ensurePreview()
                 if (sessionIdRef.current) {
                     await sendMessage(agentSlug, sessionIdRef.current, trimmed, { preview: previewOpts })
+                    // Touch the existing entry so the history menu shows
+                    // active threads at the top — no firstMessage update
+                    // here, the first one wins (see upsert helper).
+                    mutateHistory((prev) => upsertSessionHistoryEntry(prev, { id: sessionIdRef.current! }))
                 } else {
                     const res = await startRun(agentSlug, trimmed, { preview: previewOpts })
                     sessionIdRef.current = res.session_id
                     writeStoredSessionId(agentSlug, previewRevisionId, res.session_id)
                     setSession((prev) => ({ ...prev, id: res.session_id, started_at: new Date().toISOString() }))
+                    // First /send of a new session — record the entry
+                    // with the trimmed first message as a label.
+                    mutateHistory((prev) =>
+                        upsertSessionHistoryEntry(prev, {
+                            id: res.session_id,
+                            firstMessage: truncateFirstMessage(trimmed),
+                        })
+                    )
                     await openListen(res.session_id)
                 }
             } catch (err) {
@@ -458,12 +706,20 @@ export function useRealRunner({
                 // / closed). Drop the stored id so the next /send opens a
                 // fresh session instead of looping into the same 410.
                 if (err instanceof IngressError && err.status === 410) {
+                    // 410 = session is terminal upstream (cancelled / closed).
+                    // Same treatment as the SSE terminal events: clear the
+                    // active id, mark history terminal so the entry sticks
+                    // around for playback but doesn't pretend to be resumable.
+                    const goneId = sessionIdRef.current
                     sessionIdRef.current = null
                     clearStoredSessionId(agentSlug, previewRevisionId)
+                    if (goneId) {
+                        mutateHistory((prev) => markSessionHistoryTerminal(prev, goneId))
+                    }
                 }
             }
         },
-        [agentSlug, ensurePreview, openListen, previewRevisionId]
+        [agentSlug, ensurePreview, openListen, previewRevisionId, mutateHistory]
     )
 
     const reset = useCallback(async (): Promise<void> => {
@@ -477,6 +733,14 @@ export function useRealRunner({
         setError(null)
         setReconnectAttempt(0)
         if (id) {
+            // Active session is being cancelled. Mark its history entry
+            // terminal — the session is no longer resumable but its
+            // transcript is still on the server, so the user can pick
+            // it from the history menu for playback. We don't wait for
+            // the cancel POST; the mark is the correct local state
+            // regardless of whether the server responds before the
+            // tab navigates away.
+            mutateHistory((prev) => markSessionHistoryTerminal(prev, id))
             try {
                 const previewOpts = await ensurePreview()
                 await cancelSession(agentSlug, id, { preview: previewOpts })
@@ -484,7 +748,58 @@ export function useRealRunner({
                 // Best-effort — server may already be done.
             }
         }
-    }, [agentSlug, agentRef, principal, ensurePreview, previewRevisionId])
+    }, [agentSlug, agentRef, principal, ensurePreview, previewRevisionId, mutateHistory])
+
+    const switchToSession = useCallback(
+        async (id: string): Promise<void> => {
+            if (!id || id === sessionIdRef.current) {
+                return
+            }
+            // Tear down the current SSE first — we're switching threads, the
+            // existing stream is no longer relevant. Don't /cancel the
+            // outgoing session: switching != ending, the user might come
+            // back to it later via the same menu.
+            closeListenRef.current?.()
+            closeListenRef.current = null
+            sessionIdRef.current = null
+            setError(null)
+            setPlaying(false)
+            setReconnectAttempt(0)
+            if (teamId == null) {
+                setError(new Error('cannot switch session: team id unavailable'))
+                return
+            }
+            try {
+                const restored = await getSession(teamId, agentSlug, id, agentRef)
+                // Hard-terminal — mark in history so the menu still
+                // shows it for playback, but don't try to attach the dock.
+                if (restored.state === 'failed' || restored.state === 'cancelled') {
+                    mutateHistory((prev) => markSessionHistoryTerminal(prev, id))
+                    setSession({ ...restored, principal })
+                    setError(new Error(`session is ${restored.state}; open the session view to read its transcript`))
+                    return
+                }
+                sessionIdRef.current = id
+                setSession({ ...restored, principal })
+                writeStoredSessionId(agentSlug, previewRevisionId, id)
+                // Touch + backfill firstMessage if missing — picks up
+                // older entries that were added before the firstMessage
+                // field existed.
+                mutateHistory((prev) => upsertSessionHistoryEntry(prev, { id, firstMessage: firstUserText(restored) }))
+                await openListen(id)
+            } catch (err) {
+                if (err instanceof ApiError && err.status === 404) {
+                    // Server has forgotten this session — there's no
+                    // transcript to view either, so drop the entry.
+                    mutateHistory((prev) => removeSessionHistoryEntry(prev, id))
+                    setError(new Error('session not found'))
+                    return
+                }
+                setError(err instanceof Error ? err : new Error(String(err)))
+            }
+        },
+        [teamId, agentSlug, agentRef, principal, openListen, previewRevisionId, mutateHistory]
+    )
 
     const stop = useCallback((): void => {
         closeListenRef.current?.()
@@ -539,5 +854,17 @@ export function useRealRunner({
         return () => window.removeEventListener(SECRET_SET_EVENT, onSecretSet)
     }, [])
 
-    return { session, send, reset, stop, playing, error, clearError, reconnectAttempt, resolveClientTool }
+    return {
+        session,
+        send,
+        reset,
+        stop,
+        playing,
+        error,
+        clearError,
+        reconnectAttempt,
+        resolveClientTool,
+        sessionHistory,
+        switchToSession,
+    }
 }

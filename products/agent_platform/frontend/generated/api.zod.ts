@@ -375,6 +375,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         zod.union([
                             zod.object({
                                 type: zod.literal('public'),
+                                acknowledge_public_exposure: zod.boolean(),
                             }),
                             zod.object({
                                 type: zod.literal('oauth'),
@@ -688,6 +689,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         zod.union([
                             zod.object({
                                 type: zod.literal('public'),
+                                acknowledge_public_exposure: zod.boolean(),
                             }),
                             zod.object({
                                 type: zod.literal('oauth'),
@@ -1028,6 +1030,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         zod.union([
                             zod.object({
                                 type: zod.literal('public'),
+                                acknowledge_public_exposure: zod.boolean(),
                             }),
                             zod.object({
                                 type: zod.literal('oauth'),

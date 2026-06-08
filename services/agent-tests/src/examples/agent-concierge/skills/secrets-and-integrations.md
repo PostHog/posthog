@@ -29,9 +29,12 @@ People conflate these. Be precise.
 | **Integration** | Per-team        | `posthog_integration` (OAuth tokens)       | Team admin installs via PostHog integrations UI                     |
 | **Spec.auth**   | Per-application | `spec.auth.mode`                           | Edit on the draft revision; controls who can invoke the agent       |
 
-A Slack-posting agent needs a Slack **integration**, not a secret.
-A Stripe-querying agent needs a Stripe **secret**, not an
-integration. Don't mix them up.
+A Slack-posting agent needs Slack **secrets** (`SLACK_SIGNING_SECRET` +
+`SLACK_BOT_TOKEN`) on the agent — not a team integration. Each agent
+brings its own Slack app + bot token. A Stripe-querying agent likewise
+needs a Stripe **secret** on the agent. Integrations are for systems
+that legitimately want one workspace-level OAuth connection many agents
+share (e.g. some PostHog data sources). When in doubt: it's a secret.
 
 Secrets split further by **who declares the name**:
 
@@ -55,29 +58,34 @@ trigger consumes.
 
 Current registry:
 
-| Trigger type | Required key           | What it is                                                                                                                                 |
-| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `slack`      | `SLACK_SIGNING_SECRET` | Slack app signing secret. Found at app dashboard → Settings → Basic Information → Signing Secret. Verifies inbound Slack event signatures. |
-| `chat`       | (none)                 |                                                                                                                                            |
-| `webhook`    | (none)                 |                                                                                                                                            |
-| `cron`       | (none)                 |                                                                                                                                            |
-| `mcp`        | (none)                 |                                                                                                                                            |
+| Trigger type | Required keys                             | What each is                                                                                                                                   |
+| ------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slack`      | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` | App signing secret (verifies inbound webhooks) + bot user OAuth token (lets `@posthog/slack-post-message` etc. call the Slack API as the bot). |
+| `chat`       | (none)                                    |                                                                                                                                                |
+| `webhook`    | (none)                                    |                                                                                                                                                |
+| `cron`       | (none)                                    |                                                                                                                                                |
+| `mcp`        | (none)                                    |                                                                                                                                                |
+
+`SLACK_SIGNING_SECRET` lives at Slack app dashboard → Settings → Basic Information → Signing Secret.
+`SLACK_BOT_TOKEN` lives at Settings → Install App → Bot User OAuth Token (starts with `xoxb-`), generated when the app is installed to a workspace.
 
 **Enforcement** — the `promote` endpoint walks the spec's triggers
 and refuses with a clear error if any required key is missing:
 
 > Cannot promote: agent is missing required encrypted_env entries:
-> SLACK_SIGNING_SECRET (for slack trigger). Set the value(s) via
+> SLACK_BOT_TOKEN (for slack trigger). Set the value(s) via
 > the env editor then retry.
 
 You can recover from this by setting the key and re-running
 promote — but a better user experience is to catch it during
 **Phase 4** of `skills/authoring-new-agents`: as soon as the spec
-declares a `slack` trigger, drive the punch-out for
-`SLACK_SIGNING_SECRET` before reaching freeze. The console env
-editor also surfaces "Required for this trigger" hints next to the
-relevant fields, so a user setting things up in the UI sees the
-requirement without you having to spell it out.
+declares a `slack` trigger, drive the punch-out for BOTH required
+keys before reaching freeze. See `skills/setting-up-slack-app` for
+the step-by-step flow (create app → set Request URL → install →
+copy + punch-out tokens). The console env editor also surfaces
+"Required for this trigger" hints next to the relevant fields, so a
+user setting things up in the UI sees the requirement without you
+having to spell it out.
 
 The punch-out call shape is the same as any other secret — pass
 the key the registry names:
@@ -85,10 +93,19 @@ the key the registry names:
 ```text
 set_secret { agent_slug: "<slug>", secret: "SLACK_SIGNING_SECRET",
              purpose: "Verifies inbound Slack event signatures." }
+
+set_secret { agent_slug: "<slug>", secret: "SLACK_BOT_TOKEN",
+             purpose: "Lets the agent call Slack APIs as the bot user." }
 ```
 
-After the user saves, an `env-keys-get` precheck confirms the
-write landed. Then proceed to freeze + promote.
+After each save, an `env-keys-get` precheck confirms the write
+landed. Then proceed to freeze + promote.
+
+> Note: the platform does **not** fall back to a team-wide Slack
+> OAuth integration. Each agent owns its own Slack app and bot
+> token via `encrypted_env`. If a user pastes a workspace-wide
+> Slack bot token they want shared across agents, save it on each
+> agent individually — there is no shared store.
 
 ## Setting a secret — the punch-out flow
 
@@ -183,7 +200,8 @@ then warn them about the trace before complying.
 
 ## Setting an integration
 
-You don't. The team admin does, via PostHog's integrations UI.
+For systems that DO use team integrations (not Slack), you don't
+set them — the team admin does, via PostHog's integrations UI.
 You can:
 
 - Check whether an integration is installed by reading the team's
@@ -191,9 +209,13 @@ You can:
   — surface as a known gap, ask the user to confirm in the UI.)
 - Reference an integration in `spec.integrations[]`. The runner
   resolves it at session start.
-- Tell the user "this agent needs a Slack integration on this
-  team; an admin can install it at <link>" — the link is a
-  PostHog URL the user follows manually.
+- Tell the user "this agent needs an X integration on this team; an
+  admin can install it at <link>" — the link is a PostHog URL the
+  user follows manually.
+
+> Slack is **not** one of these. Use `SLACK_BOT_TOKEN` +
+> `SLACK_SIGNING_SECRET` on the agent's `encrypted_env` via the
+> punch-out flow. See `skills/setting-up-slack-app`.
 
 ## Rotating a secret
 
@@ -223,10 +245,9 @@ Common patterns:
 Don't try to "retry with different auth". Surface the failure:
 
 > The `@posthog/slack-post-message` call failed with
-> `gateway_unavailable: integration_revoked`. The Slack
-> integration for this team needs to be re-authorized — a team
-> admin can do this at <link>. Once that's done, the next
-> session will pick up the new token.
+> `slack.chat.postMessage error: invalid_auth`. The agent's
+> `SLACK_BOT_TOKEN` is wrong or revoked — rotate it via the
+> punch-out and the next session will pick up the new value.
 
 ## Things not to do
 

@@ -31,6 +31,12 @@ const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     maxConcurrency: z.coerce.number().int().positive().default(8).describe('In-flight sessions per worker process.'),
+    maxOutputTokens: z.coerce
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Operator override capping per-turn max_tokens below the model ceiling. Unset → model ceiling.'),
     useAiGateway: z
         .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
         .default('0')
@@ -187,6 +193,7 @@ export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
 
 const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_MAX_CONCURRENCY: 'maxConcurrency',
+    AGENT_MAX_OUTPUT_TOKENS: 'maxOutputTokens',
     AGENT_USE_AI_GATEWAY: 'useAiGateway',
     POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
     POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',

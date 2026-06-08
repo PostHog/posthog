@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 
+import { type AllowlistCheckProfile, checkAccessAllowlist } from '@/lib/auth/allowlist'
 import { consumeOAuthFlow, setSession } from '@/lib/auth/session'
 import { exchangeAuthorizationCode } from '@/lib/auth/tokens'
 import { getConfig } from '@/lib/config'
@@ -44,11 +45,31 @@ export async function GET(request: Request): Promise<Response> {
 
     try {
         const session = await exchangeAuthorizationCode({ code, codeVerifier: flow.codeVerifier })
-        // Resolve the user's current team so subsequent /api/projects/<id>/...
-        // calls have a real id to scope by. Best-effort — login still
-        // succeeds if this fails; the agents list will surface the
-        // "missing teamId" error to the user instead of silent confusion.
-        const teamId = await fetchCurrentTeamId(session.accessToken)
+        // Resolve the user's current org + team so we can both
+        //   (a) gate access against the configured allowlist, and
+        //   (b) stamp `teamId` onto the session for the next
+        //       `/api/projects/<id>/...` call.
+        // Best-effort for `teamId` — login still succeeds if this fails;
+        // the agents list surfaces a clean "missing teamId" error
+        // downstream. Allowlist enforcement is NOT best-effort: if the
+        // allowlist is configured and we can't read the profile, we
+        // deny by default. That's the correct fail-closed behaviour for
+        // an access control feature.
+        const profile = await fetchProfile(session.accessToken)
+        const config = getConfig()
+        const gateEnabled = config.allowedTeamIds.length > 0
+        if (gateEnabled) {
+            if (!profile) {
+                return renderError(
+                    'Could not verify your PostHog account against this deployment’s allowlist (failed to read your profile). Try logging in again; if the problem persists, contact whoever runs this console.'
+                )
+            }
+            const decision = checkAccessAllowlist(profile, config)
+            if (!decision.allowed) {
+                return renderError(decision.reason ?? 'Your account is not authorized to use this agent console.')
+            }
+        }
+        const teamId = profile?.team?.id ?? undefined
         await setSession({ ...session, teamId })
     } catch (err) {
         return renderError(`Token exchange failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -57,18 +78,17 @@ export async function GET(request: Request): Promise<Response> {
     return NextResponse.redirect(new URL(flow.returnTo, url.origin).toString(), { status: 302 })
 }
 
-async function fetchCurrentTeamId(accessToken: string): Promise<number | undefined> {
+async function fetchProfile(accessToken: string): Promise<AllowlistCheckProfile | null> {
     try {
         const res = await fetch(`${getConfig().posthogBaseUrl}/api/users/@me/`, {
             headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
         })
         if (!res.ok) {
-            return undefined
+            return null
         }
-        const body = (await res.json()) as { team?: { id?: number } | null }
-        return body.team?.id ?? undefined
+        return (await res.json()) as AllowlistCheckProfile
     } catch {
-        return undefined
+        return null
     }
 }
 

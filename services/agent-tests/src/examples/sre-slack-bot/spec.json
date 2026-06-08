@@ -29,7 +29,7 @@
         { "kind": "native", "id": "@posthog/table-append" },
         { "kind": "native", "id": "@posthog/table-query" }
     ],
-    "secrets": ["SLACK_BOT_TOKEN"],
+    "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "INCIDENT_IO_TOKEN"],
     "skills": [
         {
             "id": "triage-playbook",
@@ -40,6 +40,11 @@
             "id": "slack-thread-protocol",
             "path": "skills/slack-thread-protocol/SKILL.md",
             "description": "Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
+        },
+        {
+            "id": "incident-io-playbook",
+            "path": "skills/incident-io-playbook/SKILL.md",
+            "description": "How to query and update incident.io — list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
         }
     ],
     "integrations": [],
@@ -48,6 +53,12 @@
         "max_tool_calls": 100,
         "max_wall_seconds": 600
     },
-    "auth": { "mode": "public" },
+    "auth": {
+        "modes": [
+            { "type": "shared_secret", "header": "X-Webhook-Secret" },
+            { "type": "pat" },
+            { "type": "posthog_internal" }
+        ]
+    },
     "reasoning": "high"
 }

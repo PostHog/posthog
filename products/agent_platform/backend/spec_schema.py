@@ -341,6 +341,11 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991,
                 },
+                "max_output_tokens": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 200000,
+                },
             },
             "required": ["max_turns", "max_tool_calls", "max_wall_seconds"],
             "additionalProperties": False,
@@ -352,8 +357,9 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             # `{type: 'public'}` to `{type: string}`, which then fails to
             # satisfy the generated discriminated-union zod schema. The
             # runtime default still applies via the node-side
-            # `AuthConfigSchema.default({ modes: [{ type: 'public' }] })`
-            # in services/agent-shared/src/spec/spec.ts.
+            # `AuthConfigSchema.default({ modes: [{ type: 'posthog_internal' }] })`
+            # in services/agent-shared/src/spec/spec.ts — closed by default.
+            # Public is opt-in and requires `acknowledge_public_exposure: true`.
             "type": "object",
             "properties": {
                 "modes": {
@@ -365,9 +371,18 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "items": {
                         "oneOf": [
                             {
+                                # Public exposure is intentionally opt-in and noisy.
+                                # `acknowledge_public_exposure: true` is required to
+                                # surface the choice in UIs and to gate AI-authored
+                                # specs against accidentally opening agents to the
+                                # internet. Mirrors `AuthModeSchema` in
+                                # services/agent-shared/src/spec/spec.ts.
                                 "type": "object",
-                                "properties": {"type": {"type": "string", "const": "public"}},
-                                "required": ["type"],
+                                "properties": {
+                                    "type": {"type": "string", "const": "public"},
+                                    "acknowledge_public_exposure": {"type": "boolean", "const": True},
+                                },
+                                "required": ["type", "acknowledge_public_exposure"],
                                 "additionalProperties": False,
                             },
                             {
@@ -500,6 +515,7 @@ AGENT_SPEC_JSON_SCHEMA_FOR_WRITE: dict[str, Any] = _relax_required_for_defaults(
 # the same key.
 
 SLACK_SIGNING_SECRET_KEY = "SLACK_SIGNING_SECRET"
+SLACK_BOT_TOKEN_KEY = "SLACK_BOT_TOKEN"
 
 TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = {
     "chat": [],
@@ -513,6 +529,16 @@ TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = {
             "description": (
                 "Your Slack app's signing secret. Find it under Settings → Basic Information → "
                 "Signing Secret. Required to verify inbound Slack event signatures."
+            ),
+            "required": True,
+        },
+        {
+            "key": SLACK_BOT_TOKEN_KEY,
+            "label": "Slack bot user OAuth token",
+            "description": (
+                "Your Slack app's bot token (starts with `xoxb-`). Find it under Settings → "
+                "Install App → Bot User OAuth Token after installing the app to your workspace. "
+                "Used by native slack tools to call the Slack API."
             ),
             "required": True,
         },

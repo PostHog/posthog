@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import json
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, cast
@@ -35,6 +35,7 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 import requests
+from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -669,14 +670,25 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception("preview-proxy upstream call failed")
             raise APIException(detail=f"preview-proxy upstream unreachable: {e}") from e
 
-        def _stream() -> Iterator[bytes]:
+        # Async iterator so Django's ASGI handler doesn't warn about consuming
+        # a sync generator. `requests` is blocking, so each chunk pull hops to
+        # a thread via sync_to_async.
+        async def _stream() -> AsyncIterator[bytes]:
+            sync_iter = upstream.iter_content(chunk_size=None)
+            sentinel = object()
+
+            def _next_chunk() -> object:
+                return next(sync_iter, sentinel)
+
             try:
-                # iter_content with no decoding keeps SSE chunks intact.
-                for chunk in upstream.iter_content(chunk_size=None):
+                while True:
+                    chunk = await sync_to_async(_next_chunk, thread_sensitive=False)()
+                    if chunk is sentinel:
+                        break
                     if chunk:
-                        yield chunk
+                        yield cast(bytes, chunk)
             finally:
-                upstream.close()
+                await sync_to_async(upstream.close, thread_sensitive=False)()
 
         resp = StreamingHttpResponse(
             _stream(),

@@ -134,7 +134,16 @@ async function main(): Promise<void> {
         http,
     })
     app.listen(config.port, () => {
-        log.info({ port: config.port, bus: bus.constructor.name }, 'listening')
+        log.info(
+            {
+                port: config.port,
+                bus: bus.constructor.name,
+                public_url: config.publicUrl ?? null,
+            },
+            config.publicUrl
+                ? `listening — reachable at ${config.publicUrl}`
+                : 'listening — no public URL configured (set AGENT_INGRESS_PUBLIC_URL so Slack / webhooks know where to call back; `bin/agent-tunnel` writes it to .env.local for you)'
+        )
     })
 }
 

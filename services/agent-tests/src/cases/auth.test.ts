@@ -35,7 +35,10 @@ describe('trigger auth: real e2e', () => {
 
     describe('public', () => {
         it('enqueues without auth, principal is anonymous', async () => {
-            await c.deployAgent({ slug: 'pub', spec: { auth: { modes: [{ type: 'public' }] } } })
+            await c.deployAgent({
+                slug: 'pub',
+                spec: { auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
+            })
             const res = await request(c.ingress).post('/agents/pub/run').send({ message: 'x' })
             expect(res.status).toBe(200)
             expect(res.body.principal).toEqual({ kind: 'anonymous' })

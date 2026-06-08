@@ -57,11 +57,10 @@
             "description": "Slack-flavored condensed version of the briefing — mrkdwn quirks, separator lines, mobile-readable. Load BEFORE the final slack-post-message call, not at briefing start. The local markdown file is the source of truth; this is the projection."
         }
     ],
-    "integrations": ["slack"],
     "limits": {
         "max_turns": 40,
         "max_tool_calls": 80,
         "max_wall_seconds": 600
     },
-    "auth": { "mode": "public" }
+    "auth": { "modes": [{ "type": "posthog_internal" }, { "type": "pat" }] }
 }

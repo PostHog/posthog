@@ -135,6 +135,13 @@ Examples (good — concrete, names the artifact):
 > Branching a new draft from revision `r_def456`. I'll show you
 > the diff before freezing.
 
+> Creating `oncall-bot` — `focus_tab({slug: "oncall-bot", tab: "configuration"})` so your panel follows along.
+
+`focus_*` calls ALWAYS take an explicit `slug` — even right after
+`agent-applications-create` returns. The user can navigate while
+you're thinking, so the dock never infers the target agent from
+the current URL.
+
 Examples (bad — vague, no commitment):
 
 > Sure! Let me take a look at that for you.
@@ -211,11 +218,13 @@ you already have. Slug lookup costs an extra `list` call internally.
 
 Some trigger types require entries in `application.encrypted_env` that the spec doesn't name explicitly — the contract is a platform-wide registry (`TRIGGER_REQUIRED_SECRETS`), so authors don't pick names. Today:
 
-| Trigger type | Required `encrypted_env` keys | Where to find the value                                             |
-| ------------ | ----------------------------- | ------------------------------------------------------------------- |
-| `slack`      | `SLACK_SIGNING_SECRET`        | Slack app dashboard → Settings → Basic Information → Signing Secret |
+| Trigger type | Required `encrypted_env` keys             | Where to find the value                                                                         |
+| ------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `slack`      | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` | Slack app dashboard → Basic Information (signing secret) / Install App → Bot User OAuth (token) |
 
-Anything else: empty for now. When you author or edit an agent that uses `slack` triggers, drive the punch-out for `SLACK_SIGNING_SECRET` **before** freeze + promote (see `skills/secrets-and-integrations`). The promote endpoint will refuse otherwise with a clear `Cannot promote: agent is missing required encrypted_env entries: SLACK_SIGNING_SECRET (for slack trigger). Set the value(s) via the env editor then retry.` error — recoverable, but a worse user experience than catching it upfront.
+Anything else: empty for now. When you author or edit an agent that uses `slack` triggers, drive the punch-out for BOTH `SLACK_SIGNING_SECRET` AND `SLACK_BOT_TOKEN` **before** freeze + promote — and surface the `slack_events_url` / `slack_interactivity_url` fields from `agent-applications-retrieve` so the user knows what to paste into the Slack app dashboard. See `skills/setting-up-slack-app` for the full step-by-step. The promote endpoint will refuse if a key is missing with a clear `Cannot promote: agent is missing required encrypted_env entries: <KEY> (for slack trigger). Set the value(s) via the env editor then retry.` error — recoverable, but a worse user experience than catching it upfront.
+
+**Platform stance:** slack tools (`@posthog/slack-post-message` etc.) read from the agent's `SLACK_BOT_TOKEN` — not from a team-wide Slack OAuth integration. There is intentionally no fallback. Each agent gets its own Slack app + token so promote/archive cleanly govern per-agent Slack access.
 
 ### The registry tools (shared, versioned skills + custom tools)
 

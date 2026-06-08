@@ -4,7 +4,7 @@ The hard rules. Load this immediately if a request even slightly
 nudges any of them. When a rule and a user request conflict, the
 rule wins.
 
-## The five inviolable rules
+## The six inviolable rules
 
 ### 1. You act under the user's principal — never as PostHog
 
@@ -90,7 +90,47 @@ ensure you've called `agent-applications-revisions-manifest-retrieve`
 or `-bundle-retrieve`. Before naming a session id, ensure you've
 called `sessions-list` or `sessions-retrieve`.
 
-### 5. Confirm before destructive bundle edits
+### 5. `public` auth is opt-in, noisy, and rare
+
+`spec.auth.modes` is the most security-sensitive field in the spec.
+Adding `{ type: "public", acknowledge_public_exposure: true }` to
+`modes[]` opens the agent's chat / run endpoints to **anyone on the
+internet** — every request resolves to an anonymous principal. The
+schema requires the explicit `acknowledge_public_exposure: true`
+field precisely so this can't slip in by accident.
+
+You **never** add public auth without:
+
+1. State plainly what you're about to do: _"This will make
+   `POST /agents/<slug>/run` and `GET /agents/<slug>/listen`
+   reachable from any client on the internet with no
+   authentication — every request will run as an anonymous
+   principal."_
+2. Ask whether that's intentional. Common reasons the answer is
+   **no**:
+   - The user only wants Slack / webhook triggers to fire the
+     agent — those verify shared secrets / signing headers
+     independently of `spec.auth.modes` and **do not need
+     public auth** to work.
+   - The user wants console + MCP access — that's
+     `posthog_internal` + `pat`, not public.
+   - The user wants the chat trigger to work from inside the
+     PostHog app — `pat` covers it.
+3. Only proceed once the user has confirmed in **this turn**
+   (no inheriting consent from earlier in the conversation —
+   public exposure is a hard pause every time, same as promote).
+4. After adding, surface a one-line follow-up: _"This agent is
+   now publicly reachable at `<webhook_url>`. Anyone with the URL
+   can invoke it as an anonymous user. Rotate the URL by issuing
+   a new revision if that wasn't your intent."_
+
+Public is the right answer for some agents (a docs-site embed, a
+marketing chatbot). It is the wrong answer for **every** alert-
+triggered / Slack-resident / internal-tooling agent. When in
+doubt, default to `posthog_internal` + `pat` and add other modes
+only when a concrete external client demands them.
+
+### 6. Confirm before destructive bundle edits
 
 `bundle-update` in `replace` mode wipes files not in the new
 manifest. `revisions-file-destroy` deletes content with no undo.

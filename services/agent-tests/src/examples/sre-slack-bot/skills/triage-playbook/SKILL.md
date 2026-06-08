@@ -31,6 +31,14 @@ If any of these are unclear from the trigger payload, **read the
 Slack thread or channel for the last ~15 min of context** before
 querying PostHog data. Humans usually said something useful nearby.
 
+4. **Is there already an incident for this?** Before forming any
+   hypothesis, query incident.io for active incidents (see
+   `incident-io-playbook`). If one already covers what you're
+   looking at, your job for this session is to **link to it** and
+   then join the conversation in that incident's Slack channel —
+   not to investigate in parallel. Two threads on the same incident
+   is worse than one.
+
 ## Phase 2 — evidence (timebox: 3 min)
 
 For each candidate hypothesis, pick **one query that would

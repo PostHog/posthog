@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server'
 
+import { type AllowlistCheckProfile, checkAccessAllowlist } from '@/lib/auth/allowlist'
 import { clearSession, getSession, setSession, type SessionPayload } from '@/lib/auth/session'
 import { OAuthTokenError, refreshAccessToken } from '@/lib/auth/tokens'
 import { getConfig } from '@/lib/config'
@@ -60,6 +61,24 @@ export async function GET(): Promise<Response> {
             fetchJson(`${posthogBaseUrl}/oauth/userinfo/`, session.accessToken),
             fetchJson(`${posthogBaseUrl}/api/users/@me/`, session.accessToken),
         ])
+    }
+
+    // Re-check the access allowlist on every refresh — defense in depth
+    // against an admin removing the team mid-session. Skipped when the
+    // allowlist is empty (the schema default) so dev / OSS deployments
+    // keep working without configuration. We only enforce when we have
+    // a real profile to read; if `/api/users/@me/` errored we skip the
+    // gate this turn rather than logging the user out on a transient
+    // upstream blip. Callback-time enforcement is the canonical gate;
+    // this is the secondary check.
+    const cfg = getConfig()
+    const gateEnabled = cfg.allowedTeamIds.length > 0
+    if (gateEnabled && profile && !isAuthError(profile)) {
+        const decision = checkAccessAllowlist(profile as AllowlistCheckProfile, cfg)
+        if (!decision.allowed) {
+            await clearSession()
+            return NextResponse.json({ authenticated: false, deniedByAllowlist: true }, { status: 200 })
+        }
     }
 
     // Prefer fresh team from /api/users/@me/, fall back to the value stamped

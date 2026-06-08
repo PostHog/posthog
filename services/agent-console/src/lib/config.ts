@@ -72,6 +72,20 @@ export const AgentConsoleConfigSchema = z.object({
         .enum(['development', 'production', 'test'])
         .default('development')
         .describe('Node env. Controls cookie `secure` flag and the dev-default gating above.'),
+    allowedTeamIds: z
+        .string()
+        .default('1,2')
+        .transform((v) =>
+            v
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .map((s) => Number(s))
+                .filter((n) => Number.isInteger(n) && n > 0)
+        )
+        .describe(
+            'Comma-separated PostHog team (project) IDs that may use this console deployment. Defaults to `1,2` — the first two projects in any PostHog install, which cover a typical local dev or small single-tenant setup. Override to lock down a multi-team install, or set to an empty string (`AGENT_CONSOLE_ALLOWED_TEAM_IDS=`) to disable the gate entirely. Checked at OAuth callback (cookie never gets set on denial) AND on every `/api/auth/me` refresh (an admin removing the team mid-session signs the user out on next refresh).'
+        ),
 })
 
 export type AgentConsoleConfig = z.infer<typeof AgentConsoleConfigSchema>
@@ -84,6 +98,7 @@ const ENV_KEY_MAP: Record<string, keyof AgentConsoleConfig> = {
     POSTHOG_OAUTH_CLIENT_SECRET: 'oauthClientSecret',
     OAUTH_COOKIE_SECRET: 'oauthCookieSecret',
     NODE_ENV: 'nodeEnv',
+    AGENT_CONSOLE_ALLOWED_TEAM_IDS: 'allowedTeamIds',
 }
 
 // Fields with no safe prod default — empty values must fail closed at
@@ -104,6 +119,7 @@ const PROD_ENV_NAMES: Record<keyof AgentConsoleConfig, string> = {
     oauthClientSecret: 'POSTHOG_OAUTH_CLIENT_SECRET',
     oauthCookieSecret: 'OAUTH_COOKIE_SECRET',
     nodeEnv: 'NODE_ENV',
+    allowedTeamIds: 'AGENT_CONSOLE_ALLOWED_TEAM_IDS',
 }
 
 export function loadAgentConsoleConfig(env: NodeJS.ProcessEnv = process.env): AgentConsoleConfig {

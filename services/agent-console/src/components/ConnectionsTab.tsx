@@ -39,6 +39,7 @@ import {
 
 import { useSessionTeamId } from '@/components/session-context'
 import { clearEnvKey, listEnvKeys } from '@/lib/apiClient'
+import { type DerivedTriggerSecret, getTriggerRequiredSecrets } from '@/lib/triggerSecrets'
 import { useResource } from '@/lib/useResource'
 
 import { ConfirmDialog } from './ConfirmDialog'
@@ -93,17 +94,43 @@ export function ConnectionsTab({
     }
 
     const spec = reference.spec as Record<string, unknown>
-    const declaredSecrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
+    const specDeclaredSecrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
     const integrations = Array.isArray(spec.integrations) ? (spec.integrations as string[]) : []
     const mcps = Array.isArray(spec.mcps) ? (spec.mcps as McpRef[]) : []
+
+    // Trigger-derived requirements (e.g. Slack's signing secret + bot token).
+    // These come from the trigger-secrets registry rather than the spec's
+    // top-level `secrets[]`, but the agent reads them the same way.
+    const triggerRequirements = getTriggerRequiredSecrets(spec)
+
+    // Merge spec-declared + trigger-derived names so missing-secret detection
+    // covers both. Trigger requirements are annotated so we can show the
+    // source (e.g. "via slack") next to the row.
+    const triggerSecretsByKey = new Map<string, DerivedTriggerSecret>()
+    for (const req of triggerRequirements) {
+        triggerSecretsByKey.set(req.key, req)
+    }
+    const declaredKeys: string[] = []
+    const seenDeclared = new Set<string>()
+    for (const name of specDeclaredSecrets) {
+        if (!seenDeclared.has(name)) {
+            seenDeclared.add(name)
+            declaredKeys.push(name)
+        }
+    }
+    for (const req of triggerRequirements) {
+        if (!seenDeclared.has(req.key)) {
+            seenDeclared.add(req.key)
+            declaredKeys.push(req.key)
+        }
+    }
 
     // Show declared secrets even when unset, plus any "extra" set keys
     // that the spec doesn't declare. Extras are flagged so the user
     // knows they're orphaned — the agent won't read them unless the
     // spec is updated.
-    const declaredSet = new Set(declaredSecrets)
-    const extraKeys = setKeys.filter((k) => !declaredSet.has(k)).sort()
-    const isDeclaredOnSpec = editingSecret ? declaredSet.has(editingSecret) : true
+    const extraKeys = setKeys.filter((k) => !seenDeclared.has(k)).sort()
+    const isDeclaredOnSpec = editingSecret ? seenDeclared.has(editingSecret) : true
 
     return (
         <div className="space-y-4">
@@ -123,7 +150,8 @@ export function ConnectionsTab({
             <SecretsCard
                 agentSlug={agent.slug}
                 teamId={teamId}
-                declared={declaredSecrets}
+                declared={declaredKeys}
+                triggerSources={triggerSecretsByKey}
                 extras={extraKeys}
                 setKeys={new Set(setKeys)}
                 onEdit={onChangeEditingSecret}
@@ -148,6 +176,7 @@ function SecretsCard({
     agentSlug,
     teamId,
     declared,
+    triggerSources,
     extras,
     setKeys,
     onEdit,
@@ -156,6 +185,9 @@ function SecretsCard({
     agentSlug: string
     teamId: number
     declared: string[]
+    /** Per-key trigger annotation for declared keys that came from a trigger
+     *  (e.g. Slack's signing secret). Used to show a "via slack" hint. */
+    triggerSources: ReadonlyMap<string, DerivedTriggerSecret>
     /** Set keys not declared on the spec. Listed under a separate group. */
     extras: string[]
     setKeys: ReadonlySet<string>
@@ -202,7 +234,7 @@ function SecretsCard({
                 icon={<KeyIcon className="h-3.5 w-3.5" />}
                 title="Secrets"
                 count={total}
-                description="Encrypted env values the agent decrypts at session start. Names are declared on the spec; values live on the application."
+                description="Encrypted env values the agent decrypts at session start. Names come from the spec's secrets list and from triggers that require their own keys (e.g. Slack signing secret); values live on the application."
                 action={
                     <button
                         type="button"
@@ -221,7 +253,13 @@ function SecretsCard({
                         {declared.length > 0 ? (
                             <ul className="divide-y divide-border">
                                 {declared.map((name) => (
-                                    <SecretRow key={name} name={name} isSet={setKeys.has(name)} onEdit={onEdit} />
+                                    <SecretRow
+                                        key={name}
+                                        name={name}
+                                        isSet={setKeys.has(name)}
+                                        triggerSource={triggerSources.get(name)?.trigger ?? null}
+                                        onEdit={onEdit}
+                                    />
                                 ))}
                             </ul>
                         ) : null}
@@ -288,12 +326,16 @@ function SecretRow({
     name,
     isSet,
     isOrphan,
+    triggerSource,
     onEdit,
     onDelete,
 }: {
     name: string
     isSet: boolean
     isOrphan?: boolean
+    /** Trigger type that requires this key (e.g. "slack"), or null if the
+     *  key comes from the spec's top-level `secrets[]`. */
+    triggerSource?: string | null
     onEdit: (key: string | null) => void
     /** When provided, renders a trash button that opens a confirm dialog. */
     onDelete?: () => void
@@ -303,6 +345,7 @@ function SecretRow({
             <div className="flex min-w-0 items-center gap-2">
                 <code className="truncate font-mono">{name}</code>
                 {isOrphan ? <StatusBadge tone="warning">orphan</StatusBadge> : null}
+                {triggerSource ? <StatusBadge tone="info">via {triggerSource}</StatusBadge> : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
                 <StatusBadge tone={isSet ? 'success' : 'muted'}>{isSet ? 'set' : 'unset'}</StatusBadge>

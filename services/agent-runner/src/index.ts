@@ -311,6 +311,7 @@ async function main(): Promise<void> {
         useGatewayCost: config.useAiGateway,
         analytics,
         maxConcurrency: config.maxConcurrency,
+        maxOutputTokens: config.maxOutputTokens,
         memoryStore,
         tabularStore,
         isAskerInApproverScope,

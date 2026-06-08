@@ -1,10 +1,21 @@
-import { defineNativeTool, HttpFetcher, IntegrationCredentials, Type } from '@posthog/agent-shared'
+import { defineNativeTool, HttpFetcher, SLACK_BOT_TOKEN_KEY, ToolContext, Type } from '@posthog/agent-shared'
 
-function slackAuth(creds: IntegrationCredentials | undefined): string {
-    if (!creds || !creds.access_token) {
-        throw new Error('slack integration not connected for this team')
+/**
+ * Resolve the agent's Slack bot token from `encrypted_env` via `ctx.secret`.
+ * Per-app, not per-team — `SLACK_BOT_TOKEN_KEY` is registered as a
+ * trigger-required secret for `slack` triggers (see `trigger-secrets.ts`),
+ * so the freeze + promote gate refuses revisions whose application doesn't
+ * have it set. Tools throw a precise error rather than a generic 401 so the
+ * model sees what's missing.
+ */
+function slackBotToken(ctx: ToolContext): string {
+    const token = ctx.secret(SLACK_BOT_TOKEN_KEY)
+    if (!token) {
+        throw new Error(
+            `slack bot token missing — set ${SLACK_BOT_TOKEN_KEY} on this agent (Settings → Install App → Bot User OAuth Token in your Slack app dashboard)`
+        )
     }
-    return creds.access_token
+    return token
 }
 
 async function slackCall(
@@ -78,9 +89,8 @@ function projectMessage(m: RawSlackMessage): {
 
 export const slackPostMessageV1 = defineNativeTool({
     id: '@posthog/slack-post-message',
-    description: 'Post a message to a Slack channel or thread.',
+    description: "Post a message to a Slack channel or thread using the agent's bot token.",
     args: Type.Object({
-        team_integration_id: Type.String(),
         channel: Type.String(),
         text: Type.String(),
         thread_ts: Type.Optional(Type.String()),
@@ -89,10 +99,10 @@ export const slackPostMessageV1 = defineNativeTool({
         ts: Type.String(),
         channel: Type.String(),
     }),
-    requires: { integrations: ['slack'], scopes: ['chat:write'] },
+    requires: { scopes: ['chat:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        const token = slackAuth(ctx.integrations[args.team_integration_id])
+        const token = slackBotToken(ctx)
         const res = (await slackCall(ctx.http, token, 'chat.postMessage', {
             channel: args.channel,
             text: args.text,
@@ -106,16 +116,15 @@ export const slackUpdateMessageV1 = defineNativeTool({
     id: '@posthog/slack-update-message',
     description: 'Edit a previously-posted Slack message.',
     args: Type.Object({
-        team_integration_id: Type.String(),
         channel: Type.String(),
         ts: Type.String(),
         text: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { integrations: ['slack'], scopes: ['chat:write'] },
+    requires: { scopes: ['chat:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        const token = slackAuth(ctx.integrations[args.team_integration_id])
+        const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'chat.update', { channel: args.channel, ts: args.ts, text: args.text })
         return { ok: true }
     },
@@ -126,7 +135,6 @@ export const slackReadChannelV1 = defineNativeTool({
     description:
         'Read recent messages from a Slack channel. Returns top-level messages only (use @posthog/slack-read-thread for replies). Paginate with next_cursor; narrow with oldest/latest (slack ts).',
     args: Type.Object({
-        team_integration_id: Type.String(),
         channel: Type.String(),
         limit: Type.Optional(Type.Number()),
         oldest: Type.Optional(Type.String()),
@@ -138,10 +146,10 @@ export const slackReadChannelV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { integrations: ['slack'], scopes: ['channels:history', 'groups:history'] },
+    requires: { scopes: ['channels:history', 'groups:history'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        const token = slackAuth(ctx.integrations[args.team_integration_id])
+        const token = slackBotToken(ctx)
         const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
         const body: Record<string, unknown> = { channel: args.channel, limit }
         if (args.oldest) {
@@ -171,7 +179,6 @@ export const slackReadThreadV1 = defineNativeTool({
     id: '@posthog/slack-read-thread',
     description: 'Read a Slack thread — the parent message plus all replies. thread_ts is the parent message ts.',
     args: Type.Object({
-        team_integration_id: Type.String(),
         channel: Type.String(),
         thread_ts: Type.String(),
         limit: Type.Optional(Type.Number()),
@@ -182,10 +189,10 @@ export const slackReadThreadV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { integrations: ['slack'], scopes: ['channels:history', 'groups:history'] },
+    requires: { scopes: ['channels:history', 'groups:history'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        const token = slackAuth(ctx.integrations[args.team_integration_id])
+        const token = slackBotToken(ctx)
         const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
         const body: Record<string, unknown> = {
             channel: args.channel,
@@ -213,16 +220,15 @@ export const slackReactV1 = defineNativeTool({
     id: '@posthog/slack-react',
     description: 'Add an emoji reaction to a Slack message.',
     args: Type.Object({
-        team_integration_id: Type.String(),
         channel: Type.String(),
         ts: Type.String(),
         name: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { integrations: ['slack'], scopes: ['reactions:write'] },
+    requires: { scopes: ['reactions:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        const token = slackAuth(ctx.integrations[args.team_integration_id])
+        const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'reactions.add', {
             channel: args.channel,
             timestamp: args.ts,

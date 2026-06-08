@@ -826,6 +826,15 @@ SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 # Agent janitor service — Django proxies session list/detail/cancel requests to this URL.
 AGENT_JANITOR_BASE_URL = os.getenv("AGENT_JANITOR_BASE_URL", "http://localhost:3031")
 
+# Public base URL where agent-ingress is reachable from the outside world
+# (Slack's events callback, third-party webhooks, etc). In prod this is the
+# subdomain wired in `public-subdomain-routing.md` (e.g. `https://agents.us.posthog.com`).
+# In local dev set this to the tunnel URL from `bin/agent-tunnel` so the
+# `slack_events_url` Django returns on agent retrievals is the actual URL the
+# user pastes into their Slack app dashboard. Empty default → the field is
+# omitted from the serializer response, signalling "not externally reachable".
+AGENT_INGRESS_PUBLIC_URL = os.getenv("AGENT_INGRESS_PUBLIC_URL", "")
+
 # Shared HMAC signing key for trusted-service JWTs across the agent platform.
 # Django mints aud-scoped tokens for the ingress (draft previews) and janitor
 # (authoring RPC); each receiving service verifies signature + aud against

@@ -18,11 +18,13 @@ import pytest
 from rest_framework.exceptions import ValidationError
 
 from .serializers import AgentRevisionSerializer
+from .spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
 
 # `auth` lost its top-level default (see spec_schema.py), so it's required on
 # every spec. These fixtures focus on other fields, so inject a minimal public
-# auth rather than repeat it in each case.
-_AUTH = {"modes": [{"type": "public"}]}
+# auth rather than repeat it in each case. Public exposure carries the explicit
+# ack field per AuthModeSchema in services/agent-shared/src/spec/spec.ts.
+_AUTH = {"modes": [{"type": "public", "acknowledge_public_exposure": True}]}
 
 
 def _with_auth(spec: dict) -> dict:
@@ -149,6 +151,11 @@ def _with_auth(spec: dict) -> dict:
                 ],
             },
         ),
+        # max_output_tokens is optional; runner picks a reasoning-aware default.
+        (
+            "limits_max_output_tokens",
+            {"model": "x", "limits": {"max_output_tokens": 16384}},
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
@@ -243,3 +250,36 @@ def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_
     with pytest.raises(ValidationError) as exc_info:
         AgentRevisionSerializer().validate_spec(_with_auth(spec))
     assert expected_substring in str(exc_info.value)
+
+
+_SLACK_SPEC = {
+    "model": "x",
+    "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "env", "expected_missing_keys"),
+    [
+        ("none_set", {}, {SLACK_SIGNING_SECRET_KEY, SLACK_BOT_TOKEN_KEY}),
+        ("only_signing_set", {SLACK_SIGNING_SECRET_KEY: "shh"}, {SLACK_BOT_TOKEN_KEY}),
+        ("only_bot_set", {SLACK_BOT_TOKEN_KEY: "xoxb-abc"}, {SLACK_SIGNING_SECRET_KEY}),
+        ("both_set", {SLACK_SIGNING_SECRET_KEY: "shh", SLACK_BOT_TOKEN_KEY: "xoxb-abc"}, set()),
+        (
+            "blank_treated_as_missing",
+            {SLACK_SIGNING_SECRET_KEY: "", SLACK_BOT_TOKEN_KEY: ""},
+            {SLACK_SIGNING_SECRET_KEY, SLACK_BOT_TOKEN_KEY},
+        ),
+    ],
+)
+def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expected_missing_keys: set) -> None:
+    missing = missing_required_secrets(_SLACK_SPEC, env)
+    assert {entry["key"] for entry in missing} == expected_missing_keys
+    for entry in missing:
+        assert entry["trigger"] == "slack"
+        assert entry["required"] is True
+
+
+def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
+    spec = {"model": "x", "triggers": [{"type": "chat", "config": {"require_auth": False}}]}
+    assert missing_required_secrets(spec, {}) == []

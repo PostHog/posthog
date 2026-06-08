@@ -220,8 +220,17 @@ procs:
             tech: Rust
 
     agent-ingress:
+        # Re-source `.env.local` on every restart so an in-mprocs restart
+        # picks up vars added after the parent `bin/start` launched —
+        # specifically `AGENT_INGRESS_PUBLIC_URL`, which `bin/agent-tunnel`
+        # writes after the stack is already up. `set -a` exports every var
+        # read between it and `set +a`; we skip if the file is absent or
+        # contains 1Password `op://` refs that need `op run` to resolve.
         shell: |-
             bin/wait-for-docker && \
+            if [ -f .env.local ] && ! grep -q 'op://' .env.local; then \
+                set -a; . ./.env.local; set +a; \
+            fi && \
             PORT=${AGENT_INGRESS_PORT:-3030} \
             pnpm --filter @posthog/agent-ingress start:dev
         capability: agent_runtime

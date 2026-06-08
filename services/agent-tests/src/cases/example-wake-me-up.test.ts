@@ -61,10 +61,12 @@ describe('example: wake-me-up bundle', () => {
 
     beforeEach(async () => {
         c = await buildCluster({
-            // Slack tools resolve credentials from session integrations; the
-            // tools throw if no token is wired even when fetch is stubbed.
-            resolveIntegrations: async () => ({
-                'slack:T01TEST': { kind: 'slack', access_token: 'xoxb-faux' },
+            // Slack tools resolve the bot token from the agent's encrypted_env
+            // via `ctx.secret`; the tools throw if no token is wired even when
+            // fetch is stubbed.
+            resolveSecrets: async () => ({
+                SLACK_BOT_TOKEN: 'xoxb-faux',
+                SLACK_SIGNING_SECRET: 'signing-faux',
             }),
         })
     })
@@ -153,7 +155,6 @@ describe('example: wake-me-up bundle', () => {
             // Phase 8: project to mrkdwn, then post.
             fauxCallTool('@posthog/load-skill', { id: 'slack-post-format' }),
             fauxCallTool('@posthog/slack-post-message', {
-                team_integration_id: 'slack:T01TEST',
                 channel: 'C-personal',
                 text: '*Start of day — 2026-06-03*\n\n_Quiet morning — nothing to action._',
             }),

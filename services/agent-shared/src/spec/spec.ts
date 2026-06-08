@@ -381,6 +381,9 @@ export const SpecLimitsSchema = z.object({
      * (image processing, parsing, anything CPU-pinned).
      */
     max_cpu_cores: z.number().positive().default(0.25),
+    // Per-turn provider max_tokens. Unset → reasoning-aware default in runner.
+    // Clamped at request time to model.maxTokens + operator override.
+    max_output_tokens: z.number().int().positive().max(200_000).optional(),
 })
 
 /**
@@ -395,8 +398,23 @@ export const SpecLimitsSchema = z.object({
  * time — never persisted, never on the principal).
  */
 export const AuthModeSchema = z.discriminatedUnion('type', [
-    /** Anonymous — no auth required. */
-    z.object({ type: z.literal('public') }),
+    /**
+     * Anonymous — no auth required. **Every** request resolves to an
+     * anonymous principal. Genuinely-public agents are rare (a docs
+     * site embed, a marketing chatbot). To opt in, the author MUST
+     * set `acknowledge_public_exposure: true` — the field exists to
+     * make the choice deliberate at spec-authoring time and to give
+     * the UI a single flag to render a loud warning against. Skill
+     * authoring tools (concierge) treat this as a hard-pause decision
+     * point: confirm with the user before adding it to a spec.
+     */
+    z.object({
+        type: z.literal('public'),
+        acknowledge_public_exposure: z.literal(true, {
+            message:
+                'public auth must set acknowledge_public_exposure: true. Public agents accept anonymous requests — confirm this is intentional. If you only need PostHog console / MCP access, use posthog_internal or pat instead.',
+        }),
+    }),
     /** PostHog OAuth bearer. Validated against `issuer`'s introspection
      *  endpoint (for `issuer: 'posthog'`, that's `/api/users/@me/`).
      *  Credential available to tools as target `posthog_api`. */
@@ -427,7 +445,12 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
 
 export const AuthConfigSchema = z.object({
     /** Accepted auth modes. First successful match per request wins. */
-    modes: z.array(AuthModeSchema).default([{ type: 'public' }]),
+    /**
+     * Default is the closed `posthog_internal` mode (server-to-server
+     * platform tokens only). Public exposure is opt-in and requires
+     * `acknowledge_public_exposure: true` — see `AuthModeSchema`.
+     */
+    modes: z.array(AuthModeSchema).default([{ type: 'posthog_internal' }]),
 })
 
 export type AuthMode = z.infer<typeof AuthModeSchema>
@@ -522,7 +545,7 @@ export const AgentSpecSchema = z.object({
         max_cpu_cores: 0.25,
     }),
     entrypoint: z.string().default('agent.md'),
-    auth: AuthConfigSchema.default({ modes: [{ type: 'public' }] }),
+    auth: AuthConfigSchema.default({ modes: [{ type: 'posthog_internal' }] }),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),

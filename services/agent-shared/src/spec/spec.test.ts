@@ -33,6 +33,27 @@ describe('AgentSpecSchema', () => {
         expect(spec.mcps[0]).toMatchObject({ id: 'posthog', url: 'https://app.posthog.com/api/mcp' })
     })
 
+    describe('limits.max_output_tokens', () => {
+        it('defaults to undefined (runner picks a reasoning-aware default)', () => {
+            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            expect(parsed.limits.max_output_tokens).toBeUndefined()
+        })
+
+        it('accepts an integer value', () => {
+            const parsed = AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: 16_384 } })
+            expect(parsed.limits.max_output_tokens).toBe(16_384)
+        })
+
+        it('rejects zero and negative values', () => {
+            expect(() => AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: 0 } })).toThrow()
+            expect(() => AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: -1 } })).toThrow()
+        })
+
+        it('rejects values above the typo-guard upper bound', () => {
+            expect(() => AgentSpecSchema.parse({ model: 'x', limits: { max_output_tokens: 200_001 } })).toThrow()
+        })
+    })
+
     it('rejects unknown trigger type', () => {
         expect(() =>
             AgentSpecSchema.parse({ model: 'x', triggers: [{ type: 'carrier-pigeon', config: {} }] })
@@ -540,6 +561,61 @@ describe('AgentSpecSchema', () => {
 
         it('rejects a non-positive max_completed_age_ms', () => {
             expect(() => AgentSpecSchema.parse({ model: 'x', resume: { max_completed_age_ms: 0 } })).toThrow()
+        })
+    })
+
+    describe('auth', () => {
+        it('defaults to posthog_internal — closed by default, public is opt-in', () => {
+            // The legacy default was `[{ type: 'public' }]`. Tightened so a
+            // freshly-authored spec without an explicit auth field never
+            // accidentally accepts anonymous requests on its chat endpoints.
+            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            expect(parsed.auth.modes).toEqual([{ type: 'posthog_internal' }])
+        })
+
+        it('rejects bare public — acknowledge_public_exposure: true is required', () => {
+            // The ack field is the schema-level loud-flag for "this exposes
+            // the agent to anonymous callers." If an authoring tool
+            // (concierge, an AI script, a hand-written spec) sets `public`
+            // by accident, parsing should fail rather than silently flip
+            // the agent open.
+            expect(() => AgentSpecSchema.parse({ model: 'x', auth: { modes: [{ type: 'public' }] } })).toThrow(
+                /acknowledge_public_exposure/
+            )
+        })
+
+        it('rejects public with acknowledge_public_exposure: false', () => {
+            // `false` is not equivalent to "not set" — the field must be
+            // literally `true`. Anything else fails (e.g. someone trying to
+            // bypass the gate by setting the field to a falsy value).
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    auth: { modes: [{ type: 'public', acknowledge_public_exposure: false }] },
+                })
+            ).toThrow()
+        })
+
+        it('accepts public when the ack field is true', () => {
+            const parsed = AgentSpecSchema.parse({
+                model: 'x',
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+            })
+            expect(parsed.auth.modes).toEqual([{ type: 'public', acknowledge_public_exposure: true }])
+        })
+
+        it('non-public modes are unchanged — pat / posthog_internal / shared_secret all parse', () => {
+            const parsed = AgentSpecSchema.parse({
+                model: 'x',
+                auth: {
+                    modes: [
+                        { type: 'shared_secret', header: 'X-Hook-Secret' },
+                        { type: 'pat' },
+                        { type: 'posthog_internal' },
+                    ],
+                },
+            })
+            expect(parsed.auth.modes).toHaveLength(3)
         })
     })
 })

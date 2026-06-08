@@ -470,6 +470,17 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                     { type: 'webhook', config: { path: '/webhook' } },
                     { type: 'mcp', config: {} },
                 ],
+                // Test-side default: opt into public exposure so cases that
+                // don't care about auth still get a working request flow
+                // through the default PUBLIC_ONLY_AUTH_PROVIDER. The
+                // runtime default (in AgentSpecSchema) is `posthog_internal`
+                // — production specs that omit `auth` are closed by
+                // default. We diverge here because the harness's
+                // `PUBLIC_ONLY_AUTH_PROVIDER` can't verify anything else
+                // without an explicit `fakeAuthProvider({...})` wired in.
+                // Tests exercising real auth modes pass their own
+                // `spec.auth` and override this.
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                 ...input.spec,
             })
             const rev = await revisions.createRevision({

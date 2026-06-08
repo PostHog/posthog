@@ -17,6 +17,7 @@ import {
     ExternalLinkIcon,
     EyeIcon,
     EyeOffIcon,
+    HistoryIcon,
     PanelRightIcon,
     PictureInPictureIcon,
     RotateCcwIcon,
@@ -30,11 +31,15 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuGroup,
+    DropdownMenuItem,
     DropdownMenuLabel,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
 import type { DockMode } from '@/lib/useDockLayout'
+
+import type { SessionHistoryEntry } from './useRealRunner'
 
 interface DockHeaderProps {
     context: ChatContext
@@ -80,6 +85,25 @@ interface DockHeaderProps {
     onHideDock?: () => void
     /** Display string for the hide shortcut (e.g. `⌘.` or `Ctrl+.`). */
     hideShortcutHint?: string
+    /**
+     * Recent sessions this browser has started with the active agent.
+     * When non-empty the header renders a history dropdown so the user
+     * can pick a previous conversation. Entries with `terminal: true`
+     * route through `onOpenSession` (read-only playback); the rest
+     * route through `onResumeSession` (live in-dock chat).
+     *
+     * Implicit principal scoping: this list is browser-local and only
+     * accumulates sessions the viewer started, so it sidesteps the
+     * "is this session mine?" question that the server-side sessions
+     * tab can't sidestep.
+     */
+    sessionHistory?: SessionHistoryEntry[]
+    /**
+     * Called when the user picks a non-terminal entry. The host wires
+     * this to `runner.switchToSession(id)`, which closes the current
+     * SSE and re-attaches to the picked session.
+     */
+    onResumeSession?: (id: string) => void
 }
 
 export function DockHeader({
@@ -98,6 +122,8 @@ export function DockHeader({
     onChangeDockMode,
     onHideDock,
     hideShortcutHint,
+    sessionHistory,
+    onResumeSession,
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
@@ -198,6 +224,15 @@ export function DockHeader({
             ) : null}
 
             {onHideDock ? <HideDockButton onHide={onHideDock} shortcutHint={hideShortcutHint} /> : null}
+
+            {!isPlayground && sessionHistory && sessionHistory.length > 0 && (onResumeSession || onOpenSession) ? (
+                <SessionHistoryMenu
+                    history={sessionHistory}
+                    currentSessionId={sessionId}
+                    onResume={onResumeSession}
+                    onOpenInSessionView={onOpenSession}
+                />
+            ) : null}
 
             {!isPlayground && onNewSession ? (
                 <button
@@ -305,6 +340,127 @@ function DockModeToggle({
             <Icon className="h-3 w-3" />
         </button>
     )
+}
+
+/**
+ * Dropdown that lists recent sessions this browser started with the
+ * active agent. Entries are split into two regions: resumable (current
+ * default action: `onResume`, which the host wires to
+ * `runner.switchToSession`) and terminal (default action:
+ * `onOpenInSessionView`, which routes to the read-only playback page).
+ * The currently-active session gets a small dot and a different label
+ * so the user can tell they're already in it.
+ */
+function SessionHistoryMenu({
+    history,
+    currentSessionId,
+    onResume,
+    onOpenInSessionView,
+}: {
+    history: SessionHistoryEntry[]
+    currentSessionId?: string
+    onResume?: (id: string) => void
+    onOpenInSessionView?: (id: string) => void
+}): React.ReactElement {
+    const resumable = history.filter((e) => !e.terminal)
+    const terminal = history.filter((e) => e.terminal)
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <button
+                        type="button"
+                        aria-label="Recent conversations"
+                        title="Recent conversations"
+                        className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                        <HistoryIcon className="h-3 w-3" />
+                        <span className="text-[0.6875rem]">{history.length}</span>
+                    </button>
+                }
+            />
+            <DropdownMenuContent align="end" className="w-72">
+                {resumable.length > 0 ? (
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Resume</DropdownMenuLabel>
+                        {resumable.map((entry) => (
+                            <DropdownMenuItem
+                                key={entry.id}
+                                disabled={!onResume || entry.id === currentSessionId}
+                                onSelect={() => {
+                                    if (entry.id === currentSessionId || !onResume) {
+                                        return
+                                    }
+                                    onResume(entry.id)
+                                }}
+                            >
+                                <SessionEntryRow entry={entry} active={entry.id === currentSessionId} />
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuGroup>
+                ) : null}
+                {resumable.length > 0 && terminal.length > 0 ? <DropdownMenuSeparator /> : null}
+                {terminal.length > 0 ? (
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Past (read-only)</DropdownMenuLabel>
+                        {terminal.map((entry) => (
+                            <DropdownMenuItem
+                                key={entry.id}
+                                disabled={!onOpenInSessionView}
+                                onSelect={() => onOpenInSessionView?.(entry.id)}
+                            >
+                                <SessionEntryRow entry={entry} active={false} />
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuGroup>
+                ) : null}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+function SessionEntryRow({ entry, active }: { entry: SessionHistoryEntry; active: boolean }): React.ReactElement {
+    const label =
+        entry.firstMessage?.trim() || `session ${entry.id.split('-').at(-1)?.slice(0, 8) ?? entry.id.slice(0, 8)}`
+    const relative = formatRelativeTime(entry.lastTouchedAt)
+    return (
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+            {active ? (
+                <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-success-foreground" aria-hidden />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-xs">{label}</span>
+            <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-muted-foreground">{relative}</span>
+        </div>
+    )
+}
+
+/**
+ * Compact relative time — "now", "5m", "2h", "3d", "Mar 4". Strict
+ * enough to fit the trailing column of the dropdown without wrapping;
+ * we don't need the precision of a full library here.
+ */
+function formatRelativeTime(timestampMs: number): string {
+    const now = Date.now()
+    const diff = Math.max(0, now - timestampMs)
+    const minutes = Math.floor(diff / 60_000)
+    if (minutes < 1) {
+        return 'now'
+    }
+    if (minutes < 60) {
+        return `${minutes}m`
+    }
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) {
+        return `${hours}h`
+    }
+    const days = Math.floor(hours / 24)
+    if (days < 7) {
+        return `${days}d`
+    }
+    // Older than a week → fall back to a short absolute date.
+    const date = new Date(timestampMs)
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 function FocusToggle({

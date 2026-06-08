@@ -21,7 +21,7 @@ import { useState } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
 import type { LogEntry } from '@posthog/agent-chat/fixtures'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { SessionLogs } from '@/components/SessionLogs'
 import { SessionPlayback } from '@/components/SessionPlayback'
@@ -43,18 +43,24 @@ export function SessionDetail({ session, logs, onClose }: SessionDetailProps): R
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex shrink-0 items-stretch gap-2 px-4 pt-4">
+            <div className="flex shrink-0 items-center gap-1.5 px-4 pt-4">
                 <StatStrip tiles={tiles} size="sm" className="flex-1" />
                 {onClose ? (
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close session"
-                        title="Close session"
-                        className="inline-flex w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                        <XIcon className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    aria-label="Close session"
+                                    className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                                >
+                                    <XIcon className="h-4 w-4" />
+                                </button>
+                            }
+                        />
+                        <TooltipContent side="left">Close session</TooltipContent>
+                    </Tooltip>
                 ) : null}
             </div>
 

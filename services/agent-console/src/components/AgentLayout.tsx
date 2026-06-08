@@ -117,14 +117,16 @@ export function AgentLayout({ children }: { children: React.ReactNode }): React.
                 }}
                 className="mt-5 flex min-h-0 flex-1 flex-col"
             >
-                <div className="mx-auto w-full max-w-5xl shrink-0 px-6">
-                    <TabsList variant="line">
-                        {TAB_DEFS.map((t) => (
-                            <TabsTrigger key={t.key} value={t.key}>
-                                {t.label}
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
+                <div className="shrink-0 border-b border-border">
+                    <div className="mx-auto w-full max-w-5xl px-6">
+                        <TabsList variant="line">
+                            {TAB_DEFS.map((t) => (
+                                <TabsTrigger key={t.key} value={t.key}>
+                                    {t.label}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </div>
                 </div>
                 <div className="min-h-0 flex-1">{children}</div>
             </Tabs>

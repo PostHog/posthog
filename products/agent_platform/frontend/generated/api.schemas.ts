@@ -24,6 +24,16 @@ export interface AgentApplicationApi {
     readonly created_by: number | null
     readonly created_at: string
     readonly updated_at: string
+    /**
+     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+     * @nullable
+     */
+    readonly slack_events_url: string | null
+    /**
+     * Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. Same source + null behaviour as `slack_events_url`.
+     * @nullable
+     */
+    readonly slack_interactivity_url: string | null
 }
 
 export interface PaginatedAgentApplicationListApi {
@@ -323,6 +333,7 @@ export type AgentRevisionApiSpecLimits = {
 export type AgentRevisionApiSpecAuthModesItem =
     | {
           type: 'public'
+          acknowledge_public_exposure: true
       }
     | {
           type: 'oauth'
@@ -538,6 +549,7 @@ export type PatchedAgentRevisionApiSpecLimits = {
 export type PatchedAgentRevisionApiSpecAuthModesItem =
     | {
           type: 'public'
+          acknowledge_public_exposure: true
       }
     | {
           type: 'oauth'
@@ -722,6 +734,16 @@ export interface PatchedAgentApplicationApi {
     readonly created_by?: number | null
     readonly created_at?: string
     readonly updated_at?: string
+    /**
+     * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from `AGENT_INGRESS_PUBLIC_URL` + the agent slug. Null when the deployment has no public agent-ingress URL configured (e.g. local dev without a tunnel).
+     * @nullable
+     */
+    readonly slack_events_url?: string | null
+    /**
+     * Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. Same source + null behaviour as `slack_events_url`.
+     * @nullable
+     */
+    readonly slack_interactivity_url?: string | null
 }
 
 /**

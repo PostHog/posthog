@@ -429,7 +429,11 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
             // Clients that want to see all accepted modes can introspect
             // via /schemas; the snippet is a one-shot copy-paste affordance.
             const modes = resolved.revision.spec.auth.modes
-            const primary = modes.find((m) => m.type !== 'public') ?? modes[0] ?? { type: 'public' }
+            // Defensive fallback when modes[] is somehow empty (legacy data
+            // bypassing the schema default). Use `posthog_internal` rather
+            // than `public` so an unconfigured agent never renders an
+            // anonymous connect snippet — public exposure must be opt-in.
+            const primary = modes.find((m) => m.type !== 'public') ?? modes[0] ?? { type: 'posthog_internal' }
             const connectAuthInput =
                 primary.type === 'shared_secret'
                     ? { mode: 'shared_secret', header: primary.header }

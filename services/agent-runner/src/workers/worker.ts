@@ -127,6 +127,8 @@ export interface WorkerDeps {
      * Tune against memory / sandbox-pool size / LLM rate limits.
      */
     maxConcurrency?: number
+    /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps per-turn max_tokens below model ceiling. */
+    maxOutputTokens?: number
     /**
      * Set to true when calls go through PostHog's ai-gateway. The runner
      * keeps token counts but drops pi-ai's `cost.*` accumulation — the
@@ -447,6 +449,7 @@ export class Worker {
                 mcpFailures,
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                maxOutputTokensOverride: this.deps.maxOutputTokens,
                 inputs: this.deps.queue,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop

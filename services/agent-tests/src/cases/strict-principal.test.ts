@@ -126,7 +126,10 @@ describe('strict principal match on /send: real e2e', () => {
 
     it('public agent: /send without auth → 200 (both principals are anonymous)', async () => {
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'pub', spec: { auth: { modes: [{ type: 'public' }] } } })
+        await c.deployAgent({
+            slug: 'pub',
+            spec: { auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
+        })
         const run = await request(c.ingress).post('/agents/pub/run').send({ message: 'hi' })
         const sid = run.body.session_id
         await c.drain()

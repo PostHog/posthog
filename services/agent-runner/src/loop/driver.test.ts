@@ -221,9 +221,9 @@ describe('driver runSession', () => {
             expect(out.state === 'closed' && out.summary).toBe('all done')
         })
 
-        it('fails with max_tokens on stopReason=length', async () => {
+        it('fails with output_truncated on stopReason=length', async () => {
             const out = await run(makeRev(), makeSession(), { script: [lengthCapped()] })
-            expect(out).toEqual({ state: 'failed', reason: 'max_tokens', turns: 1 })
+            expect(out).toEqual({ state: 'failed', reason: 'output_truncated', turns: 1 })
         })
 
         it('fails with the model error reason on stopReason=error', async () => {

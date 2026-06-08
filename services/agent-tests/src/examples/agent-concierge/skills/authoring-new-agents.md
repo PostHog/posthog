@@ -86,21 +86,97 @@ calling any create endpoint. Cover:
 Show the proposed spec to the user before creating. They will
 catch things you missed.
 
+### Worked example — known-good minimal spec
+
+Copy this and edit; **don't invent shapes** for `auth` / tool refs /
+limits. The validator's error messages are vague ("not valid under
+any of the given schemas") and the field defaults are unintuitive —
+trial-and-error costs 5-10 turns per session. This is what passes
+on the first try.
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4-6",
+  "triggers": [{ "type": "chat", "config": { "require_auth": true } }],
+  "tools": [
+    { "kind": "native", "id": "@posthog/web-fetch" },
+    { "kind": "custom", "id": "my-tool", "path": "tools/my-tool" }
+  ],
+  "skills": [{ "id": "my-skill", "path": "skills/my-skill.md", "description": "When to load it." }],
+  "secrets": ["MY_API_KEY"],
+  "integrations": [],
+  "limits": { "max_turns": 40, "max_tool_calls": 80, "max_wall_seconds": 600 },
+  "entrypoint": "agent.md",
+  "auth": { "modes": [{ "type": "pat" }] }
+}
+```
+
+Field gotchas the model gets wrong every time:
+
+- **`auth`** is `{"modes": [{"type": "<mode>"}]}`, NOT `{"mode": "..."}`,
+  NOT `{"kind": "..."}`, NOT `"none"`. Valid types: `pat`,
+  `posthog_internal`, `oauth` (with `issuer` + `scopes`),
+  `shared_secret` (with `header`), `jwt` (with `issuer_secret_ref`),
+  `public` (with `acknowledge_public_exposure: true`).
+- **Custom tool refs** require `{kind: "custom", id, path}` — all
+  three fields. The `path` points at a directory under the bundle
+  containing `source.ts` + `schema.json`. Without `path` the validator
+  rejects with the same opaque "not valid under any of the given
+  schemas" the model often misreads as a `kind` problem.
+- **Native tool refs** are `{kind: "native", id: "@posthog/foo"}`.
+  Never include a `path` here.
+- **Trigger-required secrets** (`SLACK_SIGNING_SECRET`,
+  `SLACK_BOT_TOKEN` for `slack` triggers) are NOT listed in
+  `spec.secrets[]`. They come from the platform registry; the
+  promote endpoint refuses if they're missing from `encrypted_env`.
+- **`entrypoint`** defaults to `"agent.md"` but the validator
+  requires it explicitly on writes. Include it.
+
+For a slack-triggered agent, swap the trigger:
+
+```json
+{ "type": "slack", "config": { "trusted_workspaces": ["T01XXXXXX"] } }
+```
+
+`trusted_workspaces` is required — pass `["*"]` for "any workspace"
+or the literal Slack team id string.
+
 ## Phase 3 — create
 
 ```text
-agent-applications-create   → returns { id, slug }
-agent-applications-revisions-create application_id=<id>
-                                                  → returns empty draft revision id
+@posthog/agent-applications-create           → returns { id, slug }
+@posthog/agent-applications-revisions-create → empty draft revision (with spec)
 ```
 
-In the console, `@posthog/ui/focus` to the new application + the
-new draft revision.
+`revisions-create` accepts the full spec inline — pass the Phase 2
+JSON straight in. Don't create-empty-then-partial-update; that's
+two round-trips for nothing.
 
-Then patch the spec onto the draft:
+**Drive the console UI** so the user follows along. Right after
+`agent-applications-create` returns, call:
 
 ```text
-agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
+focus_tab({ slug: "<new-slug>", tab: "configuration" })
+```
+
+so the user's panel switches to the new agent's configuration view
+before you start writing files. Then after each significant write
+(spec patched, agent.md written, a custom tool added), call the
+matching `focus_*`:
+
+- `focus_revision({ slug, revisionId })` after `revisions-create` /
+  `new-draft-create`
+- `focus_file({ slug, path })` after `file-update`
+- `focus_spec_section({ slug, section })` when discussing a spec
+  section the user can't see
+
+`slug` is ALWAYS required on every `focus_*` call — never infer
+from the user's current page (they navigate while you think).
+
+If you need to amend the spec on a draft:
+
+```text
+@posthog/agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
 ```
 
 ## Phase 4 — configure secrets / integrations

@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 
-import type { HttpFetcher } from '@posthog/agent-shared'
+import type { HttpFetcher, ToolContext } from '@posthog/agent-shared'
 
 import { makeCtx } from '../test-helpers'
 import {
@@ -14,9 +14,7 @@ import {
 describe('slack.* tools', () => {
     /**
      * Build an HttpFetcher that returns a canned `{ ok: true, ...body }` Slack
-     * envelope on every call. Replaces the old `global.fetch = vi.fn(...)`
-     * monkey-patch — tools now resolve fetch via `ctx.http.fetch` so the mock
-     * has to live on the injected ctx.
+     * envelope on every call.
      */
     function mockHttp(body: Record<string, unknown>): HttpFetcher {
         return {
@@ -31,45 +29,49 @@ describe('slack.* tools', () => {
         }
     }
 
-    function ctxWithSlack(http: HttpFetcher): ReturnType<typeof makeCtx> {
+    function ctxWithSlack(http: HttpFetcher, token: string = 'xoxb-test'): ToolContext {
         return makeCtx({
             http,
-            integrations: {
-                'slack:T01': { kind: 'slack', access_token: 'xoxb-test' },
-            },
+            secret: (name) => (name === 'SLACK_BOT_TOKEN' ? token : undefined),
         })
     }
 
     it('post_message returns ts + channel', async () => {
         const http = mockHttp({ ts: '123.456', channel: 'C01' })
-        const out = await slackPostMessageV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01', text: 'hi' },
-            ctxWithSlack(http)
-        )
+        const out = await slackPostMessageV1.run({ channel: 'C01', text: 'hi' }, ctxWithSlack(http))
         expect(out).toEqual({ ts: '123.456', channel: 'C01' })
     })
 
-    it('rejects missing integration', async () => {
-        await expect(
-            slackPostMessageV1.run({ team_integration_id: 'slack:T01', channel: 'C01', text: 'hi' }, makeCtx())
-        ).rejects.toThrow(/slack integration/)
+    it('post_message attaches the agent bot token as bearer auth', async () => {
+        const fetchSpy = vi.fn(
+            async () =>
+                ({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ok: true, ts: '1', channel: 'C01' }),
+                }) as unknown as Response
+        )
+        const http: HttpFetcher = { fetch: fetchSpy }
+        await slackPostMessageV1.run({ channel: 'C01', text: 'hi' }, ctxWithSlack(http, 'xoxb-specific'))
+        const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
+        expect((calls[0][1].headers as Record<string, string>).Authorization).toBe('Bearer xoxb-specific')
+    })
+
+    it('rejects when SLACK_BOT_TOKEN is not set', async () => {
+        await expect(slackPostMessageV1.run({ channel: 'C01', text: 'hi' }, makeCtx())).rejects.toThrow(
+            /SLACK_BOT_TOKEN/
+        )
     })
 
     it('update_message returns ok', async () => {
         const http = mockHttp({})
-        const out = await slackUpdateMessageV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01', ts: '123.456', text: 'edit' },
-            ctxWithSlack(http)
-        )
+        const out = await slackUpdateMessageV1.run({ channel: 'C01', ts: '123.456', text: 'edit' }, ctxWithSlack(http))
         expect(out).toEqual({ ok: true })
     })
 
     it('react returns ok', async () => {
         const http = mockHttp({})
-        const out = await slackReactV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01', ts: '123.456', name: 'fire' },
-            ctxWithSlack(http)
-        )
+        const out = await slackReactV1.run({ channel: 'C01', ts: '123.456', name: 'fire' }, ctxWithSlack(http))
         expect(out).toEqual({ ok: true })
     })
 
@@ -104,10 +106,7 @@ describe('slack.* tools', () => {
                 }) as unknown as Response
         )
         const http: HttpFetcher = { fetch: fetchSpy }
-        const out = await slackReadChannelV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01', limit: 50, oldest: '100.0' },
-            ctxWithSlack(http)
-        )
+        const out = await slackReadChannelV1.run({ channel: 'C01', limit: 50, oldest: '100.0' }, ctxWithSlack(http))
         expect(out.messages).toEqual([
             {
                 ts: '111.222',
@@ -149,25 +148,19 @@ describe('slack.* tools', () => {
                 }) as unknown as Response
         )
         const http: HttpFetcher = { fetch: fetchSpy }
-        await slackReadChannelV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01', limit: 9999 },
-            ctxWithSlack(http)
-        )
+        await slackReadChannelV1.run({ channel: 'C01', limit: 9999 }, ctxWithSlack(http))
         const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
         const bodyHigh = JSON.parse(calls[0][1].body as string)
         expect(bodyHigh.limit).toBe(200)
 
-        await slackReadChannelV1.run({ team_integration_id: 'slack:T01', channel: 'C01', limit: 0 }, ctxWithSlack(http))
+        await slackReadChannelV1.run({ channel: 'C01', limit: 0 }, ctxWithSlack(http))
         const bodyLow = JSON.parse(calls[1][1].body as string)
         expect(bodyLow.limit).toBe(1)
     })
 
     it('read_channel omits next_cursor when slack returns empty string', async () => {
         const http = mockHttp({ messages: [], has_more: false, response_metadata: { next_cursor: '' } })
-        const out = await slackReadChannelV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01' },
-            ctxWithSlack(http)
-        )
+        const out = await slackReadChannelV1.run({ channel: 'C01' }, ctxWithSlack(http))
         expect(out.next_cursor).toBeUndefined()
         expect(out.has_more).toBe(false)
     })
@@ -189,10 +182,7 @@ describe('slack.* tools', () => {
                 }) as unknown as Response
         )
         const http: HttpFetcher = { fetch: fetchSpy }
-        const out = await slackReadThreadV1.run(
-            { team_integration_id: 'slack:T01', channel: 'C01', thread_ts: '111.222' },
-            ctxWithSlack(http)
-        )
+        const out = await slackReadThreadV1.run({ channel: 'C01', thread_ts: '111.222' }, ctxWithSlack(http))
         expect(out.messages.map((m) => m.text)).toEqual(['parent', 'reply'])
         expect(out.has_more).toBe(false)
         const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
@@ -211,8 +201,8 @@ describe('slack.* tools', () => {
                     }) as unknown as Response
             ),
         }
-        await expect(
-            slackPostMessageV1.run({ team_integration_id: 'slack:T01', channel: 'C99', text: 'hi' }, ctxWithSlack(http))
-        ).rejects.toThrow(/channel_not_found/)
+        await expect(slackPostMessageV1.run({ channel: 'C99', text: 'hi' }, ctxWithSlack(http))).rejects.toThrow(
+            /channel_not_found/
+        )
     })
 })
