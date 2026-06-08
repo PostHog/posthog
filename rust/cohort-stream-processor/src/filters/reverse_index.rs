@@ -17,7 +17,9 @@ use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::observability::metrics::FILTER_CATALOG_SKIPPED_LEAVES;
 use crate::stage1::key::LeafStateKey;
-use crate::stage1::pick_state::{pick_state_variant, EvictionWindow};
+use crate::stage1::pick_state::{
+    effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
+};
 use crate::stage1::state::StateVariant;
 
 /// Per-`LeafStateKey` worker metadata derived at freeze time: the state representation and (for
@@ -28,7 +30,16 @@ use crate::stage1::state::StateVariant;
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
     pub variant: StateVariant,
+    /// The relative/explicit eviction window — `BehavioralSingle` only; `None` for the bucket and
+    /// person variants (daily buckets derive their deadline from the bucket array).
     pub window: Option<EvictionWindow>,
+    /// The daily-bucket window length in days (`buckets.len() − 1`) — `Some` only for
+    /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise.
+    pub window_days: Option<u32>,
+    /// The count comparator applied to a daily-bucket window's sum — `Some` only for
+    /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise. Held here, never in the stored
+    /// state, so the threshold has one source of truth.
+    pub predicate_op: Option<PredicateOp>,
 }
 
 /// A team's frozen filter view: two reverse indices, the dedup set, the parsed trees, and the
@@ -249,7 +260,28 @@ fn collect_leaf_meta(
         }
         FilterNode::Leaf(CohortLeaf::Behavioral(leaf)) => {
             if let Ok((variant, window)) = pick_state_variant(leaf) {
-                by_lsk.insert(leaf.leaf_state_key, LeafStateMeta { variant, window });
+                // Daily buckets carry their window length and count comparator; the other variants
+                // need neither. `effective_window_days` is the same function the picker routed on, so
+                // `window_days` cannot drift from the chosen variant.
+                let (window_days, predicate_op) = match variant {
+                    StateVariant::BehavioralDailyBuckets => (
+                        Some(effective_window_days(leaf)),
+                        Some(PredicateOp::from_leaf(
+                            leaf.operator.as_deref(),
+                            leaf.operator_value,
+                        )),
+                    ),
+                    StateVariant::BehavioralSingle | StateVariant::PersonProperty => (None, None),
+                };
+                by_lsk.insert(
+                    leaf.leaf_state_key,
+                    LeafStateMeta {
+                        variant,
+                        window,
+                        window_days,
+                        predicate_op,
+                    },
+                );
                 behavioral_conditions.insert(leaf.condition_hash);
             }
         }
@@ -259,6 +291,8 @@ fn collect_leaf_meta(
                 LeafStateMeta {
                     variant: StateVariant::PersonProperty,
                     window: None,
+                    window_days: None,
+                    predicate_op: None,
                 },
             );
             person_property_conditions.insert(leaf.condition_hash);
@@ -302,6 +336,27 @@ mod tests {
             "time_interval": "day",
             "conditionHash": "0123456789abcdef",
             // Identical across windows: leaves sharing a conditionHash share bytecode.
+            "bytecode": behavioral_bytecode(),
+        })
+    }
+
+    /// A `performed_event_multiple` leaf on `$pageview` (`gte`, tunable window). Shares the matcher
+    /// bytecode/conditionHash with [`behavioral_performed_event`] but routes to a daily-bucket state.
+    fn behavioral_performed_event_multiple(
+        time_value: i64,
+        time_interval: &str,
+        operator: &str,
+        operator_value: i64,
+    ) -> Value {
+        json!({
+            "type": "behavioral",
+            "value": "performed_event_multiple",
+            "key": "$pageview",
+            "time_value": time_value,
+            "time_interval": time_interval,
+            "operator": operator,
+            "operator_value": operator_value,
+            "conditionHash": "0123456789abcdef",
             "bytecode": behavioral_bytecode(),
         })
     }
@@ -432,6 +487,54 @@ mod tests {
         let per_meta = frozen.by_lsk[&per_lsk];
         assert_eq!(per_meta.variant, StateVariant::PersonProperty);
         assert_eq!(per_meta.window, None);
+        assert_eq!(per_meta.window_days, None);
+        assert_eq!(per_meta.predicate_op, None);
+    }
+
+    #[test]
+    fn freeze_daily_bucket_leaf_carries_window_days_and_op() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple(
+                    7, "day", "gte", 3,
+                )]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let lsk = frozen.by_condition_to_lsk[&HASH][0];
+        let meta = frozen.by_lsk[&lsk];
+        assert_eq!(meta.variant, StateVariant::BehavioralDailyBuckets);
+        assert_eq!(meta.window, None, "daily buckets carry no relative window");
+        assert_eq!(meta.window_days, Some(7));
+        assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)));
+        assert!(
+            frozen.behavioral_conditions.contains(&HASH),
+            "the multiple leaf's conditionHash is behavioral",
+        );
+    }
+
+    #[test]
+    fn freeze_drops_an_hourly_deferred_multiple() {
+        // A sub-day multiple (hour interval) stays unsupported → no by_lsk entry, exactly as before.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple(
+                    5, "hour", "gte", 3,
+                )]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+        assert!(
+            frozen.by_lsk.is_empty(),
+            "an hourly-deferred multiple leaves no worker metadata",
+        );
     }
 
     #[test]

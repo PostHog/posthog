@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn performed_event_multiple_is_dropped_as_unsupported_variant() {
+    fn performed_event_multiple_daily_window_is_kept_as_daily_buckets() {
         let node = json!({
             "type": "behavioral",
             "value": "performed_event_multiple",
@@ -264,10 +264,45 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        assert!(matches!(
-            classify_leaf(&node),
-            LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
-        ));
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            panic!("a daily-window multiple is now kept");
+        };
+        assert_eq!(leaf.value, BehavioralValue::PerformedEventMultiple);
+        assert_eq!(leaf.operator.as_deref(), Some("gte"));
+        assert_eq!(leaf.operator_value, Some(3));
+        assert_eq!(
+            leaf.state_variant,
+            Some(crate::stage1::state::StateVariant::BehavioralDailyBuckets),
+        );
+    }
+
+    #[test]
+    fn performed_event_multiple_out_of_daily_range_is_dropped() {
+        // Sub-day (hourly-deferred) and over-180-day (compressed-deferred) windows both still drop as
+        // unsupported, exactly as every multiple did before daily buckets landed.
+        for (time_value, time_interval, why) in [
+            (5, "hour", "sub-day → hourly-deferred"),
+            (1, "year", "365 days → compressed-deferred"),
+        ] {
+            let node = json!({
+                "type": "behavioral",
+                "value": "performed_event_multiple",
+                "key": "$pageview",
+                "time_value": time_value,
+                "time_interval": time_interval,
+                "operator": "gte",
+                "operator_value": 3,
+                "conditionHash": HASH,
+                "bytecode": bytecode(),
+            });
+            assert!(
+                matches!(
+                    classify_leaf(&node),
+                    LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
+                ),
+                "{why}",
+            );
+        }
     }
 
     #[test]

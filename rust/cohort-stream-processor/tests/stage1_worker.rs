@@ -17,6 +17,7 @@ use cohort_stream_processor::filters::{
 };
 use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
+use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
     clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, Stage1State, StateVariant,
     StatefulRecord, TransitionKind,
@@ -97,6 +98,23 @@ fn behavioral_leaf(window_days: i64) -> Value {
     })
 }
 
+/// A `performed_event_multiple` leaf on `$pageview`: `<op> <value>` over a `window_days`-day window,
+/// routed to the daily-bucket state. Shares the matcher bytecode/conditionHash with
+/// [`behavioral_leaf`], so both fan out from one HogVM eval but key to distinct leaf state.
+fn behavioral_leaf_multiple(window_days: i64, op: &str, value: i64) -> Value {
+    json!({
+        "type": "behavioral",
+        "value": "performed_event_multiple",
+        "key": "$pageview",
+        "time_value": window_days,
+        "time_interval": "day",
+        "operator": op,
+        "operator_value": value,
+        "conditionHash": "0123456789abcdef",
+        "bytecode": behavioral_bytecode(),
+    })
+}
+
 fn person_leaf() -> Value {
     person_leaf_with_bytecode(person_email_bytecode())
 }
@@ -169,6 +187,19 @@ fn person_event(
     }
 }
 
+/// A matching `$pageview` event for `person` at a specific `timestamp` (drives the day-bucket fold).
+fn event_at(
+    person: Uuid,
+    timestamp: &str,
+    source_partition: i32,
+    source_offset: i64,
+) -> CohortStreamEvent {
+    CohortStreamEvent {
+        timestamp: timestamp.to_string(),
+        ..event(person, source_partition, source_offset)
+    }
+}
+
 fn stage1_key(lsk: LeafStateKey, person: Uuid) -> Stage1Key {
     Stage1Key {
         partition_id: PARTITION_ID,
@@ -223,6 +254,24 @@ fn behavioral_deadline(state: &Stage1State) -> i64 {
     }
 }
 
+/// The daily-bucket state's `(buckets, window_start_day, earliest_eviction_at_ms)`.
+fn daily_state(state: &Stage1State) -> (&[u32], i32, i64) {
+    match state {
+        Stage1State::BehavioralDailyBuckets {
+            buckets,
+            window_start_day,
+            earliest_eviction_at_ms,
+            ..
+        } => (buckets, *window_start_day, *earliest_eviction_at_ms),
+        other => panic!("expected BehavioralDailyBuckets, got {other:?}"),
+    }
+}
+
+/// The window's matching-event count — the bucket sum the predicate compares.
+fn window_count(state: &Stage1State) -> u32 {
+    daily_state(state).0.iter().sum()
+}
+
 /// The `stage1_transitions_total{kind}` label for a transition, resolved through the snapshot — the
 /// same mapping the worker emits.
 fn transition_kind(filters: &TeamFilters, transition: &LeafTransition) -> &'static str {
@@ -230,6 +279,10 @@ fn transition_kind(filters: &TeamFilters, transition: &LeafTransition) -> &'stat
     match (variant, transition.kind) {
         (StateVariant::BehavioralSingle, TransitionKind::Entered) => "behavioral_entered",
         (StateVariant::BehavioralSingle, TransitionKind::Left) => "behavioral_left",
+        (StateVariant::BehavioralDailyBuckets, TransitionKind::Entered) => {
+            "behavioral_daily_entered"
+        }
+        (StateVariant::BehavioralDailyBuckets, TransitionKind::Left) => "behavioral_daily_left",
         (StateVariant::PersonProperty, TransitionKind::Entered) => "person_entered",
         (StateVariant::PersonProperty, TransitionKind::Left) => "person_left",
     }
@@ -1026,4 +1079,361 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     let changes = sink.changes();
     assert_eq!(changes.len(), 1, "only the second flush's change landed");
     assert_eq!(changes[0].person_id, person(2).to_string());
+}
+
+// ── performed_event_multiple daily buckets (M2 / PR 2.1) ─────────────────────────
+// These exercise the `BehavioralDailyBuckets` fold: a counter (not a bit), a window slide that can
+// emit an event-driven `Left`, the count>=1 parity guard, and replay-safety of the non-idempotent
+// `buckets[i] += 1` across source partitions.
+
+#[test]
+fn daily_multiple_enters_when_count_crosses_threshold() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(7, "gte", 3)]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    assert_eq!(
+        filters.by_lsk[&lsk].variant,
+        StateVariant::BehavioralDailyBuckets,
+    );
+    let alice = person(1);
+
+    // Three matching events on consecutive days, all inside the 7-day window.
+    let days = [
+        "2026-05-20 10:00:00.000000",
+        "2026-05-21 11:00:00.000000",
+        "2026-05-22 09:30:00.000000",
+    ];
+    for (offset, ts) in days[..2].iter().enumerate() {
+        let out = process_event(
+            PARTITION_ID,
+            &store,
+            &filters,
+            &event_at(alice, ts, 1, offset as i64),
+        )
+        .unwrap();
+        assert!(out.transitions.is_empty(), "count below 3 → no transition");
+    }
+    assert_eq!(window_count(&state_at(&store, lsk, alice).unwrap()), 2);
+
+    // The third event crosses `gte 3`.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, days[2], 1, 2),
+    )
+    .unwrap();
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    assert_eq!(
+        transition_kind(&filters, &out.transitions[0]),
+        "behavioral_daily_entered",
+    );
+    assert_eq!(window_count(&state_at(&store, lsk, alice).unwrap()), 3);
+}
+
+#[test]
+fn daily_multiple_slide_drops_contributing_bucket_and_emits_left() {
+    // The capability `BehavioralSingle` lacks: an event-driven `Left`, before any sweep exists.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(7, "gte", 3)]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    // Three matches on the same day → one bucket of count 3 → Entered on the third.
+    let day = "2026-05-20 10:00:00.000000";
+    for offset in 0..3 {
+        let out = process_event(
+            PARTITION_ID,
+            &store,
+            &filters,
+            &event_at(alice, day, 1, offset),
+        )
+        .unwrap();
+        if offset < 2 {
+            assert!(out.transitions.is_empty());
+        } else {
+            assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+        }
+    }
+    assert_eq!(
+        window_count(&state_at(&store, lsk, alice).unwrap()),
+        3,
+        "all three accumulate in one day-bucket",
+    );
+
+    // A match 8 days later slides the whole window past that bucket: it falls out, and the slide event
+    // itself only contributes 1 → count 1 < 3 → Left.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2026-05-28 10:00:00.000000", 1, 3),
+    )
+    .unwrap();
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Left);
+    assert_eq!(
+        transition_kind(&filters, &out.transitions[0]),
+        "behavioral_daily_left",
+    );
+    assert_eq!(
+        window_count(&state_at(&store, lsk, alice).unwrap()),
+        1,
+        "only the slide event remains in the window",
+    );
+}
+
+#[test]
+fn daily_multiple_counts_same_day_repeats_in_one_bucket() {
+    // Proves the daily state is a counter, not a bit: two same-day matches show count 2 in one bucket.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(7, "gte", 5)]), // high threshold: inspect state, no flip
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let day = "2026-05-20 10:00:00.000000";
+    process_event(PARTITION_ID, &store, &filters, &event_at(alice, day, 1, 0)).unwrap();
+    let out = process_event(PARTITION_ID, &store, &filters, &event_at(alice, day, 1, 1)).unwrap();
+    assert!(out.transitions.is_empty(), "count 2 is still under gte 5");
+
+    let state = state_at(&store, lsk, alice).unwrap();
+    let (buckets, _, _) = daily_state(&state);
+    assert_eq!(
+        buckets.iter().filter(|&&count| count > 0).count(),
+        1,
+        "both matches land in a single day-bucket",
+    );
+    assert_eq!(
+        buckets.iter().copied().max().unwrap(),
+        2,
+        "that bucket counts 2 — a bit would read 1",
+    );
+    assert_eq!(window_count(&state), 2);
+}
+
+#[test]
+fn daily_multiple_cross_partition_replay_after_slide_is_byte_identical() {
+    // The most important invariant given the non-idempotent `buckets[i] += 1` fold: a replay from one
+    // source partition is skipped even after a later event from a *different* source partition slid the
+    // window. Skip vs re-fold are NOT state-identical here, so byte-identity directly proves the
+    // `is_replay` guard fired before the fold.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(7, "gte", 1)]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let p = person(1);
+
+    // Event from partition 10 (offset 5) on 05-20, then a later event from partition 20 (offset 10) on
+    // 05-23 that slides the window forward.
+    process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(p, "2026-05-20 10:00:00.000000", 10, 5),
+    )
+    .unwrap();
+    process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(p, "2026-05-23 10:00:00.000000", 20, 10),
+    )
+    .unwrap();
+
+    let before = record_at(&store, lsk, p).unwrap();
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
+
+    // Replay partition 10's original event (offset 5 ≤ 5): is_replay fires regardless of the slide.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(p, "2026-05-20 10:00:00.000000", 10, 5),
+    )
+    .unwrap();
+    assert!(out.transitions.is_empty(), "a replay flips nothing");
+
+    let after = record_at(&store, lsk, p).unwrap();
+    assert_eq!(
+        after, before,
+        "the replay neither re-folded its bucket nor disturbed partition 20's high-water mark",
+    );
+}
+
+#[test]
+fn daily_multiple_late_behind_event_records_offset_without_counting() {
+    // Mirror of `behavioral_deadline_tracks_newest_event_not_the_late_one` for the bucket fold: an
+    // event older than the window's lower bound does not count (its bucket already slid out), but its
+    // offset is still recorded so a later true replay of it is skipped.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(2, "gte", 1)]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    // Newest event first (offset 10) on 05-27 → window covers [05-25 ..= 05-27].
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2026-05-27 12:00:00.000000", 1, 10),
+    )
+    .unwrap();
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    let before = record_at(&store, lsk, alice).unwrap();
+
+    // A late event before the window's lower bound (05-22 < 05-25): behind the window, so it does not
+    // count — but it is a genuine new offset and must be recorded.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2026-05-22 12:00:00.000000", 1, 11),
+    )
+    .unwrap();
+    assert!(
+        out.transitions.is_empty(),
+        "a behind-window event flips nothing"
+    );
+
+    let after = record_at(&store, lsk, alice).unwrap();
+    assert_eq!(
+        after.state, before.state,
+        "the behind-window event left the buckets, window, deadline, and newest-event all unchanged",
+    );
+    assert_high_water(&after.applied_offsets, 1, 11);
+}
+
+#[test]
+fn daily_multiple_eq_or_lte_zero_is_never_a_member() {
+    // The count>=1 parity guard: a single match makes count 1, which neither `eq 0` nor `lte 0`
+    // satisfies, so the leaf is written (the match is counted) but is never a member — no Entered, and
+    // with no prior membership, no Left.
+    for op in ["eq", "lte"] {
+        let (_dir, store) = temp_store();
+        let filters = build_team_filters(vec![(
+            CohortId(1),
+            cohort(vec![behavioral_leaf_multiple(7, op, 0)]),
+        )]);
+        let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+        let alice = person(1);
+
+        let out = process_event(
+            PARTITION_ID,
+            &store,
+            &filters,
+            &event_at(alice, "2026-05-20 10:00:00.000000", 1, 0),
+        )
+        .unwrap();
+        assert!(
+            out.transitions.is_empty(),
+            "{op} 0 over count 1 is not a member → no transition",
+        );
+        assert_eq!(
+            window_count(&state_at(&store, lsk, alice).unwrap()),
+            1,
+            "{op}: the match is still counted in state",
+        );
+    }
+}
+
+#[test]
+fn daily_multiple_stores_eviction_deadline_at_oldest_bucket_day_boundary() {
+    // The stored deadline (not acted on this PR) is the start of the day the oldest non-zero bucket
+    // leaves the window: a day-d bucket is in-window while now_day ≤ d + window_days, so it leaves at
+    // the start of day d + window_days + 1.
+    let (_dir, store) = temp_store();
+    let window_days = 7;
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(window_days, "gte", 1)]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let ts = "2026-05-20 10:00:00.000000";
+    process_event(PARTITION_ID, &store, &filters, &event_at(alice, ts, 1, 0)).unwrap();
+
+    let state = state_at(&store, lsk, alice).unwrap();
+    let (_, window_start_day, deadline) = daily_state(&state);
+    let event_day = day_idx_in_tz(clickhouse_timestamp_to_millis(ts).unwrap(), UTC);
+    assert_eq!(
+        window_start_day,
+        event_day - window_days as i32,
+        "the lone event sits in the window's last bucket (the now-day)",
+    );
+    assert_eq!(
+        deadline,
+        start_of_day_ms_in_tz(event_day + window_days as i32 + 1, UTC),
+        "oldest non-zero bucket leaves at start of day event_day + window_days + 1",
+    );
+}
+
+#[tokio::test]
+async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink() {
+    // End-to-end through the worker + producer: a single-leaf daily-bucket cohort maps its leaf flips
+    // to shadow membership changes, including the event-driven `Left`.
+    let (_dir, store) = temp_store();
+    let catalog = catalog_of(build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(7, "gte", 3)]),
+    )]));
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let day = "2026-05-20 10:00:00.000000";
+    // Three same-day matches enter on the third; a far event slides them out → Left.
+    dispatch_to_worker(&tracker, &tx, event_at(alice, day, 1, 0), 0).await;
+    dispatch_to_worker(&tracker, &tx, event_at(alice, day, 1, 1), 1).await;
+    dispatch_to_worker(&tracker, &tx, event_at(alice, day, 1, 2), 2).await;
+    dispatch_to_worker(
+        &tracker,
+        &tx,
+        event_at(alice, "2026-05-28 10:00:00.000000", 1, 3),
+        3,
+    )
+    .await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    assert_eq!(
+        changes.len(),
+        2,
+        "one Entered (3rd event) + one Left (slide)"
+    );
+    assert_eq!(changes[0].cohort_id, 1);
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert_eq!(changes[0].person_id, alice.to_string());
+    assert_eq!(changes[1].status, MembershipStatus::Left);
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&4),
+    );
 }

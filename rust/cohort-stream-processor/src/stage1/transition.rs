@@ -1,8 +1,9 @@
 //! Stage 1 leaf transitions.
 //!
 //! The worker emits a [`LeafTransition`] only *after* the backing state is durably committed. The
-//! behavioral path never clears a match, so a behavioral [`TransitionKind::Left`] only arrives via
-//! sweep eviction.
+//! `BehavioralSingle` path never clears a match, so its [`TransitionKind::Left`] only arrives via
+//! sweep eviction — but a `BehavioralDailyBuckets` leaf *can* emit `Left` from the event path: a
+//! window slide that drains its contributing buckets drops the count below the threshold.
 
 use uuid::Uuid;
 

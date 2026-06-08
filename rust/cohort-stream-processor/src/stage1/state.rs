@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 pub enum StateVariant {
     /// `performed_event`: a single "has any matching event in window" bit.
     BehavioralSingle,
+    /// `performed_event_multiple` with a `1..=180`-day window: dense per-calendar-day counts in the
+    /// team timezone, with a count comparator (the leaf's [`PredicateOp`]) on their sum.
+    ///
+    /// [`PredicateOp`]: crate::stage1::pick_state::PredicateOp
+    BehavioralDailyBuckets,
     /// A person-property filter: a last-write-wins boolean.
     PersonProperty,
 }
@@ -22,6 +27,7 @@ impl StateVariant {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::BehavioralSingle => "behavioral_single",
+            Self::BehavioralDailyBuckets => "behavioral_daily_buckets",
             Self::PersonProperty => "person_property",
         }
     }
@@ -39,6 +45,25 @@ pub enum Stage1State {
         /// Earliest time (epoch ms) the sweep may evict this state.
         earliest_eviction_at_ms: i64,
     },
+    /// `performed_event_multiple` over a `1..=180`-day window. The predicate is a pure function of
+    /// `buckets` and the leaf's `PredicateOp` (held on the catalog meta, never here), so there is no
+    /// stored verdict to desync.
+    BehavioralDailyBuckets {
+        /// Dense per-day counts: `buckets[i]` is the matching-event count for calendar day
+        /// `window_start_day + i`, in the team timezone. `len() == window_days + 1` (the inclusive
+        /// `[now_day − N ..= now_day]` window); index `len() − 1` is the current "now" day.
+        buckets: Vec<u32>,
+        /// [`DayIdx`](crate::stage1::bucket_tz::DayIdx) (days since the Unix epoch, team tz) of
+        /// `buckets[0]` — the window's inclusive lower bound. Monotonic non-decreasing as the window
+        /// slides forward; `window_days` is not stored (it equals `buckets.len() − 1`).
+        window_start_day: i32,
+        /// Most recent matching event time (epoch ms), `max`-folded across events.
+        last_event_at_ms: i64,
+        /// Earliest time (epoch ms) the oldest non-zero bucket leaves the window — the day boundary
+        /// the sweep evicts it on. Stored for the (future) sweep; the event path never reads a wall
+        /// clock.
+        earliest_eviction_at_ms: i64,
+    },
     /// A person-property filter: last-write-wins, tie-broken by event-time argMax
     /// (`argMax(matches, (_timestamp, _offset))`).
     PersonProperty {
@@ -54,6 +79,7 @@ impl Stage1State {
     pub fn variant(&self) -> StateVariant {
         match self {
             Self::BehavioralSingle { .. } => StateVariant::BehavioralSingle,
+            Self::BehavioralDailyBuckets { .. } => StateVariant::BehavioralDailyBuckets,
             Self::PersonProperty { .. } => StateVariant::PersonProperty,
         }
     }
@@ -157,9 +183,21 @@ mod tests {
         }
     }
 
+    fn daily() -> StatefulRecord {
+        StatefulRecord {
+            state: Stage1State::BehavioralDailyBuckets {
+                buckets: vec![0, 2, 0, 1, 3, 0, 1, 5],
+                window_start_day: 20_600,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: 1_700_000_000_000 + 7 * 86_400 * 1000,
+            },
+            applied_offsets: applied(&[(4, 7), (9, 2)]),
+        }
+    }
+
     #[test]
-    fn round_trips_both_variants() {
-        for record in [behavioral(), person()] {
+    fn round_trips_every_variant() {
+        for record in [behavioral(), person(), daily()] {
             let bytes = record.encode();
             assert_eq!(StatefulRecord::decode(&bytes).unwrap(), record);
         }
@@ -172,12 +210,30 @@ mod tests {
     }
 
     #[test]
-    fn unknown_variant_tag_is_a_decode_error() {
-        // Forward-compat: a future variant tag must surface as Err, not deserialize into the wrong
-        // shape. `applied_offsets` is present and valid so the error is the *inner* unknown variant,
-        // not an accidental missing-outer-field error.
+    fn daily_buckets_decode_from_its_on_disk_shape() {
+        // The `#[serde(tag = "v")]` form: the variant is fully data, the `buckets` array round-trips
+        // in order, and `window_start_day` is a plain signed day index.
+        let on_disk = serde_json::json!({
+            "state": {
+                "v": "BehavioralDailyBuckets",
+                "buckets": [0, 2, 0, 1, 3, 0, 1, 5],
+                "window_start_day": 20_600,
+                "last_event_at_ms": 1_700_000_000_000_i64,
+                "earliest_eviction_at_ms": 1_700_000_000_000_i64 + 7 * 86_400 * 1000,
+            },
+            "applied_offsets": { "4": 7, "9": 2 },
+        });
+        let bytes = serde_json::to_vec(&on_disk).unwrap();
+        assert_eq!(StatefulRecord::decode(&bytes).unwrap(), daily());
+    }
+
+    #[test]
+    fn still_unknown_variant_tag_is_a_decode_error() {
+        // Forward-compat is preserved for the variants that are *still* unimplemented: a future tag
+        // must surface as Err, not deserialize into the wrong shape. `applied_offsets` is present and
+        // valid so the error is the *inner* unknown variant, not a missing-outer-field error.
         let forward = serde_json::json!({
-            "state": { "v": "BehavioralDailyBuckets", "buckets": [1, 2, 3] },
+            "state": { "v": "BehavioralHourlyBuckets", "buckets": [1, 2, 3] },
             "applied_offsets": { "0": 0 },
         });
         let bytes = serde_json::to_vec(&forward).unwrap();
@@ -328,11 +384,19 @@ mod tests {
     fn variant_reports_the_state_kind() {
         assert_eq!(behavioral().state.variant(), StateVariant::BehavioralSingle);
         assert_eq!(person().state.variant(), StateVariant::PersonProperty);
+        assert_eq!(
+            daily().state.variant(),
+            StateVariant::BehavioralDailyBuckets
+        );
     }
 
     #[test]
     fn variant_labels_are_stable() {
         assert_eq!(StateVariant::BehavioralSingle.as_str(), "behavioral_single");
+        assert_eq!(
+            StateVariant::BehavioralDailyBuckets.as_str(),
+            "behavioral_daily_buckets"
+        );
         assert_eq!(StateVariant::PersonProperty.as_str(), "person_property");
     }
 }

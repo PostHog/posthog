@@ -78,8 +78,10 @@ pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
-/// Leaf membership flips emitted, labelled by `kind` (counter). `behavioral_left` is omitted until
-/// sweep eviction exists, so it cannot appear prematurely.
+/// Leaf membership flips emitted, labelled by `kind` (counter). The single-bit `behavioral_left` is
+/// omitted until sweep eviction exists, so it cannot appear prematurely; the daily-bucket
+/// `behavioral_daily_left`, by contrast, is event-driven (a window slide draining the contributing
+/// buckets) and does appear pre-sweep.
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
 /// `cf_stage1` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";

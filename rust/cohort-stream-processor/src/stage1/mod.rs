@@ -10,8 +10,10 @@ pub mod state;
 pub mod time;
 pub mod transition;
 
-pub use pick_state::{pick_state_variant, EvictionWindow, TimeInterval, UnsupportedVariant};
-pub use predicate::predicate;
+pub use pick_state::{
+    pick_state_variant, EvictionWindow, PredicateOp, TimeInterval, UnsupportedVariant,
+};
+pub use predicate::{daily_predicate, predicate};
 pub use state::{AppliedOffsets, Stage1State, StateCodecError, StateVariant, StatefulRecord};
 pub use time::clickhouse_timestamp_to_millis;
 pub use transition::{LeafTransition, TransitionKind};

@@ -226,8 +226,10 @@ fn handle_event(
     }
 }
 
-/// Map a transition to its `stage1_transitions_total{kind}` label. `behavioral_left` is impossible
-/// without eviction, and an unknown LSK shouldn't occur, so those emit no metric.
+/// Map a transition to its `stage1_transitions_total{kind}` label. A single-bit `behavioral_left` is
+/// impossible without sweep eviction (so it emits no metric), but a daily-bucket `Left` is
+/// event-driven (a window slide) and is labelled distinctly. An unknown LSK shouldn't occur, so it
+/// emits no metric.
 fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,
@@ -235,8 +237,14 @@ fn transition_metric_label(
     let variant = filters.by_lsk.get(&transition.leaf_state_key)?.variant;
     match (variant, transition.kind) {
         (StateVariant::BehavioralSingle, TransitionKind::Entered) => Some("behavioral_entered"),
+        (StateVariant::BehavioralSingle, TransitionKind::Left) => None,
+        (StateVariant::BehavioralDailyBuckets, TransitionKind::Entered) => {
+            Some("behavioral_daily_entered")
+        }
+        (StateVariant::BehavioralDailyBuckets, TransitionKind::Left) => {
+            Some("behavioral_daily_left")
+        }
         (StateVariant::PersonProperty, TransitionKind::Entered) => Some("person_entered"),
         (StateVariant::PersonProperty, TransitionKind::Left) => Some("person_left"),
-        (StateVariant::BehavioralSingle, TransitionKind::Left) => None,
     }
 }

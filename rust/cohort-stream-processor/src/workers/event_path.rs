@@ -5,6 +5,7 @@
 //! flipped. Its step order is a parity + replay-idempotence contract preserved from the Node
 //! consumer, and transitions are surfaced only after the commit succeeds.
 
+use chrono_tz::Tz;
 use metrics::counter;
 use uuid::Uuid;
 
@@ -17,8 +18,9 @@ use crate::observability::metrics::{
     STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
+use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz, start_of_day_ms_in_tz};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
-use crate::stage1::predicate::predicate;
+use crate::stage1::predicate::{daily_predicate, predicate};
 use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
@@ -195,15 +197,32 @@ pub fn process_event(
         let first_write = prev.is_none();
 
         let mutation = match apply {
-            Apply::Behavioral { condition_hash, .. } => mutate_behavioral(
-                filters,
-                apply.lsk(),
-                *condition_hash,
-                person_id,
-                event,
-                event_ms,
-                prev,
-            ),
+            // Both single-bit and daily-bucket behavioral leaves arrive as `Apply::Behavioral`;
+            // the stored variant picks the fold. `collect_applies` only enqueues these two.
+            Apply::Behavioral { condition_hash, .. } => {
+                let variant = filters.by_lsk.get(&apply.lsk()).map(|meta| meta.variant);
+                if variant == Some(StateVariant::BehavioralDailyBuckets) {
+                    mutate_behavioral_daily(
+                        filters,
+                        apply.lsk(),
+                        *condition_hash,
+                        person_id,
+                        event,
+                        event_ms,
+                        prev,
+                    )
+                } else {
+                    mutate_behavioral(
+                        filters,
+                        apply.lsk(),
+                        *condition_hash,
+                        person_id,
+                        event,
+                        event_ms,
+                        prev,
+                    )
+                }
+            }
             Apply::Person {
                 condition_hash,
                 matches,
@@ -289,13 +308,14 @@ fn collect_applies(
             };
             for &lsk in lsks {
                 match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
-                    Some(StateVariant::BehavioralSingle) => {
+                    Some(StateVariant::BehavioralSingle | StateVariant::BehavioralDailyBuckets) => {
                         applies.push(Apply::Behavioral {
                             lsk,
                             condition_hash: hash,
                         });
                     }
-                    // Only reachable with a stale catalog; skip defensively rather than panic.
+                    // A behavioral conditionHash resolving to a person LSK is only reachable with a
+                    // stale catalog; skip defensively rather than panic.
                     Some(other) => {
                         counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => other.as_str())
                             .increment(1);
@@ -353,7 +373,8 @@ fn mutate_behavioral(
     let (prev_last_event, predicate_before, mut applied) = match prev {
         None => (i64::MIN, false, AppliedOffsets::default()),
         Some(record) => {
-            let predicate_before = predicate(&record.state);
+            // `BehavioralSingle` is op-less, so no `PredicateOp` is needed.
+            let predicate_before = predicate(&record.state, None);
             match record.state {
                 Stage1State::BehavioralSingle {
                     last_event_at_ms, ..
@@ -400,6 +421,172 @@ fn mutate_behavioral(
         })
     };
     Some((record, transition))
+}
+
+/// Fold a `performed_event_multiple` match into a leaf's dense daily-bucket state. Unlike
+/// [`mutate_behavioral`], this can emit `Left`: a window slide that drains the contributing
+/// bucket(s) drops the count below the threshold.
+///
+/// The apply path reads **no wall clock** — the event's own calendar day positions it against the
+/// stored window, and `window_start_day` only ever moves forward (the sweep owns wall-clock
+/// advance). [`None`] skips the leaf (replay, a meta desync, or an unexpected stored variant).
+fn mutate_behavioral_daily(
+    filters: &TeamFilters,
+    lsk: LeafStateKey,
+    condition_hash: [u8; 16],
+    person_id: Uuid,
+    event: &CohortStreamEvent,
+    event_ms: i64,
+    prev: Option<StatefulRecord>,
+) -> Option<(StatefulRecord, Option<LeafTransition>)> {
+    // `window_days` (the bucket-array length − 1) and the count comparator live on the catalog meta,
+    // never in the stored state. Both are `Some` for a daily leaf by construction; a `None` is a
+    // catalog/meta desync — skip rather than panic or silently mis-evaluate.
+    let (Some(window_days), Some(op)) = filters
+        .by_lsk
+        .get(&lsk)
+        .map_or((None, None), |meta| (meta.window_days, meta.predicate_op))
+    else {
+        counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => StateVariant::BehavioralDailyBuckets.as_str())
+            .increment(1);
+        return None;
+    };
+    let tz = filters.timezone;
+    let len = daily_bucket_len(window_days); // window_days + 1
+
+    // Taken by value so the prior bucket array and offset map move into the new record instead of
+    // cloning on this per-event hot path.
+    let (prior_buckets, prior_window_start_day, prev_last_event, mut applied) = match prev {
+        None => (None, 0_i32, i64::MIN, AppliedOffsets::default()),
+        Some(record) => match record.state {
+            Stage1State::BehavioralDailyBuckets {
+                buckets,
+                window_start_day,
+                last_event_at_ms,
+                ..
+            } => (
+                Some(buckets),
+                window_start_day,
+                last_event_at_ms,
+                record.applied_offsets,
+            ),
+            // The LSK pins the variant; a non-bucket value here means corruption, skip it.
+            _ => {
+                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                return None;
+            }
+        },
+    };
+
+    // Replay guard FIRST — the `buckets[i] += 1` fold is not idempotent, so a redelivered offset must
+    // skip before it is folded.
+    if applied.is_replay(event.source_partition, event.source_offset) {
+        counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralDailyBuckets.as_str())
+            .increment(1);
+        return None;
+    }
+    applied.record(event.source_partition, event.source_offset);
+
+    // A stored array whose length disagrees with the leaf's window is a format desync — impossible
+    // for an in-sync catalog (the LSK pins `window_days`), but guarded so the fold can't index out of
+    // bounds.
+    let mut buckets = match prior_buckets {
+        Some(buckets) if buckets.len() == len => buckets,
+        Some(_) => {
+            counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+            return None;
+        }
+        None => Vec::new(),
+    };
+
+    // Membership before this fold; an absent/empty prior is `count == 0` ⇒ not a member.
+    let predicate_before = daily_predicate(&buckets, op);
+
+    let event_day = day_idx_in_tz(event_ms, tz);
+    let window_days_idx = window_days as i32;
+    let mut window_start_day = if buckets.is_empty() {
+        // First event for this leaf: seed a zeroed window whose last bucket (the "now" day) is the
+        // event's day, so the fold below lands it there.
+        buckets = vec![0; len];
+        event_day - window_days_idx
+    } else {
+        prior_window_start_day
+    };
+
+    let cur_now_day = window_start_day + window_days_idx; // = window_start_day + (len − 1)
+    if event_day > cur_now_day {
+        // AHEAD: the event is newer than the window's "now" day. Slide the dense array forward by
+        // `shift` days, zero the vacated tail, then count the event in the new last bucket.
+        let shift = (event_day - cur_now_day) as usize;
+        if shift >= len {
+            buckets.iter_mut().for_each(|count| *count = 0);
+        } else {
+            buckets.copy_within(shift.., 0);
+            buckets[len - shift..]
+                .iter_mut()
+                .for_each(|count| *count = 0);
+        }
+        window_start_day += shift as i32;
+        let last = len - 1;
+        buckets[last] = buckets[last].saturating_add(1);
+    } else if event_day < window_start_day {
+        // BEHIND: the event predates the window's lower bound — the bucket that would hold it already
+        // slid out, so it does not count. Its offset is recorded above, so a replay is still skipped.
+    } else {
+        // WITHIN: count the event in its day's bucket.
+        let idx = (event_day - window_start_day) as usize;
+        buckets[idx] = buckets[idx].saturating_add(1);
+    }
+
+    // Newest matching event; a late (BEHIND) event must not pull it earlier.
+    let last_event_at_ms = prev_last_event.max(event_ms);
+    let earliest_eviction_at_ms =
+        daily_eviction_deadline(&buckets, window_start_day, window_days, tz);
+    let predicate_after = daily_predicate(&buckets, op);
+
+    let record = StatefulRecord {
+        state: Stage1State::BehavioralDailyBuckets {
+            buckets,
+            window_start_day,
+            last_event_at_ms,
+            earliest_eviction_at_ms,
+        },
+        applied_offsets: applied,
+    };
+    // Both edges are event-driven here: a fold that crosses the threshold gives `Entered`, a slide
+    // that drains the contributing bucket(s) gives `Left`.
+    let kind = match (predicate_before, predicate_after) {
+        (false, true) => Some(TransitionKind::Entered),
+        (true, false) => Some(TransitionKind::Left),
+        _ => None,
+    };
+    let transition = kind.map(|kind| LeafTransition {
+        team_id: TeamId(event.team_id),
+        leaf_state_key: lsk,
+        person_id,
+        condition_hash,
+        kind,
+    });
+    Some((record, transition))
+}
+
+/// The day-boundary (epoch ms, team tz) at which the oldest non-zero bucket leaves the window — the
+/// deadline the (future) sweep evicts it on, stored but not acted on this PR. A day-`d` bucket is
+/// in-window while `now_day ≤ d + window_days`, so it leaves at the start of day
+/// `d + window_days + 1`. An all-zero array (no contributing bucket) never evicts → [`i64::MAX`].
+fn daily_eviction_deadline(
+    buckets: &[u32],
+    window_start_day: i32,
+    window_days: u32,
+    tz: Tz,
+) -> i64 {
+    match buckets.iter().position(|&count| count > 0) {
+        Some(oldest) => {
+            let oldest_day = window_start_day + oldest as i32;
+            start_of_day_ms_in_tz(oldest_day + window_days as i32 + 1, tz)
+        }
+        None => i64::MAX,
+    }
 }
 
 /// Fold a person-property evaluation into a leaf's state, guarding against Kafka replay and then
