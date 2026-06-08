@@ -24,9 +24,9 @@ from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
-from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.exports.backend.api import exports
+from products.managed_migrations.backend.api.batch_imports import BatchImportViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
