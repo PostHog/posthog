@@ -493,6 +493,7 @@ mod test {
         match frame {
             RawFrame::Rust(frame) => {
                 let resolved: Frame = (&frame).into();
+                let resolved_frame_id = frame.frame_id();
                 assert_eq!(resolved.lang, "rust");
                 assert_eq!(resolved.mangled_name, "checkout::payment::charge");
                 assert_eq!(
@@ -502,6 +503,14 @@ mod test {
                 assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
                 assert_eq!(resolved.module.as_deref(), Some("checkout::payment"));
                 assert_eq!(resolved.line, Some(42));
+                assert_eq!(resolved.context, None);
+
+                let unresolved_data = data.replace("\"resolved\": true,", "\"resolved\": false,");
+                let unresolved_frame: RawFrame = serde_json::from_str(&unresolved_data).unwrap();
+                match unresolved_frame {
+                    RawFrame::Rust(frame) => assert_eq!(frame.frame_id(), resolved_frame_id),
+                    _ => panic!("Expected a rust frame"),
+                }
             }
             _ => panic!("Expected a rust frame"),
         }
