@@ -145,13 +145,31 @@ type InsertMenuPosition = {
     maxHeight: number
 }
 
-type FloatingToolbarState = {
-    range: NotebookTextSelectionRange
+type FloatingToolbarTextRange = {
     node: NotebookTextBlockNode
+    range: NotebookTextSelectionRange
+}
+
+type FloatingToolbarState = {
+    textRanges: FloatingToolbarTextRange[]
+    selectedMarkdown: string
     placement: 'above' | 'below'
     top: number
     left: number
     isLinkEditorOpen?: boolean
+}
+
+type FloatingToolbarPointerAnchor = {
+    x: number
+    y: number
+    placement: 'above' | 'below'
+}
+
+type TextSelectionPointerState = {
+    originX: number
+    originY: number
+    lastX: number
+    lastY: number
 }
 
 type CrossBlockSelectionDragState = {
@@ -252,6 +270,7 @@ const INSERT_MENU_PLACEHOLDER = 'Search for a tool'
 const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
 const MAX_UNDO_HISTORY_ENTRIES = 100
+const FLOATING_TOOLBAR_REVEAL_DELAY_MS = 200
 const NOTEBOOK_EDITABLE_BLOCK_SELECTOR =
     '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content'
 const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR = `${NOTEBOOK_EDITABLE_BLOCK_SELECTOR}, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block`
@@ -304,6 +323,11 @@ export function MarkdownNotebook({
     const aiThinkingTagRefs = useRef<Record<string, HTMLButtonElement | null>>({})
     const crossBlockSelectionRef = useRef<CrossBlockSelectionDragState | null>(null)
     const crossBlockSelectionEditableStateRef = useRef<EditableBlockContentEditableState[] | null>(null)
+    const isTextSelectionPointerActiveRef = useRef(false)
+    const floatingToolbarRevealTimeoutRef = useRef<number | null>(null)
+    const floatingToolbarRevealAfterRef = useRef(0)
+    const textSelectionPointerStateRef = useRef<TextSelectionPointerState | null>(null)
+    const floatingToolbarPointerAnchorRef = useRef<FloatingToolbarPointerAnchor | null>(null)
     const focusNodeRef = useRef<string | null>(null)
     const restoreSelectionRef = useRef<RestoreSelectionRequest | null>(null)
     const notebookClipboardMarkdownRef = useRef<string | null>(null)
@@ -315,6 +339,15 @@ export function MarkdownNotebook({
     const initialInsertMenuAppliedRef = useRef(false)
     const emptyNodeRef = useRef<NotebookTextBlockNode>(makeEmptyParagraph('initial-empty'))
     const initializedComponentPanelNodeIdsRef = useRef<Set<string> | null>(null)
+
+    const clearFloatingToolbarRevealTimeout = useCallback((): void => {
+        if (floatingToolbarRevealTimeoutRef.current === null) {
+            return
+        }
+
+        window.clearTimeout(floatingToolbarRevealTimeoutRef.current)
+        floatingToolbarRevealTimeoutRef.current = null
+    }, [])
 
     const disableEditableBlocksForCrossBlockSelection = useCallback((): void => {
         const notebookElement = notebookRef.current
@@ -808,6 +841,10 @@ export function MarkdownNotebook({
     }, [document.nodes, mode])
 
     const updateFloatingToolbarFromSelection = useCallback((): void => {
+        clearFloatingToolbarRevealTimeout()
+        const pointerAnchor = floatingToolbarPointerAnchorRef.current
+        floatingToolbarPointerAnchorRef.current = null
+
         if (mode !== 'edit') {
             setFloatingToolbar(null)
             return
@@ -822,11 +859,18 @@ export function MarkdownNotebook({
             return
         }
 
-        const domRange = selection.getRangeAt(0)
-        const selectedEntry = Object.entries(blockRefs.current).find(([, element]) =>
-            element?.contains(domRange.commonAncestorContainer)
-        )
-        if (!selectedEntry) {
+        const notebookElement = notebookRef.current
+        const selectedMarkdown = notebookElement
+            ? getSelectedNotebookMarkdown(
+                  selection,
+                  notebookElement,
+                  documentRef.current.nodes,
+                  blockRefs.current,
+                  listItemRefs.current
+              )
+            : null
+        const textRanges = getSelectedTextRanges(selection, documentRef.current.nodes, blockRefs.current)
+        if (!textRanges.length || !selectedMarkdown) {
             if (isFormattingToolbarFocused()) {
                 return
             }
@@ -834,25 +878,7 @@ export function MarkdownNotebook({
             return
         }
 
-        const [nodeId, element] = selectedEntry
-        if (!element) {
-            setFloatingToolbar(null)
-            return
-        }
-
-        const selectedNode = documentRef.current.nodes.find(
-            (node): node is NotebookTextBlockNode => node.id === nodeId && isTextBlockNode(node)
-        )
-        const range = getSelectionRange(element, nodeId)
-        if (!selectedNode || !range) {
-            setFloatingToolbar(null)
-            return
-        }
-
-        if (range.start === range.end) {
-            setFloatingToolbar(null)
-            return
-        }
+        const domRange = selection.getRangeAt(0)
 
         const selectionRect = getSelectionClientRect(domRange)
         if (!selectionRect) {
@@ -860,20 +886,46 @@ export function MarkdownNotebook({
             return
         }
 
-        const lineHeight = getElementLineHeight(element)
-        const shouldPlaceBelow = selectionRect.top < FLOATING_TOOLBAR_ESTIMATED_HEIGHT + lineHeight
+        const firstSelectedElement = blockRefs.current[textRanges[0].node.id]
+        const lineHeight = firstSelectedElement ? getElementLineHeight(firstSelectedElement) : 24
+        const shouldPlaceBelow = pointerAnchor
+            ? pointerAnchor.placement === 'below'
+            : selectionRect.top < FLOATING_TOOLBAR_ESTIMATED_HEIGHT + lineHeight
+        const toolbarTop = pointerAnchor
+            ? Math.round(pointerAnchor.placement === 'below' ? pointerAnchor.y + 8 : pointerAnchor.y)
+            : Math.round(shouldPlaceBelow ? selectionRect.bottom + lineHeight : selectionRect.top)
+        const toolbarLeft = pointerAnchor
+            ? Math.round(pointerAnchor.x)
+            : Math.round(selectionRect.left + selectionRect.width / 2)
 
         setFloatingToolbar({
-            range,
-            node: selectedNode,
+            textRanges,
+            selectedMarkdown,
             placement: shouldPlaceBelow ? 'below' : 'above',
-            top: Math.round(shouldPlaceBelow ? selectionRect.bottom + lineHeight : selectionRect.top),
-            left: Math.min(
-                window.innerWidth - 16,
-                Math.max(16, Math.round(selectionRect.left + selectionRect.width / 2))
-            ),
+            top: toolbarTop,
+            left: Math.min(window.innerWidth - 16, Math.max(16, toolbarLeft)),
         })
-    }, [mode])
+    }, [clearFloatingToolbarRevealTimeout, mode])
+
+    const scheduleFloatingToolbarUpdateFromSelection = useCallback(
+        (delayMs: number = 0): void => {
+            clearFloatingToolbarRevealTimeout()
+            if (delayMs <= 0) {
+                floatingToolbarRevealAfterRef.current = 0
+                updateFloatingToolbarFromSelection()
+                return
+            }
+
+            setFloatingToolbar(null)
+            floatingToolbarRevealTimeoutRef.current = window.setTimeout(() => {
+                floatingToolbarRevealTimeoutRef.current = null
+                updateFloatingToolbarFromSelection()
+            }, delayMs)
+        },
+        [clearFloatingToolbarRevealTimeout, updateFloatingToolbarFromSelection]
+    )
+
+    useEffect(() => clearFloatingToolbarRevealTimeout, [clearFloatingToolbarRevealTimeout])
 
     const updateSelectedComponentBlocksFromSelection = useCallback((): void => {
         const nextSelectedComponentNodeIds =
@@ -892,8 +944,11 @@ export function MarkdownNotebook({
         if (mode !== 'edit') {
             setFloatingToolbar(null)
             setSelectedComponentNodeIds(new Set())
+            clearFloatingToolbarRevealTimeout()
             clearTouchSelectionDelay(crossBlockSelectionRef.current)
             crossBlockSelectionRef.current = null
+            isTextSelectionPointerActiveRef.current = false
+            floatingToolbarRevealAfterRef.current = 0
             restoreEditableBlocksForCrossBlockSelection()
             return
         }
@@ -914,7 +969,13 @@ export function MarkdownNotebook({
             ) {
                 restoreEditableBlocksForCrossBlockSelection()
             }
-            updateFloatingToolbarFromSelection()
+            if (isTextSelectionPointerActiveRef.current) {
+                setFloatingToolbar(null)
+            } else {
+                scheduleFloatingToolbarUpdateFromSelection(
+                    Math.max(0, floatingToolbarRevealAfterRef.current - Date.now())
+                )
+            }
             updateSelectedComponentBlocksFromSelection()
         }
 
@@ -947,19 +1008,64 @@ export function MarkdownNotebook({
         }
     }, [
         mode,
+        clearFloatingToolbarRevealTimeout,
         restoreEditableBlocksForCrossBlockSelection,
-        updateFloatingToolbarFromSelection,
+        scheduleFloatingToolbarUpdateFromSelection,
         updateSelectedComponentBlocksFromSelection,
     ])
 
     const handleSelectionChange = (): void => {
-        updateFloatingToolbarFromSelection()
+        if (isTextSelectionPointerActiveRef.current) {
+            clearFloatingToolbarRevealTimeout()
+            setFloatingToolbar(null)
+            return
+        }
+
+        scheduleFloatingToolbarUpdateFromSelection(Math.max(0, floatingToolbarRevealAfterRef.current - Date.now()))
     }
+
+    const updateTextSelectionPointerPoint = useCallback((clientX: number, clientY: number): void => {
+        const pointerState = textSelectionPointerStateRef.current
+        if (!pointerState) {
+            return
+        }
+
+        pointerState.lastX = clientX
+        pointerState.lastY = clientY
+    }, [])
+
+    const finishTextSelectionPointer = useCallback(
+        (clientX?: number, clientY?: number): void => {
+            const pointerState = textSelectionPointerStateRef.current
+            if (pointerState) {
+                if (clientX !== undefined && clientY !== undefined) {
+                    pointerState.lastX = clientX
+                    pointerState.lastY = clientY
+                }
+
+                floatingToolbarPointerAnchorRef.current = {
+                    x: pointerState.lastX,
+                    y: pointerState.lastY,
+                    placement: pointerState.lastY >= pointerState.originY ? 'below' : 'above',
+                }
+            }
+
+            textSelectionPointerStateRef.current = null
+            isTextSelectionPointerActiveRef.current = false
+            floatingToolbarRevealAfterRef.current = Date.now() + FLOATING_TOOLBAR_REVEAL_DELAY_MS
+            scheduleFloatingToolbarUpdateFromSelection(FLOATING_TOOLBAR_REVEAL_DELAY_MS)
+        },
+        [scheduleFloatingToolbarUpdateFromSelection]
+    )
 
     useEffect(() => {
         if (mode !== 'edit') {
             clearTouchSelectionDelay(crossBlockSelectionRef.current)
             crossBlockSelectionRef.current = null
+            isTextSelectionPointerActiveRef.current = false
+            floatingToolbarRevealAfterRef.current = 0
+            textSelectionPointerStateRef.current = null
+            floatingToolbarPointerAnchorRef.current = null
             return
         }
 
@@ -974,6 +1080,7 @@ export function MarkdownNotebook({
                 return false
             }
 
+            updateTextSelectionPointerPoint(clientX, clientY)
             const distance = Math.hypot(clientX - dragState.originX, clientY - dragState.originY)
             if (distance < CROSS_BLOCK_SELECTION_DRAG_THRESHOLD) {
                 return false
@@ -987,18 +1094,19 @@ export function MarkdownNotebook({
             const focusEditableElement = getEditableBlockElementForRange(focusRange)
             const isSameEditableElement =
                 dragState.anchorEditableElement && focusEditableElement === dragState.anchorEditableElement
-            if (isSameEditableElement && dragState.source !== 'touch') {
-                return false
-            }
 
             dragState.isDragging = true
             if (!isSameEditableElement && !crossBlockSelectionEditableStateRef.current) {
+                const shouldRecalculateFocusRangeAfterDisabling =
+                    !focusEditableElement || focusEditableElement === dragState.anchorEditableElement
                 disableEditableBlocksForCrossBlockSelection()
-                focusRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
-                if (!focusRange) {
-                    dragState.isDragging = false
-                    restoreEditableBlocksForCrossBlockSelection()
-                    return false
+                if (shouldRecalculateFocusRangeAfterDisabling) {
+                    focusRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
+                    if (!focusRange) {
+                        dragState.isDragging = false
+                        restoreEditableBlocksForCrossBlockSelection()
+                        return false
+                    }
                 }
             }
             preventDefault()
@@ -1017,16 +1125,19 @@ export function MarkdownNotebook({
             updateCrossBlockSelectionDrag(event.clientX, event.clientY, () => event.preventDefault())
         }
 
-        const handleMouseUp = (): void => {
+        const handleMouseUp = (event: MouseEvent): void => {
             const dragState = crossBlockSelectionRef.current
+            if (!dragState && !isTextSelectionPointerActiveRef.current) {
+                return
+            }
             if (dragState && dragState.source !== 'mouse') {
                 return
             }
 
             clearTouchSelectionDelay(dragState)
             crossBlockSelectionRef.current = null
+            finishTextSelectionPointer(event.clientX, event.clientY)
             if (dragState?.isDragging) {
-                updateFloatingToolbarFromSelection()
                 updateSelectedComponentBlocksFromSelection()
             }
         }
@@ -1047,8 +1158,8 @@ export function MarkdownNotebook({
             }
 
             crossBlockSelectionRef.current = null
+            finishTextSelectionPointer(event.clientX, event.clientY)
             if (dragState.isDragging) {
-                updateFloatingToolbarFromSelection()
                 updateSelectedComponentBlocksFromSelection()
             }
         }
@@ -1064,11 +1175,15 @@ export function MarkdownNotebook({
                 return
             }
 
+            updateTextSelectionPointerPoint(touch.clientX, touch.clientY)
             if (!dragState.isTouchSelectionReady) {
                 const distance = Math.hypot(touch.clientX - dragState.originX, touch.clientY - dragState.originY)
                 if (distance >= TOUCH_SCROLL_CANCEL_THRESHOLD) {
                     clearTouchSelectionDelay(dragState)
                     crossBlockSelectionRef.current = null
+                    textSelectionPointerStateRef.current = null
+                    floatingToolbarPointerAnchorRef.current = null
+                    isTextSelectionPointerActiveRef.current = false
                 }
                 return
             }
@@ -1088,8 +1203,9 @@ export function MarkdownNotebook({
 
             clearTouchSelectionDelay(dragState)
             crossBlockSelectionRef.current = null
+            const changedTouch = getTouchByIdentifier(event.changedTouches, dragState.touchIdentifier)
+            finishTextSelectionPointer(changedTouch?.clientX, changedTouch?.clientY)
             if (dragState.isDragging) {
-                updateFloatingToolbarFromSelection()
                 updateSelectedComponentBlocksFromSelection()
             }
         }
@@ -1118,10 +1234,11 @@ export function MarkdownNotebook({
         }
     }, [
         disableEditableBlocksForCrossBlockSelection,
+        finishTextSelectionPointer,
         mode,
         restoreEditableBlocksForCrossBlockSelection,
-        updateFloatingToolbarFromSelection,
         updateSelectedComponentBlocksFromSelection,
+        updateTextSelectionPointerPoint,
     ])
 
     const beginCrossBlockSelection = (
@@ -1136,16 +1253,25 @@ export function MarkdownNotebook({
             return
         }
 
-        const anchorRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
+        const anchorEditableElement = getClosestEditableBlockElement(currentTarget)
+        const anchorRange =
+            (anchorEditableElement ? getEditableCaretRangeFromPoint(clientX, clientY, anchorEditableElement) : null) ??
+            getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
         if (!anchorRange) {
             return
         }
 
         clearTouchSelectionDelay(crossBlockSelectionRef.current)
+        clearFloatingToolbarRevealTimeout()
+        isTextSelectionPointerActiveRef.current = true
+        floatingToolbarRevealAfterRef.current = 0
+        textSelectionPointerStateRef.current = { originX: clientX, originY: clientY, lastX: clientX, lastY: clientY }
+        floatingToolbarPointerAnchorRef.current = null
+        setFloatingToolbar(null)
 
         const dragState: CrossBlockSelectionDragState = {
             anchorRange: anchorRange.cloneRange(),
-            anchorEditableElement: getClosestEditableBlockElement(currentTarget),
+            anchorEditableElement,
             originX: clientX,
             originY: clientY,
             source,
@@ -1182,7 +1308,7 @@ export function MarkdownNotebook({
         }
 
         if ('pointerId' in event) {
-            if (!event.isPrimary || event.pointerType === 'touch' || event.button !== 0) {
+            if (event.isPrimary === false || event.pointerType === 'touch' || event.button !== 0) {
                 return
             }
 
@@ -1302,52 +1428,94 @@ export function MarkdownNotebook({
         onChange?.(nextMarkdown)
     }
 
-    const applyInlineMark = (markType: NotebookInlineMark['type']): void => {
-        const activeSelectionRange = floatingToolbar?.range
-        if (!activeSelectionRange) {
+    const updateSelectedTextRanges = (
+        updater: (children: NotebookInlineNode[], range: NotebookTextSelectionRange) => NotebookInlineNode[]
+    ): void => {
+        const activeTextRanges = floatingToolbar?.textRanges
+        if (!activeTextRanges?.length) {
             return
         }
 
-        restoreSelectionRef.current = activeSelectionRange
-        updateNode(activeSelectionRange.nodeId, (node) => {
-            if (!isTextBlockNode(node)) {
-                return node
-            }
-            return {
-                ...node,
-                children: toggleInlineMark(node.children, activeSelectionRange, markType),
-            }
+        const rangesByNodeId = new Map(activeTextRanges.map(({ range }) => [range.nodeId, range]))
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+
+        restoreSelectionRef.current = activeTextRanges[0].range
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.map((node) => {
+                const range = rangesByNodeId.get(node.id)
+                if (!range || !isTextBlockNode(node)) {
+                    return node
+                }
+                return {
+                    ...node,
+                    children: updater(node.children, range),
+                }
+            }),
         })
+    }
+
+    const applyInlineMark = (markType: NotebookInlineMark['type']): void => {
+        updateSelectedTextRanges((children, range) => toggleInlineMark(children, range, markType))
     }
 
     const applyInlineLink = (href: string | null): void => {
-        const activeSelectionRange = floatingToolbar?.range
-        if (!activeSelectionRange) {
-            return
-        }
-
-        restoreSelectionRef.current = activeSelectionRange
-        updateNode(activeSelectionRange.nodeId, (node) => {
-            if (!isTextBlockNode(node)) {
-                return node
-            }
-            return {
-                ...node,
-                children: setInlineLinkMark(node.children, activeSelectionRange, href),
-            }
-        })
+        updateSelectedTextRanges((children, range) => setInlineLinkMark(children, range, href))
         setFloatingToolbar(null)
     }
 
-    const setBlockStyle = (nodeId: string, style: 'paragraph' | 'blockquote' | 1 | 2 | 3): void => {
-        updateNode(nodeId, (node) => {
-            if (!isTextBlockNode(node)) {
-                return node
-            }
-            if (typeof style === 'number') {
-                return { ...node, type: 'heading', level: style }
-            }
-            return { ...node, type: style, level: undefined }
+    const setSelectedBlockStyle = (style: 'paragraph' | 'blockquote' | 1 | 2 | 3): void => {
+        const activeTextRanges = floatingToolbar?.textRanges
+        if (!activeTextRanges?.length) {
+            return
+        }
+
+        const selectedNodeIds = new Set(activeTextRanges.map(({ node }) => node.id))
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.map((node) => {
+                if (!selectedNodeIds.has(node.id) || !isTextBlockNode(node)) {
+                    return node
+                }
+                if (typeof style === 'number') {
+                    return { ...node, type: 'heading', level: style }
+                }
+                return { ...node, type: style, level: undefined }
+            }),
+        })
+    }
+
+    const askAIAboutSelection = (): void => {
+        if (!floatingToolbar || !onAskAI) {
+            return
+        }
+
+        const placeholderNodeId = floatingToolbar.textRanges[0]?.node.id
+        const selectionStartRange = floatingToolbar.textRanges[0]?.range
+        if (!placeholderNodeId || !selectionStartRange) {
+            return
+        }
+
+        const insertionPlaceholder = getAskAIMarkdownPlaceholder(placeholderNodeId)
+        const currentDocument = documentRef.current
+        const markdown = serializeMarkdownNotebook(currentDocument)
+        const markdownWithPlaceholder = getMarkdownWithSelectionPlaceholder(
+            currentDocument,
+            selectionStartRange,
+            insertionPlaceholder
+        )
+
+        setFloatingToolbar(null)
+        onAskAI({
+            query: getAskAISelectionQuery(floatingToolbar.selectedMarkdown),
+            placeholderNodeId,
+            insertionPlaceholder,
+            markdown,
+            markdownWithPlaceholder,
         })
     }
 
@@ -2149,6 +2317,10 @@ export function MarkdownNotebook({
                                                 }
                                                 openInsertMenu(node.id, getInlineInsertMenuQuery(node))
                                             },
+                                            activateInlineInsertMenuButton: () => {
+                                                setActiveRowIndex(index)
+                                                setActiveBoundaryIndex(null)
+                                            },
                                             showInlineInsertMenuButton:
                                                 mode === 'edit' && shouldShowInlineInsertMenuButton,
                                             isInlineInsertMenuButtonVisible:
@@ -2198,15 +2370,23 @@ export function MarkdownNotebook({
                     </div>
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar
-                            node={floatingToolbar.node}
+                            node={floatingToolbar.textRanges[0].node}
                             placement={floatingToolbar.placement}
                             top={floatingToolbar.top}
                             left={floatingToolbar.left}
                             applyInlineMark={applyInlineMark}
                             applyInlineLink={applyInlineLink}
-                            currentLinkHref={getSelectedLinkHref(floatingToolbar.node.children, floatingToolbar.range)}
+                            currentLinkHref={
+                                floatingToolbar.textRanges.length === 1
+                                    ? getSelectedLinkHref(
+                                          floatingToolbar.textRanges[0].node.children,
+                                          floatingToolbar.textRanges[0].range
+                                      )
+                                    : null
+                            }
                             initialLinkEditorOpen={floatingToolbar.isLinkEditorOpen ?? false}
-                            setBlockStyle={setBlockStyle}
+                            setBlockStyle={setSelectedBlockStyle}
+                            askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
                         />
                     ) : null}
                 </div>
@@ -2258,6 +2438,7 @@ function renderNode({
     closeInsertMenu,
     moveInsertMenuSelection,
     toggleInsertMenu,
+    activateInlineInsertMenuButton,
     showInlineInsertMenuButton,
     isInlineInsertMenuButtonVisible,
     isInsertMenuOpen,
@@ -2305,6 +2486,7 @@ function renderNode({
     closeInsertMenu: () => void
     moveInsertMenuSelection: (direction: InsertMenuSelectionDirection) => void
     toggleInsertMenu: () => void
+    activateInlineInsertMenuButton: () => void
     showInlineInsertMenuButton: boolean
     isInlineInsertMenuButtonVisible: boolean
     isInsertMenuOpen: boolean
@@ -2394,6 +2576,7 @@ function renderNode({
             closeInsertMenu={closeInsertMenu}
             moveInsertMenuSelection={moveInsertMenuSelection}
             toggleInsertMenu={toggleInsertMenu}
+            activateInlineInsertMenuButton={activateInlineInsertMenuButton}
             showInlineInsertMenuButton={showInlineInsertMenuButton}
             isInlineInsertMenuButtonVisible={isInlineInsertMenuButtonVisible}
             isInsertMenuOpen={isInsertMenuOpen}
@@ -3530,6 +3713,7 @@ function EditableTextBlock({
     closeInsertMenu,
     moveInsertMenuSelection,
     toggleInsertMenu,
+    activateInlineInsertMenuButton,
     showInlineInsertMenuButton,
     isInlineInsertMenuButtonVisible,
     isInsertMenuOpen,
@@ -3556,6 +3740,7 @@ function EditableTextBlock({
     closeInsertMenu: () => void
     moveInsertMenuSelection: (direction: InsertMenuSelectionDirection) => void
     toggleInsertMenu: () => void
+    activateInlineInsertMenuButton: () => void
     showInlineInsertMenuButton: boolean
     isInlineInsertMenuButtonVisible: boolean
     isInsertMenuOpen: boolean
@@ -4038,17 +4223,23 @@ function EditableTextBlock({
             )}
         >
             {showInlineInsertMenuButton ? (
-                <LemonButton
-                    size="xsmall"
-                    icon={<span className="MarkdownNotebook__line-insert-menu-icon">/</span>}
-                    className="MarkdownNotebook__line-insert-menu-button"
-                    active={isToolInsertMenuOpen}
-                    tooltip="Add block"
-                    onClick={handleInsertMenuButtonClick}
-                    aria-label={isInsertMenuOpen ? 'Close add block menu' : 'Open add block menu'}
-                    aria-expanded={isInsertMenuOpen}
-                    tabIndex={isInlineInsertMenuButtonVisible ? 0 : -1}
-                />
+                <span
+                    className="MarkdownNotebook__line-insert-menu-hit-area"
+                    onMouseEnter={activateInlineInsertMenuButton}
+                    onMouseMove={activateInlineInsertMenuButton}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        icon={<span className="MarkdownNotebook__line-insert-menu-icon">/</span>}
+                        className="MarkdownNotebook__line-insert-menu-button"
+                        active={isToolInsertMenuOpen}
+                        tooltip="Add block"
+                        onClick={handleInsertMenuButtonClick}
+                        aria-label={isInsertMenuOpen ? 'Close add block menu' : 'Open add block menu'}
+                        aria-expanded={isInsertMenuOpen}
+                        tabIndex={isInlineInsertMenuButtonVisible ? 0 : -1}
+                    />
+                </span>
             ) : null}
             {isAIPromptOpen || isAIThinking ? (
                 <button
@@ -4112,6 +4303,12 @@ function InsertBoundaryButton({
 }): JSX.Element {
     return (
         <div className="MarkdownNotebook__insert-boundary" onMouseEnter={() => setActiveBoundaryIndex(boundaryIndex)}>
+            <div
+                className="MarkdownNotebook__insert-boundary-hover-zone"
+                aria-hidden="true"
+                onMouseEnter={() => setActiveBoundaryIndex(boundaryIndex)}
+                onMouseMove={() => setActiveBoundaryIndex(boundaryIndex)}
+            />
             {isAvailable ? (
                 <LemonButton
                     size="xsmall"
@@ -4142,6 +4339,7 @@ function FormattingToolbar({
     currentLinkHref,
     initialLinkEditorOpen,
     setBlockStyle,
+    askAIAboutSelection,
 }: {
     node: NotebookTextBlockNode
     placement: 'above' | 'below'
@@ -4151,7 +4349,8 @@ function FormattingToolbar({
     applyInlineLink: (href: string | null) => void
     currentLinkHref: string | null
     initialLinkEditorOpen: boolean
-    setBlockStyle: (nodeId: string, style: 'paragraph' | 'blockquote' | 1 | 2 | 3) => void
+    setBlockStyle: (style: 'paragraph' | 'blockquote' | 1 | 2 | 3) => void
+    askAIAboutSelection?: () => void
 }): JSX.Element {
     const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
     const [linkHref, setLinkHref] = useState(currentLinkHref ?? '')
@@ -4209,25 +4408,37 @@ function FormattingToolbar({
         >
             <LemonMenu
                 items={[
-                    { label: 'Text', onClick: () => setBlockStyle(node.id, 'paragraph') },
-                    { label: 'Heading 1', onClick: () => setBlockStyle(node.id, 1) },
-                    { label: 'Heading 2', onClick: () => setBlockStyle(node.id, 2) },
-                    { label: 'Heading 3', onClick: () => setBlockStyle(node.id, 3) },
-                    { label: 'Quote', onClick: () => setBlockStyle(node.id, 'blockquote') },
+                    { label: 'Text', onClick: () => setBlockStyle('paragraph') },
+                    { label: 'Heading 1', onClick: () => setBlockStyle(1) },
+                    { label: 'Heading 2', onClick: () => setBlockStyle(2) },
+                    { label: 'Heading 3', onClick: () => setBlockStyle(3) },
+                    { label: 'Quote', onClick: () => setBlockStyle('blockquote') },
                 ]}
             >
                 <LemonButton size="xsmall" tooltip="Text style">
                     {node.type === 'heading' ? `H${node.level ?? 1}` : 'Text'}
                 </LemonButton>
             </LemonMenu>
-            <LemonButton size="xsmall" icon={<IconBold />} tooltip="Bold" onClick={() => applyInlineMark('bold')} />
+            <LemonButton
+                size="xsmall"
+                icon={<IconBold />}
+                tooltip="Bold"
+                aria-label="Bold"
+                onClick={() => applyInlineMark('bold')}
+            />
             <LemonButton
                 size="xsmall"
                 icon={<IconItalic />}
                 tooltip="Italic"
+                aria-label="Italic"
                 onClick={() => applyInlineMark('italic')}
             />
-            <LemonButton size="xsmall" tooltip="Underline" onClick={() => applyInlineMark('underline')}>
+            <LemonButton
+                size="xsmall"
+                tooltip="Underline"
+                aria-label="Underline"
+                onClick={() => applyInlineMark('underline')}
+            >
                 <span className="font-semibold underline">U</span>
             </LemonButton>
             <LemonButton
@@ -4238,6 +4449,15 @@ function FormattingToolbar({
                 active={hasExistingLink || isLinkEditorOpen}
                 onClick={openLinkEditor}
             />
+            {askAIAboutSelection ? (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconSparkles />}
+                    tooltip="Ask AI"
+                    aria-label="Ask AI"
+                    onClick={askAIAboutSelection}
+                />
+            ) : null}
             {isLinkEditorOpen ? (
                 <div className="MarkdownNotebook__format-link-editor">
                     <LemonInput
@@ -5298,6 +5518,11 @@ function getNotebookBlockCaretRangeFromPoint(
     clientY: number,
     notebookElement: HTMLElement
 ): Range | null {
+    const geometryRange = getNotebookBlockGeometryCaretRangeFromPoint(clientX, clientY, notebookElement)
+    if (geometryRange) {
+        return geometryRange
+    }
+
     const pointedElement =
         typeof document.elementFromPoint === 'function' ? document.elementFromPoint(clientX, clientY) : null
     const pointedBlockElement = getPointedNotebookBlockElement(pointedElement, notebookElement)
@@ -5328,6 +5553,85 @@ function getNotebookBlockCaretRangeFromPoint(
     return blockRange
 }
 
+function getNotebookBlockGeometryCaretRangeFromPoint(
+    clientX: number,
+    clientY: number,
+    notebookElement: HTMLElement
+): Range | null {
+    const candidates = Array.from(notebookElement.querySelectorAll(NOTEBOOK_SELECTABLE_BLOCK_SELECTOR))
+        .filter((element): element is HTMLElement => element instanceof HTMLElement)
+        .map((element, index) => ({ element, index, rect: element.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.width > 0 || rect.height > 0)
+
+    const containingCandidates = candidates.filter(({ rect }) => clientY >= rect.top && clientY <= rect.bottom)
+    const containingCandidate = containingCandidates
+        .sort(
+            (first, second) =>
+                getNotebookGeometryCandidateScore(first, clientX) - getNotebookGeometryCandidateScore(second, clientX)
+        )
+        .at(0)
+
+    if (containingCandidate) {
+        return getNotebookElementCaretRangeFromPoint(clientX, clientY, containingCandidate.element)
+    }
+
+    const closestCandidate = candidates
+        .map((candidate) => {
+            const distance =
+                clientY < candidate.rect.top ? candidate.rect.top - clientY : clientY - candidate.rect.bottom
+            return { ...candidate, distance }
+        })
+        .filter(({ distance }) => distance >= 0)
+        .sort((first, second) => first.distance - second.distance || first.index - second.index)
+        .at(0)
+
+    if (!closestCandidate) {
+        return null
+    }
+
+    const range = document.createRange()
+    if (clientY < closestCandidate.rect.top + closestCandidate.rect.height / 2) {
+        range.setStartBefore(closestCandidate.element)
+    } else {
+        range.setStartAfter(closestCandidate.element)
+    }
+    range.collapse(true)
+    return range
+}
+
+function getNotebookGeometryCandidateScore(
+    candidate: { element: HTMLElement; rect: DOMRect; index: number },
+    clientX: number
+): number {
+    const editablePenalty = getClosestEditableBlockElement(candidate.element) === candidate.element ? 0 : 1_000_000
+    const horizontalDistance =
+        clientX < candidate.rect.left
+            ? candidate.rect.left - clientX
+            : clientX > candidate.rect.right
+              ? clientX - candidate.rect.right
+              : 0
+    const area = Math.max(1, candidate.rect.width * candidate.rect.height)
+
+    return editablePenalty + horizontalDistance * 1_000 + area + candidate.index
+}
+
+function getNotebookElementCaretRangeFromPoint(clientX: number, clientY: number, element: HTMLElement): Range | null {
+    const editableElement = getClosestEditableBlockElement(element)
+    if (editableElement === element) {
+        return getEditableCaretRangeFromPoint(clientX, clientY, editableElement)
+    }
+
+    const rect = element.getBoundingClientRect()
+    const range = document.createRange()
+    if (clientY < rect.top + rect.height / 2) {
+        range.setStartBefore(element)
+    } else {
+        range.setStartAfter(element)
+    }
+    range.collapse(true)
+    return range
+}
+
 function getPointedNotebookBlockElement(element: Element | null, notebookElement: HTMLElement): HTMLElement | null {
     const blockElement = element?.closest(NOTEBOOK_SELECTABLE_BLOCK_SELECTOR)
     return blockElement instanceof HTMLElement && notebookElement.contains(blockElement) ? blockElement : null
@@ -5347,6 +5651,115 @@ function getCaretRangeFromPoint(clientX: number, clientY: number): Range | null 
     }
 
     return caretDocument.caretRangeFromPoint?.(clientX, clientY) ?? null
+}
+
+function getEditableCaretRangeFromPoint(clientX: number, clientY: number, editableElement: HTMLElement): Range | null {
+    const measuredRange = getMeasuredEditableCaretRangeFromPoint(clientX, clientY, editableElement)
+    if (measuredRange) {
+        return measuredRange
+    }
+
+    const caretRange = getCaretRangeFromPoint(clientX, clientY)
+    if (caretRange && editableElement.contains(caretRange.startContainer)) {
+        if (caretRange.startContainer.nodeType !== Node.TEXT_NODE) {
+            return getTextCaretRangeFromElementOffset(
+                editableElement,
+                caretRange.startContainer,
+                caretRange.startOffset
+            )
+        }
+
+        return caretRange
+    }
+
+    const textLength = editableElement.textContent?.length ?? 0
+    const range = document.createRange()
+    if (textLength === 0) {
+        range.selectNodeContents(editableElement)
+        range.collapse(true)
+        return range
+    }
+
+    const rect = editableElement.getBoundingClientRect()
+    const offset =
+        rect.width > 0
+            ? Math.floor((Math.max(rect.left, Math.min(clientX, rect.right)) - rect.left) * (textLength / rect.width))
+            : clientY < rect.top + rect.height / 2
+              ? 0
+              : textLength
+    const position = findTextPosition(editableElement, Math.max(0, Math.min(offset, textLength)))
+    range.setStart(position.node, position.offset)
+    range.collapse(true)
+    return range
+}
+
+function getMeasuredEditableCaretRangeFromPoint(
+    clientX: number,
+    clientY: number,
+    editableElement: HTMLElement
+): Range | null {
+    const walker = document.createTreeWalker(editableElement, NodeFilter.SHOW_TEXT)
+    let textOffset = 0
+    let closestOffset: number | null = null
+    let closestDistance = Number.POSITIVE_INFINITY
+    let currentNode = walker.nextNode()
+
+    while (currentNode) {
+        const textNode = currentNode as Text
+        const text = textNode.textContent ?? ''
+        for (let characterIndex = 0; characterIndex < text.length; characterIndex++) {
+            const characterRange = document.createRange()
+            characterRange.setStart(textNode, characterIndex)
+            characterRange.setEnd(textNode, characterIndex + 1)
+
+            const rect = getSelectionClientRect(characterRange)
+            if (!rect) {
+                continue
+            }
+
+            const characterOffset = textOffset + characterIndex
+            const nextOffset = characterOffset + (clientX > rect.left + rect.width / 2 ? 1 : 0)
+            const distance = getDistanceToRect(clientX, clientY, rect)
+            if (distance < closestDistance) {
+                closestDistance = distance
+                closestOffset = nextOffset
+            }
+        }
+
+        textOffset += text.length
+        currentNode = walker.nextNode()
+    }
+
+    return closestOffset === null ? null : getTextCaretRangeAtOffset(editableElement, closestOffset)
+}
+
+function getTextCaretRangeFromElementOffset(
+    editableElement: HTMLElement,
+    container: Node,
+    offset: number
+): Range | null {
+    try {
+        return getTextCaretRangeAtOffset(editableElement, getTextOffset(editableElement, container, offset))
+    } catch {
+        return null
+    }
+}
+
+function getTextCaretRangeAtOffset(editableElement: HTMLElement, offset: number): Range {
+    const textLength = editableElement.textContent?.length ?? 0
+    const position = findTextPosition(editableElement, Math.max(0, Math.min(offset, textLength)))
+    const range = document.createRange()
+    range.setStart(position.node, position.offset)
+    range.collapse(true)
+    return range
+}
+
+function getDistanceToRect(clientX: number, clientY: number, rect: DOMRect): number {
+    const horizontalDistance =
+        clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0
+    const verticalDistance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0
+
+    return horizontalDistance * horizontalDistance + verticalDistance * verticalDistance
 }
 
 function getElementForNode(node: Node): Element | null {
@@ -5484,8 +5897,79 @@ function getSelectedNotebookMarkdown(
     return serializeNotebookNodes(selectedNodes)
 }
 
+function getSelectedTextRanges(
+    selection: Selection | null,
+    nodes: NotebookBlockNode[],
+    blockRefs: Record<string, HTMLElement | null>
+): FloatingToolbarTextRange[] {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return []
+    }
+
+    return nodes.flatMap((node) => {
+        if (!isTextBlockNode(node)) {
+            return []
+        }
+
+        const element = blockRefs[node.id]
+        const range = element ? getSelectionRange(element, node.id) : null
+        if (!range || range.start === range.end) {
+            return []
+        }
+
+        return [{ node, range }]
+    })
+}
+
 function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
+}
+
+function getAskAISelectionQuery(selectedMarkdown: string): string {
+    const highlightedMarkdown = selectedMarkdown.trim()
+
+    return [
+        'The user highlighted content in a markdown notebook and clicked the AI toolbar button.',
+        '',
+        'Highlighted markdown:',
+        '```markdown',
+        highlightedMarkdown,
+        '```',
+        '',
+        'Use the notebook context as the source of truth. It includes an insertion placeholder at the start of the highlighted location.',
+        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook at that location and replace the highlighted content.',
+        'If the user asks to explain or analyze the highlighted content, answer directly without editing the notebook unless they explicitly ask for a change.',
+    ].join('\n')
+}
+
+function getMarkdownWithSelectionPlaceholder(
+    document: NotebookDocument,
+    range: NotebookTextSelectionRange,
+    insertionPlaceholder: string
+): string {
+    const selectionStart = Math.min(range.start, range.end)
+
+    return serializeMarkdownNotebook({
+        ...document,
+        nodes: document.nodes.map((node) => {
+            if (!isTextBlockNode(node) || node.id !== range.nodeId) {
+                return node
+            }
+
+            const textLength = getInlineText(node.children).length
+            const clampedStart = Math.max(0, Math.min(selectionStart, textLength))
+            const [beforeSelectionStart, afterSelectionStart] = splitInlineNodesAt(node.children, clampedStart)
+
+            return {
+                ...node,
+                children: normalizeInlineNodes([
+                    ...beforeSelectionStart,
+                    { type: 'text', text: insertionPlaceholder },
+                    ...afterSelectionStart,
+                ]),
+            }
+        }),
+    })
 }
 
 function setClipboardMarkdown(clipboardData: DataTransfer, markdown: string): void {

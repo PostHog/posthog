@@ -75,6 +75,125 @@ function selectTextNode(textNode: Text, start: number, end: number, showToolbar 
     })
 }
 
+function selectTextAcrossNodes(
+    startTextNode: Text,
+    start: number,
+    endTextNode: Text,
+    end: number,
+    showToolbar = false
+): void {
+    act(() => {
+        const range = document.createRange()
+        range.setStart(startTextNode, start)
+        range.setEnd(endTextNode, end)
+        if (showToolbar) {
+            const selectionRect = {
+                bottom: 160,
+                height: 60,
+                left: 100,
+                right: 260,
+                top: 100,
+                width: 160,
+                x: 100,
+                y: 100,
+                toJSON: () => ({}),
+            }
+            Object.defineProperty(range, 'getBoundingClientRect', { value: () => selectionRect })
+            Object.defineProperty(range, 'getClientRects', { value: () => [selectionRect] })
+        }
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        if (showToolbar) {
+            document.dispatchEvent(new Event('selectionchange'))
+        }
+    })
+}
+
+function mockEditableCharacterRects(editableElement: HTMLElement, characterWidth = 8): () => void {
+    const rangePrototype = Range.prototype as Range & {
+        getBoundingClientRect?: Range['getBoundingClientRect']
+        getClientRects?: Range['getClientRects']
+    }
+    const originalGetBoundingClientRect = rangePrototype.getBoundingClientRect
+    const originalGetClientRects = rangePrototype.getClientRects
+
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+        configurable: true,
+        value: function getBoundingClientRect(this: Range): DOMRect {
+            if (this.startContainer instanceof Text && editableElement.contains(this.startContainer)) {
+                const elementRect = editableElement.getBoundingClientRect()
+                const startOffset = getTextOffsetForTest(editableElement, this.startContainer, this.startOffset)
+                const endOffset = getTextOffsetForTest(editableElement, this.endContainer, this.endOffset)
+                const left = elementRect.left + startOffset * characterWidth
+                const right = Math.max(left + 1, elementRect.left + endOffset * characterWidth)
+
+                return {
+                    bottom: elementRect.bottom,
+                    height: elementRect.height,
+                    left,
+                    right,
+                    top: elementRect.top,
+                    width: right - left,
+                    x: left,
+                    y: elementRect.top,
+                    toJSON: () => ({}),
+                } as DOMRect
+            }
+
+            return (
+                originalGetBoundingClientRect?.call(this) ??
+                ({
+                    bottom: 0,
+                    height: 0,
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    width: 0,
+                    x: 0,
+                    y: 0,
+                    toJSON: () => ({}),
+                } as DOMRect)
+            )
+        },
+    })
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+        configurable: true,
+        value: function getClientRects(this: Range): DOMRect[] {
+            const rect = this.getBoundingClientRect()
+            return rect.width || rect.height ? [rect] : []
+        },
+    })
+
+    return () => {
+        Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+            configurable: true,
+            value: originalGetBoundingClientRect,
+        })
+        Object.defineProperty(Range.prototype, 'getClientRects', {
+            configurable: true,
+            value: originalGetClientRects,
+        })
+    }
+}
+
+function getTextOffsetForTest(root: HTMLElement, container: Node, offset: number): number {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let textOffset = 0
+    let currentNode = walker.nextNode()
+
+    while (currentNode) {
+        if (currentNode === container) {
+            return textOffset + offset
+        }
+
+        textOffset += currentNode.textContent?.length ?? 0
+        currentNode = walker.nextNode()
+    }
+
+    return textOffset
+}
+
 function pastePlainText(element: HTMLElement, text: string): void {
     fireEvent.paste(element, {
         clipboardData: {
@@ -798,6 +917,14 @@ Third paragraph`,
         fireEvent.mouseMove(rows[1], { clientY: 180 })
         expect(getVisibleBoundaryIndexes()).toEqual(['2'])
 
+        const boundaryHoverZones = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__insert-boundary-hover-zone')
+        )
+        expect(boundaryHoverZones).toHaveLength(4)
+
+        fireEvent.mouseEnter(boundaryHoverZones[0])
+        expect(getVisibleBoundaryIndexes()).toEqual(['0'])
+
         fireEvent.focus(textBlocks[1])
         expect(getVisibleBoundaryIndexes()).toEqual([])
 
@@ -830,7 +957,10 @@ Third paragraph`,
         expect(lineInsertMenuButton?.closest('.MarkdownNotebook__text-row--inline-menu-visible')).toBeNull()
         expect(lineInsertMenuButton?.getAttribute('tabindex')).toEqual('-1')
 
-        fireEvent.mouseEnter(row as HTMLElement)
+        const lineInsertMenuHitArea = container.querySelector('.MarkdownNotebook__line-insert-menu-hit-area')
+        expect(lineInsertMenuHitArea).toBeInstanceOf(HTMLElement)
+
+        fireEvent.mouseEnter(lineInsertMenuHitArea as HTMLElement)
 
         expect(lineInsertMenuButton?.closest('.MarkdownNotebook__text-row--inline-menu-visible')).toBeInstanceOf(
             HTMLElement
@@ -1413,6 +1543,202 @@ After`)
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
     })
 
+    it('shows the formatting toolbar when selecting text across text rows', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph\n\nSecond paragraph' }))
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
+    })
+
+    it('delays the formatting toolbar after a mouse drag selection ends', () => {
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+        })
+        jest.useFakeTimers()
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textNode = getFirstTextNode(textBlock)
+        const startRange = document.createRange()
+        startRange.setStart(textNode, 0)
+        startRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => startRange),
+        })
+
+        fireEvent.mouseDown(textBlock, { button: 0, clientX: 10, clientY: 10 })
+        selectTextNode(textNode, 0, 5, true)
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
+
+        fireEvent.mouseUp(window.document, { clientX: 180, clientY: 80 })
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
+
+        act(() => {
+            jest.advanceTimersByTime(199)
+        })
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
+
+        act(() => {
+            jest.advanceTimersByTime(1)
+        })
+
+        const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar')
+        expect(toolbar).toBeInstanceOf(HTMLElement)
+        expect((toolbar as HTMLElement).style.getPropertyValue('--markdown-notebook-format-toolbar-left')).toEqual(
+            '180px'
+        )
+        expect((toolbar as HTMLElement).style.getPropertyValue('--markdown-notebook-format-toolbar-top')).toEqual(
+            '88px'
+        )
+        expect(toolbar?.classList.contains('MarkdownNotebook__format-toolbar--below')).toBe(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        jest.useRealTimers()
+    })
+
+    it('places the formatting toolbar above an upward mouse drag selection', () => {
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+        })
+        jest.useFakeTimers()
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textNode = getFirstTextNode(textBlock)
+        const startRange = document.createRange()
+        startRange.setStart(textNode, 0)
+        startRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => startRange),
+        })
+
+        fireEvent.mouseDown(textBlock, { button: 0, clientX: 180, clientY: 80 })
+        selectTextNode(textNode, 0, 5, true)
+        fireEvent.mouseUp(window.document, { clientX: 140, clientY: 20 })
+
+        act(() => {
+            jest.advanceTimersByTime(200)
+        })
+
+        const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar')
+        expect(toolbar).toBeInstanceOf(HTMLElement)
+        expect((toolbar as HTMLElement).style.getPropertyValue('--markdown-notebook-format-toolbar-left')).toEqual(
+            '140px'
+        )
+        expect((toolbar as HTMLElement).style.getPropertyValue('--markdown-notebook-format-toolbar-top')).toEqual(
+            '20px'
+        )
+        expect(toolbar?.classList.contains('MarkdownNotebook__format-toolbar--above')).toBe(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        jest.useRealTimers()
+    })
+
+    it('places the formatting toolbar near the last touch point after selection', () => {
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+        })
+        jest.useFakeTimers()
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textNode = getFirstTextNode(textBlock)
+        const startRange = document.createRange()
+        startRange.setStart(textNode, 0)
+        startRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => startRange),
+        })
+
+        const startTouch = { identifier: 1, clientX: 20, clientY: 20 } as Touch
+        const endTouch = { identifier: 1, clientX: 160, clientY: 70 } as Touch
+
+        fireEvent.touchStart(textBlock, {
+            touches: createTouchList([startTouch]),
+            changedTouches: createTouchList([startTouch]),
+        })
+        selectTextNode(textNode, 0, 5, true)
+        fireEvent.touchEnd(window.document, {
+            touches: createTouchList([]),
+            changedTouches: createTouchList([endTouch]),
+        })
+
+        act(() => {
+            jest.advanceTimersByTime(200)
+        })
+
+        const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar')
+        expect(toolbar).toBeInstanceOf(HTMLElement)
+        expect((toolbar as HTMLElement).style.getPropertyValue('--markdown-notebook-format-toolbar-left')).toEqual(
+            '160px'
+        )
+        expect((toolbar as HTMLElement).style.getPropertyValue('--markdown-notebook-format-toolbar-top')).toEqual(
+            '78px'
+        )
+        expect(toolbar?.classList.contains('MarkdownNotebook__format-toolbar--below')).toBe(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        jest.useRealTimers()
+    })
+
+    it('applies inline formatting across selected text rows', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: 'First paragraph\n\nSecond paragraph', onChange })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
+        fireEvent.click(container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement)
+
+        expect(onChange).toHaveBeenLastCalledWith('**First paragraph**\n\n**Second** paragraph')
+    })
+
+    it('asks AI about highlighted text from the formatting toolbar', () => {
+        const onAskAI = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: 'First paragraph\n\nSecond paragraph', onAskAI })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
+        fireEvent.click(container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement)
+
+        const aiRequest = onAskAI.mock.calls[0][0]
+        expect(aiRequest.query).toContain('Highlighted markdown:')
+        expect(aiRequest.query).toContain('First paragraph\n\nSecond')
+        expect(aiRequest.query).toContain('replace the highlighted content')
+        expect(aiRequest.markdown).toEqual('First paragraph\n\nSecond paragraph')
+        expect(aiRequest.insertionPlaceholder).toEqual(
+            `<!-- Ask PostHog AI insertion placeholder block id: ${aiRequest.placeholderNodeId} -->`
+        )
+        expect(aiRequest.markdownWithPlaceholder).toContain(aiRequest.insertionPlaceholder)
+        expect(aiRequest.markdownWithPlaceholder).toContain(`${aiRequest.insertionPlaceholder}First paragraph`)
+    })
+
     it('adds a link from the formatting toolbar', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs', onChange }))
@@ -1664,7 +1990,7 @@ Second paragraph`,
         })
     })
 
-    it('lets native selection handle reversed drags within a text block', () => {
+    it('supports reversed drag selection within a text block', () => {
         const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
         const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
@@ -1687,9 +2013,11 @@ Second paragraph`,
 
         fireEvent.mouseDown(textBlock, { button: 0, clientX: 40, clientY: 10 })
 
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })).toBe(true)
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })).toBe(false)
 
         fireEvent.mouseUp(window.document)
+
+        expect(window.getSelection()?.toString()).toEqual('rst para')
 
         Object.defineProperty(document, 'caretRangeFromPoint', {
             configurable: true,
@@ -1808,6 +2136,318 @@ Second paragraph`,
 
         expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
         expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+    })
+
+    it('keeps the right side of an exact marked link row when dragging down from an element caret hit', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const markedLinkRow =
+            "bo? Here's a [***funnel**](http://localhost:8010/project/1/notebooks/hjH8ysXW)[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data wrrrrwefwef"
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `${markedLinkRow}
+
+Below paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 400,
+                top: 0,
+                width: 400,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 64,
+                height: 24,
+                left: 0,
+                right: 400,
+                top: 40,
+                width: 400,
+                x: 0,
+                y: 40,
+                toJSON: () => ({}),
+            }),
+        })
+
+        const restoreRangeRects = mockEditableCharacterRects(textBlocks[0])
+        const elementBoundaryRange = document.createRange()
+        elementBoundaryRange.setStart(textBlocks[0], 0)
+        elementBoundaryRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => elementBoundaryRange),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 12 ? textBlocks[0] : textBlocks[1])),
+        })
+
+        fireEvent.mouseDown(textBlocks[0], { button: 0, clientX: 176, clientY: 12 })
+        act(() => {
+            const nativeSelectionRange = document.createRange()
+            nativeSelectionRange.setStart(textBlocks[0], 0)
+            nativeSelectionRange.collapse(true)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(nativeSelectionRange)
+        })
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 52 })).toBe(false)
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('with no data wrrrrwefwef')
+        expect(selectedText).not.toContain("bo? Here's")
+
+        restoreRangeRects()
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+    })
+
+    it('keeps the left side of an exact marked link row when dragging up from an element caret hit', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const markedLinkRow =
+            "bo? Here's a [***funnel**](http://localhost:8010/project/1/notebooks/hjH8ysXW)[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data wrrrrwefwef"
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `Above paragraph
+
+${markedLinkRow}`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 400,
+                top: 0,
+                width: 400,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 64,
+                height: 24,
+                left: 0,
+                right: 400,
+                top: 40,
+                width: 400,
+                x: 0,
+                y: 40,
+                toJSON: () => ({}),
+            }),
+        })
+
+        const restoreRangeRects = mockEditableCharacterRects(textBlocks[1])
+        const elementBoundaryRange = document.createRange()
+        elementBoundaryRange.setStart(textBlocks[1], 0)
+        elementBoundaryRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => elementBoundaryRange),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 52 ? textBlocks[1] : textBlocks[0])),
+        })
+
+        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 176, clientY: 52 })
+        act(() => {
+            const nativeSelectionRange = document.createRange()
+            nativeSelectionRange.setStart(textBlocks[1], 0)
+            nativeSelectionRange.collapse(true)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(nativeSelectionRange)
+        })
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 4 })).toBe(false)
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('Above paragraph')
+        expect(selectedText).toContain("bo? Here's a")
+        expect(selectedText).not.toContain('with no data wrrrrwefwef')
+
+        restoreRangeRects()
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+    })
+
+    it('keeps anchor row text when upward drag starts from a marked link row without a caret hit', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const markedLinkRow =
+            "bo? Here's a **[*funnel](http://localhost:8010/project/1/notebooks/hjH8ysXW)**[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data w"
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `Above paragraph
+
+${markedLinkRow}`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 300,
+                top: 0,
+                width: 300,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 64,
+                height: 24,
+                left: 0,
+                right: 300,
+                top: 40,
+                width: 300,
+                x: 0,
+                y: 40,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => null),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 52 ? textBlocks[1] : textBlocks[0])),
+        })
+
+        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 80, clientY: 52 })
+
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 4 })).toBe(false)
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('Above paragraph')
+        expect(selectedText).toContain('bo? ')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+    })
+
+    it('does not select the entire marked link row when dragging down from it without a caret hit', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const markedLinkRow =
+            "bo? Here's a **[*funnel](http://localhost:8010/project/1/notebooks/hjH8ysXW)**[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data w"
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `${markedLinkRow}
+
+Below paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 300,
+                top: 0,
+                width: 300,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 64,
+                height: 24,
+                left: 0,
+                right: 300,
+                top: 40,
+                width: 300,
+                x: 0,
+                y: 40,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => null),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 12 ? textBlocks[0] : textBlocks[1])),
+        })
+
+        fireEvent.mouseDown(textBlocks[0], { button: 0, clientX: 220, clientY: 12 })
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 52 })).toBe(false)
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain(' no data w')
+        expect(selectedText).not.toContain("bo? Here's")
 
         Object.defineProperty(document, 'caretRangeFromPoint', {
             configurable: true,

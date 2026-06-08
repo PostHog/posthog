@@ -12,7 +12,13 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { getSqlEditorSourceQuery } from './NotebookSQLEditor'
+import {
+    EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+    getEmbeddedSqlEditorStyle,
+    getSqlEditorSourceQuery,
+    hasAlreadyRunSqlEditorSourceQuery,
+} from './NotebookSQLEditor'
 
 describe('NotebookSQLEditor', () => {
     it('adds notebook query tags to HogQL source queries', () => {
@@ -55,5 +61,72 @@ describe('NotebookSQLEditor', () => {
             productKey: ProductKey.DATA_WAREHOUSE,
             scene: 'SQLEditor',
         })
+    })
+
+    it('uses a concrete embedded editor height by default', () => {
+        expect(getEmbeddedSqlEditorStyle(undefined)).toEqual({
+            height: EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+            minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+        })
+    })
+
+    it('preserves a custom embedded editor height', () => {
+        expect(getEmbeddedSqlEditorStyle(320)).toEqual({
+            height: 320,
+            minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+        })
+    })
+
+    it('treats an already-run SQL source as current when only tags differ', () => {
+        const sourceQuery = getSqlEditorSourceQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select 1',
+        })
+
+        expect(sourceQuery).not.toBeNull()
+
+        const lastRunQuery = {
+            ...sourceQuery!,
+            source: {
+                ...sourceQuery!.source,
+                tags: {
+                    productKey: ProductKey.DATA_WAREHOUSE,
+                    scene: 'SQLEditor',
+                },
+            },
+        }
+
+        expect(hasAlreadyRunSqlEditorSourceQuery(sourceQuery!, lastRunQuery)).toBe(true)
+    })
+
+    it('normalizes no-op raw-query flags when checking already-run SQL sources', () => {
+        const sourceQuery = getSqlEditorSourceQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select 1',
+            sendRawQuery: false,
+        })
+        const lastRunQuery = getSqlEditorSourceQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select 1',
+        })
+
+        expect(sourceQuery).not.toBeNull()
+        expect(lastRunQuery).not.toBeNull()
+        expect(hasAlreadyRunSqlEditorSourceQuery(sourceQuery!, lastRunQuery)).toBe(true)
+    })
+
+    it('does not treat a changed SQL source as already run', () => {
+        const sourceQuery = getSqlEditorSourceQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select 1',
+        })
+        const lastRunQuery = getSqlEditorSourceQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select 2',
+        })
+
+        expect(sourceQuery).not.toBeNull()
+        expect(lastRunQuery).not.toBeNull()
+        expect(hasAlreadyRunSqlEditorSourceQuery(sourceQuery!, lastRunQuery)).toBe(false)
     })
 })

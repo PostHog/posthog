@@ -1,12 +1,12 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef } from 'react'
 
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { DataVisualizationNode, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -61,6 +61,31 @@ const buildSourceQuery = (query: string): DataVisualizationNode => ({
     display: ChartDisplayType.ActionsTable,
 })
 
+export function getEmbeddedSqlEditorStyle(height: string | number | undefined): CSSProperties {
+    return {
+        height: height ?? EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+        minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+    }
+}
+
+function getRunnableHogQLSource(source: HogQLQuery): Omit<HogQLQuery, 'tags'> {
+    const { tags: _tags, ...runnableSource } = {
+        ...source,
+        sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+    }
+    return runnableSource
+}
+
+export function hasAlreadyRunSqlEditorSourceQuery(
+    editorSourceQuery: DataVisualizationNode,
+    lastRunQuery: DataVisualizationNode | null
+): boolean {
+    return (
+        !!lastRunQuery &&
+        equal(getRunnableHogQLSource(editorSourceQuery.source), getRunnableHogQLSource(lastRunQuery.source))
+    )
+}
+
 export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>({
     attributes,
     updateAttributes,
@@ -68,7 +93,7 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
 }: NotebookNodeAttributeProperties<T> & { tabId: string }): DataVisualizationNode | null {
     const editorSourceQuery = useMemo(() => getSqlEditorSourceQuery(attributes.query), [attributes.query])
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
-    const { queryInput, sourceQuery } = useValues(logic)
+    const { queryInput, sourceQuery, lastRunQuery } = useValues(logic)
     const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
 
     // Sync Tiptap node attributes with sqlEditorLogic kea state. Two refs let us tell apart
@@ -102,16 +127,16 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
 
         if (!equal(editorSourceQuery, lastAttrRef.current)) {
             // Attribute moved — pull (overrides any in-flight typing: last write wins).
-            // On first mount `lastAttrRef.current` is null, so we also seed kea here and
-            // kick off an initial `runQuery` so results show on load. We deliberately don't
-            // re-run on subsequent remote updates: that would fire a backend query every
-            // time another tab edits a keystroke through the collab stream.
+            // On first mount `lastAttrRef.current` is null, so seed kea and auto-run if
+            // this tab has not already run the same data-bearing SQL source. The output
+            // and edit panels mount separate sync hooks for the same tab, so the edit panel
+            // must not reload data just because it mounted with fresh refs.
             const isFirstSeed = lastAttrRef.current === null
             lastAttrRef.current = editorSourceQuery
             lastLocalRef.current = editorSourceQuery
             setQueryInput(editorSourceQuery.source.query)
             setSourceQuery(editorSourceQuery)
-            if (isFirstSeed) {
+            if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
                 runQuery(editorSourceQuery.source.query)
             }
             return
@@ -125,7 +150,16 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
         }
 
         // Tiptap hasn't propagated a push we already made — wait for the next render.
-    }, [editorSourceQuery, queryInput, sourceQuery, runQuery, setQueryInput, setSourceQuery, updateAttributes])
+    }, [
+        editorSourceQuery,
+        lastRunQuery,
+        queryInput,
+        sourceQuery,
+        runQuery,
+        setQueryInput,
+        setSourceQuery,
+        updateAttributes,
+    ])
 
     return editorSourceQuery
 }
@@ -200,7 +234,9 @@ export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
 
     return (
         <div
-            className="flex h-full min-h-0 flex-col"
+            className="flex min-h-0 flex-col overflow-hidden"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={getEmbeddedSqlEditorStyle(attributes.height)}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -226,13 +262,11 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
         return <></>
     }
 
-    const editorHeight = attributes.height ?? EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT
-
     return (
         <div
             className="h-full min-h-0 overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: editorHeight, minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT }}
+            style={getEmbeddedSqlEditorStyle(attributes.height)}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -266,13 +300,12 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
-    const editorHeight = attributes.height ?? EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT
 
     return (
         <div
             className="h-full min-h-0 overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: editorHeight, minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT }}
+            style={getEmbeddedSqlEditorStyle(attributes.height)}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >

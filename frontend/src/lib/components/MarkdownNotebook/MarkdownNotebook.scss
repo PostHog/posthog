@@ -1,5 +1,10 @@
 .MarkdownNotebook {
     --markdown-notebook-component-background: var(--color-bg-surface-primary);
+    --markdown-notebook-inline-control-gap: 0.125rem;
+    --markdown-notebook-inline-control-width: 1.5rem;
+    --markdown-notebook-content-offset: calc(
+        var(--markdown-notebook-inline-control-width) + var(--markdown-notebook-inline-control-gap)
+    );
 
     width: 100%;
     min-height: 100%;
@@ -92,24 +97,33 @@
 
 .MarkdownNotebook__text-row {
     display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr);
-    gap: 0.25rem;
+    grid-template-columns: var(--markdown-notebook-inline-control-width) minmax(0, 1fr);
+    gap: var(--markdown-notebook-inline-control-gap);
     align-items: center;
     width: 100%;
     min-width: 0;
 }
 
 .MarkdownNotebook__text-row--ai-prompt {
-    grid-template-columns: 2rem auto minmax(0, 1fr);
+    grid-template-columns: var(--markdown-notebook-inline-control-width) auto minmax(0, 1fr);
 }
 
 .MarkdownNotebook__line-insert-menu-button {
-    grid-column: 1;
     justify-self: start;
     color: var(--color-text-secondary);
     pointer-events: none;
     opacity: 0;
     transition: opacity 120ms ease;
+}
+
+.MarkdownNotebook__line-insert-menu-hit-area {
+    display: flex;
+    grid-column: 1;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    min-height: 1.75rem;
 }
 
 .MarkdownNotebook__line-insert-menu-icon {
@@ -127,6 +141,7 @@
     opacity: 0.35;
 }
 
+.MarkdownNotebook__line-insert-menu-hit-area:hover .MarkdownNotebook__line-insert-menu-button,
 .MarkdownNotebook__text-row--inline-menu-visible .MarkdownNotebook__line-insert-menu-button:hover,
 .MarkdownNotebook__line-insert-menu-button[aria-expanded='true'],
 .MarkdownNotebook__line-insert-menu-button:focus-visible {
@@ -138,6 +153,15 @@
     position: relative;
     width: 100%;
     height: 0.25rem;
+}
+
+.MarkdownNotebook__insert-boundary-hover-zone {
+    position: absolute;
+    top: -0.5rem;
+    bottom: -0.5rem;
+    left: 0;
+    z-index: 1;
+    width: var(--markdown-notebook-content-offset);
 }
 
 .MarkdownNotebook__insert-boundary-button {
@@ -436,7 +460,7 @@ h3.MarkdownNotebook__text-block--heading {
 .MarkdownNotebook__list-block,
 .MarkdownNotebook__table-block,
 .MarkdownNotebook__code-block {
-    margin-left: 2.25rem;
+    margin-left: var(--markdown-notebook-content-offset);
 }
 
 .MarkdownNotebook__list-block {
@@ -631,7 +655,7 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-shell {
     position: relative;
-    margin: 0.5rem 0 0.5rem 2.25rem;
+    margin: 0.5rem 0 0.5rem var(--markdown-notebook-content-offset);
     overflow: hidden;
     background: var(--markdown-notebook-component-background);
     border: 0;
