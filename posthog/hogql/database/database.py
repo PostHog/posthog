@@ -149,13 +149,17 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.team.team import WeekStartDay
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team, WeekStartDay
+from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
@@ -167,11 +171,11 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable, 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning
 
-    from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
+    from posthog.models import User
 
+    # Imported lazily where used: datawarehouse_saved_query imports this module, so a top-level
+    # import would be circular.
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-    from products.data_tools.backend.models.join import DataWarehouseJoin
 
 tracer = trace.get_tracer(__name__)
 
@@ -380,9 +384,6 @@ def _compute_system_table_access_decision(
     resource scope. Returns the (warmed) UserAccessControl to attach to the database and the set of
     system-node table names to remove. The UserAccessControl caches organization membership, roles
     and access controls, so any later read on it is free of further queries."""
-    from posthog.models import OrganizationMembership
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
-
     system_children = SystemTables().children
 
     # No user: remove every access-controlled system table.
@@ -700,7 +701,6 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -968,12 +968,8 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from posthog.hogql.query import create_default_modifiers_for_team
-
-        from posthog.models import Team
-
+        # datawarehouse_saved_query imports this module, so a top-level import would be circular.
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.data_tools.backend.models.join import DataWarehouseJoin
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
