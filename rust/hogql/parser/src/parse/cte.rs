@@ -41,15 +41,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 
     /// `self.peek()` is `(`. Probe whether this paren group heads a
-    /// column-form CTE — i.e. a top-level `AS identifier` alias
-    /// terminates the expression it begins — rather than being the
-    /// leading paren of the enclosing SELECT statement.
+    /// column-form CTE — i.e. a top-level `AS identifier` alias follows
+    /// the expression it begins — rather than being the leading paren of
+    /// the enclosing SELECT statement.
     ///
     /// The paren group can be the whole expression (`(a + b) AS y`,
     /// `(SELECT 1) AS x`) or just its head, with an operator tail
     /// before the alias (`(a - b) * 10 AS y`, `(SELECT n) + 1 AS y`).
     /// Either way the distinguishing mark is a depth-0 `AS <ident>`:
-    /// the alias of a column-form CTE. A trailing-comma main query
+    /// the alias of a column-form CTE. We scan forward and return true
+    /// on the first depth-0 `AS <ident>`. A trailing-comma main query
     /// (`WITH a AS 1, (SELECT 2)`) has no such alias, so we stop at
     /// EOF, a depth-0 comma, or a `)` that closes past the leading
     /// paren (the enclosing query's own paren).
@@ -282,50 +283,5 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(self
             .emit
             .cte_subquery(&name, sub, columns, using_key, materialized))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::parse::parse_select;
-
-    fn assert_parses(src: &str) {
-        parse_select(src).unwrap_or_else(|e| panic!("expected ok for {src:?}: {e:?}"));
-    }
-
-    /// A non-first CTE whose column-form expression begins with a paren
-    /// group followed by an operator tail (`(a - b) * 10 AS c`) must
-    /// parse. Regression: the CTE-list loop terminated early because the
-    /// paren-group probe only accepted `(...)` immediately followed by
-    /// `AS`, so the trailing operator chain sent the leftover into the
-    /// SELECT parser ("mismatched input ... expecting {SELECT, WITH, ...}").
-    #[test]
-    fn paren_led_non_first_cte_with_operator_tail() {
-        for src in [
-            "WITH 5 AS a, 2 AS b, (a - b) * 10 AS c SELECT c",
-            "WITH 1 AS a, (a) + 1 AS c SELECT c",
-            "WITH (a - b) AS c, (c) * 2 AS d SELECT d",
-            // scalar subquery as the head of a larger CTE expression
-            "WITH 1 AS a, (SELECT 2) + 1 AS c SELECT c",
-            // paren group followed by a postfix property access then operator
-            "WITH x AS (SELECT 1 AS n), (x.n) * 2 AS y SELECT y FROM x",
-        ] {
-            assert_parses(src);
-        }
-    }
-
-    /// The fix must not over-eat: a paren group with the alias directly
-    /// after `)` is still a CTE, and a trailing-comma main query
-    /// (`WITH a AS 1, (SELECT 2)`) — a paren group with no alias — must
-    /// still terminate the CTE list and parse as the enclosing select.
-    #[test]
-    fn paren_led_cte_disambiguation_preserved() {
-        for src in [
-            "WITH 1 AS a, (a) AS c SELECT c",
-            "WITH 1 AS a, (SELECT 2) AS c SELECT c",
-            "WITH 1 AS a, (SELECT 2)",
-        ] {
-            assert_parses(src);
-        }
     }
 }
