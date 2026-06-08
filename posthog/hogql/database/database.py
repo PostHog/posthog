@@ -100,6 +100,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
@@ -309,6 +310,10 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "conversion_goal_attributed_preaggregated": TableNode(
                         name="conversion_goal_attributed_preaggregated",
                         table=ConversionGoalAttributedPreaggregatedTable(),
+                    ),
+                    "marketing_touchpoints_preaggregated": TableNode(
+                        name="marketing_touchpoints_preaggregated",
+                        table=MarketingTouchpointsPreaggregatedTable(),
                     ),
                     "web_stats_paths_preaggregated": TableNode(
                         name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
@@ -703,8 +708,13 @@ class Database(BaseModel):
                     to_attr="latest_completed_job",
                 ),
             )
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
-            .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
+            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
+            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
+            .queryable()
+            .filter(team_id=context.team_id)
+            # The catalog is built last-write-wins per table key, so order created_at ascending to
+            # land the newest row last when two live tables share a name — matching tree resolution.
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
         )
         if self._is_direct_query():
             warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
@@ -883,6 +893,8 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
+        db_span = trace.get_current_span()
+
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
@@ -903,9 +915,7 @@ class Database(BaseModel):
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)
 
-            # Set team_id for the create_hogql_database tracing span
-            span = trace.get_current_span()
-            span.set_attribute("team_id", team.pk)
+            db_span.set_attribute("team_id", team.pk)
 
         with timings.measure("feature_flags", emit_span=True):
             is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -1161,11 +1171,16 @@ class Database(BaseModel):
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 
-            with timings.measure("select"):
+            with timings.measure("select", emit_span=True):
                 tables_query = (
+                    # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
+                    # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
-                    .exclude(deleted=True)
+                    .queryable()
                     .select_related("credential", "external_data_source")
+                    # Deterministic tiebreak when two live tables share a name: newest wins, since
+                    # name collisions resolve first-come-first-served when added to the table tree.
+                    .order_by("-created_at")
                 )
                 if database._is_direct_query():
                     tables_query = tables_query.filter(external_data_source_id=database._connection_id)
@@ -1185,66 +1200,70 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
-            sync_warnings_now = datetime.now(UTC)
-            for table in tables:
-                if (
-                    not database._is_direct_query()
-                    and table.external_data_source
-                    and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                ):
-                    continue
+            with timings.measure("build_tables", emit_span=True):
+                sync_warnings_now = datetime.now(UTC)
+                for table in tables:
+                    if (
+                        not database._is_direct_query()
+                        and table.external_data_source
+                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    ):
+                        continue
 
-                with timings.measure(f"table_{table.name}"):
-                    s3_table = table.hogql_definition(modifiers)
+                    with timings.measure(f"table_{table.name}"):
+                        s3_table = table.hogql_definition(modifiers)
 
-                    sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
-                    if sync_warnings:
-                        database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
-                    primary_table = s3_table
+                        sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
+                        if sync_warnings:
+                            database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
+                        primary_table = s3_table
 
-                    # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
-                        s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
-                            fields=s3_table.fields, parent_table=s3_table, hidden=True
-                        )
-
-                    if table.external_data_source:
-                        if not database._is_direct_query():
-                            warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-                    else:
-                        self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-
-                    if table.external_data_source:
-                        for index, table_key in enumerate(
-                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
-                        ):
-                            table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
-                            table_chain = table_key.split(".")
-                            table_conflict_mode: Literal["override", "ignore"] = (
-                                "override"
-                                if database._is_direct_query()
-                                and table.external_data_source
-                                and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                                else "ignore"
+                        # If the warehouse table has no _properties_ field, then set it as a virtual table
+                        if s3_table.fields.get("properties") is None:
+                            s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                                fields=s3_table.fields, parent_table=s3_table, hidden=True
                             )
 
-                            # For a chain of type a.b.c, we want to create a nested table node
-                            # where a is the parent, b is the child of a, and c is the child of b
-                            # where a.b.c will contain the table
-                            warehouse_tables.add_child(
-                                TableNode.create_nested_for_chain(table_chain, table_for_key),
-                                table_conflict_mode=table_conflict_mode,
-                            )
+                        if table.external_data_source:
+                            if not database._is_direct_query():
+                                warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                        else:
+                            self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
-                            joined_table_chain = ".".join(table_chain)
-                            table_for_key.name = joined_table_chain
-                            warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                            if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                                database._direct_access_warehouse_table_names.add(joined_table_chain)
-                            if index == 0:
-                                primary_table = table_for_key
+                        if table.external_data_source:
+                            for index, table_key in enumerate(
+                                _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                            ):
+                                table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                                table_chain = table_key.split(".")
+                                table_conflict_mode: Literal["override", "ignore"] = (
+                                    "override"
+                                    if database._is_direct_query()
+                                    and table.external_data_source
+                                    and table.external_data_source.access_method
+                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    else "ignore"
+                                )
 
-                    warehouse_tables_to_process.append((primary_table, table))
+                                # For a chain of type a.b.c, we want to create a nested table node
+                                # where a is the parent, b is the child of a, and c is the child of b
+                                # where a.b.c will contain the table
+                                warehouse_tables.add_child(
+                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    table_conflict_mode=table_conflict_mode,
+                                )
+
+                                joined_table_chain = ".".join(table_chain)
+                                table_for_key.name = joined_table_chain
+                                warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                    database._direct_access_warehouse_table_names.add(joined_table_chain)
+                                if index == 0:
+                                    primary_table = table_for_key
+
+                        warehouse_tables_to_process.append((primary_table, table))
+
+        db_span.set_attribute("warehouse_table_count", len(tables))
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None

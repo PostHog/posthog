@@ -1,5 +1,6 @@
 pub mod config;
 pub mod consumer;
+pub mod dispatcher;
 pub mod kafka_config;
 pub mod router;
 pub mod transport;

@@ -13,7 +13,7 @@ from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
-from posthog.api.sdk_doctor import SdkDoctorViewSet
+from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
@@ -24,9 +24,9 @@ from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
-from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.exports.backend.api import exports
+from products.managed_migrations.backend.api.batch_imports import BatchImportViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -157,7 +157,7 @@ def register_legacy_dual_route_team_nested_viewset(
 
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
-projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
+projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,

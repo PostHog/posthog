@@ -49,6 +49,10 @@ MAX_RUNS_PER_TICK = 50
 # just the polling granularity — the floor on how often any scout can run.
 COORDINATOR_INTERVAL_MINUTES = 30
 
+# Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
+# else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
+DUE_GRACE_SECONDS = 60
+
 
 @dataclass
 class PlannedRun:
@@ -281,11 +285,11 @@ def _register_missing_configs(team: Team) -> set[str]:
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
-    """Seconds past due, or None if not yet due. Never-run rows are maximally overdue."""
+    """Seconds past due (down to `-DUE_GRACE_SECONDS`), or None if not yet due. Never-run rows are maximally overdue."""
     if config.last_run_at is None:
         return float("inf")
     overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60
-    return overdue if overdue >= 0 else None
+    return overdue if overdue >= -DUE_GRACE_SECONDS else None
 
 
 @workflow.defn(name="run-signals-scout-coordinator")
