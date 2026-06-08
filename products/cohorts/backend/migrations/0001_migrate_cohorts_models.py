@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 migrations.CreateModel(
                     name="CohortPeople",
                     fields=[
-                        ("id", models.BigAutoField(primary_key=True, serialize=False)),
+                        ("id", models.AutoField(primary_key=True, serialize=False)),
                         ("version", models.IntegerField(blank=True, null=True)),
                     ],
                     options={
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                     fields=[
                         (
                             "id",
-                            models.BigAutoField(
+                            models.AutoField(
                                 auto_created=True,
                                 primary_key=True,
                                 serialize=False,
