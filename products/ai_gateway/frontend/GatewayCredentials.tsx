@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, Spinner } from '@posthog/lemon-ui'
 
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -62,7 +62,7 @@ function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
 
 export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.Element {
     const { gateways, credentialsByGateway, credentialsByGatewayLoading } = useValues(aiGatewayLogic)
-    const { moveCredential } = useActions(aiGatewayLogic)
+    const { moveCredential, unassignCredential } = useActions(aiGatewayLogic)
 
     const credentials = credentialsByGateway[gateway.id]
     const otherGateways = gateways.filter((g) => g.id !== gateway.id)
@@ -75,22 +75,31 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
         )
     }
 
-    const moveMenu = (credentialType: CredentialType, credentialId: string): JSX.Element => (
-        <LemonMenu
-            items={otherGateways.map((g) => ({
-                label: g.slug,
-                onClick: () =>
-                    moveCredential({ credentialType, credentialId, fromGatewayId: gateway.id, toGatewayId: g.id }),
-            }))}
-        >
+    const rowActions = (credentialType: CredentialType, credentialId: string): JSX.Element => (
+        <div className="flex items-center gap-1">
+            <LemonMenu
+                items={otherGateways.map((g) => ({
+                    label: g.slug,
+                    onClick: () =>
+                        moveCredential({ credentialType, credentialId, fromGatewayId: gateway.id, toGatewayId: g.id }),
+                }))}
+            >
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    disabledReason={!otherGateways.length ? 'No other gateways' : undefined}
+                >
+                    Move to…
+                </LemonButton>
+            </LemonMenu>
             <LemonButton
                 size="small"
-                type="secondary"
-                disabledReason={!otherGateways.length ? 'No other gateways' : undefined}
-            >
-                Move to…
-            </LemonButton>
-        </LemonMenu>
+                status="danger"
+                icon={<IconTrash />}
+                tooltip="Remove from gateway (the key stays, just stops attributing here)"
+                onClick={() => unassignCredential({ credentialType, credentialId, gatewayId: gateway.id })}
+            />
+        </div>
     )
 
     if (!credentials.personal_api_keys.length && !credentials.oauth_applications.length) {
@@ -111,7 +120,7 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
                         <span>{key.label}</span>
                         <span className="text-secondary">personal API key</span>
                     </div>
-                    {moveMenu('personal_api_key', key.id)}
+                    {rowActions('personal_api_key', key.id)}
                 </div>
             ))}
             {credentials.oauth_applications.map((app) => (
@@ -120,7 +129,7 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
                         <span>{app.name}</span>
                         <span className="text-secondary">OAuth app · {app.client_id}</span>
                     </div>
-                    {moveMenu('oauth_application', app.id)}
+                    {rowActions('oauth_application', app.id)}
                 </div>
             ))}
             {credentialsByGatewayLoading && <Spinner />}

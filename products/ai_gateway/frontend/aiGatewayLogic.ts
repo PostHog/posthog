@@ -17,6 +17,7 @@ import {
     gatewaysDestroy,
     gatewaysList,
     gatewaysPartialUpdate,
+    gatewaysUnassignCredentialCreate,
 } from './generated/api'
 import { AssignableCredentialApi, GatewayApi, GatewayBoundCredentialsApi } from './generated/api.schemas'
 
@@ -47,6 +48,8 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             toGatewayId: string
         }) => payload,
         assignCredential: (payload: { credentialId: string; gatewayId: string }) => payload,
+        unassignCredential: (payload: { credentialType: CredentialType; credentialId: string; gatewayId: string }) =>
+            payload,
     }),
     loaders(({ values }) => ({
         gateways: [
@@ -167,6 +170,21 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             actions.loadCredentials({ gatewayId })
             actions.loadAssignableCredentials()
             lemonToast.success('Key assigned')
+        },
+        unassignCredential: async ({ credentialType, credentialId, gatewayId }) => {
+            try {
+                await gatewaysUnassignCredentialCreate(String(values.currentTeamId), gatewayId, {
+                    credential_type: credentialType,
+                    credential_id: credentialId,
+                })
+            } catch {
+                lemonToast.error('Could not remove key')
+                return
+            }
+            actions.loadGateways()
+            actions.loadCredentials({ gatewayId })
+            actions.loadAssignableCredentials()
+            lemonToast.success('Key removed from gateway')
         },
     })),
     afterMount(({ actions }) => {

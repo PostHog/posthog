@@ -70,3 +70,19 @@ export const GatewaysBindCredentialCreateBody = /* @__PURE__ */ zod.object({
         ),
     credential_id: zod.string().describe('Id of the credential to reassign to this gateway.'),
 })
+
+/**
+ * Remove a credential from this gateway, leaving it unassigned.
+
+You can remove your own personal key; removing anyone else's key (or an OAuth
+application) is admin-only, like the cross-gateway move.
+ */
+export const GatewaysUnassignCredentialCreateBody = /* @__PURE__ */ zod.object({
+    credential_type: zod
+        .enum(['personal_api_key', 'oauth_application'])
+        .describe('\* `personal_api_key` - personal_api_key\n\* `oauth_application` - oauth_application')
+        .describe(
+            'Which kind of credential to reassign.\n\n\* `personal_api_key` - personal_api_key\n\* `oauth_application` - oauth_application'
+        ),
+    credential_id: zod.string().describe('Id of the credential to reassign to this gateway.'),
+})

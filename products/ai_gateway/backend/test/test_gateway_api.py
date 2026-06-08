@@ -244,3 +244,57 @@ class TestGatewayAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         key.refresh_from_db()
         self.assertEqual(key.gateway_id, gateway.id)
+
+    def test_unassign_credential_unbinds_key_from_gateway(self):
+        gateway = self._gateway()
+        key = self._bind_key(gateway, "remove-me")
+        response = self.client.post(
+            self._url(f"{gateway.id}/unassign_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        key.refresh_from_db()
+        self.assertIsNone(key.gateway_id)
+
+    def test_unassign_credential_rejects_key_bound_to_another_gateway(self):
+        gateway = self._gateway()
+        self.client.post(self._url(), {"slug": "other"})
+        other_gateway = self._gateway("other")
+        key = self._bind_key(other_gateway, "elsewhere")
+        response = self.client.post(
+            self._url(f"{gateway.id}/unassign_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        key.refresh_from_db()
+        self.assertEqual(key.gateway_id, other_gateway.id)
+
+    def test_member_can_unassign_own_key_but_not_another_members(self):
+        gateway = self._gateway()
+        own = self._bind_key(gateway, "mine")
+        other = User.objects.create_and_join(self.organization, "other3@example.com", "pw")
+        theirs = PersonalAPIKey.objects.create(
+            label="theirs",
+            user=other,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["llm_gateway:read"],
+            gateway=gateway,
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Own key → allowed.
+        response = self.client.post(
+            self._url(f"{gateway.id}/unassign_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(own.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # Another member's key → forbidden for a non-admin.
+        response = self.client.post(
+            self._url(f"{gateway.id}/unassign_credential/"),
+            {"credential_type": "personal_api_key", "credential_id": str(theirs.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.gateway_id, gateway.id)

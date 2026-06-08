@@ -204,6 +204,30 @@ export const gatewaysCredentialsRetrieve = async (
     })
 }
 
+export const getGatewaysUnassignCredentialCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/gateways/${id}/unassign_credential/`
+}
+
+/**
+ * Remove a credential from this gateway, leaving it unassigned.
+
+You can remove your own personal key; removing anyone else's key (or an OAuth
+application) is admin-only, like the cross-gateway move.
+ */
+export const gatewaysUnassignCredentialCreate = async (
+    projectId: string,
+    id: string,
+    bindCredentialApi: BindCredentialApi,
+    options?: RequestInit
+): Promise<GatewayApi> => {
+    return apiMutator<GatewayApi>(getGatewaysUnassignCredentialCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bindCredentialApi),
+    })
+}
+
 export const getGatewaysAssignableCredentialsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/gateways/assignable_credentials/`
 }

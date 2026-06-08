@@ -4,7 +4,7 @@ from django.db.models import Count, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -28,6 +28,11 @@ _CREDENTIAL_TYPE_OAUTH_APPLICATION = "oauth_application"
 _GATEWAY_SCOPE = "llm_gateway:read"
 
 
+def _canonical_team(team: Team) -> Team:
+    """The parent team that owns project-scoped resources (a child env resolves up)."""
+    return team if team.parent_team_id is None else Team.objects.get(id=team.parent_team_id)
+
+
 class GatewayManagementPermission(TeamMemberStrictManagementPermission):
     """Authorize against the canonical (parent) team that owns the gateway.
 
@@ -37,15 +42,13 @@ class GatewayManagementPermission(TeamMemberStrictManagementPermission):
     gateway, so resolve the parent and check there — matching the resource's owner.
     """
 
-    # Assigning your own unbound key only touches that key (gated to the owner in
-    # the action), so it's member-level — unlike the admin-gated gateway mutations
+    # These touch only the requesting user's own key (re-checked per-key in the
+    # action), so they're member-level — unlike the admin-gated gateway mutations
     # and the cross-gateway credential move.
-    member_level_actions = {"assignable_credentials", "assign_credential"}
+    member_level_actions = {"assignable_credentials", "assign_credential", "unassign_credential"}
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        team = view.team  # type: ignore[attr-defined]
-        canonical = team if team.parent_team_id is None else Team.objects.get(id=team.parent_team_id)
-        level = view.user_permissions.team(canonical).effective_membership_level  # type: ignore[attr-defined]
+        level = view.user_permissions.team(_canonical_team(view.team)).effective_membership_level  # type: ignore[attr-defined]
         if level is None:
             return False
         member_ok = request.method in SAFE_METHODS or getattr(view, "action", None) in self.member_level_actions
@@ -250,6 +253,53 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         report_user_action(
             self.request.user,
             "gateway credential bound",
+            {"gateway_id": str(gateway.id), "slug": gateway.slug, "credential_type": credential_type},
+            team=self.team,
+        )
+        # Re-fetch through the annotated queryset so bound_credentials_count is fresh.
+        return Response(self.get_serializer(self.get_queryset().get(pk=gateway.pk)).data)
+
+    def _is_project_admin(self) -> bool:
+        level = self.user_permissions.team(_canonical_team(self.team)).effective_membership_level
+        return level is not None and level >= OrganizationMembership.Level.ADMIN
+
+    @extend_schema(request=BindCredentialSerializer, responses=GatewaySerializer)
+    @action(detail=True, methods=["post"], url_path="unassign_credential")
+    def unassign_credential(self, request: Request, **kwargs: object) -> Response:
+        """Remove a credential from this gateway, leaving it unassigned.
+
+        You can remove your own personal key; removing anyone else's key (or an OAuth
+        application) is admin-only, like the cross-gateway move."""
+        gateway = self.get_object()
+        serializer = BindCredentialSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        credential_type = serializer.validated_data["credential_type"]
+        credential_id = serializer.validated_data["credential_id"]
+
+        # Scoped to credentials bound to THIS gateway — that's the authorization boundary.
+        if credential_type == _CREDENTIAL_TYPE_PERSONAL_API_KEY:
+            credential = PersonalAPIKey.objects.filter(  # nosemgrep: idor-lookup-without-user
+                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
+                gateway_id=gateway.id,
+            ).first()
+            owns = credential is not None and credential.user_id == request.user.id
+        else:
+            credential = OAuthApplication.objects.filter(  # nosemgrep: idor-lookup-without-user
+                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
+                gateway_id=gateway.id,
+            ).first()
+            owns = False  # OAuth apps are org-managed; no per-user self-service path.
+
+        if credential is None:
+            raise ValidationError({"credential_id": "Credential not found, or not assigned to this gateway."})
+        if not owns and not self._is_project_admin():
+            raise PermissionDenied("Only project admins can remove another member's key.")
+
+        credential.gateway = None
+        credential.save(update_fields=["gateway"])
+        report_user_action(
+            self.request.user,
+            "gateway credential unassigned",
             {"gateway_id": str(gateway.id), "slug": gateway.slug, "credential_type": credential_type},
             team=self.team,
         )

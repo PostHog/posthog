@@ -21,6 +21,7 @@ jest.mock('./generated/api', () => ({
     gatewaysBindCredentialCreate: jest.fn(),
     gatewaysAssignableCredentialsList: jest.fn().mockResolvedValue([]),
     gatewaysAssignCredentialCreate: jest.fn(),
+    gatewaysUnassignCredentialCreate: jest.fn(),
 }))
 
 jest.mock('./gatewayUsage', () => ({
