@@ -33,7 +33,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-07-09',
-        pageUrl: urls.aiGatewayDetail(GATEWAY.id),
+        pageUrl: urls.aiGatewayDetail(GATEWAY.slug),
     },
     decorators: [
         mswDecorator({

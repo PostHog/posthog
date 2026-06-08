@@ -21,7 +21,7 @@ import { GatewayApi } from './generated/api.schemas'
 export const scene: SceneExport<AIGatewayDetailLogicProps> = {
     component: AIGatewayDetailScene,
     logic: aiGatewayDetailLogic,
-    paramsToProps: ({ params: { id } }: SceneParams): AIGatewayDetailLogicProps => ({ id: id ?? '' }),
+    paramsToProps: ({ params: { slug } }: SceneParams): AIGatewayDetailLogicProps => ({ slug: slug ?? '' }),
     productKey: ProductKey.AI_GATEWAY,
 }
 

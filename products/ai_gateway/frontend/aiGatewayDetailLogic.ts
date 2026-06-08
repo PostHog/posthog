@@ -6,11 +6,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { aiGatewayDetailLogicType } from './aiGatewayDetailLogicType'
 import { aiGatewayLogic } from './aiGatewayLogic'
 import { fetchGatewayUsage, GatewayUsage } from './gatewayUsage'
-import { gatewaysRetrieve } from './generated/api'
+import { gatewaysList } from './generated/api'
 import { GatewayApi } from './generated/api.schemas'
 
 export interface AIGatewayDetailLogicProps {
-    id: string
+    slug: string
 }
 
 export type EndpointTab = 'curl' | 'openai' | 'anthropic'
@@ -18,7 +18,7 @@ export type EndpointTab = 'curl' | 'openai' | 'anthropic'
 export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
     path((key) => ['products', 'ai_gateway', 'frontend', 'aiGatewayDetailLogic', key]),
     props({} as AIGatewayDetailLogicProps),
-    key((props) => props.id),
+    key((props) => props.slug),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], aiGatewayLogic, ['gateways']],
         actions: [aiGatewayLogic, ['loadCredentials', 'loadGateways']],
@@ -34,25 +34,28 @@ export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
         gateway: [
             null as GatewayApi | null,
             {
-                loadGateway: async () => await gatewaysRetrieve(String(values.currentTeamId), props.id),
+                // The URL carries the slug (human-readable); resolve it to the gateway.
+                loadGateway: async () => {
+                    const results = (await gatewaysList(String(values.currentTeamId), { limit: 1000 })).results
+                    return results.find((g) => g.slug === props.slug) ?? null
+                },
             },
         ],
         usage: [
             null as GatewayUsage | null,
             {
-                loadUsage: async () => {
-                    const slug = values.gateway?.slug
-                    return slug ? await fetchGatewayUsage(slug) : null
-                },
+                loadUsage: async () => (props.slug ? await fetchGatewayUsage(props.slug) : null),
             },
         ],
     })),
-    listeners(({ props, actions }) => ({
+    listeners(({ values, actions }) => ({
         loadGatewaySuccess: () => {
             // The move-credential menu needs the team's other gateways; credentials
-            // and usage need this gateway's slug, now loaded.
+            // are keyed by the resolved gateway's id.
             actions.loadGateways()
-            actions.loadCredentials({ gatewayId: props.id })
+            if (values.gateway) {
+                actions.loadCredentials({ gatewayId: values.gateway.id })
+            }
             actions.loadUsage()
         },
     })),

@@ -25,12 +25,12 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/ai-gateway': ['AIGateway', 'aiGateway'],
-        '/ai-gateway/:id': ['AIGatewayDetail', 'aiGateway'],
+        '/ai-gateway/:slug': ['AIGatewayDetail', 'aiGateway'],
     },
     redirects: {},
     urls: {
         aiGateway: (): string => '/ai-gateway',
-        aiGatewayDetail: (id: string): string => `/ai-gateway/${id}`,
+        aiGatewayDetail: (slug: string): string => `/ai-gateway/${encodeURIComponent(slug)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

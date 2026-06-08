@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
@@ -18,7 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { aiGatewayLogic } from './aiGatewayLogic'
-import { GatewayCredentials, profileUser } from './GatewayCredentials'
+import { profileUser } from './GatewayCredentials'
 import { UsageTiles } from './gatewayUsage'
 import { GatewayApi } from './generated/api.schemas'
 
@@ -35,14 +36,14 @@ export const scene: SceneExport = {
 
 export function AIGatewayScene(): JSX.Element {
     const { gateways, gatewaysLoading, usage, usageLoading } = useValues(aiGatewayLogic)
-    const { openNewGateway, openEditGateway, deleteGateway, loadCredentials } = useActions(aiGatewayLogic)
+    const { openNewGateway, openEditGateway, deleteGateway } = useActions(aiGatewayLogic)
 
     const columns: LemonTableColumns<GatewayApi> = [
         {
             title: 'Gateway',
             dataIndex: 'slug',
             render: (slug, gateway) => (
-                <Link to={urls.aiGatewayDetail(gateway.id)} className="font-mono font-semibold">
+                <Link to={urls.aiGatewayDetail(gateway.slug)} className="font-mono font-semibold">
                     {slug as string}
                 </Link>
             ),
@@ -136,10 +137,10 @@ export function AIGatewayScene(): JSX.Element {
                 loading={gatewaysLoading}
                 rowKey="id"
                 emptyState="No gateways yet. Create one to start attributing LLM usage."
-                expandable={{
-                    onRowExpand: (gateway) => loadCredentials({ gatewayId: gateway.id }),
-                    expandedRowRender: (gateway) => <GatewayCredentials gateway={gateway} />,
-                }}
+                onRow={(gateway) => ({
+                    onClick: () => router.actions.push(urls.aiGatewayDetail(gateway.slug)),
+                    className: 'cursor-pointer',
+                })}
             />
             <EditGatewayModal />
         </SceneContent>
