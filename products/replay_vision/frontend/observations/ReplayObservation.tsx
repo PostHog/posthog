@@ -29,6 +29,7 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     failureKindDescription,
     ineligibleKindDescription,
@@ -181,6 +182,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 name={scannerName}
                 description={`Observation of session ${observation.session_id}`}
                 resourceType={{ type: 'replay_vision' }}
+                actions={<ReplayVisionFeedbackButton />}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

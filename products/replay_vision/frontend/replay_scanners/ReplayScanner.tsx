@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
@@ -55,29 +56,32 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <More
-                        size="small"
-                        overlay={
-                            <LemonButton
-                                status="danger"
-                                fullWidth
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                        description: 'This cannot be undone.',
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            status: 'danger',
-                                            onClick: () => deleteScanner(),
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                }
-                            >
-                                Delete
-                            </LemonButton>
-                        }
-                    />
+                    <>
+                        <ReplayVisionFeedbackButton />
+                        <More
+                            size="small"
+                            overlay={
+                                <LemonButton
+                                    status="danger"
+                                    fullWidth
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
+                                            description: 'This cannot be undone.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteScanner(),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                >
+                                    Delete
+                                </LemonButton>
+                            }
+                        />
+                    </>
                 }
             />
 
