@@ -54,6 +54,7 @@ import {
     WEEKDAYS,
     AI_PROMPT_MAX_LENGTH,
 } from '../utils'
+import { AiPromptMarkdownEditor } from './AiPromptMarkdownEditor'
 
 // Shown wherever AI subscriptions are gated off (org hasn't approved AI data
 // processing). Mirrors the backend gate in `_ai_create_gate_reason`, which 403s
@@ -184,11 +185,7 @@ function AiPromptFields({
                 label="Prompt"
                 help="Describe what the AI should look for. The same prompt runs every time the subscription fires."
             >
-                <LemonTextArea
-                    placeholder="e.g. Which events grew the most week-over-week? Highlight any unusual spikes."
-                    minRows={4}
-                    maxLength={AI_PROMPT_MAX_LENGTH}
-                />
+                <AiPromptMarkdownEditor maxLength={AI_PROMPT_MAX_LENGTH} />
             </LemonField>
             {/* Starter chips replace the whole prompt, so only offer them while the field is empty — once the
                 user has typed anything, a stray click would wipe their prompt with no undo. */}
