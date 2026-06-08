@@ -24,11 +24,7 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-    rest_api_resources,
-)
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import (
     build_resource_dependency_graph,
@@ -482,8 +478,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # Fan-out child resources bind a parent row's field into their path
         # (`/forms/{form_id}/responses`), so they can't be reached without first
         # fetching a parent — skip them. Auth is shared across resources, so the
-        # top-level resources still validate the credential.
-        probeable = [resource for resource in manifest["resources"] if _find_resolve_parent(resource) is None]
+        # top-level resources still validate the credential. The engine's own
+        # dependency map (not a local copy of its resolve-param detection) tells
+        # us which resources are children.
+        resolved = _resolved_param_map(manifest)
+        probeable = [resource for resource in manifest["resources"] if resolved.get(resource.get("name")) is None]
         for resource in probeable[:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
@@ -565,12 +564,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             if chosen is None:
                 raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
 
-            # When the chosen resource binds a parent via a `type: "resolve"`
-            # param, the REST engine needs the parent(s) in the same config so it
-            # can fan out: fetch the parent, then issue one child request per
-            # parent row. `chain` is [root, …, chosen]; a top-level resource is
-            # just [chosen].
-            chain = _resolve_ancestor_chain(manifest, chosen)
+            # The resources to run for this schema: `chosen` plus, when it's a
+            # fan-out child, its ancestor chain (root first). The engine then
+            # fetches each parent and issues one child request per parent row; the
+            # ancestors drive the child transiently and aren't persisted — only
+            # `chosen` is returned as its own table. A top-level resource is just
+            # `[chosen]`, so a single code path handles both. See `_fanout_chain`
+            # for why we pass this subset rather than the whole manifest.
+            chain = _fanout_chain(manifest, inputs.schema_name)
         except ValueError as exc:
             # A malformed manifest, a missing resource, or a broken parent
             # reference is a permanent, deterministic failure — retrying the sync
@@ -580,43 +581,27 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # always recur.
             raise NonRetryableException(str(exc)) from exc
 
-        db_incremental_field_last_value = (
-            inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-        )
+        chosen_name = chosen["name"]
 
-        if len(chain) == 1:
-            single_resource_manifest = cast(
-                RESTAPIConfig,
-                {**manifest, "resources": [_strip_engine_unsupported_incremental_keys(chosen)]},
-            )
-            resource = rest_api_resource(
-                single_resource_manifest,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-        else:
-            # Fan-out: hand the engine the whole parent→child chain. The
-            # ancestors are fetched transiently to drive the child and are NOT
-            # persisted — only the chosen child resource is returned (its own
-            # table). Incremental is stripped from the ancestors so the child's
-            # high-watermark isn't misapplied to a parent; ancestors full-scan
-            # every run, matching the built-in fan-out sources (Typeform/Sentry).
-            chosen_name = chosen["name"]
-            fanout_resources = [_prepare_fanout_resource(r, is_child=r["name"] == chosen_name) for r in chain]
-            multi_resource_manifest = cast(
-                RESTAPIConfig,
-                {**manifest, "resources": fanout_resources},
-            )
-            resources = rest_api_resources(
-                multi_resource_manifest,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-            resource = next((r for r in resources if getattr(r, "name", None) == chosen_name), None)
-            if resource is None:
-                raise NonRetryableException(f"Fan-out resource {chosen_name!r} was not produced by the REST engine")
+        # Incremental is stripped from the ancestors (not `chosen`) so the run's
+        # high-watermark — which belongs to `chosen` — isn't applied to a parent,
+        # which would silently drop parent rows and, with them, their children.
+        # Ancestors therefore full-scan every run, matching the built-in fan-out
+        # sources (Typeform/Sentry).
+        engine_resources = [_prepare_fanout_resource(r, is_child=r["name"] == chosen_name) for r in chain]
+        engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
+
+        resources = rest_api_resources(
+            engine_manifest,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
+        )
+        resource = next((r for r in resources if getattr(r, "name", None) == chosen_name), None)
+        if resource is None:
+            raise NonRetryableException(f"Resource {chosen_name!r} was not produced by the REST engine")
 
         primary_key = chosen.get("primary_key")
         primary_keys: list[str] | None
@@ -748,57 +733,55 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
     return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
 
 
-def _find_resolve_parent(resource: Any) -> str | None:
-    """The parent resource name a fan-out child binds via a ``type: "resolve"``
-    param, or ``None`` for a top-level resource.
+def _resolved_param_map(manifest: dict[str, Any]) -> dict[str, Any]:
+    """The REST engine's parent-resolution map for the manifest, keyed by
+    resource name. ``None`` marks a top-level resource; otherwise the value's
+    ``resolve_config["resource"]`` names the parent it fans out from.
 
-    Mirrors the REST engine's ``_find_resolved_params`` — a child declares its
-    parent inside ``endpoint.params`` as
-    ``{"<path_param>": {"type": "resolve", "resource": "<parent>", "field": "<field>"}}``.
-    The manifest is validated to allow at most one such param per resource, so
-    the first match is authoritative.
+    Sourcing this from the engine's own ``build_resource_dependency_graph`` keeps
+    the resolve-param shape (``{"type": "resolve", ...}``) defined in exactly one
+    place — the engine — so the Custom source can't silently diverge from it if
+    that shape ever changes. The graph builder mutates the resources it inspects,
+    so it runs on a deep copy. Callers reach this only after ``validate_manifest``
+    has already built the graph once, so it won't raise here.
     """
-    if not isinstance(resource, dict):
-        return None
-    endpoint = resource.get("endpoint")
-    if not isinstance(endpoint, dict):
-        return None
-    params = endpoint.get("params")
-    if not isinstance(params, dict):
-        return None
-    for value in params.values():
-        if isinstance(value, dict) and value.get("type") == "resolve":
-            parent = value.get("resource")
-            if isinstance(parent, str):
-                return parent
-    return None
+    _, _, resolved = build_resource_dependency_graph(
+        copy.deepcopy(manifest.get("resource_defaults") or {}),
+        copy.deepcopy(manifest["resources"]),
+    )
+    return resolved
 
 
-def _resolve_ancestor_chain(manifest: dict[str, Any], chosen: dict[str, Any]) -> list[dict[str, Any]]:
-    """Walk a fan-out child up to its root, returning ``[root, …, chosen]``.
+def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> list[dict[str, Any]]:
+    """Resources to hand the engine for ``chosen_name``: its fan-out ancestors
+    (root first) then ``chosen`` itself, or just ``[chosen]`` for a top-level
+    resource.
 
-    A top-level resource resolves to ``[chosen]``. The dependency graph is
-    validated at manifest time, so the missing-parent / cycle guards here are
-    defensive — they convert a logic error into a clear, non-retryable failure
-    rather than an opaque engine crash.
+    We pass this subset, not the whole manifest, on purpose. The engine is lazy —
+    resources it builds but we never iterate issue no requests — but it still
+    runs ``setup_incremental_object`` for every resource it's given at build time,
+    so an unrelated resource's config error would otherwise sink this schema's
+    sync. Subsetting also lets ``_prepare_fanout_resource`` full-scan the
+    ancestors (incremental stripped) so the child's high-watermark isn't
+    misapplied to a parent. The parent graph comes from the engine via
+    :func:`_resolved_param_map`, so resolve-param detection isn't re-implemented
+    here; missing-parent and cycle errors are already rejected at manifest time.
     """
+    resolved = _resolved_param_map(manifest)
     by_name: dict[str, dict[str, Any]] = {
         r["name"]: r for r in manifest["resources"] if isinstance(r, dict) and isinstance(r.get("name"), str)
     }
-    chain: list[dict[str, Any]] = [chosen]
-    seen: set[str] = {chosen["name"]}
-    current = chosen
-    while (parent_name := _find_resolve_parent(current)) is not None:
-        if parent_name in seen:
-            raise ValueError(f"Circular parent dependency at resource {parent_name!r}")
-        parent = by_name.get(parent_name)
-        if parent is None:
-            raise ValueError(f"Resource {current['name']!r} depends on unknown parent resource {parent_name!r}")
-        chain.append(parent)
+    names: list[str] = [chosen_name]
+    seen: set[str] = {chosen_name}
+    current = chosen_name
+    while resolved.get(current) is not None:
+        parent_name = resolved[current].resolve_config["resource"]
+        if parent_name in seen:  # cycles are rejected at manifest time; guard against a logic error
+            break
+        names.append(parent_name)
         seen.add(parent_name)
-        current = parent
-    chain.reverse()
-    return chain
+        current = parent_name
+    return [by_name[name] for name in reversed(names)]
 
 
 def _prepare_fanout_resource(resource: dict[str, Any], *, is_child: bool) -> dict[str, Any]:

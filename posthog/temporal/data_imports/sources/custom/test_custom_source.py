@@ -17,8 +17,8 @@ from posthog.temporal.data_imports.sources.custom.source import (
     PROBE_MAX_RESOURCES,
     CustomSource,
     ManifestValidationError,
+    _fanout_chain,
     _read_capped_text,
-    _resolve_ancestor_chain,
     is_custom_source_available_for_team,
     manifest_request_hosts,
     validate_manifest,
@@ -728,8 +728,9 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
     @parameterized.expand(
         [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
     )
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
-    def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, _mock_resource):
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
         manifest = _minimal_manifest()
         if declared is not None:
             manifest["resources"][0]["sort_mode"] = declared
@@ -753,12 +754,13 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
             ("opted_in_none", True, None, None),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_incremental_last_value_threaded_to_rest_engine(
-        self, _name, should_use_incremental, last_value, expected, mock_resource
+        self, _name, should_use_incremental, last_value, expected, mock_resources
     ):
         # The high-watermark must only reach the REST engine when the schema is
         # configured for incremental sync — otherwise a full refresh would skip rows.
+        mock_resources.return_value = [_fake_resource("users")]
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
         inputs = MagicMock(
@@ -770,7 +772,7 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        assert mock_resource.call_args.kwargs["db_incremental_field_last_value"] == expected
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == expected
 
     @parameterized.expand(
         [
@@ -783,11 +785,12 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
             ("page_number", {"type": "page_number", "page_param": "page"}),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
-    def test_paginator_config_threaded_to_rest_engine(self, _name, paginator_config, mock_resource):
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_paginator_config_threaded_to_rest_engine(self, _name, paginator_config, mock_resources):
         # Every PaginatorType the REST engine knows about must round-trip through
         # the custom source — paginator config is passed through untouched and the
         # REST engine selects the paginator at sync time.
+        mock_resources.return_value = [_fake_resource("users")]
         manifest = _minimal_manifest()
         manifest["client"]["paginator"] = paginator_config
 
@@ -802,14 +805,15 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        threaded_config = mock_resource.call_args.args[0]
+        threaded_config = mock_resources.call_args.args[0]
         assert threaded_config["client"]["paginator"] == paginator_config
 
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
-    def test_cursor_type_stripped_before_rest_engine(self, mock_resource):
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_cursor_type_stripped_before_rest_engine(self, mock_resources):
         # cursor_type informs schema field typing but is not a valid kwarg for the
         # engine's Incremental(**config) — it must be removed before the manifest
-        # reaches rest_api_resource, while the other incremental keys survive.
+        # reaches the REST engine, while the other incremental keys survive.
+        mock_resources.return_value = [_fake_resource("users")]
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["incremental"] = {
             "cursor_path": "updated_at",
@@ -828,7 +832,7 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        threaded_incremental = mock_resource.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
+        threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
 
 
@@ -860,56 +864,58 @@ def _fake_resource(name: str) -> MagicMock:
     return resource
 
 
+def _break_unknown_parent(m: dict) -> None:
+    m["resources"][1]["endpoint"]["params"]["form_id"]["resource"] = "nonexistent"
+
+
+def _break_resolve_not_in_path(m: dict) -> None:
+    # Resolve param with no matching `{placeholder}` — the engine can only inject into the path.
+    m["resources"][1]["endpoint"]["path"] = "/responses"
+
+
+def _break_cycle(m: dict) -> None:
+    # Make `forms` depend on `responses`, closing a loop.
+    m["resources"][0]["endpoint"]["path"] = "/forms/{response_token}"
+    m["resources"][0]["endpoint"]["params"] = {
+        "response_token": {"type": "resolve", "resource": "responses", "field": "token"}
+    }
+
+
+def _break_multiple_resolve_params(m: dict) -> None:
+    m["resources"][1]["endpoint"]["path"] = "/forms/{form_id}/responses/{other_id}"
+    m["resources"][1]["endpoint"]["params"]["other_id"] = {"type": "resolve", "resource": "forms", "field": "id"}
+
+
 class TestCustomSourceFanoutValidation(SimpleTestCase):
     def test_accepts_valid_fanout(self):
         validate_manifest(_fanout_manifest())
 
-    def test_rejects_unknown_parent(self):
+    @parameterized.expand(
+        [
+            ("unknown_parent", _break_unknown_parent),
+            ("resolve_param_not_bound_in_path", _break_resolve_not_in_path),
+            ("cycle", _break_cycle),
+            ("multiple_resolve_params", _break_multiple_resolve_params),
+        ]
+    )
+    def test_rejects_invalid_fanout(self, _name, break_manifest):
+        # Every fan-out misconfiguration the engine's dependency graph rejects must
+        # surface at manifest-validation time, not first sync.
         manifest = _fanout_manifest()
-        manifest["resources"][1]["endpoint"]["params"]["form_id"]["resource"] = "nonexistent"
-        with self.assertRaises(ManifestValidationError):
-            validate_manifest(manifest)
-
-    def test_rejects_resolve_param_not_bound_in_path(self):
-        # The engine can only inject a resolved value into the URL path, so a
-        # resolve param with no matching `{placeholder}` is rejected at create time.
-        manifest = _fanout_manifest()
-        manifest["resources"][1]["endpoint"]["path"] = "/responses"
-        with self.assertRaises(ManifestValidationError):
-            validate_manifest(manifest)
-
-    def test_rejects_cycle(self):
-        manifest = _fanout_manifest()
-        # Make `forms` depend on `responses`, closing a loop.
-        manifest["resources"][0]["endpoint"]["path"] = "/forms/{response_token}"
-        manifest["resources"][0]["endpoint"]["params"] = {
-            "response_token": {"type": "resolve", "resource": "responses", "field": "token"}
-        }
-        with self.assertRaises(ManifestValidationError):
-            validate_manifest(manifest)
-
-    def test_rejects_multiple_resolve_params(self):
-        manifest = _fanout_manifest()
-        manifest["resources"][1]["endpoint"]["path"] = "/forms/{form_id}/responses/{other_id}"
-        manifest["resources"][1]["endpoint"]["params"]["other_id"] = {
-            "type": "resolve",
-            "resource": "forms",
-            "field": "id",
-        }
+        break_manifest(manifest)
         with self.assertRaises(ManifestValidationError):
             validate_manifest(manifest)
 
 
-class TestResolveAncestorChain(SimpleTestCase):
+class TestFanoutChain(SimpleTestCase):
     def test_top_level_resource_is_single_element_chain(self):
         manifest = _fanout_manifest()
-        chosen = manifest["resources"][0]
-        assert _resolve_ancestor_chain(manifest, chosen) == [chosen]
+        assert _fanout_chain(manifest, "forms") == [manifest["resources"][0]]
 
     def test_child_chain_is_parent_first(self):
         manifest = _fanout_manifest()
         parent, child = manifest["resources"]
-        assert _resolve_ancestor_chain(manifest, child) == [parent, child]
+        assert _fanout_chain(manifest, "responses") == [parent, child]
 
     def test_multi_level_chain(self):
         manifest = _fanout_manifest()
@@ -925,16 +931,15 @@ class TestResolveAncestorChain(SimpleTestCase):
             }
         )
         forms, responses, answers = manifest["resources"]
-        assert _resolve_ancestor_chain(manifest, answers) == [forms, responses, answers]
+        assert _fanout_chain(manifest, "answers") == [forms, responses, answers]
 
 
 class TestCustomSourceFanoutPipeline(SimpleTestCase):
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
-    def test_child_schema_runs_parent_and_child(self, mock_single, mock_plural):
+    def test_child_schema_runs_parent_and_child(self, mock_resources):
         # Selecting the child must hand the engine BOTH resources (parent first)
         # and return only the child resource — the parent is fetched transiently.
-        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        mock_resources.return_value = [_fake_resource("forms"), _fake_resource("responses")]
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
@@ -947,17 +952,17 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         )
         response = source.source_for_pipeline(config, inputs)
 
-        mock_single.assert_not_called()
-        threaded_resources = mock_plural.call_args.args[0]["resources"]
+        threaded_resources = mock_resources.call_args.args[0]["resources"]
         assert [r["name"] for r in threaded_resources] == ["forms", "responses"]
         assert response.items().name == "responses"
         assert response.primary_keys == ["token"]
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
-    def test_top_level_schema_uses_single_resource_path(self, mock_single, mock_plural):
-        # A parent selected on its own is a plain single-resource sync — the
-        # fan-out (plural) path must not run.
+    def test_top_level_schema_runs_only_that_resource(self, mock_resources):
+        # A parent selected on its own is a one-element chain — only that resource
+        # reaches the engine (no ancestors), and it's returned by name.
+        mock_resources.return_value = [_fake_resource("forms")]
+
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
         inputs = MagicMock(
@@ -967,11 +972,10 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
         )
-        source.source_for_pipeline(config, inputs)
+        response = source.source_for_pipeline(config, inputs)
 
-        mock_plural.assert_not_called()
-        mock_single.assert_called_once()
-        assert [r["name"] for r in mock_single.call_args.args[0]["resources"]] == ["forms"]
+        assert [r["name"] for r in mock_resources.call_args.args[0]["resources"]] == ["forms"]
+        assert response.items().name == "forms"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_fanout_strips_incremental_from_parent_but_keeps_child(self, mock_plural):
