@@ -187,7 +187,8 @@ RUN apt-get update && \
 FROM unit:1.34.2-python3.13
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONUTF8=1
 ARG UNIT_GIT_TAG=1.35.0
 ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
 
