@@ -125,8 +125,6 @@ interface DataTableProps {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
-    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
-    tabId?: string
 }
 
 const eventGroupTypes = [
@@ -148,7 +146,6 @@ export function DataTable({
     readOnly,
     dataAttr,
     attachTo,
-    tabId,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -193,6 +190,11 @@ export function DataTable({
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables &&
         response?.hogql
+    // Lazy precompute can be on without the v2 pre-agg flag, so check it
+    // independently of `canUseWebAnalyticsPreAggregatedTables`.
+    const usedWebAnalyticsLazyPrecompute = Boolean(
+        response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
+    )
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -200,7 +202,6 @@ export function DataTable({
         dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
-        tabId,
     }
     const {
         dataTableRows,
@@ -891,7 +892,11 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <div className="relative">
-                            {usedWebAnalyticsPreAggregatedTables && <PreAggregatedBadge />}
+                            {usedWebAnalyticsLazyPrecompute ? (
+                                <PreAggregatedBadge variant="precomputed" />
+                            ) : usedWebAnalyticsPreAggregatedTables ? (
+                                <PreAggregatedBadge variant="preagg" />
+                            ) : null}
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
@@ -939,14 +944,9 @@ export function DataTable({
                                         ? context.expandable
                                         : expandable && columnsInResponse?.includes('*')
                                           ? {
-                                                ...(tabId !== undefined
-                                                    ? {
-                                                          isRowExpanded: (_, rowIndex) =>
-                                                              expandedRows.includes(rowIndex),
-                                                          onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                          onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                      }
-                                                    : {}),
+                                                isRowExpanded: (_, rowIndex) => expandedRows.includes(rowIndex),
+                                                onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
                                                 expandedRowRender: function renderExpand({ result }) {
                                                     if (
                                                         (isEventsQuery(query.source) ||

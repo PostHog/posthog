@@ -1,6 +1,10 @@
+[workspace]
+members = ["."]
+resolver = "2"
+
 [package]
 name = "posthog-cli"
-version = "0.7.12"
+version = "0.7.21"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -12,7 +16,6 @@ license = "MIT"
 edition = "2021"
 repository = "https://github.com/PostHog/posthog"
 readme = "README.md"
-resolver = "2"
 
 [[bin]]
 name = "posthog-cli"

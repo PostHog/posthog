@@ -73,18 +73,6 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
-export const conversationsViewsCreateBodyNameMax = 400
-
-export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(conversationsViewsCreateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
-        ),
-})
-
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod
@@ -188,7 +176,38 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Update the status of multiple tickets in a single request.
+
+Only tickets belonging to the current team are affected; other-team UUIDs
+are silently ignored.  Tickets already in the requested status are skipped.
+ */
+export const conversationsTicketsBulkUpdateStatusCreateBodyIdsMax = 500
+
+export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(conversationsTicketsBulkUpdateStatusCreateBodyIdsMax)
+        .describe('List of ticket UUIDs to update.'),
+    status: zod
+        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+        .describe(
+            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+        )
+        .describe(
+            'New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.\n\n\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+        ),
+})
+
+/**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -238,4 +257,16 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+})
+
+export const conversationsViewsCreateBodyNameMax = 400
+
+export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(conversationsViewsCreateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
 })

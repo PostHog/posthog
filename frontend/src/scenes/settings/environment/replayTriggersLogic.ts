@@ -4,6 +4,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import { compareVersion } from 'lib/utils/semver'
+import { sdkHealthLogic } from 'scenes/onboarding/sdks/sdkHealthLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
@@ -12,10 +14,40 @@ import type { replayTriggersLogicType } from './replayTriggersLogicType'
 
 export type ReplayPlatform = 'web' | 'mobile'
 
+/** Minimum posthog-js version that understands V2 trigger groups. Older web SDKs fall back to legacy conditions. */
+export const TRIGGER_GROUPS_MIN_SDK_VERSION = '1.369.0'
+
 const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
 
 export function isStringWithLength(x: unknown): x is string {
     return typeof x === 'string' && x.trim() !== ''
+}
+
+/**
+ * True when the team's recent web SDK traffic is entirely on versions that understand trigger groups, so the
+ * legacy recording conditions only serve SDKs the team no longer runs. The SDK Doctor data is a rolling ~7-day
+ * window, so this answers "have only new SDKs been seen recently". Returns false when there's no web data
+ * (e.g. a brand-new or self-hosted team) — we never minimize the legacy UI without positive evidence.
+ */
+// Unparseable versions count as "predates" so we stay conservative (prompt upgrade / keep legacy visible).
+function webSdkPredatesTriggerGroups(version: string): boolean {
+    try {
+        return compareVersion(version, TRIGGER_GROUPS_MIN_SDK_VERSION) < 0
+    } catch {
+        return true
+    }
+}
+
+export function legacyConditionsAreInactive(webVersions: string[]): boolean {
+    if (webVersions.length === 0) {
+        return false
+    }
+    return !webVersions.some(webSdkPredatesTriggerGroups)
+}
+
+/** True when there's web SDK data and at least one version predates trigger-group support. */
+export function hasOutdatedWebSdk(webVersions: string[]): boolean {
+    return webVersions.some(webSdkPredatesTriggerGroups)
 }
 
 function ensureAnchored(url: string): string {
@@ -55,7 +87,10 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         setCheckUrlBlocklist: (url: string) => ({ url }),
         validateUrlInput: (url: string, type: 'trigger' | 'blocklist') => ({ url, type }),
     }),
-    connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], sdkHealthLogic, ['augmentedData']],
+        actions: [teamLogic, ['updateCurrentTeam']],
+    })),
     reducers({
         urlTriggerConfig: [
             null as UrlTriggerConfig[] | null,
@@ -178,6 +213,16 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         ],
     }),
     selectors({
+        shouldMinimizeLegacyConditions: [
+            (s) => [s.augmentedData],
+            (augmentedData): boolean =>
+                legacyConditionsAreInactive((augmentedData?.web?.allReleases ?? []).map((r) => r.version)),
+        ],
+        hasOutdatedWebSdk: [
+            (s) => [s.augmentedData],
+            (augmentedData): boolean =>
+                hasOutdatedWebSdk((augmentedData?.web?.allReleases ?? []).map((r) => r.version)),
+        ],
         isAddUrlTriggerConfigFormVisible: [
             (s) => [s.editUrlTriggerIndex],
             (editUrlTriggerIndex) => editUrlTriggerIndex === -1,

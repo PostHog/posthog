@@ -15,11 +15,7 @@ import { EndpointType, EndpointVersionType } from '~/types'
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
 
-export interface EndpointSceneHeaderProps {
-    tabId: string
-}
-
-export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
+export const EndpointSceneHeader = (): JSX.Element => {
     const {
         endpoint,
         endpointLoading,
@@ -29,11 +25,11 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         bucketOverrides,
         debugInfoExpanded,
         dataFreshness,
-    } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
-    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    } = useValues(endpointSceneLogic)
+    const { endpointName, endpointDescription } = useValues(endpointLogic)
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
     const { setLocalQuery, setDataFreshness, setIsMaterialized, resetBucketOverrides, setDebugInfoExpanded } =
-        useActions(endpointSceneLogic({ tabId }))
+        useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     // When viewing a non-current version, target that version for updates

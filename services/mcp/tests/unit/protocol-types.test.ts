@@ -1,86 +1,64 @@
 import { describe, expect, it } from 'vitest'
 
+import { resolveMode } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { resolveModeAndVersion } from '@/hono/request-state-resolver'
 
-describe('resolveModeAndVersion', () => {
+describe('resolveMode', () => {
     function profile(overrides: Partial<ConstructorParameters<typeof MCPClientProfile>[0]> = {}): MCPClientProfile {
         return new MCPClientProfile({ clientName: 'generic-client', ...overrides })
     }
 
     const base = {
         mode: undefined as undefined,
-        singleExecFlagOn: false,
         clientProfile: profile(),
-        flagVersion: undefined as number | undefined,
-        clientVersion: undefined as number | undefined,
     }
 
-    it('defaults to version 1, no single exec', () => {
-        expect(resolveModeAndVersion(base)).toEqual({ useSingleExec: false, version: 1 })
+    it('defaults to tools mode, no single exec', () => {
+        expect(resolveMode(base)).toEqual({ mode: 'tools', useSingleExec: false })
     })
 
-    it('explicit mode=cli forces single exec and version 2', () => {
-        expect(resolveModeAndVersion({ ...base, mode: 'cli' })).toEqual({
-            useSingleExec: true,
-            version: 2,
-        })
+    it('explicit mode=cli forces single exec', () => {
+        expect(resolveMode({ ...base, mode: 'cli' })).toEqual({ mode: 'cli', useSingleExec: true })
     })
 
-    it('explicit mode=tools disables single exec even when flag is on for a coding agent', () => {
-        const result = resolveModeAndVersion({
+    it('explicit mode=tools disables single exec even for a coding agent', () => {
+        const result = resolveMode({
             ...base,
             mode: 'tools',
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
         expect(result.useSingleExec).toBe(false)
     })
 
-    it('coding agent with flag on activates single exec', () => {
-        const result = resolveModeAndVersion({
+    it('coding agent activates single exec', () => {
+        const result = resolveMode({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true })
     })
 
-    it('non-coding agent with flag on does NOT activate single exec', () => {
-        const result = resolveModeAndVersion({
+    it('LibreChat activates single exec', () => {
+        const result = resolveMode({
             ...base,
-            singleExecFlagOn: true,
+            clientProfile: profile({ clientName: 'LibreChat' }),
+        })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true })
+    })
+
+    it('non-coding agent does NOT activate single exec', () => {
+        const result = resolveMode({
+            ...base,
             clientProfile: profile({ clientName: 'some-dashboard-client' }),
         })
         expect(result.useSingleExec).toBe(false)
     })
 
-    it('flag on + PostHog code consumer activates single exec', () => {
-        const result = resolveModeAndVersion({
+    it('PostHog code consumer activates single exec', () => {
+        const result = resolveMode({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ consumer: 'posthog-code' }),
         })
         expect(result.useSingleExec).toBe(true)
-    })
-
-    it('uses flagVersion when not in single exec mode', () => {
-        const result = resolveModeAndVersion({ ...base, flagVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
-    })
-
-    it('clientVersion overrides default when no flagVersion', () => {
-        const result = resolveModeAndVersion({ ...base, clientVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
-    })
-
-    it('flagVersion takes precedence over clientVersion', () => {
-        const result = resolveModeAndVersion({ ...base, flagVersion: 2, clientVersion: 1 })
-        expect(result.version).toBe(2)
-    })
-
-    it('single exec always forces version 2 regardless of flagVersion', () => {
-        const result = resolveModeAndVersion({ ...base, mode: 'cli', flagVersion: 1 })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
     })
 })

@@ -36,11 +36,19 @@ BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
         "team_id",
         "Error Tracking Fingerprints",
     ),
-    ("posthog.models.feature_flag.feature_flag.FeatureFlagHashKeyOverride", "team_id", "Feature Flag Overrides"),
+    (
+        "products.feature_flags.backend.models.feature_flag.FeatureFlagHashKeyOverride",
+        "team_id",
+        "Feature Flag Overrides",
+    ),
     ("posthog.models.group.group.Group", "team_id", "Groups"),
     ("posthog.models.group_type_mapping.GroupTypeMapping", "team_id", "Group Type Mappings"),
     ("posthog.models.person.Person", "team_id", "Persons"),
-    ("posthog.models.insight_caching_state.InsightCachingState", "team_id", "Insight Caching States"),
+    (
+        "products.product_analytics.backend.models.insight_caching_state.InsightCachingState",
+        "team_id",
+        "Insight Caching States",
+    ),
 )
 
 
@@ -104,7 +112,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
 
     # BatchExport requires deleted=False filter to match delete_batch_exports() behavior
     try:
-        from posthog.batch_exports.models import BatchExport
+        from products.batch_exports.backend.models.batch_export import BatchExport
 
         batch_export_count = BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
         results.append(
@@ -119,7 +127,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
             {
                 "name": "Batch Exports",
                 "count": f"Error: {e}",
-                "model": "posthog.batch_exports.models.BatchExport",
+                "model": "products.batch_exports.backend.models.batch_export.BatchExport",
             }
         )
 
@@ -158,6 +166,8 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_hipaa",
         "is_platform",
         "members_can_invite",
+        "members_can_create_projects",
+        "is_ai_data_processing_approved",
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",

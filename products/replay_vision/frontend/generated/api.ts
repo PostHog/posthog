@@ -9,15 +9,23 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EstimateRequestApi,
+    EstimateResponseApi,
+    ObservationStatsApi,
     ObserveRequestApi,
     ObserveResponseApi,
-    PaginatedReplayLensListApi,
     PaginatedReplayObservationListApi,
-    PatchedReplayLensApi,
-    ReplayLensApi,
+    PaginatedReplayScannerListApi,
+    PatchedReplayScannerApi,
     ReplayObservationApi,
-    VisionLensesListParams,
-    VisionLensesObservationsListParams,
+    ReplayScannerApi,
+    ScannerCreatorsResponseApi,
+    ScannerStatsResponseApi,
+    VisionObservationsListParams,
+    VisionQuotaApi,
+    VisionScannersListParams,
+    VisionScannersObservationsListParams,
+    VisionScannersObservationsStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -37,7 +45,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getVisionLensesListUrl = (projectId: string, params?: VisionLensesListParams) => {
+export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -49,48 +57,184 @@ export const getVisionLensesListUrl = (projectId: string, params?: VisionLensesL
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/lenses/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/lenses/`
+        ? `/api/projects/${projectId}/vision/observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/`
 }
 
 /**
- * CRUD for Replay Vision lenses.
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
  */
-export const visionLensesList = async (
+export const visionObservationsList = async (
     projectId: string,
-    params?: VisionLensesListParams,
+    params: VisionObservationsListParams,
     options?: RequestInit
-): Promise<PaginatedReplayLensListApi> => {
-    return apiMutator<PaginatedReplayLensListApi>(getVisionLensesListUrl(projectId, params), {
+): Promise<PaginatedReplayObservationListApi> => {
+    return apiMutator<PaginatedReplayObservationListApi>(getVisionObservationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getVisionLensesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/vision/lenses/`
+export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/`
 }
 
 /**
- * CRUD for Replay Vision lenses.
+ * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
  */
-export const visionLensesCreate = async (
+export const visionObservationsRetrieve = async (
     projectId: string,
-    replayLensApi: NonReadonly<ReplayLensApi>,
+    id: string,
     options?: RequestInit
-): Promise<ReplayLensApi> => {
-    return apiMutator<ReplayLensApi>(getVisionLensesCreateUrl(projectId), {
+): Promise<ReplayObservationApi> => {
+    return apiMutator<ReplayObservationApi>(getVisionObservationsRetrieveUrl(projectId, id), {
         ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(replayLensApi),
+        method: 'GET',
     })
 }
 
-export const getVisionLensesObservationsListUrl = (
+export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/quota/`
+}
+
+export const environmentVisionQuotaRetrieve = async (
     projectId: string,
-    lensId: string,
-    params?: VisionLensesObservationsListParams
+    options?: RequestInit
+): Promise<VisionQuotaApi> => {
+    return apiMutator<VisionQuotaApi>(getEnvironmentVisionQuotaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersListUrl = (projectId: string, params?: VisionScannersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/`
+}
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const visionScannersList = async (
+    projectId: string,
+    params?: VisionScannersListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayScannerListApi> => {
+    return apiMutator<PaginatedReplayScannerListApi>(getVisionScannersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/`
+}
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const visionScannersCreate = async (
+    projectId: string,
+    replayScannerApi: NonReadonly<ReplayScannerApi>,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayScannerApi),
+    })
+}
+
+export const getVisionScannersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const visionScannersRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const visionScannersPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReplayScannerApi?: NonReadonly<PatchedReplayScannerApi>,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReplayScannerApi),
+    })
+}
+
+export const getVisionScannersDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision scanners.
+ */
+export const visionScannersDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisionScannersDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getVisionScannersObserveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/observe/`
+}
+
+/**
+ * Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.
+ */
+export const visionScannersObserveCreate = async (
+    projectId: string,
+    id: string,
+    observeRequestApi: ObserveRequestApi,
+    options?: RequestInit
+): Promise<ObserveResponseApi> => {
+    return apiMutator<ObserveResponseApi>(getVisionScannersObserveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observeRequestApi),
+    })
+}
+
+export const getVisionScannersObservationsListUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -103,21 +247,21 @@ export const getVisionLensesObservationsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/lenses/${lensId}/observations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/lenses/${lensId}/observations/`
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/`
 }
 
 /**
- * Read-only access to observations produced by a lens.
+ * Read-only access to observations produced by a scanner.
  */
-export const visionLensesObservationsList = async (
+export const visionScannersObservationsList = async (
     projectId: string,
-    lensId: string,
-    params?: VisionLensesObservationsListParams,
+    scannerId: string,
+    params?: VisionScannersObservationsListParams,
     options?: RequestInit
 ): Promise<PaginatedReplayObservationListApi> => {
     return apiMutator<PaginatedReplayObservationListApi>(
-        getVisionLensesObservationsListUrl(projectId, lensId, params),
+        getVisionScannersObservationsListUrl(projectId, scannerId, params),
         {
             ...options,
             method: 'GET',
@@ -125,95 +269,113 @@ export const visionLensesObservationsList = async (
     )
 }
 
-export const getVisionLensesObservationsRetrieveUrl = (projectId: string, lensId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/lenses/${lensId}/observations/${id}/`
+export const getVisionScannersObservationsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
 }
 
 /**
- * Read-only access to observations produced by a lens.
+ * Read-only access to observations produced by a scanner.
  */
-export const visionLensesObservationsRetrieve = async (
+export const visionScannersObservationsRetrieve = async (
     projectId: string,
-    lensId: string,
+    scannerId: string,
     id: string,
     options?: RequestInit
 ): Promise<ReplayObservationApi> => {
-    return apiMutator<ReplayObservationApi>(getVisionLensesObservationsRetrieveUrl(projectId, lensId, id), {
+    return apiMutator<ReplayObservationApi>(getVisionScannersObservationsRetrieveUrl(projectId, scannerId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getVisionLensesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/lenses/${id}/`
+export const getVisionScannersObservationsStatsRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/`
 }
 
 /**
- * CRUD for Replay Vision lenses.
+ * Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.
  */
-export const visionLensesRetrieve = async (
+export const visionScannersObservationsStatsRetrieve = async (
     projectId: string,
-    id: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams,
     options?: RequestInit
-): Promise<ReplayLensApi> => {
-    return apiMutator<ReplayLensApi>(getVisionLensesRetrieveUrl(projectId, id), {
+): Promise<ObservationStatsApi> => {
+    return apiMutator<ObservationStatsApi>(
+        getVisionScannersObservationsStatsRetrieveUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/creators/`
+}
+
+/**
+ * Distinct creators across the team's scanners — feeds the `Created by` filter dropdown.
+ */
+export const visionScannersCreatorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerCreatorsResponseApi> => {
+    return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getVisionLensesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/lenses/${id}/`
+export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/estimate/`
 }
 
 /**
- * CRUD for Replay Vision lenses.
+ * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
-export const visionLensesPartialUpdate = async (
+export const visionScannersEstimateCreate = async (
     projectId: string,
-    id: string,
-    patchedReplayLensApi?: NonReadonly<PatchedReplayLensApi>,
+    estimateRequestApi?: EstimateRequestApi,
     options?: RequestInit
-): Promise<ReplayLensApi> => {
-    return apiMutator<ReplayLensApi>(getVisionLensesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedReplayLensApi),
-    })
-}
-
-export const getVisionLensesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/lenses/${id}/`
-}
-
-/**
- * CRUD for Replay Vision lenses.
- */
-export const visionLensesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getVisionLensesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getVisionLensesObserveCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/lenses/${id}/observe/`
-}
-
-/**
- * Apply this lens to one specific session, on demand. Returns 202 with the workflow handle.
- */
-export const visionLensesObserveCreate = async (
-    projectId: string,
-    id: string,
-    observeRequestApi: ObserveRequestApi,
-    options?: RequestInit
-): Promise<ObserveResponseApi> => {
-    return apiMutator<ObserveResponseApi>(getVisionLensesObserveCreateUrl(projectId, id), {
+): Promise<EstimateResponseApi> => {
+    return apiMutator<EstimateResponseApi>(getVisionScannersEstimateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(observeRequestApi),
+        body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/stats/`
+}
+
+/**
+ * Team-wide scanner counts — independent of list filters, so the overview stays stable.
+ */
+export const visionScannersStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerStatsResponseApi> => {
+    return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

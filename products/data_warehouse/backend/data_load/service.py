@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import random
+import asyncio
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
@@ -248,6 +250,121 @@ async def a_delete_external_data_schedule(external_data_source: ExternalDataSour
         raise
 
 
+# Bounded concurrency for bulk schedule operations. High enough to parallelise the
+# per-RPC latency across thousands of schemas — each create_schedule with an immediate
+# trigger is a relatively heavy server-side operation (it also starts a workflow) — but
+# low enough to stay friendly to the Temporal frontend service.
+_BULK_SCHEDULE_CONCURRENCY = 100
+
+
+@async_to_sync
+async def bulk_create_external_data_job_schedules(
+    schemas: list[tuple[ExternalDataSchema, bool]],
+) -> list[tuple[str, BaseException]]:
+    """Create sync schedules for many schemas over a single shared Temporal connection.
+
+    `sync_external_data_job_workflow` opens a fresh Temporal connection on every call, so
+    looping it over thousands of schemas (e.g. a Slack workspace with thousands of
+    channels) spends almost all of its time reconnecting. This connects once and runs the
+    creates concurrently. Returns ``(schema_id, exception)`` pairs for any schedules that
+    failed — a partial failure does not abort the rest, so the caller decides how to
+    surface them and can attribute each failure to a specific schema.
+    """
+    if not schemas:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _create_one(external_data_schema: ExternalDataSchema, should_sync: bool) -> None:
+        async with semaphore:
+            schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
+            schedule_id = str(external_data_schema.id)
+            try:
+                await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+            except ScheduleAlreadyRunningError:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+                await a_trigger_schedule(temporal, schedule_id=schedule_id)
+
+    schema_ids = [str(schema.id) for schema, _ in schemas]
+    results = await asyncio.gather(
+        *(_create_one(schema, should_sync) for schema, should_sync in schemas),
+        return_exceptions=True,
+    )
+    return [(schema_id, result) for schema_id, result in zip(schema_ids, results) if isinstance(result, BaseException)]
+
+
+@async_to_sync
+async def bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list[tuple[str, BaseException]]:
+    """Delete many Temporal schedules over a single shared connection.
+
+    The bulk counterpart to `delete_external_data_schedule`: reuses one connection,
+    deletes concurrently, and ignores schedules that no longer exist. Returns
+    ``(schedule_id, exception)`` pairs for any deletes that failed for another reason.
+    """
+    if not schedule_ids:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _delete_one(schedule_id: str) -> None:
+        async with semaphore:
+            try:
+                await a_delete_schedule(temporal, schedule_id=schedule_id)
+            except temporalio.service.RPCError as e:
+                # Swallow error if schedule does not exist already
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    return
+                raise
+
+    results = await asyncio.gather(
+        *(_delete_one(schedule_id) for schedule_id in schedule_ids),
+        return_exceptions=True,
+    )
+    return [
+        (schedule_id, result) for schedule_id, result in zip(schedule_ids, results) if isinstance(result, BaseException)
+    ]
+
+
+@async_to_sync
+async def bulk_update_external_data_job_schedules(
+    schemas: list[ExternalDataSchema],
+) -> tuple[list[str], list[tuple[str, BaseException]]]:
+    """Update (re-issue) sync schedules for many schemas over a single shared connection.
+
+    The update-only counterpart to `bulk_create_external_data_job_schedules`: it connects
+    once and updates concurrently, but never triggers a run and never creates a missing
+    schedule. Schemas whose schedule does not exist (never activated) are reported as
+    skipped rather than failed — matching the per-schema `sync_external_data_job_workflow`
+    `create=False` path. Returns ``(skipped_ids, failures)``.
+    """
+    if not schemas:
+        return [], []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+    _SKIPPED = "skipped"
+
+    async def _update_one(external_data_schema: ExternalDataSchema) -> str | None:
+        async with semaphore:
+            schedule = get_sync_schedule(external_data_schema, should_sync=external_data_schema.should_sync)
+            try:
+                await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            except temporalio.service.RPCError as e:
+                # No schedule yet (schema never activated) — skip, don't create.
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    return _SKIPPED
+                raise
+            return None
+
+    schema_ids = [str(schema.id) for schema in schemas]
+    results = await asyncio.gather(*(_update_one(schema) for schema in schemas), return_exceptions=True)
+    skipped = [sid for sid, result in zip(schema_ids, results) if result == _SKIPPED]
+    failures = [(sid, result) for sid, result in zip(schema_ids, results) if isinstance(result, BaseException)]
+    return skipped, failures
+
+
 def cancel_external_data_workflow(workflow_id: str):
     temporal = sync_connect()
     cancel_workflow(temporal, workflow_id)
@@ -270,17 +387,11 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    """Check if the CDC feature flag is enabled for a team."""
-    from django.conf import settings
-
-    if settings.DEBUG:
-        return True
-
     import posthoganalytics
 
     return posthoganalytics.feature_enabled(
         "dwh-postgres-cdc",
-        str(team.uuid),
+        str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )
@@ -293,6 +404,20 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
 
 def _get_cdc_extraction_schedule_id(source_id: str) -> str:
     return f"cdc-extraction-{source_id}"
+
+
+CDC_DEFAULT_INTERVAL = timedelta(hours=1)
+
+
+def cdc_min_interval(sync_frequency_intervals: Iterable[timedelta | None]) -> timedelta:
+    """CDC extraction interval for a source: the minimum sync frequency across its active CDC
+    schemas, falling back to `CDC_DEFAULT_INTERVAL` when none declare one.
+
+    Single source of truth shared by `sync_cdc_extraction_schedule` (per source) and the
+    `backfill_cdc_extraction_schedules` command (batched), so the rule can't drift.
+    """
+    intervals = [interval for interval in sync_frequency_intervals if interval is not None]
+    return min(intervals) if intervals else CDC_DEFAULT_INTERVAL
 
 
 def get_cdc_extraction_schedule(
@@ -345,12 +470,17 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     """
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
+    # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
+    # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below
+    # and deletes its schedule rather than re-creating it.
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
             source=source,
             sync_type=ExternalDataSchema.SyncType.CDC,
             should_sync=True,
-        ).exclude(deleted=True)
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
     )
 
     schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
@@ -362,8 +492,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
             pass
         return
 
-    intervals = [s.sync_frequency_interval for s in cdc_schemas if s.sync_frequency_interval is not None]
-    min_interval = min(intervals) if intervals else timedelta(hours=1)
+    min_interval = cdc_min_interval(schema.sync_frequency_interval for schema in cdc_schemas)
 
     temporal = sync_connect()
     schedule = get_cdc_extraction_schedule(source, min_interval)
@@ -387,6 +516,44 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
         delete_external_data_schedule(schedule_id)
     except Exception:
         pass
+
+
+@async_to_sync
+async def bulk_sync_cdc_extraction_schedules(
+    source_intervals: list[tuple[ExternalDataSource, timedelta]],
+) -> list[tuple[str, BaseException]]:
+    """Upsert CDC extraction schedules for many sources over a single shared connection.
+
+    The bulk counterpart to `sync_cdc_extraction_schedule`: connects once and upserts
+    concurrently. The caller must compute each ``(source, min_interval)`` pair synchronously
+    (the per-source interval needs a DB query that can't run in this async context). Returns
+    ``(source_id, exception)`` pairs for any that failed — a partial failure does not abort
+    the rest.
+    """
+    if not source_intervals:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _sync_one(source: ExternalDataSource, min_interval: timedelta) -> None:
+        async with semaphore:
+            schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
+            schedule = get_cdc_extraction_schedule(source, min_interval)
+            try:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+            except temporalio.service.RPCError as e:
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+                else:
+                    raise
+
+    source_ids = [str(source.id) for source, _ in source_intervals]
+    results = await asyncio.gather(
+        *(_sync_one(source, interval) for source, interval in source_intervals),
+        return_exceptions=True,
+    )
+    return [(source_id, result) for source_id, result in zip(source_ids, results) if isinstance(result, BaseException)]
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +632,41 @@ def sync_discover_schemas_schedule(source: ExternalDataSource, create: bool = Fa
             create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
         else:
             raise
+
+
+@async_to_sync
+async def bulk_sync_discover_schemas_schedules(
+    sources: list[ExternalDataSource],
+) -> list[tuple[str, BaseException]]:
+    """Upsert discover-schemas schedules for many sources over a single shared connection.
+
+    `sync_discover_schemas_schedule` opens a fresh Temporal connection on every call, so
+    looping it over thousands of sources (e.g. a backfill) spends almost all of its time
+    reconnecting. This connects once and runs the upserts concurrently. Returns
+    ``(source_id, exception)`` pairs for any schedules that failed — a partial failure does
+    not abort the rest, so the caller can attribute each failure to a specific source.
+    """
+    if not sources:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _sync_one(source: ExternalDataSource) -> None:
+        async with semaphore:
+            schedule_id = _get_discover_schemas_schedule_id(str(source.id))
+            schedule = get_discover_schemas_schedule(source)
+            try:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+            except temporalio.service.RPCError as e:
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+                else:
+                    raise
+
+    source_ids = [str(source.id) for source in sources]
+    results = await asyncio.gather(*(_sync_one(source) for source in sources), return_exceptions=True)
+    return [(source_id, result) for source_id, result in zip(source_ids, results) if isinstance(result, BaseException)]
 
 
 def delete_discover_schemas_schedule(source_id: str) -> None:

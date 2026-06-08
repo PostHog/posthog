@@ -1,0 +1,385 @@
+from django.db.models import Q, QuerySet
+
+import structlog
+import django_filters
+from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter
+from rest_framework import serializers
+from rest_framework.viewsets import ModelViewSet
+
+from posthog.api.documentation import extend_schema
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.monitoring import monitor
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.models import Dataset
+from products.ai_observability.backend.models.datasets import DatasetItem
+
+logger = structlog.get_logger(__name__)
+
+
+class DatasetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Dataset
+        fields = [
+            "id",
+            "name",
+            "description",
+            "metadata",
+            "created_at",
+            "updated_at",
+            "deleted",
+            "created_by",
+            "team",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "team",
+            "created_by",
+        ]
+
+    created_by = UserBasicSerializer(read_only=True)
+
+    def create(self, validated_data: dict, *args, **kwargs):
+        request = self.context["request"]
+        validated_data["team"] = self.context["get_team"]()
+        validated_data["created_by"] = request.user
+        return super().create(validated_data, *args, **kwargs)
+
+
+class DatasetFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(method="filter_search", help_text="Search in name, description, or metadata")
+    order_by = django_filters.OrderingFilter(
+        fields=(
+            ("created_at", "created_at"),
+            ("updated_at", "updated_at"),
+        ),
+        field_labels={
+            "created_at": "Created At",
+            "updated_at": "Updated At",
+        },
+    )
+
+    class Meta:
+        model = Dataset
+        fields = {
+            "id": ["in"],
+        }
+
+    def filter_search(self, queryset, name, value):
+        if value:
+            return queryset.filter(
+                Q(name__icontains=value) | Q(description__icontains=value) | Q(metadata__icontains=value)
+            )
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "id__in",
+                OpenApiTypes.STR,
+                description="Filter by dataset IDs",
+                examples=[
+                    OpenApiExample(
+                        "Single dataset ID",
+                        value="695401fa-6f0e-4389-b186-c45a7f1273d3",
+                    ),
+                    OpenApiExample(
+                        "Multiple dataset IDs",
+                        description="Filter by multiple dataset IDs separated by a comma",
+                        value="695401fa-6f0e-4389-b186-c45a7f1273d3,bffe0715-abe4-4902-837b-316be727445b",
+                    ),
+                ],
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Full-text search by name, description, or metadata",
+                examples=[
+                    OpenApiExample(
+                        "Search by name",
+                        value="My dataset",
+                    ),
+                ],
+            ),
+            OpenApiParameter(
+                "order_by",
+                OpenApiTypes.STR,
+                description="Order by created_at or updated_at",
+                examples=[
+                    OpenApiExample(
+                        "Order by created_at ascending",
+                        value="created_at",
+                    ),
+                    OpenApiExample(
+                        "Order by updated_at descending",
+                        value="-updated_at",
+                    ),
+                ],
+            ),
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+
+class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, ModelViewSet):
+    scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
+    serializer_class = DatasetSerializer
+    queryset = Dataset.objects.all()
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = DatasetFilter
+
+    def safely_get_queryset(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
+        if self.action in {"list", "retrieve"}:
+            return queryset.exclude(deleted=True)
+        return queryset
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        # Track dataset created
+        report_user_action(
+            self.request.user,
+            "llma dataset created",
+            {
+                "dataset_id": str(instance.id),
+                "dataset_name": instance.name,
+                "has_description": bool(instance.description),
+                "has_metadata": bool(instance.metadata),
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+    def perform_update(self, serializer):
+        # Check if this is a deletion (soft delete)
+        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+
+        # Track changes before update
+        changed_fields: list[str] = []
+        for field in ["name", "description", "metadata", "deleted"]:
+            if field in serializer.validated_data:
+                old_value = getattr(serializer.instance, field)
+                new_value = serializer.validated_data[field]
+                if old_value != new_value:
+                    changed_fields.append(field)
+
+        instance = serializer.save()
+
+        # Track appropriate event
+        if is_deletion:
+            report_user_action(
+                self.request.user,
+                "llma dataset deleted",
+                {
+                    "dataset_id": str(instance.id),
+                    "dataset_name": instance.name,
+                },
+                team=self.team,
+                request=self.request,
+            )
+        elif changed_fields:
+            report_user_action(
+                self.request.user,
+                "llma dataset updated",
+                {
+                    "dataset_id": str(instance.id),
+                    "changed_fields": changed_fields,
+                },
+                team=self.team,
+                request=self.request,
+            )
+
+    @llma_track_latency("llma_datasets_list")
+    @monitor(feature=None, endpoint="llma_datasets_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_retrieve")
+    @monitor(feature=None, endpoint="llma_datasets_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_create")
+    @monitor(feature=None, endpoint="llma_datasets_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_update")
+    @monitor(feature=None, endpoint="llma_datasets_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_partial_update")
+    @monitor(feature=None, endpoint="llma_datasets_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
+
+class DatasetItemSerializer(serializers.ModelSerializer):
+    dataset = TeamScopedPrimaryKeyRelatedField(queryset=Dataset.objects.all())
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = DatasetItem
+        fields = [
+            "id",
+            "dataset",
+            "input",
+            "output",
+            "metadata",
+            "ref_trace_id",
+            "ref_timestamp",
+            "ref_source_id",
+            "deleted",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "team",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "team",
+            "created_by",
+        ]
+
+    def create(self, validated_data: dict, *args, **kwargs):
+        request = self.context["request"]
+        validated_data["team"] = self.context["get_team"]()
+        validated_data["created_by"] = request.user
+        return super().create(validated_data, *args, **kwargs)
+
+
+class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
+    scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
+    serializer_class = DatasetItemSerializer
+    queryset = DatasetItem.objects.all()
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["dataset"]
+
+    def safely_get_queryset(self, queryset: QuerySet[DatasetItem, DatasetItem]) -> QuerySet[DatasetItem, DatasetItem]:
+        if self.action in {"list", "retrieve"}:
+            return queryset.exclude(deleted=True)
+        return queryset
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        # Determine source of dataset item
+        source = "manual"
+        if instance.ref_trace_id:
+            source = "trace"
+        elif instance.ref_source_id:
+            source = "generation"
+
+        # Track dataset item created
+        report_user_action(
+            self.request.user,
+            "llma dataset item created",
+            {
+                "dataset_item_id": str(instance.id),
+                "dataset_id": str(instance.dataset_id),
+                "has_input": bool(instance.input),
+                "has_output": bool(instance.output),
+                "has_metadata": bool(instance.metadata),
+                "has_ref_trace_id": bool(instance.ref_trace_id),
+                "has_ref_source_id": bool(instance.ref_source_id),
+                "source": source,
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+    def perform_update(self, serializer):
+        # Check if this is a deletion (soft delete)
+        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+
+        # Track changes before update
+        changed_fields: list[str] = []
+        for field in ["input", "output", "metadata", "deleted"]:
+            if field in serializer.validated_data:
+                old_value = getattr(serializer.instance, field)
+                new_value = serializer.validated_data[field]
+                if old_value != new_value:
+                    changed_fields.append(field)
+
+        instance = serializer.save()
+
+        # Track appropriate event
+        if is_deletion:
+            report_user_action(
+                self.request.user,
+                "llma dataset item deleted",
+                {
+                    "dataset_item_id": str(instance.id),
+                    "dataset_id": str(instance.dataset_id),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        elif changed_fields:
+            report_user_action(
+                self.request.user,
+                "llma dataset item updated",
+                {
+                    "dataset_item_id": str(instance.id),
+                    "dataset_id": str(instance.dataset_id),
+                    "changed_fields": changed_fields,
+                },
+                team=self.team,
+                request=self.request,
+            )
+
+    @llma_track_latency("llma_dataset_items_retrieve")
+    @monitor(feature=None, endpoint="llma_dataset_items_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_create")
+    @monitor(feature=None, endpoint="llma_dataset_items_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_update")
+    @monitor(feature=None, endpoint="llma_dataset_items_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_partial_update")
+    @monitor(feature=None, endpoint="llma_dataset_items_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "dataset",
+                OpenApiTypes.STR,
+                description="Filter by dataset ID",
+                examples=[
+                    OpenApiExample(
+                        "Single dataset ID",
+                        value="695401fa-6f0e-4389-b186-c45a7f1273d3",
+                    ),
+                ],
+            ),
+        ]
+    )
+    @llma_track_latency("llma_dataset_items_list")
+    @monitor(feature=None, endpoint="llma_dataset_items_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)

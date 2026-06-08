@@ -6,7 +6,8 @@ from django.core.paginator import Paginator
 import structlog
 
 from posthog.cdp.validation import compile_hog
-from posthog.models.hog_functions.hog_function import HogFunction
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +36,12 @@ class Command(BaseCommand):
                 "template_id": "template-linkedin-ads",
                 "from_string": "'LinkedIn-Version': '202409'",
                 "to_string": "'LinkedIn-Version': '202508'",
-            }
+            },
+            "meta-ads-api-version-update": {
+                "template_id": "template-meta-ads",
+                "from_string": "graph.facebook.com/v21.0/",
+                "to_string": "graph.facebook.com/v25.0/",
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:

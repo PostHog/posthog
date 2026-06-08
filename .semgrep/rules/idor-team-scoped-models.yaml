@@ -81,6 +81,7 @@ rules:
                               |DAG
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
                               |Dataset
@@ -130,7 +131,9 @@ rules:
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
+                              |TeamWorkflowsConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -166,12 +169,14 @@ rules:
                               |MessageTemplate
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
+                              |MCPIntentEmbeddingCache
                               |MCPSession
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
                               |ObjectMediaPreview
+                              |ParserRecipe
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -180,8 +185,8 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
-                              |ReplayLens
                               |ReplayObservation
+                              |ReplayScanner
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -198,6 +203,10 @@ rules:
                               |SignalReportTask
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalScoutConfig
+                              |SignalScoutRun
+                              |SignalScratchpad
+                              |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
@@ -210,6 +219,7 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
+                              |TaskPresence
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
@@ -228,6 +238,7 @@ rules:
                               |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
+                              |WizardSession
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -306,6 +317,7 @@ rules:
                         |DAG
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
                         |Dataset
@@ -355,7 +367,9 @@ rules:
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
+                        |TeamWorkflowsConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -387,12 +401,14 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |MCPIntentClusterSnapshot
+                        |MCPIntentEmbeddingCache
                         |MCPSession
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
                         |ObjectMediaPreview
+                        |ParserRecipe
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
@@ -401,8 +417,8 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
-                        |ReplayLens
                         |ReplayObservation
+                        |ReplayScanner
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
@@ -419,6 +435,10 @@ rules:
                         |SignalReportTask
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalScoutConfig
+                        |SignalScoutRun
+                        |SignalScratchpad
+                        |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
@@ -431,6 +451,7 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
+                        |TaskPresence
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport
@@ -449,6 +470,7 @@ rules:
                         |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
+                        |WizardSession
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)

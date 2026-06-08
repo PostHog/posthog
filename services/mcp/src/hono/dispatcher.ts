@@ -17,7 +17,10 @@ import type {
     PingRequest,
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
+import GUIDELINES from '@shared/guidelines.md'
+import { randomUUID } from 'node:crypto'
 
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { trackInitEvent } from './analytics'
@@ -32,24 +35,6 @@ import { ToolExecutor } from './tool-executor'
 
 export { McpDispatcher }
 export type { ResolvedState } from './request-state-resolver'
-
-function loadGuidelines(): string {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const mod = require('@shared/guidelines.md')
-        return typeof mod === 'string' ? mod : (mod?.default ?? '')
-    } catch {
-        // @shared alias only resolves in the esbuild production bundle.
-        // Fall back to reading from disk (works in Vitest/test contexts).
-    }
-    try {
-        const fs = require('node:fs')
-        const path = require('node:path')
-        return fs.readFileSync(path.resolve(process.cwd(), 'shared/guidelines.md'), 'utf-8')
-    } catch {
-        return ''
-    }
-}
 
 const MAX_BATCH_SIZE = 100
 const MAX_BODY_BYTES = 1_048_576
@@ -111,9 +96,9 @@ class McpDispatcher {
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
         this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env)
+        this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
-        this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
+        this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
     }
 
@@ -152,22 +137,26 @@ class McpDispatcher {
             return new Response(null, { status: 202 })
         }
 
+        const hasInit = requests.some((r) => r.method === Method.Initialize)
+        if (hasInit) {
+            props.mcpSessionId = randomUUID()
+        }
+
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         const state = needsState ? await this.stateResolver.resolve(props) : undefined
 
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (props.mcpSessionId) {
+            headers['Mcp-Session-Id'] = props.mcpSessionId
+        }
+
         if (!wasArray && requests.length === 1) {
             const result = await this.dispatch(requests[0]!, props, state)
-            return new Response(JSON.stringify(result), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
+            return new Response(JSON.stringify(result), { status: 200, headers })
         }
 
         const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
-        return new Response(JSON.stringify(results), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        })
+        return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
     private async dispatch(
@@ -182,13 +171,13 @@ class McpDispatcher {
                 case Method.Initialize:
                     return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
                 case Method.ToolsList:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!))
                 case Method.ToolsCall:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, props, state!))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, state!))
                 case Method.ResourcesList:
                     return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
-                    return jsonRpcResult(id, this.resourceCatalog.readResource(params))
+                    return jsonRpcResult(id, await this.resourceCatalog.readResource(params))
                 case Method.PromptsList:
                     return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
                 case Method.PromptsGet:
@@ -215,12 +204,13 @@ class McpDispatcher {
                 ? requestedVersion
                 : LATEST_PROTOCOL_VERSION
 
+            await this.resourceCatalog.revalidateContextMillResources('initialize')
             const instructions = await this.instructionsBuilder.build(props, state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })
 
-            void trackInitEvent(props, state)
+            void trackInitEvent(state)
 
             return {
                 protocolVersion,
@@ -229,7 +219,7 @@ class McpDispatcher {
                     resources: { listChanged: false },
                     prompts: { listChanged: false },
                 },
-                serverInfo: { name: 'PostHog', version: '1.0.0' },
+                serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
                 ...(instructions ? { instructions } : {}),
             }
         } catch (error) {

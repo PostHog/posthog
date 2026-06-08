@@ -362,8 +362,8 @@ export function Settings({
                     className={clsx(
                         'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
-                            ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
-                            : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                            ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
+                            : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
                     {navContent}
@@ -459,7 +459,7 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
                             variant="folder"
                         >
                             <CollapsibleTrigger
-                                render={<Button left className="w-full" />}
+                                render={<Button left className="w-full text-[13px]" />}
                                 className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
                             >
                                 <span className="flex-1 truncate text-left font-semibold">
@@ -508,7 +508,7 @@ const OptionButton = ({
     const button = (
         <Button
             left
-            className="w-full font-normal"
+            className="w-full font-normal text-[13px]"
             disabled={isDisabled}
             aria-selected={active || undefined}
             data-attr={dataAttr}

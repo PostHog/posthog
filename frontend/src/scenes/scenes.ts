@@ -488,16 +488,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Health detail',
         iconType: 'health',
     },
+    [Scene.HealthAlerts]: {
+        projectBased: true,
+        name: 'Health alerts',
+        description: 'Subscribe to alerts when health checks fire.',
+        iconType: 'health',
+    },
     [Scene.PipelineStatus]: {
         projectBased: true,
         name: 'Pipeline status',
         description: 'Monitor the status of your data pipelines.',
         iconType: 'pipeline_status',
     },
-    [Scene.SdkDoctor]: {
+    [Scene.SdkHealth]: {
         projectBased: true,
-        name: 'SDK doctor',
-        iconType: 'sdk_doctor',
+        name: 'SDK health',
+        iconType: 'sdk_health',
         description:
             'Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications.',
     },
@@ -564,6 +570,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
         activityScope: ActivityScope.HOG_FUNCTION,
+        iconType: 'data_pipeline',
+    },
+    [Scene.EventFiltering]: {
+        projectBased: true,
+        name: 'Event ingestion filtering',
+        description: 'Drop events at ingestion time based on event metadata.',
         iconType: 'data_pipeline',
     },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
@@ -860,6 +872,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
+    [urls.eventFiltering()]: [Scene.EventFiltering, 'eventFiltering'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
@@ -910,7 +923,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
-    [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
+    [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],

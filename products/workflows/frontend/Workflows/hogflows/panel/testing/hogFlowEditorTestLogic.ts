@@ -9,13 +9,16 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 
+import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     CyclotronJobInvocationGlobals,
     FilterLogicalOperator,
+    GroupType,
+    GroupTypeIndex,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -82,11 +85,53 @@ export const createExampleEvent = (
     }
 }
 
+// HogQL tuple columns appended to the events query so we can resolve each group type's
+// key + properties for the sample, mirroring real execution which resolves them from $groups.
+export const groupSelectColumns = (groupTypes: Map<GroupTypeIndex, GroupType>): string[] => {
+    const columns: string[] = []
+    groupTypes.forEach((groupType) => {
+        const name = escapePropertyAsHogQLIdentifier(groupType.group_type)
+        columns.push(`tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`)
+    })
+    return columns
+}
+
+// Parse the group tuples appended by groupSelectColumns (offsets start after event + person).
+export const parseGroupsFromResult = (
+    result: any[],
+    groupTypes: Map<GroupTypeIndex, GroupType>
+): NonNullable<CyclotronJobInvocationGlobals['groups']> => {
+    const groups: NonNullable<CyclotronJobInvocationGlobals['groups']> = {}
+    // Use a positional counter, not the Map key: groupSelectColumns appends columns in iteration
+    // order, so column n sits at result[2 + n] regardless of each type's group_type_index.
+    let position = 0
+    groupTypes.forEach((groupType) => {
+        const tuple = result?.[2 + position++]
+        if (tuple && Array.isArray(tuple) && tuple[2]) {
+            let properties = {}
+            try {
+                properties = JSON.parse(tuple[3])
+            } catch {
+                // Ignore malformed properties
+            }
+            groups[groupType.group_type] = {
+                type: groupType.group_type,
+                index: tuple[1],
+                id: tuple[2],
+                url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
+                properties,
+            }
+        }
+    })
+    return groups
+}
+
 export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
-    workflowName?: string | null
+    workflowName?: string | null,
+    groups: CyclotronJobInvocationGlobals['groups'] = {}
 ): CyclotronJobInvocationGlobals => {
     const projectUrl = `${window.location.origin}/project/${teamId}`
     return {
@@ -109,7 +154,7 @@ export const createGlobalsFromResponse = (
                   url: `${window.location.origin}/person/${person.id}`,
               }
             : undefined,
-        groups: {},
+        groups,
         project: {
             id: teamId,
             name: 'Default project',
@@ -132,6 +177,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             ['workflow', 'workflowSanitized', 'triggerAction'],
             hogFlowEditorLogic,
             ['selectedNodeId'],
+            groupsModel,
+            ['groupTypes'],
         ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId', 'setAnimatingEdgePair']],
     })),
@@ -268,7 +315,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
-                            select: ['*', 'person'],
+                            select: ['*', 'person', ...groupSelectColumns(values.groupTypes)],
                             after: timeRange,
                             limit: 10,
                             orderBy: ['timestamp DESC'],
@@ -321,8 +368,15 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         const event = response.results[resultIndex][0]
                         const person = response.results[resultIndex][1]
+                        const groups = parseGroupsFromResult(response.results[resultIndex], values.groupTypes)
 
-                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                        return createGlobalsFromResponse(
+                            event,
+                            person,
+                            values.workflow.team_id,
+                            values.workflow.name,
+                            groups
+                        )
                     } catch (e: any) {
                         if (!e.message?.includes('breakpoint')) {
                             actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
@@ -351,7 +405,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                     ],
                                 },
                             ],
-                            select: ['*', 'person'],
+                            select: ['*', 'person', ...groupSelectColumns(values.groupTypes)],
                             after: timeRange,
                             limit: 1,
                             orderBy: ['timestamp DESC'],
@@ -385,10 +439,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         const event = response.results[0][0]
                         const person = response.results[0][1]
+                        const groups = parseGroupsFromResult(response.results[0], values.groupTypes)
 
                         actions.setSampleGlobalsError(null)
                         actions.setCanTryExtendedSearch(false)
-                        return createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                        return createGlobalsFromResponse(
+                            event,
+                            person,
+                            values.workflow.team_id,
+                            values.workflow.name,
+                            groups
+                        )
                     } catch {
                         actions.setSampleGlobalsError('Failed to load event. Please try again.')
                         return null

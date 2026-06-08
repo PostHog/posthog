@@ -30,7 +30,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'deployment', objectName: 'Deployment', objectPlural: 'deployments' },
     { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
@@ -69,6 +68,8 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
+    { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
+    { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {
@@ -93,15 +94,6 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
-    {
-        key: 'personal_spend',
-        objectName: 'Personal LLM spend',
-        objectPlural: 'personal LLM spend',
-        disabledActions: ['write'],
-        warnings: {
-            read: <>This scope allows you to retrieve your own LLM spend across PostHog products.</>,
-        },
-    },
     { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
@@ -116,7 +108,8 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    { key: 'replay_lens', objectName: 'Replay lens', objectPlural: 'replay lenses' },
+    // `query_performance` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
+    { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
     {
@@ -146,6 +139,7 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
+    { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {

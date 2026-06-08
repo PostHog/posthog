@@ -4,10 +4,12 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AlertCalculationInterval,
@@ -18,7 +20,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, type AlertFormType } from './alertFormLogic'
+import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -105,7 +107,7 @@ describe('alertFormLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [] })
+        jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
         jest.spyOn(api.alerts, 'get').mockResolvedValue(makeSavedAlert())
         createSpy = jest.spyOn(api.alerts, 'create').mockResolvedValue(makeSavedAlert())
         updateSpy = jest.spyOn(api.alerts, 'update').mockResolvedValue(makeSavedAlert())
@@ -227,5 +229,68 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
+    })
+
+    it('blocks save when threshold alert has no lower or upper bound', async () => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                threshold: {
+                    configuration: {
+                        type: InsightThresholdType.ABSOLUTE,
+                        bounds: {},
+                    },
+                },
+            }),
+            checks: undefined,
+        })
+
+        expect(thresholdAlertHasBounds(logic.values.alertForm)).toBe(false)
+
+        logic.actions.setAlertFormSubmitAttempted()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(successToastSpy).not.toHaveBeenCalled()
+        expect(logic.values.thresholdBoundsFormError).toBe('Enter at least one threshold (less than or more than)')
+    })
+
+    it('treats cleared threshold inputs as missing bounds', () => {
+        expect(
+            thresholdAlertHasBounds({
+                ...makeFormDefaults(),
+                threshold: {
+                    configuration: {
+                        type: InsightThresholdType.ABSOLUTE,
+                        bounds: { lower: '' as unknown as number, upper: '' as unknown as number },
+                    },
+                },
+            })
+        ).toBe(false)
+    })
+
+    it('blocks save with error toast for 15-minute interval without entitlement', async () => {
+        userLogic.mount()
+        upgradeModalLogic.mount()
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults(),
+            calculation_interval: AlertCalculationInterval.EVERY_15_MINUTES,
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBeNull()
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+        )
+        expect(successToastSpy).not.toHaveBeenCalled()
     })
 })

@@ -40,6 +40,7 @@ import {
     tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
+import { ShareNudgePrompt } from 'scenes/web-analytics/ShareNudgePrompt'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -47,6 +48,7 @@ import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealth
 import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebAnalyticsShareColleagueBanner } from 'scenes/web-analytics/WebAnalyticsShareColleagueBanner'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
 
@@ -70,13 +72,16 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
     const { featureFlags } = useValues(featureFlagLogic)
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
     const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam, productTab)
 
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3',
+                'mt-4 grid grid-cols-1',
+                useTileHeaderV2 ? 'lg:grid-cols-2 2xl:grid-cols-3' : 'md:grid-cols-2 2xl:grid-cols-3',
+                useTileHeaderV2 && '2xl:grid-flow-dense',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
             data-attr="web-analytics-dashboard"
@@ -183,13 +188,15 @@ const QueryTileItemV2 = ({
                 showIntervalSelect={showIntervalSelect}
                 tileId={tile.tileId}
                 headerSlot={
-                    <WebTileHeader
-                        tileId={tile.tileId}
-                        title={title}
-                        docs={docs}
-                        openInsight={openInsight}
-                        overflowMenuItems={overflowMenuItems}
-                    />
+                    tile.tileId === TileId.OVERVIEW ? undefined : (
+                        <WebTileHeader
+                            tileId={tile.tileId}
+                            title={title}
+                            docs={docs}
+                            openInsight={openInsight}
+                            overflowMenuItems={overflowMenuItems}
+                        />
+                    )
                 }
             />
         </div>
@@ -666,8 +673,6 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
 
     return (
         <>
@@ -676,7 +681,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
-            {showLiveTiles && <LiveBotTiles />}
+            <LiveBotTiles />
             <Tiles tiles={tiles} />
         </>
     )
@@ -697,11 +702,7 @@ const HealthTabLabel = (): JSX.Element => {
     )
 }
 
-const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
-        return []
-    }
-
+const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.HEALTH,
@@ -711,11 +712,7 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
-        return []
-    }
-
+const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.LIVE,
@@ -785,6 +782,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         {/* Empty fragment so tabs are not part of the sticky bar */}
                         <Filters tabs={<></>} />
 
+                        <WebAnalyticsShareColleagueBanner />
+                        <ShareNudgePrompt />
                         <WebAnalyticsHealthCheck />
                         <MainContent />
                     </>
@@ -837,7 +836,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
         interaction: 'function',
         callback: () => setProductTab(ProductTab.HEALTH),
         scope: Scene.WebAnalytics,
-        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
 
     useEffect(() => {
@@ -857,9 +855,9 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
-                ...liveTab(featureFlags),
+                ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
-                ...healthTab(featureFlags),
+                ...healthTab(),
             ]}
             sceneInset
             className="-mt-4"

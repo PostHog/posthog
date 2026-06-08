@@ -1,0 +1,251 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actions": {
+            "description": "Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too.",
+            "items": {
+                "properties": {
+                    "config": {
+                        "description": "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                    },
+                    "created_at": {
+                        "description": "Created at (epoch ms). Frontend-managed.",
+                        "type": "number"
+                    },
+                    "description": {
+                        "default": "",
+                        "description": "Optional description.",
+                        "type": "string"
+                    },
+                    "filters": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "actions": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "bytecode": {},
+                                    "bytecode_error": {
+                                        "type": "string"
+                                    },
+                                    "data_warehouse": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "events": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "filter_test_accounts": {
+                                        "type": "boolean"
+                                    },
+                                    "properties": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "source": {
+                                        "default": "events",
+                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "type": "string"
+                                    },
+                                    "transpiled": {}
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Property filters gating this action."
+                    },
+                    "id": {
+                        "description": "Unique node ID within the workflow.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Display name.",
+                        "maxLength": 400,
+                        "type": "string"
+                    },
+                    "on_error": {
+                        "anyOf": [
+                            {
+                                "description": "* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch",
+                                "enum": ["continue", "abort", "complete", "branch"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch"
+                    },
+                    "output_variable": {
+                        "description": "Output variable definition for downstream actions."
+                    },
+                    "type": {
+                        "description": "trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "description": "Updated at (epoch ms). Frontend-managed.",
+                        "type": "number"
+                    }
+                },
+                "required": ["id", "name", "type", "config"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "conversion": {
+            "description": "Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+        },
+        "description": {
+            "default": "",
+            "description": "Optional description.",
+            "type": "string"
+        },
+        "edges": {
+            "description": "Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise).",
+            "items": {
+                "properties": {
+                    "from": {
+                        "description": "Source action id.",
+                        "type": "string"
+                    },
+                    "index": {
+                        "description": "Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition.",
+                        "type": "number"
+                    },
+                    "to": {
+                        "description": "Target action id.",
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n* `continue` - continue\n* `branch` - branch",
+                        "enum": ["continue", "branch"],
+                        "type": "string"
+                    }
+                },
+                "required": ["to", "type", "from"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "exit_condition": {
+            "description": "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End",
+            "enum": [
+                "exit_on_conversion",
+                "exit_on_trigger_not_matched",
+                "exit_on_trigger_not_matched_or_conversion",
+                "exit_only_at_end"
+            ],
+            "type": "string"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Workflow name."
+        },
+        "status": {
+            "description": "draft (no execution), active (live), archived (disabled).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
+            "enum": ["draft", "active", "archived"],
+            "type": "string"
+        },
+        "trigger_masking": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "bytecode": {
+                            "description": "Auto-compiled from hash. Do not set."
+                        },
+                        "hash": {
+                            "description": "HogQL template, e.g. '{person.properties.email}'.",
+                            "type": "string"
+                        },
+                        "threshold": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Min matching events before triggering (k-anonymity)."
+                        },
+                        "ttl": {
+                            "anyOf": [
+                                {
+                                    "maximum": 94608000,
+                                    "minimum": 60,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Hash TTL in seconds (60 to ~94M / 3y)."
+                        }
+                    },
+                    "required": ["hash"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable."
+        },
+        "variables": {
+            "description": "Workflow vars (key, type, default). Total <5KB.",
+            "items": {
+                "additionalProperties": {
+                    "type": "string"
+                },
+                "description": "Variable: {key, type: string|number|boolean, default}.",
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["actions"],
+    "type": "object"
+}

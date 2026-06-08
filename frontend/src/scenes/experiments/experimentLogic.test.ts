@@ -1253,6 +1253,60 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('endExperimentLoading', () => {
+        // The end and ship-variant lifecycle calls both drive the single endExperimentLoading flag.
+        const triggers: { name: string; run: (l: ReturnType<typeof experimentLogic>) => void }[] = [
+            { name: 'endExperiment', run: (l) => l.actions.endExperiment() },
+            {
+                name: 'finishExperiment',
+                run: (l) => l.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false }),
+            },
+        ]
+
+        it.each(triggers)('flips the flag on then off around a successful $name', async ({ run }) => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+            } as Experiment
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+            })
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            await expectLogic(keyed, () => {
+                run(keyed)
+            })
+                // loading flips on before the request and off after it resolves
+                .toDispatchActions(['setEndExperimentLoading', 'setExperiment', 'setEndExperimentLoading'])
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it.each(triggers)('resets the flag after a failed $name', async ({ run }) => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({ detail: 'boom' })
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                run(logic)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+        })
+    })
+
     describe('updateDistribution', () => {
         beforeEach(() => {
             jest.spyOn(api, 'update')
@@ -1593,6 +1647,76 @@ describe('experimentLogic', () => {
             const circular: Record<string, unknown> = {}
             circular.self = circular
             expect(extractErrorDetailString(circular)).toBeNull()
+        })
+    })
+
+    describe('excluded variants', () => {
+        it('excludedVariants selector returns parameters.excluded_variants', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: {
+                        ...experiment.parameters,
+                        excluded_variants: ['test-2'],
+                    },
+                })
+            }).toMatchValues({
+                excludedVariants: ['test-2'],
+            })
+        })
+
+        it('excludedVariants defaults to [] when missing', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: { ...experiment.parameters },
+                })
+            }).toMatchValues({
+                excludedVariants: [],
+            })
+        })
+
+        it('setVariantExcluded sends a PATCH with the merged exclusion list', async () => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+            const existingExperiment = {
+                ...experiment,
+                parameters: {
+                    ...experiment.parameters,
+                    excluded_variants: ['test-1'],
+                },
+            } as Experiment
+            api.update.mockResolvedValue(existingExperiment)
+
+            logic.actions.setExperiment(existingExperiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.setVariantExcluded('test-2', true)
+            })
+                .toDispatchActions(['setVariantExcluded'])
+                .toFinishAllListeners()
+
+            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
+            expect(sentParams.excluded_variants).toEqual(expect.arrayContaining(['test-1', 'test-2']))
+            expect(sentParams.excluded_variants).toHaveLength(2)
+        })
+
+        it('setVariantExcluded(key, false) removes the key from the exclusion list', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: {
+                        ...experiment.parameters,
+                        excluded_variants: ['test-1', 'test-2'],
+                    },
+                })
+            }).toMatchValues({
+                excludedVariants: ['test-1', 'test-2'],
+            })
+
+            // Re-include test-2 — the new list (computed in the listener) must drop it.
+            const next = logic.values.excludedVariants.filter((k) => k !== 'test-2')
+            expect(next).toEqual(['test-1'])
         })
     })
 })

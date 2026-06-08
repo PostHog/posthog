@@ -1,3 +1,5 @@
+import io
+import csv
 import hmac
 import json
 import hashlib
@@ -9,6 +11,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.template.loader import get_template
 from django.test import override_settings
 from django.utils import timezone
 
@@ -106,6 +109,63 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         response = self.client.post(self._generate_links_url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _generate_links_csv_url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/links_csv/"
+
+    def test_generate_links_csv_returns_csv_with_expected_columns_and_rows(self):
+        topic = self._create_topic()
+
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response["Content-Type"].startswith("text/csv"))
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn(".csv", response["Content-Disposition"])
+
+        reader = csv.DictReader(io.StringIO(response.content.decode("utf-8")))
+        self.assertEqual(
+            reader.fieldnames,
+            ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"],
+        )
+        rows = list(reader)
+        # One row per targeted interviewee (3 in the default _create_topic).
+        self.assertEqual(len(rows), 3)
+        # Email column is empty for distinct-id-only rows; URL column always populated.
+        for row in rows:
+            self.assertIn("/interview/", row["interview_url"])
+
+    def test_generate_links_csv_rejects_topic_with_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_generate_links_csv_sanitizes_formula_injection_without_breaking_emails(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            # Deliberately craft a malicious distinct ID starting with `=` — must be quoted.
+            interviewee_distinct_ids=["=cmd|/c calc!A1"],
+        )
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        body = response.content.decode("utf-8")
+        # Plain email is untouched (first char is a letter, not a formula trigger).
+        self.assertIn("alex@example.com", body)
+        self.assertNotIn("'alex@example.com", body)
+        # Formula-injection identifier is prefixed with a single quote.
+        self.assertIn("'=cmd|/c calc!A1", body)
+
+    def test_generate_links_csv_is_idempotent_with_existing_links(self):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        # Materialize via the JSON endpoint first; the CSV endpoint must return the same access token.
+        json_body = self.client.post(self._generate_links_url(str(topic.id))).json()
+        expected_url = json_body[0]["interview_url"]
+
+        csv_response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(csv_response.status_code, status.HTTP_200_OK)
+        self.assertIn(expected_url, csv_response.content.decode("utf-8"))
+        self.assertEqual(SharingConfiguration.objects.filter(interviewee_context__topic=topic).count(), 1)
 
 
 class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
@@ -413,7 +473,7 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
         assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
 
     def test_returns_team_override_when_prompt_published(self):
-        from posthog.models.llm_prompt import LLMPrompt
+        from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
         LLMPrompt.objects.create(
             team=self.team,
@@ -427,7 +487,7 @@ class TestResolveFirstMessageTemplate(APIBaseTest):
         assert template == "Hey $user_name! Quick chat about $topic_text?"
 
     def test_returns_default_when_published_prompt_is_empty(self):
-        from posthog.models.llm_prompt import LLMPrompt
+        from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
         LLMPrompt.objects.create(
             team=self.team,
@@ -649,8 +709,30 @@ class TestVapiWebhook(APIBaseTest):
             "/api/user_interviews/vapi_webhook/",
             data=self._end_of_call_payload(share.access_token),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="wrong",
+            HTTP_X_VAPI_SIGNATURE="a" * 64,  # right shape, wrong value
         )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("empty", ""),
+            ("too_short", "abc"),
+            ("non_hex", "z" * 64),
+            ("uppercase", "A" * 64),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_webhook_rejects_malformed_signature_pre_hmac(self, _name: str, value: Any):
+        share = self._create_share()
+        self.client.logout()
+        kwargs: dict[str, Any] = {
+            "data": self._end_of_call_payload(share.access_token),
+            "content_type": "application/json",
+        }
+        if value is not None:
+            kwargs["HTTP_X_VAPI_SIGNATURE"] = value
+        response = self.client.post("/api/user_interviews/vapi_webhook/", **kwargs)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -994,6 +1076,158 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         self.assertTrue(by_id["alex@example.com"]["sent"])
         self.assertFalse(by_id["jordan@example.com"]["sent"])
         self.assertTrue(by_id["jordan@example.com"]["reason"].startswith("error:"))
+
+    def test_send_invites_uses_stored_topic_subject_and_message(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            interviewee_distinct_ids=[],
+            invite_subject="Quick chat about replay?",
+            invite_message="Hey!\nWe'd love your thoughts.",
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            self.client.post(self._url(str(topic.id)), data={}, format="json")
+
+        kwargs = mock_message_cls.call_args.kwargs
+        assert kwargs["subject"] == "Quick chat about replay?"
+        assert kwargs["template_context"]["invite_message"] == "Hey!\nWe'd love your thoughts."
+
+    def test_send_invites_request_subject_overrides_stored(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            interviewee_distinct_ids=[],
+            invite_subject="Stored subject?",
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            self.client.post(self._url(str(topic.id)), data={"subject": "Override subject?"}, format="json")
+
+        assert mock_message_cls.call_args.kwargs["subject"] == "Override subject?"
+
+    def test_send_invites_sanitizes_unsafe_stored_values_at_send_time(self):
+        # Defense-in-depth: values written straight to the DB (bypassing serializer validation)
+        # must still degrade to safe defaults at send time rather than reaching the email.
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            interviewee_distinct_ids=[],
+            invite_subject="http://evil.com",
+            invite_message="<b>click www.evil.com</b>",
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            self.client.post(self._url(str(topic.id)), data={}, format="json")
+
+        kwargs = mock_message_cls.call_args.kwargs
+        assert kwargs["subject"] == "Got 5 minutes to talk about Session replay adoption?"
+        assert "evil.com" not in kwargs["subject"]
+        assert kwargs["template_context"]["invite_message"] == ""
+
+
+class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/"
+
+    UNSAFE_SUBJECTS = [
+        ("url_scheme", "Visit http://evil.com"),
+        ("www_prefix", "go to www.evil.com now"),
+        ("bare_domain", "thoughts on acme.com?"),
+        ("angle_brackets", "Hi <b>there</b>"),
+        ("newline", "line one\nline two"),
+        ("null_byte", "subject\x00"),
+        ("zero_width", "sub​ject"),
+        ("fullwidth_url", "ｈｔｔｐ：／／evil.example"),
+    ]
+    UNSAFE_MESSAGES = [
+        ("url_scheme", "click http://evil.com"),
+        ("javascript_scheme", "click javascript:alert(1)"),
+        ("www_prefix", "see www.evil.com"),
+        ("bare_domain", "head to acme.com to learn more"),
+        ("angle_brackets", "<script>alert(1)</script>"),
+        ("null_byte", "body\x00here"),
+        ("bidi_override", "body‮here"),
+        ("fullwidth_url", "ｈｔｔｐ：／／evil.example"),
+    ]
+
+    @parameterized.expand(UNSAFE_SUBJECTS)
+    def test_create_rejects_unsafe_subject(self, _name: str, subject: str):
+        payload = {"topic": "t", "interviewee_emails": ["a@example.com"], "invite_subject": subject}
+        response = self.client.post(self._url(), data=payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "invite_subject"
+
+    @parameterized.expand(UNSAFE_MESSAGES)
+    def test_create_rejects_unsafe_message(self, _name: str, message: str):
+        payload = {"topic": "t", "interviewee_emails": ["a@example.com"], "invite_message": message}
+        response = self.client.post(self._url(), data=payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "invite_message"
+
+    @parameterized.expand(
+        [
+            ("plain_subject_and_message", "Got a sec to chat?", "Hi there,\nThanks for being a user."),
+            ("multiline_no_links", "Quick question", "have you seen the new onboarding flow?\nKeen to hear your take."),
+            ("blank_values", "", ""),
+        ]
+    )
+    def test_create_accepts_safe_values(self, _name: str, subject: str, message: str):
+        payload = {
+            "topic": "t",
+            "interviewee_emails": ["a@example.com"],
+            "invite_subject": subject,
+            "invite_message": message,
+        }
+        response = self.client.post(self._url(), data=payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        topic = UserInterviewTopic.objects.get(id=response.json()["id"], team=self.team)
+        assert topic.invite_subject == subject
+        assert topic.invite_message == message
+
+    def test_partial_update_rejects_unsafe_subject(self):
+        topic = UserInterviewTopic.objects.create(
+            team=self.team, created_by=self.user, interviewee_emails=["a@example.com"], topic="t"
+        )
+        response = self.client.patch(
+            f"{self._url()}{topic.id}/", data={"invite_subject": "go to www.evil.com"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        topic.refresh_from_db()
+        assert topic.invite_subject == ""
+
+
+class TestInterviewInviteTemplateRendering(unittest.TestCase):
+    def _render(self, **context: Any) -> str:
+        ctx: dict[str, Any] = {
+            "user_name": "Alex",
+            "topic": "Session replay",
+            "interview_url": "https://app.posthog.com/interview/abc",
+            "site_url": "https://app.posthog.com",
+        }
+        ctx.update(context)
+        return get_template("email/interview_invite.html").render(ctx)
+
+    def test_hostile_message_is_escaped_not_live_markup(self):
+        html = self._render(invite_message='<script>alert("xss")</script>\nstay safe')
+        assert "&lt;script&gt;" in html
+        assert "<script>" not in html
+        assert "stay safe" in html
+
+    def test_multiline_message_renders_line_breaks(self):
+        html = self._render(invite_message="Line one\nLine two")
+        assert "Line one<br>" in html
+        assert "Line two" in html
+
+    def test_blank_message_falls_back_to_default_copy(self):
+        html = self._render(invite_message="")
+        assert "AI interviewer" in html
 
 
 class TestSharingConfigurationCanAccess(APIBaseTest):

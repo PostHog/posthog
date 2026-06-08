@@ -638,6 +638,7 @@ export const experimentLogic = kea<experimentLogicType>([
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
+        setEndExperimentLoading: (loading: boolean) => ({ loading }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
             forceRefresh,
@@ -654,6 +655,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
+        updateExperimentSettings: (update: Partial<Experiment>) => ({ update }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
@@ -800,6 +802,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setShowNotificationOffer: (show: boolean) => ({ show }),
         setNotifyWhenResultsReady: (notify: boolean) => ({ notify }),
         toggleDebugPanel: true,
+        setVariantExcluded: (variantKey: string, excluded: boolean) => ({ variantKey, excluded }),
     }),
     reducers({
         showDebugPanel: [
@@ -1214,6 +1217,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setLaunchExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        endExperimentLoading: [
+            false,
+            {
+                setEndExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -1420,7 +1429,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
-                tryShowMCPHint('experiments.launch')
+                // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
+                const experimentHandle = experiment.feature_flag_key || experiment.name
+                tryShowMCPHint('experiments.launch', {
+                    derivedPrompt: experimentHandle ? `Launch experiment ${experimentHandle}` : undefined,
+                })
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
             } finally {
@@ -1438,6 +1451,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'config_change')
         },
         endExperiment: async () => {
+            actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
@@ -1450,6 +1464,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to end experiment')
+            } finally {
+                actions.setEndExperimentLoading(false)
             }
         },
         endExperimentWithoutShipping: async () => {
@@ -1654,6 +1670,12 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             actions.refreshExperimentResults(true, 'config_change')
         },
+        updateExperimentSettings: async ({ update }) => {
+            // Settings like stats config, CUPED, and conversion-window handling change
+            // how metrics and exposures are computed, so persist then re-query.
+            await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            actions.refreshExperimentResults(true, 'config_change')
+        },
         resetRunningExperiment: async () => {
             try {
                 const response: Experiment = await api.create(
@@ -1694,6 +1716,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         finishExperiment: async ({ selectedVariantKey, releaseToEveryone }) => {
+            actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
@@ -1734,6 +1757,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     lemonToast.error(error.detail || 'Failed to ship variant')
                 }
+            } finally {
+                actions.setEndExperimentLoading(false)
             }
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
@@ -2208,6 +2233,36 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadSecondaryMetricsResults(true)
             }
         },
+        setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
+            const current = values.excludedVariants
+            const next = excluded
+                ? Array.from(new Set([...current, variantKey]))
+                : current.filter((k: string) => k !== variantKey)
+
+            try {
+                await asyncActions.updateExperiment({
+                    parameters: { ...values.experiment.parameters, excluded_variants: next },
+                })
+                lemonToast.success(
+                    excluded
+                        ? `Variant ${variantKey} excluded from analysis`
+                        : `Variant ${variantKey} re-included in analysis`,
+                    {
+                        button: {
+                            label: 'Undo',
+                            action: () => actions.setVariantExcluded(variantKey, !excluded),
+                        },
+                    }
+                )
+                // Re-fetch metric and exposure results since the variant set changed.
+                actions.loadPrimaryMetricsResults(true)
+                actions.loadSecondaryMetricsResults(true)
+                actions.loadExposures(true)
+            } catch (error) {
+                lemonToast.error('Could not update variant exclusion. Please try again.')
+                throw error
+            }
+        },
         setAutoRefresh: ({ enabled, interval }) => {
             // Track when user toggles auto-refresh settings
             actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
@@ -2411,6 +2466,10 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment): MultivariateFlagVariant[] => {
                 return experiment?.parameters?.feature_flag_variants || []
             },
+        ],
+        excludedVariants: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string[] => experiment?.parameters?.excluded_variants ?? [],
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment],

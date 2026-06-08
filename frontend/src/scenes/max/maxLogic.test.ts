@@ -3,6 +3,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
@@ -43,7 +44,7 @@ describe('maxLogic', () => {
         }).toDispatchActions(['openSidePanel'])
 
         // Mount maxLogic after setting up the sidePanelStateLogic state
-        logic = maxLogic({ tabId: 'sidepanel' })
+        logic = maxLogic({ sidePanel: true })
         logic.mount()
 
         // Check that the question has been set to "Foo"
@@ -60,7 +61,7 @@ describe('maxLogic', () => {
         }).toDispatchActions(['openSidePanel'])
 
         // Must create the logic first to spy on its actions
-        logic = maxLogic({ tabId: 'sidepanel' })
+        logic = maxLogic({ sidePanel: true })
         logic.mount()
 
         // Only mount maxLogic after setting up the router and sidePanelStateLogic
@@ -180,6 +181,29 @@ describe('maxLogic', () => {
         expect(logic.values.frontendConversationId).toMatch(uuidRegex)
     })
 
+    // The side panel chat floats over whatever page you're on (e.g. an insight) and must not touch
+    // the route, whereas the scene instance owns /ai. The harness prefixes the project id
+    // (/project/<id>/…), so match the path suffix.
+    it.each([
+        {
+            scenario: 'side panel chat keeps the current page',
+            props: { sidePanel: true },
+            expectedSuffix: '/insights/abc123',
+        },
+        { scenario: 'scene chat navigates to /ai', props: { tabId: 'test' }, expectedSuffix: urls.ai() },
+    ])('startNewConversation: $scenario', async ({ props, expectedSuffix }) => {
+        router.actions.push('/insights/abc123')
+
+        logic = maxLogic(props)
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.startNewConversation()
+        }).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith(expectedSuffix)).toBe(true)
+    })
+
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
         logic = maxLogic({ tabId: 'test' })
         logic.mount()
@@ -217,7 +241,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=research:!Question')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -226,7 +250,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -243,7 +267,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=product_analytics:Question')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -252,7 +276,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -269,7 +293,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=sql:!Write a query')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -278,7 +302,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -291,7 +315,7 @@ describe('maxLogic', () => {
 
         it('parses mode=auto:!Question correctly (null mode)', async () => {
             // Mount maxLogic first and reset state to ensure clean slate
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
             logic.actions.startNewConversation()
 
@@ -307,7 +331,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -320,7 +344,7 @@ describe('maxLogic', () => {
 
         it('parses mode=research correctly (mode only, no question)', async () => {
             // Mount maxLogic first and reset state to ensure clean slate
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
             logic.actions.startNewConversation()
 
@@ -336,7 +360,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -353,7 +377,7 @@ describe('maxLogic', () => {
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, 'mode=invalid_mode:!Question')
             }).toDispatchActions(['openSidePanel'])
 
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -362,7 +386,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })
@@ -375,7 +399,7 @@ describe('maxLogic', () => {
 
         it('parses !My question correctly (backwards compatibility)', async () => {
             // Mount maxLogic first and reset state to ensure clean slate
-            logic = maxLogic({ tabId: 'sidepanel' })
+            logic = maxLogic({ sidePanel: true })
             logic.mount()
             logic.actions.startNewConversation()
 
@@ -391,7 +415,7 @@ describe('maxLogic', () => {
             })
 
             threadLogic = maxThreadLogic({
-                tabId: 'sidepanel',
+                sidePanel: true,
                 conversationId: logic.values.frontendConversationId,
                 conversation: null,
             })

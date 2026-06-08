@@ -3,7 +3,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::{
-    create_kafka_producer, send_keyed_iter_to_kafka, KafkaContext, KafkaProduceError,
+    create_kafka_producer, send_keyed_iter_to_kafka_with_encoding, EnvelopeEncoding, KafkaContext,
+    KafkaProduceError,
 };
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
@@ -13,12 +14,12 @@ use tracing::warn;
 use crate::types::{PropertyType, TupleKey};
 
 #[derive(serde::Serialize)]
-struct Outgoing<'a> {
-    team_id: i64,
-    property_type: PropertyType,
-    property_key: &'a str,
-    property_value: &'a str,
-    property_count: u64,
+pub(crate) struct Outgoing<'a> {
+    pub team_id: i64,
+    pub property_type: PropertyType,
+    pub property_key: &'a str,
+    pub property_value: &'a str,
+    pub property_count: u64,
 }
 
 #[derive(Debug, Error)]
@@ -44,6 +45,10 @@ pub struct AggregatedProducer {
     inner: FutureProducer<KafkaContext>,
     output_topic: String,
     produce_timeout: Duration,
+    // Envelope encoding for the produced payloads. Only `Lz4`-safe for the
+    // intermediate topic, which the merger consumes; the output topic is read
+    // by ClickHouse and must stay `None`.
+    encoding: EnvelopeEncoding,
 }
 
 impl AggregatedProducer {
@@ -52,6 +57,7 @@ impl AggregatedProducer {
         liveness: L,
         output_topic: String,
         produce_timeout: Duration,
+        encoding: EnvelopeEncoding,
     ) -> Result<Self, KafkaError>
     where
         L: common_liveness::SyncLivenessReporter + Clone + 'static,
@@ -61,6 +67,7 @@ impl AggregatedProducer {
             inner,
             output_topic,
             produce_timeout,
+            encoding,
         })
     }
 }
@@ -84,10 +91,23 @@ impl Producer for AggregatedProducer {
             })
             .collect();
 
-        let send_fut = send_keyed_iter_to_kafka(
+        // Full-tuple partition key. The same (team, type, key, value) tuple
+        // from any pod always lands on the same partition, so the merger on
+        // the consuming side can merge the per-pod duplicates that the
+        // events/groups workers emit across replicas.
+        let send_fut = send_keyed_iter_to_kafka_with_encoding(
             &self.inner,
             &self.output_topic,
-            |m| Some(m.team_id.to_string()),
+            |m| {
+                Some(format!(
+                    "{}:{}:{}:{}",
+                    m.team_id,
+                    m.property_type.as_kafka_key_segment(),
+                    m.property_key,
+                    m.property_value,
+                ))
+            },
+            self.encoding,
             messages,
         );
 

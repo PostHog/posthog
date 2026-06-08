@@ -3,9 +3,12 @@
 from typing import cast
 from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 
+import structlog
+from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
@@ -18,11 +21,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.temporal.common.client import sync_connect
 
 from .. import logic
 from ..file_parse import FileParseError
 from ..models import KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
+from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
     CreateCrawlSourceSerializer,
     CreateFileSourceSerializer,
@@ -32,6 +37,8 @@ from .serializers import (
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class _ConflictError(exceptions.APIException):
@@ -43,7 +50,6 @@ class _ConflictError(exceptions.APIException):
     default_code = "conflict"
 
 
-@extend_schema(tags=["business_knowledge"])
 class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "business_knowledge"
     queryset = KnowledgeSource.objects.unscoped()
@@ -101,11 +107,12 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         user = cast(User, request.user)
         try:
-            source = logic.create_url_source(
+            source = logic.claim_url_source(
                 team_id=self.team_id,
                 created_by_id=user.id,
                 name=serializer.validated_data["name"],
                 url=serializer.validated_data["url"],
+                refresh_interval=serializer.validated_data.get("refresh_interval"),
             )
         except logic.SourceBusyError:
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
@@ -113,20 +120,21 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
-        return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
+        return self._respond_claimed(source)
 
     def _create_crawl_source(self, request: Request) -> Response:
         serializer = CreateCrawlSourceSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         user = cast(User, request.user)
         try:
-            source = logic.create_crawl_source(
+            source = logic.claim_url_source(
                 team_id=self.team_id,
                 created_by_id=user.id,
                 name=serializer.validated_data["name"],
                 url=serializer.validated_data["url"],
                 crawl_mode=serializer.validated_data["crawl_mode"],
                 crawl_config=serializer.validated_data["crawl_config"],
+                refresh_interval=serializer.validated_data.get("refresh_interval"),
             )
         except logic.SourceBusyError:
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
@@ -134,7 +142,37 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
-        return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
+        return self._respond_claimed(source)
+
+    def _respond_claimed(self, source: KnowledgeSource) -> Response:
+        """
+        Kick off background ingestion and return the just-claimed PROCESSING
+        source so the UI unblocks immediately and polls for completion.
+        """
+        self._start_background_ingest(source)
+        fresh = logic.get_for_team(source.id, self.team_id) or source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data, status=status.HTTP_201_CREATED)
+
+    def _start_background_ingest(self, source: KnowledgeSource) -> None:
+        """
+        Hand fetch + index to a background Temporal workflow so the request
+        returns right away. If the workflow can't be started (e.g. Temporal is
+        unreachable) we fall back to ingesting inline so the source never hangs
+        in PROCESSING — the stale-claim sweep would otherwise only recover it
+        after several minutes.
+        """
+        try:
+            client = sync_connect()
+            # mypy can't resolve Temporal's start_workflow overloads for string-named workflows.
+            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+                "business-knowledge-ingest-source",  # type: ignore[arg-type]
+                IngestSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                id=f"business-knowledge-ingest-{source.id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            )
+        except Exception:
+            logger.exception("business_knowledge.ingest.workflow_start_failed", source_id=str(source.id))
+            logic.ingest_source(source_id=source.id, team_id=self.team_id)
 
     def _create_file_source(self, request: Request) -> Response:
         serializer = CreateFileSourceSerializer(data=request.data, context=self.get_serializer_context())
@@ -240,6 +278,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 url=serializer.validated_data.get("url"),
                 crawl_mode=serializer.validated_data.get("crawl_mode"),
                 crawl_config=serializer.validated_data.get("crawl_config"),
+                refresh_interval=serializer.validated_data.get("refresh_interval"),
             )
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
@@ -273,18 +312,36 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
         try:
-            source = logic.refresh_source(source_id=source_id, team_id=self.team_id)
+            source = logic.claim_refresh_source(source_id=source_id, team_id=self.team_id)
+        except KnowledgeSource.DoesNotExist:
+            raise exceptions.NotFound()
         except logic.SourceBusyError:
             raise _ConflictError("A refresh is already in progress for this source.")
         except logic.InvalidUrlError:
-            raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except (logic.UrlFetchFailedError, logic.EmptyContentError):
-            raise exceptions.ValidationError({"url": "Could not fetch the URL."})
+            raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
-        if source is None:
-            raise exceptions.NotFound()
-        return Response(KnowledgeSourceSerializer(instance=source).data)
+        self._start_background_refresh(source)
+        fresh = logic.get_for_team(source.id, self.team_id) or source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data)
+
+    def _start_background_refresh(self, source: KnowledgeSource) -> None:
+        """
+        Hand fetch + rebuild to a background Temporal workflow so the request
+        returns right away. Falls back to inline refresh if Temporal is
+        unreachable.
+        """
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+                "business-knowledge-refresh-source",  # type: ignore[arg-type]
+                RefreshSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                id=f"business-knowledge-refresh-{source.id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            )
+        except Exception:
+            logger.exception("business_knowledge.refresh.workflow_start_failed", source_id=str(source.id))
+            logic.execute_refresh_source(source_id=source.id, team_id=self.team_id)
 
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:

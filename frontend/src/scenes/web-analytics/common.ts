@@ -25,7 +25,11 @@ export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
+    colSpanClassName?:
+        | `md:col-span-${number}`
+        | 'md:col-span-full'
+        | `md:col-span-${number} 2xl:col-span-${number}`
+        | `md:col-span-${number} 2xl:col-span-full`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     rowSpanClassName?: `md:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -371,14 +375,6 @@ export enum ActiveHoursTab {
 
 export enum ConversionGoalWarning {
     CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
-}
-
-export interface WebAnalyticsStatusCheck {
-    isSendingWebVitals: boolean
-    isSendingPageViews: boolean
-    isSendingPageLeaves: boolean
-    isSendingPageLeavesScroll: boolean
-    hasAuthorizedUrls: boolean
 }
 
 export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {

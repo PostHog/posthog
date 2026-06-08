@@ -52,6 +52,8 @@ tools:
             - topic
             - agent_context
             - questions
+            - invite_subject
+            - invite_message
         feature_flag: user-interviews
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
@@ -167,6 +169,22 @@ tools:
     user-interview-topics-interviewees-update:
         operation: user_interview_topics_interviewees_update
         enabled: false
+    user-interview-topics-links-csv:
+        operation: user_interview_topics_links_csv_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Export interview links for a topic as CSV
+        description: >
+            Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a
+            downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`.
+            Use this when the human plans to mail-merge the links into their own email tooling rather than letting
+            PostHog send the invites.
+        feature_flag: user-interviews
     user-interview-topics-list:
         operation: user_interview_topics_list
         enabled: true
@@ -203,6 +221,8 @@ tools:
             - questions
             - interviewee_emails
             - interviewee_distinct_ids
+            - invite_subject
+            - invite_message
         feature_flag: user-interviews
     user-interview-topics-remove-interviewee:
         operation: user_interview_topics_remove_interviewee_create
@@ -258,6 +278,9 @@ tools:
             - reply_to
             - send_async
         feature_flag: user-interviews
+    user-interview-topics-test-link-retrieve:
+        operation: user_interview_topics_test_link_retrieve
+        enabled: false
     user-interview-topics-update:
         operation: user_interview_topics_update
         enabled: false
@@ -285,11 +308,29 @@ tools:
             scope to a single research topic — use this to answer questions like "do I have any responses on my X topic
             yet?". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer
             skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific
-            interview.
+            interview. Pass `classifications` (comma-separated; any of `abandoned`, `off-topic`) to return only
+            responses carrying any of those classifications — e.g. `classifications=abandoned` to find drop-offs.
         feature_flag: user-interviews
     user-interviews-partial-update:
         operation: user_interviews_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set classifications on an interview response
+        description: >
+            Replace the searchable `classifications` on a single interview response. The valid classifications are
+            `abandoned` and `off-topic`. `abandoned` is auto-derived from the transcript when the response is recorded;
+            use this to correct it or to apply `off-topic`, which is never auto-set. Sending `classifications` replaces
+            the entire list — pass the full desired set, not a delta, so include the auto-derived `abandoned` if you
+            want to keep it. Filter by these later via the `classifications` parameter on `user-interviews-list` and
+            `user-interviews-search`.
+        include_params:
+            - classifications
+        feature_flag: user-interviews
     user-interviews-retrieve:
         operation: user_interviews_retrieve
         enabled: true
@@ -321,8 +362,9 @@ tools:
             is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and
             summary score above other interviews. Use `document_types` to restrict to just `transcript` or just
             `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of
-            returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research
-            question rather than a known string to grep for.
+            returned matches (1-50, default 10). Filter by `classifications` (any of `abandoned`, `off-topic`) to
+            restrict the search to responses carrying those; combines with `topic_id` as AND. Useful for surfacing
+            relevant excerpts when the caller has a research question rather than a known string to grep for.
         feature_flag: user-interviews
     user-interviews-update:
         operation: user_interviews_update

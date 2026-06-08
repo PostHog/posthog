@@ -28,6 +28,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (
@@ -160,6 +161,15 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if len(queries) == 1:
             return queries[0]
 
+        # Multiple source tables are combined with UNION ALL, which needs a common
+        # column type. Different sources resolve aggregation_target to different
+        # types (e.g. a person_id UUID and a warehouse string column), so coerce
+        # every branch's aggregation_target to a string.
+        for query in queries:
+            for select_expr in query.select:
+                if isinstance(select_expr, ast.Alias) and select_expr.alias == "aggregation_target":
+                    select_expr.expr = ast.Call(name="toString", args=[select_expr.expr])
+
         # Take the field and alias names from the first query. UNION enforces identical column sets
         # across all selects, which makes this reliable.
         aliased_fields = alias_columns_in_select(queries[0].select, self.EVENT_TABLE_ALIAS)
@@ -235,6 +245,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
             )
 
+        tag_contains_user_hogql()
         select: list[ast.Expr] = [
             ast.Alias(
                 alias="timestamp",
@@ -412,8 +423,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "event":
             properties_column = "properties"
-            normalize_url = breakdownFilter.breakdown_normalize_url
-            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
+            return get_breakdown_expr(
+                breakdown,
+                properties_column,
+                normalize_url=breakdownFilter.breakdown_normalize_url,
+                path_cleaning=breakdownFilter.breakdown_path_cleaning,
+                team=self.context.team,
+            )
         elif breakdownType == "cohort":
             if isinstance(breakdown, int):
                 cohort_id = breakdown
@@ -431,6 +447,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "group":
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
+        elif breakdownType == "session":
+            return get_breakdown_expr(breakdown, "session")
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
             exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
@@ -547,6 +565,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # Aggregating by HogQL
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
+            tag_contains_user_hogql()
             aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
         if isinstance(aggregation_target, str):
@@ -558,7 +577,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if self._aggregation_target_expr() == ast.Field(chain=["person_id"]):
             return None
 
-        return parse_expr("aggregation_target != '' and aggregation_target != null")
+        # toString() guards against numeric-typed aggregation keys: comparing a
+        # Float64 directly to '' makes ClickHouse try to parse '' as a number.
+        return parse_expr("toString(aggregation_target) != '' and aggregation_target != null")
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query

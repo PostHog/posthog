@@ -50,6 +50,7 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.EventFeatureFlags,
             ...groupsTaxonomicTypes,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
+            TaxonomicFilterGroupType.HogQLExpression,
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ]
     } else {

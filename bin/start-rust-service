@@ -38,6 +38,15 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  property-vals-rs)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export BIND_PORT=3303 # avoid local-dev clashes on 3302 (cymbal) and the property-defs-rs default
+    export KAFKA_CONSUMER_OFFSET_RESET=earliest
+    export DEBUG=1
+    ;;
+
   capture)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
@@ -101,11 +110,14 @@ case "$RS_SVC" in
     ;;
 
   cymbal)
-    export RUST_LOG=debug,rdkafka=warn
+    # Only cymbal crates at debug; everything else at info to keep the dev
+    # log readable. rdkafka stays explicitly at warn because its info-level
+    # output is still noisy. Unconditional export — flox activate exports its
+    # own RUST_LOG, so a conditional default would silently inherit that and
+    # match no cymbal modules.
+    export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export OBJECT_STORAGE_BUCKET=posthog
-    export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-    export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     export FRAME_CACHE_TTL_SECONDS=1
     export FRAME_RESULT_TTL_MINUTES=0
     export ASSIGNMENT_RULE_CACHE_TTL_SECS=0
@@ -117,6 +129,49 @@ case "$RS_SVC" in
     export ISSUE_BUCKETS_REDIS_URL="$DEFAULT_REDIS"
     export SIGNALS_API_BASE_URL="${SIGNALS_API_BASE_URL:-http://localhost:8000}" # Used to emit signals, via the internal API
     export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
+    # Route exception resolution through the local cymbal-resolution pod so
+    # the new gRPC seam is exercised end-to-end during dev. Flip
+    # CYMBAL_REMOTE_RESOLUTION_ENABLED=false to fall back to inline local
+    # resolution if cymbal-resolution isn't running.
+    export CYMBAL_REMOTE_RESOLUTION_ENABLED="${CYMBAL_REMOTE_RESOLUTION_ENABLED:-true}"
+    # Production defaults to SAMPLE_RATE=0.0 so flipping ENABLED is a no-op
+    # until rollout is ramped explicitly. In dev we want every event to
+    # exercise the remote path so the seam is actually tested.
+    export CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE="${CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE:-1.0}"
+    export CYMBAL_REMOTE_RESOLUTION_HOST="${CYMBAL_REMOTE_RESOLUTION_HOST:-127.0.0.1}"
+    export CYMBAL_REMOTE_RESOLUTION_PORT="${CYMBAL_REMOTE_RESOLUTION_PORT:-50061}"
+    # Keep cadence tight on the dev box so routing reacts quickly to
+    # whatever load you induce by hand.
+    export CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS="${CYMBAL_REMOTE_RESOLUTION_DNS_REFRESH_SECS:-5}"
+    export CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS="${CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS:-500}"
+    ;;
+
+  cymbal-resolution)
+    # Symbol-resolution service that cymbal offloads to via cymbal.resolution.v1.
+    # Uses cymbal::app_context::build_symbol_resolver which only connects to
+    # Postgres and S3 — NOT Kafka, NOT Redis, NOT signals. That's why this
+    # block is so much narrower than the cymbal block: anything cymbal needs
+    # for the fingerprinting / issue path is genuinely irrelevant here.
+    # Only cymbal crates at debug; everything else at info. Unconditional
+    # export — flox activate exports its own RUST_LOG, so a conditional
+    # default would silently inherit that and match no cymbal modules.
+    export RUST_LOG=info,cymbal=debug,cymbal_resolution=debug,cymbal_proto=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    # S3 / MinIO bucket for symbol-file fetches.
+    export OBJECT_STORAGE_BUCKET=posthog
+    # Frame cache tuning — values are intentionally tiny in dev so cache
+    # behaviour is observable without warming.
+    export FRAME_CACHE_TTL_SECONDS=1
+    export FRAME_RESULT_TTL_MINUTES=0
+    # Source-map / debug-file fetches may target cluster-internal hosts.
+    export ALLOW_INTERNAL_IPS="true"
+    # Listen on loopback only in dev. 50061 is the contract default; 9106 keeps
+    # us clear of the personhog-* metrics ports (9100-9105) and flags-consumer.
+    export GRPC_ADDRESS="${GRPC_ADDRESS:-127.0.0.1:50061}"
+    export METRICS_PORT="${METRICS_PORT:-9106}"
+    export INTERNAL_API_SECRET="${INTERNAL_API_SECRET:-posthog123}"
+    # Match the dev cymbal cadence so the load bus updates often.
+    export SUBSCRIBE_TICK_INTERVAL_MS="${SUBSCRIBE_TICK_INTERVAL_MS:-500}"
     ;;
 
   embedding-worker)
@@ -135,7 +190,8 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
+    export DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
+    export BIND_PORT=3310 # default 3303 collides with property-vals-rs in local dev
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
@@ -154,6 +210,7 @@ case "$RS_SVC" in
     export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
     ;;
 
   hypercache-server)
