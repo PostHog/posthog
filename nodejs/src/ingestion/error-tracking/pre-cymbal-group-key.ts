@@ -37,9 +37,6 @@ export function preCymbalGroupKey(event: PluginEvent): string | null {
         hash.update(String(exc.type ?? ''))
         hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
 
-        // Mirror Cymbal grouping: in_app frames if any, else all frames, else the
-        // raw message. Line/column are excluded — they shift across deploys for the
-        // same issue and otherwise split it across rate-limit buckets.
         const safeFrames = frames?.map((frame) =>
             frame && typeof frame === 'object' ? (frame as Record<string, unknown>) : {}
         )
