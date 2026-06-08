@@ -133,6 +133,32 @@ function SnapshotThumbnail({
     )
 }
 
+function QuarantinedThumbnailsToggle({
+    hiddenCount,
+    isExpanded,
+    onClick,
+}: {
+    hiddenCount: number
+    isExpanded: boolean
+    onClick: () => void
+}): JSX.Element {
+    const label = isExpanded
+        ? 'Hide quarantined'
+        : `${hiddenCount} quarantined item${hiddenCount === 1 ? '' : 's'} hidden`
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-expanded={isExpanded}
+            data-attr="visual-review-toggle-quarantined-thumbnails"
+            className="flex flex-col items-center justify-center shrink-0 rounded p-1.5 w-[100px] h-full text-warning-dark border border-dashed border-warning hover:bg-warning/10 transition-colors"
+        >
+            <span className="text-[11px] font-semibold text-center leading-tight">{label}</span>
+        </button>
+    )
+}
+
 const PENDING_STALE_THRESHOLD_MS = 15 * 60 * 1000
 
 function RunInProgressEmptyState({
@@ -194,6 +220,7 @@ export function VisualReviewRunScene(): JSX.Element {
         toleratedHashesLoading,
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
+        showQuarantinedThumbnails,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -212,10 +239,22 @@ export function VisualReviewRunScene(): JSX.Element {
         unquarantineSnapshot,
         recomputeRun,
         markThumbnailFailed,
+        toggleQuarantinedThumbnails,
     } = useActions(visualReviewRunSceneLogic)
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
+
+    const quarantinedNavCount = navSnapshots.filter((s: SnapshotApi) =>
+        quarantinedIdentifierSet.has(s.identifier)
+    ).length
+    const isHiddenQuarantined = (s: SnapshotApi): boolean =>
+        quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
+    const visibleNavSnapshots = showQuarantinedThumbnails
+        ? navSnapshots
+        : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
+
     const currentIndex = selectedSnapshot
         ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
@@ -454,7 +493,7 @@ export function VisualReviewRunScene(): JSX.Element {
 
                     {navSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
-                            {navSnapshots.map((snapshot: SnapshotApi) => {
+                            {visibleNavSnapshots.map((snapshot: SnapshotApi) => {
                                 const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
                                 return (
                                     <SnapshotThumbnail
@@ -473,6 +512,13 @@ export function VisualReviewRunScene(): JSX.Element {
                                     />
                                 )
                             })}
+                            {quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails) && (
+                                <QuarantinedThumbnailsToggle
+                                    hiddenCount={hiddenQuarantinedCount}
+                                    isExpanded={showQuarantinedThumbnails}
+                                    onClick={toggleQuarantinedThumbnails}
+                                />
+                            )}
                         </div>
                     )}
 
