@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { captureException } from '../../utils/posthog'
 import { createContext, createNewPipeline, createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
+import { getRetryAttempts } from './metrics.test-utils'
 import { PipelineResultType, dlq, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 
@@ -13,22 +14,6 @@ jest.mock('../../utils/posthog', () => ({
 }))
 
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
-
-// Reads the {_count, _sum} of the retry-attempts histogram for a given name/outcome.
-// _sum holds the observed attempt count (a single observe per process() call), _count the number of calls.
-async function getRetryAttempts(name: string, outcome: string): Promise<{ count: number; sum: number } | null> {
-    const metric = await pipelineRetryAttemptsHistogram.get()
-    const find = (suffix: string): number | undefined =>
-        metric.values.find(
-            (v) =>
-                v.metricName === `ingestion_pipeline_retry_attempts${suffix}` &&
-                v.labels.name === name &&
-                v.labels.outcome === outcome
-        )?.value
-    const count = find('_count')
-    const sum = find('_sum')
-    return count === undefined || sum === undefined ? null : { count, sum }
-}
 
 describe('RetryingPipeline', () => {
     beforeEach(() => {

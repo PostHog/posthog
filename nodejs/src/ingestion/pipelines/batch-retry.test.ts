@@ -3,6 +3,7 @@ import { withBatchRetry } from './batch-retry'
 import { newBatchPipelineBuilder } from './builders'
 import { createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
+import { getRetryAttempts } from './metrics.test-utils'
 import { drop, isDlqResult, isDropResult, isOkResult, ok } from './results'
 
 // Suppress logger output during tests
@@ -30,20 +31,6 @@ class NonRetriableError extends Error {
 // Helper to create a batch of test inputs
 function createTestBatch<T>(values: T[]) {
     return values.map((value) => createOkContext(value, {}))
-}
-
-async function getRetryAttempts(name: string, outcome: string): Promise<{ count: number; sum: number } | null> {
-    const metric = await pipelineRetryAttemptsHistogram.get()
-    const find = (suffix: string): number | undefined =>
-        metric.values.find(
-            (v) =>
-                v.metricName === `ingestion_pipeline_retry_attempts${suffix}` &&
-                v.labels.name === name &&
-                v.labels.outcome === outcome
-        )?.value
-    const count = find('_count')
-    const sum = find('_sum')
-    return count === undefined || sum === undefined ? null : { count, sum }
 }
 
 describe('withBatchRetry', () => {
