@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { TrendsVisualizer } from '../../src/ui-apps/components/TrendsVisualizer'
-import type { TrendsResult } from '../../src/ui-apps/components/types'
+import type { ChartDisplayType, TrendsResult } from '../../src/ui-apps/components/types'
 
 describe('TrendsVisualizer', () => {
     it('shows an empty state when there are no results', () => {
@@ -24,44 +24,30 @@ describe('TrendsVisualizer', () => {
         expect(screen.getByText('42')).toBeTruthy()
     })
 
-    it('renders a quill canvas chart for ActionsBarValue without a time-series mode toggle', () => {
-        const results: TrendsResult = [
-            { label: 'Chrome', aggregated_value: 100, data: [], days: [] },
-            { label: 'Firefox', aggregated_value: 80, data: [], days: [] },
-            { label: 'Safari', aggregated_value: 60, data: [], days: [] },
-        ]
-        render(
-            <TrendsVisualizer
-                query={{ kind: 'TrendsQuery', trendsFilter: { display: 'ActionsBarValue' } }}
-                results={results}
-            />
-        )
+    // The line/bar mode toggle (native <select>) only appears for time-series display types;
+    // ActionsBarValue is always a horizontal bar of aggregated totals, so it has none.
+    it.each<{ display: ChartDisplayType; results: TrendsResult; comboboxCount: number }>([
+        {
+            display: 'ActionsBarValue',
+            results: [
+                { label: 'Chrome', aggregated_value: 100, data: [], days: [] },
+                { label: 'Firefox', aggregated_value: 80, data: [], days: [] },
+                { label: 'Safari', aggregated_value: 60, data: [], days: [] },
+            ],
+            comboboxCount: 0,
+        },
+        {
+            display: 'ActionsLineGraph',
+            results: [{ label: 'Pageviews', data: [10, 20, 30], days: ['2024-01-01', '2024-01-02', '2024-01-03'] }],
+            comboboxCount: 1,
+        },
+    ])(
+        'renders a quill canvas for $display with $comboboxCount mode toggle(s)',
+        ({ display, results, comboboxCount }) => {
+            render(<TrendsVisualizer query={{ kind: 'TrendsQuery', trendsFilter: { display } }} results={results} />)
 
-        // Quill BarChart renders to a canvas element
-        expect(document.querySelector('canvas')).toBeTruthy()
-        // The time-series line/bar mode selector must NOT appear — ActionsBarValue is always a
-        // horizontal bar of aggregated totals, not a time series
-        expect(screen.queryByRole('combobox')).toBeNull()
-    })
-
-    it('renders a quill canvas chart with a line/bar mode toggle for time-series data', () => {
-        const results: TrendsResult = [
-            {
-                label: 'Pageviews',
-                data: [10, 20, 30],
-                days: ['2024-01-01', '2024-01-02', '2024-01-03'],
-            },
-        ]
-        render(
-            <TrendsVisualizer
-                query={{ kind: 'TrendsQuery', trendsFilter: { display: 'ActionsLineGraph' } }}
-                results={results}
-            />
-        )
-
-        // Mode toggle (native <select>) is shown for time-series display types
-        expect(screen.getByRole('combobox')).toBeTruthy()
-        // Quill chart renders to canvas
-        expect(document.querySelector('canvas')).toBeTruthy()
-    })
+            expect(document.querySelector('canvas')).toBeTruthy()
+            expect(screen.queryAllByRole('combobox')).toHaveLength(comboboxCount)
+        }
+    )
 })

@@ -29,8 +29,8 @@ const CHART_THEME: ChartTheme = {
     tooltipColor: '#111827',
 }
 
-const getColor = (_r: TrendsResultLike, i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
-const barColor = (i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
+const colorAt = (i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
+const getColor = (_r: TrendsResultLike, i: number): string => colorAt(i)
 
 const DAYS = ['2025-05-26', '2025-05-27', '2025-05-28', '2025-05-29', '2025-05-30', '2025-05-31', '2025-06-01']
 
@@ -97,9 +97,9 @@ export const AreaChart: Story = {
     name: 'Area chart',
 }
 
-// Renders ActionsBarValue the same way the MCP app does: assemble series + config from aggregated
-// totals, then hand them to quill's BarChart. Fixed pixel size for the same headless-snapshot reason
-// as the line demo above.
+// Renders ActionsBarValue the same way the MCP app does: aggregated totals through
+// buildTrendsBarValueSeries, then quill's BarChart. Fixed pixel size for the same
+// headless-snapshot reason as the line demo above.
 function TrendsBarValueChartDemo({
     items,
     height = 300,
@@ -107,7 +107,7 @@ function TrendsBarValueChartDemo({
     items: TrendsBarValueItem[]
     height?: number
 }): ReactElement {
-    const series = buildTrendsBarValueSeries(items, { getColor: barColor })
+    const series = buildTrendsBarValueSeries(items, { getColor: colorAt })
     const config = buildTrendsBarValueConfig()
     return (
         // eslint-disable-next-line react/forbid-dom-props

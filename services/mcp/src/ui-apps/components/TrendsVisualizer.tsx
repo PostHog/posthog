@@ -14,7 +14,7 @@ import {
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import { BarChart, BigNumber, Select, type Series } from './charts'
-import { CHART_COLORS, CHART_THEME } from './charts/theme'
+import { CHART_THEME, colorAt } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
@@ -98,11 +98,9 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (displayType === 'ActionsBarValue') {
         const items = results.map((item, i) => ({
             label: getSeriesLabel(item, i),
-            value: typeof item.aggregated_value === 'number' ? item.aggregated_value : 0,
+            value: item.aggregated_value,
         }))
-        const barSeries = buildTrendsBarValueSeries(items, {
-            getColor: (i) => CHART_COLORS[i % CHART_COLORS.length]!,
-        })
+        const barSeries = buildTrendsBarValueSeries(items, { getColor: colorAt })
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div className="flex flex-col w-full h-[400px]">
@@ -125,7 +123,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     const lineSeries = buildTrendsSeries(lineResults, {
         isArea: displayType === 'ActionsAreaGraph',
-        getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
+        getColor: (_, index) => colorAt(index),
     })
 
     const lineConfig = buildTrendsLineTimeSeriesConfig({
