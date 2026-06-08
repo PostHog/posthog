@@ -179,18 +179,18 @@ describe('KafkaConsumerV2', () => {
 
     // auto.offset.reset is a topic-level librdkafka property — a value only in the global config
     // is ignored, so the override must be mirrored into the topic config (2nd ctor arg).
-    it('mirrors an auto.offset.reset override into the topic config', () => {
-        const RdKafkaCtor = jest.mocked(require('node-rdkafka').KafkaConsumer)
-        new KafkaConsumerV2({ groupId: 'g', topic: 't' }, { 'auto.offset.reset': 'latest' } as any)
+    it.each([
+        [
+            'mirrors an auto.offset.reset override into the topic config',
+            { 'auto.offset.reset': 'latest' } as any,
+            'latest',
+        ],
+        ['defaults the topic-config auto.offset.reset to earliest with no override', undefined, 'earliest'],
+    ])('%s', (_label, overrides, expected) => {
+        const RdKafkaCtor = jest.mocked(RdKafkaConsumer)
+        new KafkaConsumerV2({ groupId: 'g', topic: 't' }, overrides)
         const topicConfig = RdKafkaCtor.mock.calls.at(-1)![1] as any
-        expect(topicConfig['auto.offset.reset']).toBe('latest')
-    })
-
-    it('defaults the topic-config auto.offset.reset to earliest with no override', () => {
-        const RdKafkaCtor = jest.mocked(require('node-rdkafka').KafkaConsumer)
-        new KafkaConsumerV2({ groupId: 'g', topic: 't' })
-        const topicConfig = RdKafkaCtor.mock.calls.at(-1)![1] as any
-        expect(topicConfig['auto.offset.reset']).toBe('earliest')
+        expect(topicConfig['auto.offset.reset']).toBe(expected)
     })
 
     it('Smoke: connect → consume → eachBatch → offsets stored', async () => {
