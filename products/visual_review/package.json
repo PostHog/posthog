@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-visual-review",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short -n 2 --dist worksteal",
         "backend:test:unit": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'not integration' --tb=short",
         "backend:test:integration": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'integration' --tb=short",
         "backend:lint": "ruff check --config ../../pyproject.toml backend && ruff format --config ../../pyproject.toml --check backend",
