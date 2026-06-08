@@ -32,6 +32,21 @@ from .sync_vectors import (
     get_approximate_actions_count,
 )
 
+# The PostHog Code Slack workflows handed off to ProcessTaskWorkflow on the tasks
+# queue once a repo was picked, so the two queues were already paired. Exposing
+# them as a subset lets the tasks-agent worker register them alongside the AI
+# worker during the migration to a single queue.
+POSTHOG_CODE_SLACK_WORKFLOWS = [
+    PostHogCodeSlackMentionWorkflow,
+    PostHogCodeSlackMentionCommandWorkflow,
+    PostHogCodeSlackTerminateTaskWorkflow,
+]
+
+POSTHOG_CODE_SLACK_ACTIVITIES = [
+    *SLACK_APP_ACTIVITIES,
+    process_posthog_code_terminate_task_activity,
+]
+
 AI_WORKFLOWS = [
     SyncVectorsWorkflow,
     AssistantConversationRunnerWorkflow,
@@ -39,9 +54,7 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    PostHogCodeSlackMentionWorkflow,
-    PostHogCodeSlackMentionCommandWorkflow,
-    PostHogCodeSlackTerminateTaskWorkflow,
+    *POSTHOG_CODE_SLACK_WORKFLOWS,
     AnomalyInvestigationWorkflow,
 ]
 
@@ -54,8 +67,7 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
-    *SLACK_APP_ACTIVITIES,
-    process_posthog_code_terminate_task_activity,
+    *POSTHOG_CODE_SLACK_ACTIVITIES,
     investigate_anomaly_activity,
 ]
 

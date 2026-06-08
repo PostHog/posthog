@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -287,8 +287,13 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        TASKS_WORKFLOWS,
-        TASKS_ACTIVITIES,
+        # PostHog Code Slack workflows are also registered on MAX_AI_TASK_QUEUE.
+        # First step of merging them onto this queue — once master traffic has
+        # cut over and any in-flight runs have drained, drop them from
+        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
+        # products/slack_app to settings.TASKS_TASK_QUEUE.
+        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
+        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,
