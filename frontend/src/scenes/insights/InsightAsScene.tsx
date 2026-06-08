@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -15,6 +16,7 @@ import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
+import { consumeFreshInsightResult } from './freshInsightResults'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
@@ -40,6 +42,12 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         variablesOverride,
     })
     const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
+
+    // One-shot: if we just saved this insight in the SQL editor, render its already-computed
+    // result immediately instead of recomputing. Read once on mount so it survives re-renders.
+    const [freshResult] = useState(() =>
+        insightId && insightId !== 'new' ? consumeFreshInsightResult(insightId) : undefined
+    )
 
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
@@ -94,6 +102,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                         attachTo={attachTo}
                         query={isInsightVizNode(query) ? { ...query, full: true } : query}
                         setQuery={setQuery}
+                        cachedResults={freshResult}
                         readOnly={insightMode !== ItemMode.Edit}
                         editMode={insightMode === ItemMode.Edit}
                         context={{

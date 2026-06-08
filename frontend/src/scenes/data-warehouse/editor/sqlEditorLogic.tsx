@@ -35,6 +35,7 @@ import { objectsEqual, slugify } from 'lib/utils'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import { stashFreshInsightResult } from 'scenes/insights/freshInsightResults'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -1709,6 +1710,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         overrideQuery: true,
                         fromPersistentApi: true,
                     })
+                }
+
+                // Hand the result we just computed in the editor to the insight view so it renders
+                // fresh on navigation instead of showing the pre-edit result until a manual reload.
+                const editorResponse = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
+                if (editorResponse) {
+                    stashFreshInsightResult(savedInsight.short_id, editorResponse)
                 }
 
                 const dashboardId = values.dashboardId
