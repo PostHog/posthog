@@ -1650,12 +1650,16 @@ class FeatureFlagSerializer(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
 
-            # Check for linked active (non-deleted) experiments
-            active_experiments = instance.experiment_set.filter(deleted=False)
-            if active_experiments.exists():
-                experiment_ids = list(active_experiments.values_list("id", flat=True))
+            # Check for linked running experiments. Draft, stopped, and completed
+            # experiments may keep the flag so their historical results are preserved;
+            # only a currently running experiment blocks deletion.
+            running_experiments = instance.experiment_set.filter(
+                deleted=False, start_date__isnull=False, end_date__isnull=True
+            )
+            if running_experiments.exists():
+                experiment_ids = list(running_experiments.values_list("id", flat=True))
                 raise exceptions.ValidationError(
-                    f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please delete the experiment(s) before deleting the flag."
+                    f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please stop the experiment(s) before deleting the flag."
                 )
 
             # Check for other flags that depend on this flag
@@ -1678,10 +1682,10 @@ class FeatureFlagSerializer(
                     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
                 )
 
-            # If all experiments are soft-deleted, rename the key to free it up
-            # Append ID to the key when soft-deleting to prevent key conflicts
-            # This allows the original key to be reused while preserving referential integrity for deleted experiments
-            if instance.experiment_set.filter(deleted=True).exists():
+            # If the flag is linked to any experiment, rename the key to free it up.
+            # Append ID to the key when soft-deleting to prevent key conflicts.
+            # Experiments reference the flag by FK, so referential integrity is preserved.
+            if instance.experiment_set.exists():
                 validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
 
         if "deleted" in validated_data and validated_data["deleted"] is False:
@@ -3203,15 +3207,21 @@ class FeatureFlagViewSet(
                 )
                 continue
 
-            # Check for linked active experiments
-            active_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted]
-            if active_experiments:
-                experiment_ids = [exp.id for exp in active_experiments]
+            # Check for linked running experiments. Draft/stopped/completed experiments
+            # may keep the flag so their historical results are preserved; only a
+            # currently running experiment blocks deletion.
+            running_experiments = [
+                exp
+                for exp in flag.experiment_set.all()
+                if not exp.deleted and exp.start_date is not None and exp.end_date is None
+            ]
+            if running_experiments:
+                experiment_ids = [exp.id for exp in running_experiments]
                 errors.append(
                     {
                         "id": flag_id,
                         "key": flag.key,
-                        "reason": f"Cannot delete a feature flag linked to active experiment(s): {', '.join(map(str, experiment_ids))}",
+                        "reason": f"Cannot delete a feature flag linked to running experiment(s): {', '.join(map(str, experiment_ids))}",
                     }
                 )
                 continue
@@ -3236,9 +3246,9 @@ class FeatureFlagViewSet(
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
 
-            # Determine if key rename is needed
-            has_deleted_experiments = any(exp.deleted for exp in flag.experiment_set.all())
-            if has_deleted_experiments:
+            # Rename the key if the flag is linked to any experiment, to free it up
+            has_linked_experiments = any(True for _ in flag.experiment_set.all())
+            if has_linked_experiments:
                 flags_to_delete_with_rename.append(flag)
             else:
                 flags_to_delete_normal.append(flag)

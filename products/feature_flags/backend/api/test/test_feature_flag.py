@@ -3493,15 +3493,45 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team, key="56397-delete-flag", deleted=True
         ).exists()
 
-    def test_soft_delete_flag_blocked_with_active_experiment(self):
+    def test_soft_delete_flag_blocked_with_running_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=now(),
+        )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
+            == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
         )
+
+    def test_soft_delete_flag_allowed_with_draft_experiment(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="draft-exp-flag")
+        Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        # Key is freed up for reuse
+        assert flag.key == f"draft-exp-flag:deleted:{flag.id}"
+
+    def test_soft_delete_flag_allowed_with_stopped_experiment(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stopped-exp-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=now(),
+            end_date=now(),
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"stopped-exp-flag:deleted:{flag.id}"
 
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
@@ -12832,8 +12862,8 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
 
-    def test_bulk_delete_validates_experiments(self):
-        """Test that flags linked to active experiments are rejected."""
+    def test_bulk_delete_validates_running_experiments(self):
+        """Test that flags linked to running experiments are rejected."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -12845,6 +12875,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             name="Test Experiment",
             feature_flag=flag,
             created_by=self.user,
+            start_date=now(),
         )
 
         response = self.client.post(
@@ -12861,6 +12892,38 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Verify flag is NOT deleted
         flag.refresh_from_db()
         assert flag.deleted is False
+
+    def test_bulk_delete_allows_flag_linked_to_stopped_experiment(self):
+        """Flags linked to stopped/draft experiments can be deleted while preserving experiment history."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="stopped_experiment_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="Stopped Experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=now(),
+            end_date=now(),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+        assert len(data["errors"]) == 0
+
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        # Key is freed up for reuse
+        assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
