@@ -31,6 +31,17 @@ from datetime import datetime
 from typing import Any
 
 
+# the obligatory hedgehog
+HEDGEHOG = r"""
+         /////////,
+       ///////////// .            PostHog · Signals
+     ///////////////  `.            fleet survey
+    ////////////////  o  `.
+    `````````````````   `-.>
+        '  '  '  '  '
+"""
+
+
 def load(path: str) -> Any:
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
@@ -109,15 +120,21 @@ def table(headers: list[str], body: list[list[str]]) -> list[str]:
     return out
 
 
-def render(config: Any, runs_payload: Any, now: datetime | None) -> str:
+def render(config: Any, runs_payload: Any, now: datetime | None, *, art: bool = True) -> str:
     latest = latest_run_per_scout(runs_payload) if runs_payload else {}
     scouts = sorted(rows(config), key=lambda r: r.get("skill_name", ""))
 
-    if not scouts:
-        return ("SIGNALS SCOUT FLEET\n\nNo scout configs registered — this project is not "
-                "enrolled in the scout fleet (or hasn't ticked yet). Nothing is running.")
+    banner: list[str] = []
+    if art:
+        banner = [HEDGEHOG.strip("\n"), "", " an empty close-out is a healthy scout outcome", ""]
 
-    L: list[str] = ["=" * 72, f" SIGNALS SCOUT FLEET   ({len(scouts)} configured)", "=" * 72, ""]
+    if not scouts:
+        return "\n".join([*banner,
+                          "SIGNALS SCOUT FLEET", "",
+                          "No scout configs registered — this project is not enrolled in the "
+                          "scout fleet (or hasn't ticked yet). Nothing is running."])
+
+    L: list[str] = [*banner, "=" * 72, f" SIGNALS SCOUT FLEET   ({len(scouts)} configured)", "=" * 72, ""]
 
     body: list[list[str]] = []
     anomalies: list[str] = []
@@ -150,9 +167,16 @@ def render(config: Any, runs_payload: Any, now: datetime | None) -> str:
         L += ["", "-" * 72, " worth a look", "-" * 72]
         L += sorted(set(anomalies))
 
-    L += ["", " note: a dry-run scout reasons every tick but cannot post to the inbox.",
-          "       last-outcome emit/quiet is a heuristic on the run summary — confirm",
-          "       against the summary prose before trusting it."]
+    L += ["", "-" * 72, " column key", "-" * 72,
+          " enabled       yes = scheduled to run; OFF = paused (nothing runs)",
+          " posture       live = emits findings to the inbox; dry-run = reasons every",
+          "               tick but posts nothing (emit=false) — the #1 'my scout is",
+          "               broken' confusion, since it IS running, just not emitting",
+          " cadence       configured minutes between scheduled runs (run_interval_minutes)",
+          " last run      how long ago the most recent run started ('-' = never run)",
+          " last outcome  <status> / <emit guess> of that run: done|FAIL, and quiet|emit?.",
+          "               emit-vs-quiet is a HEURISTIC on the summary prose — confirm",
+          "               against the summary before trusting it."]
     return "\n".join(L)
 
 
@@ -161,6 +185,7 @@ def main() -> int:
     ap.add_argument("--config", required=True, help="signals-scout-config-list --json payload")
     ap.add_argument("--runs", help="signals-scout-runs-list --json payload (small limit)")
     ap.add_argument("--now", help="ISO-8601 current time for 'ago' columns")
+    ap.add_argument("--no-art", dest="art", action="store_false", help="skip the hedgehog banner")
     ap.add_argument("--out", help="write here instead of stdout (use a .txt path)")
     args = ap.parse_args()
 
@@ -168,7 +193,7 @@ def main() -> int:
     runs_payload = load(args.runs) if args.runs else None
     now = parse_ts(args.now) if args.now else None
 
-    report = render(config, runs_payload, now)
+    report = render(config, runs_payload, now, art=args.art)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(report + "\n")

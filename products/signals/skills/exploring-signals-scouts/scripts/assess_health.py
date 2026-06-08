@@ -43,6 +43,16 @@ TIMEOUT_MINUTES = 20.0
 # a gap larger than this multiple of the expected interval counts as a stall
 STALL_FACTOR = 2.0
 
+# the obligatory hedgehog
+HEDGEHOG = r"""
+         /////////,
+       ///////////// .            PostHog · Signals
+     ///////////////  `.            health & performance
+    ////////////////  o  `.
+    `````````````````   `-.>
+        '  '  '  '  '
+"""
+
 
 def load(path: str) -> Any:
     with open(path, encoding="utf-8") as fh:
@@ -158,11 +168,16 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     }
 
 
-def render(scouts: list[dict], window_note: str, has_mem: bool) -> str:
-    if not scouts:
-        return "SCOUT HEALTH\n\nNo runs in the supplied window — nothing to assess."
+def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = True) -> str:
+    banner: list[str] = []
+    if art:
+        banner = [HEDGEHOG.strip("\n"), "", " judge a scout over a window of runs, not on any single tick", ""]
 
-    L: list[str] = ["=" * 78, " SIGNALS SCOUT HEALTH & PERFORMANCE", "=" * 78, " " + window_note, ""]
+    if not scouts:
+        return "\n".join([*banner, "SCOUT HEALTH", "",
+                          "No runs in the supplied window — nothing to assess."])
+
+    L: list[str] = [*banner, "=" * 78, " SIGNALS SCOUT HEALTH & PERFORMANCE", "=" * 78, " " + window_note, ""]
 
     body: list[list[str]] = []
     for s in sorted(scouts, key=lambda x: x["name"]):
@@ -175,10 +190,7 @@ def render(scouts: list[dict], window_note: str, has_mem: bool) -> str:
                      f"{gap}/{interval}", s["adherence"], dur, mem])
 
     L += table(["scout", "runs", "ok", "emit*", "gap/ival", "adher", "med", "mem"], body)
-
-    L += ["", " * emit is a heuristic on each run's summary prose (counts runs whose summary",
-          "   mentions emitting; can over-count when describing a prior run's emit).",
-          "   confirm signal-to-noise against inbox-reports-list.", ""]
+    L += [""]
 
     flags: list[str] = []
     for s in scouts:
@@ -195,6 +207,22 @@ def render(scouts: list[dict], window_note: str, has_mem: bool) -> str:
 
     L += ["-" * 78, " worth a look", "-" * 78]
     L += sorted(set(flags)) if flags else [" (none — cadence, success, and memory all look nominal)"]
+
+    L += ["", "-" * 78, " column key", "-" * 78,
+          " runs      runs in the window; (NF) = N of them failed",
+          " ok        success rate — % of runs that reached a clean 'completed' status",
+          " emit*     emit rate — % of runs whose summary reads like it emitted. HEURISTIC",
+          "           on the prose: can over-count when a summary recaps a PRIOR run's",
+          "           emit. Confirm signal-to-noise against inbox-reports-list.",
+          " gap/ival  median gap between consecutive run starts / the configured",
+          "           run_interval_minutes. gap well above ival = the scout is being skipped.",
+          " adher     cadence adherence — runs observed / runs expected across the window",
+          "           span at that interval. 100% = fired on (nearly) every scheduled tick.",
+          " med       median run duration (start -> finish). healthy runs finish in a couple",
+          "           of minutes; a ~30m median is timeout-shaped over-investigation.",
+          " mem       durable scratchpad entries attributed to this scout (via the run that",
+          "           wrote them) in --scratchpad. 'n/a' = no --scratchpad passed; '0' = passed",
+          "           but none matched (often the writing run falls outside the runs window)."]
     return "\n".join(L)
 
 
@@ -205,6 +233,7 @@ def main() -> int:
     ap.add_argument("--scratchpad", help="signals-scout-scratchpad-search --json (for memory growth)")
     ap.add_argument("--now", help="ISO-8601 current time, for staleness")
     ap.add_argument("--skill", help="restrict to one scout skill_name")
+    ap.add_argument("--no-art", dest="art", action="store_false", help="skip the hedgehog banner")
     ap.add_argument("--out", help="write here instead of stdout (use a .txt path)")
     args = ap.parse_args()
 
@@ -244,7 +273,7 @@ def main() -> int:
     else:
         window_note = f"{len(run_rows)} runs across {len(assessed)} scout(s)."
 
-    report = render(assessed, window_note, has_mem)
+    report = render(assessed, window_note, has_mem, art=args.art)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(report + "\n")
