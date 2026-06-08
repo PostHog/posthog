@@ -128,12 +128,13 @@ export function DockHeader({
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
     const previewRevisionId = context.mode === 'playground' ? context.previewRevisionId : undefined
+    const subDetail = subDetailFor(context)
 
     // Playground mode gets a strongly-tinted bar so it's impossible to
     // confuse "talking *to* the agent" with the ambient concierge chat.
     const containerClass = isPlayground
-        ? 'flex items-center gap-2 border-b-2 border-primary bg-primary/10 px-4 py-2.5'
-        : 'flex items-center gap-2 border-b border-border px-4 py-2.5'
+        ? 'flex flex-col gap-1.5 border-b-2 border-primary bg-primary/10 px-4 py-2'
+        : 'flex flex-col gap-1.5 border-b border-border px-4 py-2'
 
     return (
         // `data-dock-drag-handle` lets a host frame (e.g. the floating
@@ -141,123 +142,144 @@ export function DockHeader({
         // The host gates its mousedown handler on this attribute and
         // ignores clicks that bubble from interactive descendants.
         <div className={containerClass} data-dock-drag-handle="">
-            {isPlayground ? (
-                <span
-                    className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-foreground"
-                    aria-label="Playground mode"
-                >
+            {/* ── Row 1: mode + status pills (left) · chrome controls (right) ── */}
+            <div className="flex items-center gap-2">
+                {isPlayground ? (
                     <span
-                        className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground"
-                        aria-hidden
-                    />
-                    Playground
-                </span>
-            ) : (
-                <div className="flex items-center gap-2">
-                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-success-foreground" aria-hidden />
-                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{mode}</span>
+                        className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-foreground"
+                        aria-label="Playground mode"
+                    >
+                        <span
+                            className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground"
+                            aria-hidden
+                        />
+                        Playground
+                    </span>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-success-foreground" aria-hidden />
+                        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {mode}
+                        </span>
+                    </div>
+                )}
+                {previewRevisionId ? (
+                    <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-warning-foreground/40 bg-warning/40 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-warning-foreground"
+                        title={`Talking to draft revision ${previewRevisionId} via the preview proxy.`}
+                    >
+                        Draft
+                        <code className="font-mono normal-case opacity-70">{shortRevisionId(previewRevisionId)}</code>
+                    </span>
+                ) : null}
+                {reconnectAttempt && reconnectAttempt > 0 ? (
+                    <span
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground"
+                        role="status"
+                        title={`Reconnecting to the event stream (attempt ${reconnectAttempt}).`}
+                    >
+                        <span
+                            className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/70"
+                            aria-hidden
+                        />
+                        Reconnecting…
+                    </span>
+                ) : null}
+
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {!isPlayground && onFollowingChange ? (
+                        <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
+                    ) : null}
+                    {!isPlayground &&
+                    sessionHistory &&
+                    sessionHistory.length > 0 &&
+                    (onResumeSession || onOpenSession) ? (
+                        <SessionHistoryMenu
+                            history={sessionHistory}
+                            currentSessionId={sessionId}
+                            onResume={onResumeSession}
+                            onOpenInSessionView={onOpenSession}
+                        />
+                    ) : null}
+                    {onRenderMarkdownChange || onChangeDockMode || (sessionId && onOpenSession) ? (
+                        <SettingsMenu
+                            renderMarkdown={renderMarkdown ?? true}
+                            onRenderMarkdownChange={onRenderMarkdownChange}
+                            dockMode={dockMode}
+                            onChangeDockMode={onChangeDockMode}
+                            sessionId={sessionId}
+                            onOpenSession={onOpenSession}
+                        />
+                    ) : null}
+                    {onHideDock ? <HideDockButton onHide={onHideDock} shortcutHint={hideShortcutHint} /> : null}
                 </div>
-            )}
-            <span
-                className={
-                    'min-w-0 flex-1 truncate text-sm ' +
-                    (isPlayground ? 'font-medium text-foreground' : 'text-foreground')
-                }
-                title={previewRevisionId ? `${subject} (preview revision)` : subject}
-            >
-                {subject}
-            </span>
-            {/* Preview-revision pill: lit up when the playground is talking
-             *  to a non-live revision via Django's preview-proxy rather
-             *  than the public ingress URL. Skipped for the live-revision
-             *  path to keep the header quieter when nothing's special. */}
-            {previewRevisionId ? (
-                <span
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-warning-foreground/40 bg-warning/40 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-warning-foreground"
-                    title={`Talking to draft revision ${previewRevisionId} via the preview proxy.`}
-                >
-                    Draft
-                    <code className="font-mono normal-case opacity-70">{shortRevisionId(previewRevisionId)}</code>
-                </span>
-            ) : null}
+            </div>
 
-            {/* Reconnect pill: visible while `listen()` is retrying with
-             *  backoff after a transient drop. Cleared as soon as the
-             *  next SSE event arrives (handled in the runner). */}
-            {reconnectAttempt && reconnectAttempt > 0 ? (
-                <span
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground"
-                    role="status"
-                    title={`Reconnecting to the event stream (attempt ${reconnectAttempt}).`}
-                >
-                    <span
-                        className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/70"
-                        aria-hidden
-                    />
-                    Reconnecting…
-                </span>
-            ) : null}
-
-            {/* Focus toggle — high-frequency state control, kept prominent
-                (icon-only) so the on/off state is at-a-glance. Concierge
-                mode only; in playground the dock is talking *to* the
-                agent, not navigating the console. */}
-            {!isPlayground && onFollowingChange ? (
-                <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
-            ) : null}
-
-            {!isPlayground && sessionHistory && sessionHistory.length > 0 && (onResumeSession || onOpenSession) ? (
-                <SessionHistoryMenu
-                    history={sessionHistory}
-                    currentSessionId={sessionId}
-                    onResume={onResumeSession}
-                    onOpenInSessionView={onOpenSession}
-                />
-            ) : null}
-
-            {!isPlayground && onNewSession ? (
-                <button
-                    type="button"
-                    onClick={() => onNewSession()}
-                    disabled={busy}
-                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-                    aria-label="Start a new conversation"
-                    title="Clear the chat and start a fresh conversation"
-                >
-                    <RotateCcwIcon className="h-3 w-3" />
-                    New
-                </button>
-            ) : null}
-
-            {/* Bundled "more" menu — display, layout, open-in-session-view.
-                Anything that's set-once or rarely toggled lives here so the
-                visible header stays scannable. */}
-            {onRenderMarkdownChange || onChangeDockMode || (sessionId && onOpenSession) ? (
-                <SettingsMenu
-                    renderMarkdown={renderMarkdown ?? true}
-                    onRenderMarkdownChange={onRenderMarkdownChange}
-                    dockMode={dockMode}
-                    onChangeDockMode={onChangeDockMode}
-                    sessionId={sessionId}
-                    onOpenSession={onOpenSession}
-                />
-            ) : null}
-
-            {onHideDock ? <HideDockButton onHide={onHideDock} shortcutHint={hideShortcutHint} /> : null}
-
-            {isPlayground ? (
-                <button
-                    type="button"
-                    onClick={() => onExitPlayground?.()}
-                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/20 hover:text-foreground"
-                    aria-label="Exit playground"
-                >
-                    <XIcon className="h-3 w-3" />
-                    Exit
-                </button>
-            ) : null}
+            {/* ── Row 2: primary action + subject (two lines: subject + on-context) ── */}
+            <div className="flex items-center gap-2">
+                {!isPlayground && onNewSession ? (
+                    <button
+                        type="button"
+                        onClick={() => onNewSession()}
+                        disabled={busy}
+                        className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-card"
+                        aria-label="Start a new conversation"
+                        title="Clear the chat and start a fresh conversation"
+                    >
+                        <RotateCcwIcon className="h-3 w-3" />
+                        New
+                    </button>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                    <div
+                        className={
+                            'truncate text-sm ' + (isPlayground ? 'font-medium text-foreground' : 'text-foreground')
+                        }
+                        title={previewRevisionId ? `${subject} (preview revision)` : subject}
+                    >
+                        {subject}
+                    </div>
+                    {subDetail ? (
+                        <div className="truncate text-[0.6875rem] text-muted-foreground" title={subDetail}>
+                            {subDetail}
+                        </div>
+                    ) : null}
+                </div>
+                {isPlayground ? (
+                    <button
+                        type="button"
+                        onClick={() => onExitPlayground?.()}
+                        className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/20 hover:text-foreground"
+                        aria-label="Exit playground"
+                    >
+                        <XIcon className="h-3 w-3" />
+                        Exit
+                    </button>
+                ) : null}
+            </div>
         </div>
     )
+}
+
+/**
+ * Sub-line shown under the subject in the dock header — e.g. "on
+ * release-concierge" so the user always knows which agent the
+ * concierge is talking about, even when the page title is generic.
+ */
+function subDetailFor(context: ChatContext): string | null {
+    if (context.mode === 'playground') {
+        return null
+    }
+    const page = context.page
+    if (
+        page.kind === 'agent-bundle' ||
+        page.kind === 'agent-revisions' ||
+        page.kind === 'agent-sessions' ||
+        page.kind === 'agent-session'
+    ) {
+        return `on ${page.agent.name}`
+    }
+    return null
 }
 
 function shortRevisionId(id: string): string {

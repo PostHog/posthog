@@ -17,7 +17,7 @@
 import { ArrowRightIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { AgentChat, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
@@ -528,30 +528,23 @@ function ConciergeDock(): React.ReactElement {
     const slug = conciergeAgent?.slug ?? null
     const [resolution, setResolution] = useState<ConciergeResolution>({ kind: 'pending' })
 
-    // Tracks the slug+team pair we've already resolved so we don't refetch
-    // on route transitions where the slug temporarily clears and reverts.
-    const resolvedKeyRef = useRef<string | null>(null)
-
     useEffect(() => {
         // Route transitions trigger setConciergeAgent(null) on the outgoing
         // layout's cleanup followed by the incoming layout setting the slug
-        // back. Ignore the transient null so we don't unmount the dock and
-        // restart a fresh fetch every navigation.
+        // back. Ignore the transient null so we don't reset to pending and
+        // re-fetch every navigation; a non-null slug always triggers a
+        // fetch so a fresh mount (e.g. on playground exit) recovers cleanly.
         if (!slug || teamId == null) {
             return
         }
-        const key = `${teamId}:${slug}`
-        if (resolvedKeyRef.current === key) {
-            return
-        }
         let cancelled = false
+        // Only flash to pending if we don't already have THIS slug resolved.
         setResolution((prev) => (prev.kind === 'resolved' && prev.agent.slug === slug ? prev : { kind: 'pending' }))
         getAgent(teamId, slug).then(
             (agent) => {
                 if (cancelled) {
                     return
                 }
-                resolvedKeyRef.current = key
                 setResolution({
                     kind: 'resolved',
                     agent: { id: agent.id, slug: agent.slug, name: agent.name },
@@ -562,12 +555,13 @@ function ConciergeDock(): React.ReactElement {
                     return
                 }
                 if (err instanceof ApiError && err.status === 404) {
-                    resolvedKeyRef.current = key
                     setResolution({ kind: 'not_deployed' })
                     return
                 }
-                // Transient (network, 5xx, auth refresh): leave whatever
-                // state we had so the dock isn't stuck on a spinner.
+                // Transient (network, 5xx, auth refresh): keep the previous
+                // state so the dock doesn't get stuck on the spinner. If
+                // this is the first mount we stay at `pending` until the
+                // next slug/teamId change kicks the effect again.
                 // eslint-disable-next-line no-console
                 console.warn('[concierge] failed to resolve agent', slug, err)
             }
@@ -629,7 +623,8 @@ function RealConciergeDock({
     agentRef: AgentApplicationRef
     teamId: number
 }): React.ReactElement {
-    const { context, conciergeSeed, confirmConciergeSeed, consumeConciergeSeed } = useDockStore()
+    const { context, conciergeSeed, confirmConciergeSeed, consumeConciergeSeed, setActiveConciergeSessionId } =
+        useDockStore()
     const focus = useFocusStore()
     const { info } = useSession()
     const handlers = useDockHandlers(context)
@@ -707,6 +702,14 @@ function RealConciergeDock({
         // identities; if behaviour drifts we'll need refs.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [conciergeSeed, hasActiveTurns])
+
+    // Publish the live session id so the shell can render the focus
+    // indicator only when there's a real session to follow.
+    useEffect(() => {
+        const id = runner.session.id !== 'pending' ? runner.session.id : null
+        setActiveConciergeSessionId(id)
+        return () => setActiveConciergeSessionId(null)
+    }, [runner.session.id, setActiveConciergeSessionId])
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
     const { layout, setMode, setVisible, embedSlot } = useDockLayout()

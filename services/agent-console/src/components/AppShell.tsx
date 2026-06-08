@@ -14,6 +14,7 @@
 
 import {
     BotIcon,
+    CheckSquareIcon,
     ExternalLinkIcon,
     LibraryIcon,
     Loader2Icon,
@@ -51,10 +52,10 @@ import {
 import { DOCK_TOGGLE_KEY_HINT, DOCK_TOGGLE_KEY_HINT_PC, DockLayoutProvider, useDockLayout } from '@/lib/useDockLayout'
 
 import { Dock } from './Dock'
-import { DockContextProvider } from './dock-context'
+import { DockContextProvider, useDockStore } from './dock-context'
 import { DockShowAffordance } from './DockShowAffordance'
 import { FloatingDockPanel } from './FloatingDockPanel'
-import { FocusContextProvider } from './focus-context'
+import { FocusContextProvider, useFocusStore } from './focus-context'
 import { PostHogMark } from './PostHogMark'
 import {
     SessionGate,
@@ -124,9 +125,33 @@ function AuthRoutedShell({ children }: { children: React.ReactNode }): React.Rea
                         <Sidebar />
                         <ShellBody>{children}</ShellBody>
                     </div>
+                    <ConciergeFocusIndicator />
                 </DockLayoutProvider>
             </FocusContextProvider>
         </DockContextProvider>
+    )
+}
+
+/**
+ * Thin info-coloured bar pinned to the top edge of the viewport, only
+ * visible when focus mode is on AND there's an active concierge
+ * session. Communicates "the UI is following the concierge right now"
+ * without stealing chrome from the page underneath. Click to pause.
+ */
+function ConciergeFocusIndicator(): React.ReactElement | null {
+    const { enabled, setEnabled } = useFocusStore()
+    const { activeConciergeSessionId } = useDockStore()
+    if (!enabled || !activeConciergeSessionId) {
+        return null
+    }
+    return (
+        <button
+            type="button"
+            onClick={() => setEnabled(false)}
+            aria-label="Concierge is following you — click to pause focus mode"
+            title="Concierge is following you. Click to pause focus mode."
+            className="fixed inset-x-0 top-0 z-50 h-1 cursor-pointer bg-info transition-opacity hover:opacity-80"
+        />
     )
 }
 
@@ -232,6 +257,7 @@ function Sidebar(): React.ReactElement {
     const pathname = usePathname() ?? '/'
     const isHome = pathname === '/'
     const isAgents = pathname.startsWith('/agents')
+    const isApprovals = pathname.startsWith('/approvals')
     const isRegistry = pathname.startsWith('/registry')
     const isBilling = pathname.startsWith('/billing')
     const posthogBaseUrl = usePosthogBaseUrl()
@@ -270,6 +296,21 @@ function Sidebar(): React.ReactElement {
                     }
                 >
                     <BotIcon className="h-4 w-4" />
+                </Link>
+            </SidebarTooltip>
+
+            <SidebarTooltip label="Approvals">
+                <Link
+                    href="/approvals"
+                    aria-label="Approvals"
+                    aria-current={isApprovals ? 'page' : undefined}
+                    className={
+                        isApprovals
+                            ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md bg-accent text-foreground'
+                            : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }
+                >
+                    <CheckSquareIcon className="h-4 w-4" />
                 </Link>
             </SidebarTooltip>
 

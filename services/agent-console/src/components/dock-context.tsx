@@ -66,8 +66,13 @@ interface DockStore {
     conciergeAgent: DockConciergeAgent | null
     /** Pending prompt + lifecycle stage — see `ConciergeSeed`. */
     conciergeSeed: ConciergeSeed | null
+    /** Session id of the active concierge chat, or null. Set by the dock once
+     *  `/run` returns; cleared on session reset. Shell chrome reads it to
+     *  surface a focus-mode indicator only when there's a live session. */
+    activeConciergeSessionId: string | null
     setPage: (page: ConciergePageContext) => void
     setConciergeAgent: (agent: DockConciergeAgent | null) => void
+    setActiveConciergeSessionId: (id: string | null) => void
     enterPlayground: (agent: AgentApplicationRef, opts?: PlaygroundOpts) => void
     exitPlayground: () => void
     /**
@@ -150,6 +155,7 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     const [conciergeAgent, setConciergeAgentState] = useState<DockConciergeAgent | null>(null)
     const [playgroundState, setPlaygroundState] = useState<PlaygroundState | null>(null)
     const [conciergeSeed, setConciergeSeed] = useState<ConciergeSeed | null>(null)
+    const [activeConciergeSessionId, setActiveConciergeSessionIdState] = useState<string | null>(null)
 
     // Restore the playground overlay on mount so a reload doesn't drop
     // the user back into concierge (which would also bypass the
@@ -179,6 +185,10 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     // useEffect re-fire and loop.
     const setPage = useCallback((page: ConciergePageContext): void => setCurrentPage(page), [])
     const setConciergeAgent = useCallback((agent: DockConciergeAgent | null): void => setConciergeAgentState(agent), [])
+    const setActiveConciergeSessionId = useCallback(
+        (id: string | null): void => setActiveConciergeSessionIdState(id),
+        []
+    )
     const enterPlayground = useCallback((agent: AgentApplicationRef, opts?: PlaygroundOpts): void => {
         const next: PlaygroundState = { agent, previewRevisionId: opts?.previewRevisionId }
         setPlaygroundState(next)
@@ -223,8 +233,10 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
             context,
             conciergeAgent,
             conciergeSeed,
+            activeConciergeSessionId,
             setPage,
             setConciergeAgent,
+            setActiveConciergeSessionId,
             enterPlayground,
             exitPlayground,
             startConcierge,
@@ -236,8 +248,10 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
             context,
             conciergeAgent,
             conciergeSeed,
+            activeConciergeSessionId,
             setPage,
             setConciergeAgent,
+            setActiveConciergeSessionId,
             enterPlayground,
             exitPlayground,
             startConcierge,
@@ -259,8 +273,10 @@ export function useDockStore(): DockStore {
             context: DEFAULT_CONTEXT,
             conciergeAgent: null,
             conciergeSeed: null,
+            activeConciergeSessionId: null,
             setPage: () => {},
             setConciergeAgent: () => {},
+            setActiveConciergeSessionId: () => {},
             enterPlayground: () => {},
             exitPlayground: () => {},
             startConcierge: () => {},
