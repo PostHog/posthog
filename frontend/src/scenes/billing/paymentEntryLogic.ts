@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers } from 'ke
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -119,13 +121,13 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                         actions.setRedirectPath(redirectPath || null)
                         actions.showPaymentEntryModal()
                     } else {
-                        actions.setApiError(response.error || 'Failed to activate subscription')
+                        lemonToast.error(response.error || 'Failed to activate subscription')
                     }
                 } catch (error) {
                     posthog.captureException(
                         new Error('payment entry api error - activate subscription error', { cause: error })
                     )
-                    actions.setApiError('Failed to activate subscription. Please try again.')
+                    lemonToast.error('Failed to activate subscription. Please try again.')
                 } finally {
                     actions.setLoading(false)
                     if (product) {

@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
 from freezegun.api import freeze_time
@@ -27,6 +27,8 @@ from posthog.schema import (
     IntervalType,
     PropertyOperator,
 )
+
+from posthog.hogql import ast
 
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -128,6 +130,66 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
+
+    def _run_conversion_window_trends(self, *, hide_incomplete_periods: bool) -> list[dict]:
+        # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
+        # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
+        # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
+        journeys_for(
+            {
+                "user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7)},
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 13)},
+                ],
+                "recent_entrant": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 15)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-18 23:59:59"),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+                hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
+            ),
+        )
+        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_keeps_incomplete_conversion_window_periods_by_default(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=False)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # every daily period in range is present, including the recent incomplete ones
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 19)])
+        # both of user_a's entrances converted
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
+        # recent entrant shows as a non-converter, which is what drags the recent trend down
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_hides_incomplete_conversion_window_periods_when_enabled(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=True)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
+        # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
+        # on or before 2021-06-10.
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 11)])
+        # the old entrance that converted is retained, even though its conversion event is recent
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
+        self.assertNotIn(date(2021, 6, 12), by_day)
+        self.assertNotIn(date(2021, 6, 15), by_day)
 
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_only_one_user_reached_one_step(self, timezone):
@@ -1389,6 +1451,69 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(results[1]["breakdown_value"], ["foo"])
             self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+    @parameterized.expand(
+        [
+            ("bare", "IF(distinct_id = 'user_two', NULL, 'foo') AS Label"),
+            ("double_quoted", "IF(distinct_id = 'user_two', NULL, 'foo') AS \"Some Group\""),
+            ("backticked", "IF(distinct_id = 'user_two', NULL, 'foo') AS `Some Group`"),
+            ("nested", "IF(distinct_id = 'user_two', NULL, 'foo') AS Inner AS \"Outer\""),
+            ("inside_call", "coalesce(IF(distinct_id = 'user_two', NULL, 'foo') AS Inner) AS \"Outer\""),
+            ("system_alias_collision", "IF(distinct_id = 'user_two', NULL, 'foo') AS value"),
+        ]
+    )
+    def test_funnel_hogql_breakdown_with_alias(self, _name: str, breakdown_expr: str):
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Safari"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4), "properties": {"$browser": "Safari"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Safari"}},
+                ],
+            },
+            self.team,
+        )
+
+        def _build_query(expr: str) -> FunnelsQuery:
+            return FunnelsQuery(
+                dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-13 23:59:59"),
+                interval="day",
+                series=[
+                    EventsNode(event="step one"),
+                    EventsNode(event="step two"),
+                    EventsNode(event="step three"),
+                ],
+                breakdownFilter=BreakdownFilter(breakdown=expr, breakdown_type="hogql"),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelWindowInterval=7,
+                    funnelWindowIntervalUnit="day",
+                    breakdownAttributionType="first_touch",
+                ),
+            )
+
+        aliased = FunnelsQueryRunner(query=_build_query(breakdown_expr), team=self.team).calculate().results
+        baseline = (
+            FunnelsQueryRunner(query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo')"), team=self.team)
+            .calculate()
+            .results
+        )
+
+        self.assertEqual(
+            [r["breakdown_value"] for r in aliased],
+            [r["breakdown_value"] for r in baseline],
+        )
+        self.assertEqual([r["data"] for r in aliased], [r["data"] for r in baseline])
+
     def test_funnel_step_breakdown_event_with_breakdown_limit(self):
         journeys_for(
             {
@@ -1498,6 +1623,42 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         self.assertEqual(results[0]["breakdown_value"], ["Chrome"])
+
+    @parameterized.expand(
+        [
+            # (interval, date_from, date_to, breakdown_limit) — cases chosen so
+            # breakdown_limit × num_periods straddles the old 1_000 hard cap.
+            ("week", "2021-01-01 00:00:00", "2021-12-31 23:59:59", 25),
+            ("day", "2021-01-01 00:00:00", "2021-02-19 23:59:59", 25),
+            ("day", "2021-05-01 00:00:00", "2021-05-14 23:59:59", 25),
+            ("hour", "2021-05-01 00:00:00", "2021-05-01 23:59:59", 10),
+        ]
+    )
+    def test_breakdown_limit_scales_with_periods(self, interval, date_from, date_to, breakdown_limit):
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval=interval,
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+                breakdown_limit=breakdown_limit,
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        num_periods = len(runner.funnel_class._date_range().all_values())
+        expected_limit = breakdown_limit * num_periods
+
+        actual_limit = cast(ast.Constant, runner.to_query().limit).value
+        self.assertEqual(actual_limit, expected_limit)
 
     def test_funnel_step_breakdown_person(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})

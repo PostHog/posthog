@@ -9,10 +9,19 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.observability import (
+    collect_hogql_sql_shape,
+    collect_hogql_type_coverage,
+    create_hogql_type_observability,
+    emit_hogql_type_observability,
+)
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.duckdb import DuckDBPrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -22,6 +31,8 @@ from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
+
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
@@ -46,20 +57,42 @@ def prepare_and_print_ast(
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> tuple[str, _T_AST | None]:
-    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
-    if prepared_ast is None:
-        return "", None
-    return (
-        print_prepared_ast(
-            node=prepared_ast,
-            context=context,
-            dialect=dialect,
-            stack=stack,
-            settings=settings,
-            pretty=pretty,
-        ),
-        prepared_ast,
+    previous_type_observability = context.type_observability
+    context.type_observability = create_hogql_type_observability(
+        dialect=dialect,
+        source=context.observability_source,
     )
+    try:
+        prepared_ast = prepare_ast_for_printing(
+            node=node, context=context, dialect=dialect, stack=stack, settings=settings
+        )
+        if prepared_ast is None:
+            if context.type_observability is not None:
+                context.type_observability.result = "empty"
+            return "", None
+
+        collect_hogql_type_coverage(prepared_ast, context.type_observability)
+        collect_hogql_sql_shape(prepared_ast, context.type_observability)
+
+        return (
+            print_prepared_ast(
+                node=prepared_ast,
+                context=context,
+                dialect=dialect,
+                stack=stack,
+                settings=settings,
+                pretty=pretty,
+            ),
+            prepared_ast,
+        )
+    except Exception:
+        if context.type_observability is not None:
+            context.type_observability.result = "error"
+            context.type_observability.record_unknown("inference_exception")
+        raise
+    finally:
+        emit_hogql_type_observability(context.type_observability)
+        context.type_observability = previous_type_observability
 
 
 def prepare_ast_for_printing(
@@ -68,6 +101,7 @@ def prepare_ast_for_printing(
     dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
@@ -84,9 +118,18 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
+    # Load property-level access control restrictions before type resolution so that
+    # FieldType.get_child() can block access to restricted properties during resolution.
+    if context.team_id is not None and context.restricted_properties is None:
+        with context.timings.measure("load_restricted_properties"):
+            context.restricted_properties = get_restricted_properties_for_team(
+                team_id=context.team_id,
+                user=context.user,
+            )
+
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
-            resolve_in_cohorts_conjoined(node, dialect, context, stack)
+            resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(
@@ -94,6 +137,7 @@ def prepare_ast_for_printing(
             context,
             dialect=dialect,
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
+            resolver_factory=resolver_factory,
         )
 
     # Detect workload from resolved table types and store on context
@@ -106,9 +150,9 @@ def prepare_ast_for_printing(
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
-    if dialect == "postgres":
+    if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -131,7 +175,11 @@ def prepare_ast_for_printing(
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        if events_pushdown_enabled(context.modifiers):
+            with context.timings.measure("events_predicate_pushdown"):
+                node = apply_events_predicate_pushdown(node, context)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
@@ -153,7 +201,7 @@ def prepare_ast_for_printing(
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
+            resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
@@ -168,22 +216,39 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer_class: type[HogQLPrinter]
+        printer: BasePrinter
+        printer_stack = cast(list[ast.AST], stack or [])
 
         match dialect:
             case "clickhouse":
-                printer_class = ClickHousePrinter
+                printer = ClickHousePrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "postgres":
-                printer_class = PostgresPrinter
+                printer = PostgresPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
+            case "duckdb":
+                printer = DuckDBPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "hogql":
-                printer_class = HogQLPrinter
+                printer = HogQLPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case _:
                 raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 
-        return printer_class(
-            context=context,
-            dialect=dialect,
-            stack=cast(list[ast.AST], stack or []),
-            settings=settings,
-            pretty=pretty,
-        ).visit(node)
+        return printer.visit(node)

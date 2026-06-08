@@ -10,7 +10,7 @@
  * - Team: Environment within project where data lives (e.g., "Production", "Staging")
  * - User: Configurable via LOGIN_USERNAME/LOGIN_PASSWORD env vars (defaults: test@posthog.com/12345678)
  */
-import { APIRequestContext, Page } from '@playwright/test'
+import { APIRequestContext, Page, request as playwrightRequest } from '@playwright/test'
 
 import { LOGIN_PASSWORD } from './playwright-test-core'
 
@@ -129,13 +129,27 @@ class NonRetryableError extends Error {
  * Main class for setting up PostHog workspaces in tests
  */
 export class PlaywrightSetup {
-    private request: APIRequestContext
+    private _requestPromise: Promise<APIRequestContext> | null = null
     private baseURL: string
 
-    constructor(request: APIRequestContext, baseURL?: string) {
-        this.request = request
+    constructor(baseURL?: string) {
         // Use baseURL from Playwright config if provided, otherwise fall back to environment variable
         this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8080'
+    }
+
+    private getRequest(): Promise<APIRequestContext> {
+        if (!this._requestPromise) {
+            this._requestPromise = playwrightRequest.newContext({ baseURL: this.baseURL })
+        }
+        return this._requestPromise
+    }
+
+    async dispose(): Promise<void> {
+        if (this._requestPromise) {
+            const request = await this._requestPromise
+            this._requestPromise = null
+            await request.dispose()
+        }
     }
 
     /**
@@ -151,7 +165,8 @@ export class PlaywrightSetup {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                const response = await this.request.post(url, { data })
+                const request = await this.getRequest()
+                const response = await request.post(url, { data })
 
                 const responseText = await response.text()
 
@@ -258,13 +273,22 @@ export class PlaywrightSetup {
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        // Use page.request to share cookies/session with the browser context
-        await page.request.post(`${this.baseURL}/api/login/`, {
-            data: {
+        await page.goto(`${this.baseURL}/login`)
+        await page.evaluate(
+            async ({ email, password }) => {
+                await fetch('/api/login/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                })
+            },
+            {
                 email: workspace.user_email,
                 password: LOGIN_PASSWORD,
-            },
-        })
+            }
+        )
     }
 
     /**
@@ -278,23 +302,43 @@ export class PlaywrightSetup {
 
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
+
+    /**
+     * Seed a single HogFunctionTemplate row. Templates are global (not team-scoped) and
+     * Playwright CI doesn't run sync_hog_function_templates, so any test that exercises
+     * the workflow editor or hog function configuration must seed the templates it needs.
+     * Idempotent across parallel workers.
+     */
+    async seedHogFunctionTemplate(data: {
+        template_id: string
+        name?: string
+        status?: 'alpha' | 'beta' | 'stable' | 'deprecated' | 'hidden' | 'coming_soon' | 'client_side'
+        template_type?: 'destination' | 'transformation' | 'source_webhook' | 'site_destination' | 'site_app'
+        inputs_schema?: Array<Record<string, any>>
+    }): Promise<{ template_id: string; created: boolean }> {
+        const result = await this.callSetupEndpoint('hog_function_template', { data })
+        if (!result.success) {
+            throw new Error(`Failed to seed hog function template: ${result.error}`)
+        }
+        return result.result as { template_id: string; created: boolean }
+    }
 }
 
 /**
  * Helper function to create a PlaywrightSetup instance
  */
-export function createPlaywrightSetup(request: APIRequestContext, baseURL?: string): PlaywrightSetup {
-    return new PlaywrightSetup(request, baseURL)
+export function createPlaywrightSetup(baseURL?: string): PlaywrightSetup {
+    return new PlaywrightSetup(baseURL)
 }
 
 /**
  * One-off workspace creation (for simple cases)
  */
-export async function createTestWorkspace(
-    request: APIRequestContext,
-    setupType: string,
-    data?: Record<string, any>
-): Promise<TestSetupResponse> {
-    const playwrightSetup = createPlaywrightSetup(request)
-    return playwrightSetup.callSetupEndpoint(setupType, { data })
+export async function createTestWorkspace(setupType: string, data?: Record<string, any>): Promise<TestSetupResponse> {
+    const playwrightSetup = createPlaywrightSetup()
+    try {
+        return await playwrightSetup.callSetupEndpoint(setupType, { data })
+    } finally {
+        await playwrightSetup.dispose()
+    }
 }

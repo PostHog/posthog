@@ -18,6 +18,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event_filter_config import (
     EventFilterConfig,
     run_test_cases,
@@ -143,6 +144,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: AppMetricResponseSerializer})
     @action(detail=False, methods=["GET"], url_path="metrics")
     def metrics(self, request: Request, **kwargs):
+        tag_queries(product=Product.INGESTION, feature=Feature.EVENT_FILTERS)
         params = self._parse_metrics_params(request)
         if params is None:
             return Response(AppMetricResponseSerializer(instance=AppMetricsResponse(labels=[], series=[])).data)
@@ -152,6 +154,7 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: AppMetricsTotalsResponseSerializer})
     @action(detail=False, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, **kwargs):
+        tag_queries(product=Product.INGESTION, feature=Feature.EVENT_FILTERS)
         params = self._parse_metrics_params(request)
         if params is None:
             return Response(AppMetricsTotalsResponseSerializer(instance=AppMetricsTotalsResponse(totals={})).data)

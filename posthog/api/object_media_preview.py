@@ -63,7 +63,7 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
                 raise ValidationError("Uploaded media not found or does not belong to this team")
 
         if exported_asset_id:
-            from posthog.models.exported_asset import ExportedAsset
+            from products.exports.backend.models.exported_asset import ExportedAsset
 
             try:
                 exported_asset = ExportedAsset.objects.get(id=exported_asset_id, team=team)

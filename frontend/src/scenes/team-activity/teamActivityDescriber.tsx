@@ -433,7 +433,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         '"internal & test account filters" for all insights'
     ),
     anonymize_ips: createBooleanToggleHandler('anonymizing IP addresses'),
-    slack_incoming_webhook: createSimpleValueHandler('Slack incoming webhook'),
     timezone: createSimpleValueHandler('timezone', { useEmphasis: true }),
     business_model: createSimpleValueHandler('business model'),
     data_attributes: createArrayChangeHandler('data attributes'),
@@ -753,6 +752,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
+    workflows_config: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

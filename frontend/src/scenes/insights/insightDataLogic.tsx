@@ -3,10 +3,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -32,6 +30,8 @@ import {
 } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
+
 import { teamLogic } from '../teamLogic'
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
@@ -40,6 +40,10 @@ import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery } from './utils/queryUtils'
+
+export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
+    sceneLogic.values.activeSceneId === Scene.Insight &&
+    insightSceneLogic.findMounted()?.values.insightLogicRef?.logic.key === keyForInsightLogicProps('new')(props)
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -73,7 +77,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'setInsightMetadata'],
+            ['setInsight', 'setInsightMetadata', 'loadInsightSuccess'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -134,7 +138,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         return { name: response.name, description: response.description }
                     } catch (e) {
                         eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
-                        lemonToast.error('Failed to generate name and description')
                         throw e
                     }
                 },
@@ -291,6 +294,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setInsightData({ ...values.insightData, result })
             }
         },
+        loadInsightSuccess: ({ insight }) => {
+            // `internalQuery` wins over `insight.query` in the `query` selector, and the SQL editor
+            // updates a different logic instance — so a reload alone leaves this scene on the stale
+            // query until a hard refresh. Re-sync the override to the freshly loaded query.
+            if (insight.query && !objectsEqual(insight.query, values.query)) {
+                actions.syncQueryFromProps(insight.query)
+            }
+        },
         cancelChanges: () => {
             const savedQuery = values.savedInsight.query
             const savedResult = values.savedInsight.result
@@ -298,11 +309,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
-            // If we have a tabId, then this is an insight scene on a tab. Sync the query to the URL
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
-                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
+            // When this is the insight scene's own insight, sync the query to the URL
+            if (isInsightSceneInstance(props)) {
+                const insightId = insightSceneLogic.findMounted()?.values.insightId
                 const { pathname, searchParams, hashParams } = router.values.currentLocation
-                if (query && (values.queryChanged || insightId === 'new' || insightId?.startsWith('new-'))) {
+                if (query && (values.queryChanged || insightId === 'new')) {
                     const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
                     router.actions.replace(pathname, searchParams, {
                         ...hash,
@@ -325,9 +336,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
 
             // don't save for saved insights
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
-                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
-                if (insightId && insightId !== 'new' && !insightId.startsWith('new-')) {
+            if (isInsightSceneInstance(props)) {
+                const insightId = insightSceneLogic.findMounted()?.values.insightId
+                if (insightId && insightId !== 'new') {
                     return
                 }
             }
@@ -411,7 +422,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
     actionToUrl(({ props }) => ({
         cancelChanges: () => {
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+            if (isInsightSceneInstance(props)) {
                 const { pathname, searchParams, hashParams } = router.values.currentLocation
                 const { q: _, ...hash } = hashParams
                 return [pathname, searchParams, hash]

@@ -40,7 +40,7 @@ class ModelCost(TypedDict, total=False):
     max_tokens: int
     """Legacy field: defaults to max_output_tokens if set, otherwise max_input_tokens."""
     litellm_provider: str
-    """Provider identifier (e.g., "anthropic", "openai", "vertex_ai")."""
+    """Provider identifier (e.g., "anthropic", "openai")."""
     supports_vision: bool
     """Whether the model supports image/vision input."""
     mode: str
@@ -74,6 +74,8 @@ class ModelCostService:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
             litellm.model_cost = model_cost
+            # Keep provider sets in sync — see cost_refresh.py.
+            litellm.add_known_models(model_cost)
             self._costs = cast(dict[str, ModelCost], model_cost)
             new_limits: dict[str, ModelLimits] = {}
             for model, cost in self._costs.items():

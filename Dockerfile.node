@@ -29,8 +29,8 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "librdkafka-dev=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.18-1~deb12u2" \
-    "libssl3=3.0.18-1~deb12u2" \
+    "libssl-dev=3.0.19-1~deb12u2" \
+    "libssl3=3.0.19-1~deb12u2" \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -100,7 +100,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "libssl3=3.0.18-1~deb12u2" \
+    "libssl3=3.0.19-1~deb12u2" \
     "curl" \
     "gettext-base" \
     "libjemalloc2" \
@@ -110,8 +110,8 @@ RUN apt-get update && \
 # gettext-base: Provides envsubst command used by bin/nodejs to substitute environment variables in Kafka client IDs
 
 # Install and use a non-root user
-RUN groupadd -g 1000 posthog || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
-    useradd -u 1000 -g posthog posthog || usermod -l posthog -d /code -g posthog $(getent passwd 1000 | cut -d: -f1) && \
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
     chown -R posthog:posthog /code
 USER posthog
 

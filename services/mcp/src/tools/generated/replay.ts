@@ -10,25 +10,13 @@ import {
     SessionRecordingPlaylistsRetrieveParams,
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
+    SingleSessionSummariesListQueryParams,
+    SingleSessionSummariesRetrieveParams,
 } from '@/generated/replay/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
-
-const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, Schemas.SessionRecording> => ({
-    name: 'session-recording-get',
-    schema: SessionRecordingGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SessionRecording>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/session_recordings/${params.id}/`,
-        })
-        return result
-    },
-})
 
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 
@@ -39,53 +27,27 @@ const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/session_recordings/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
 })
 
-const SessionRecordingPlaylistsListSchema = SessionRecordingPlaylistsListQueryParams
+const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
 
-const sessionRecordingPlaylistsList = (): ToolBase<
-    typeof SessionRecordingPlaylistsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSessionRecordingPlaylistList>
-> => ({
-    name: 'session-recording-playlists-list',
-    schema: SessionRecordingPlaylistsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSessionRecordingPlaylistList>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/session_recording_playlists/`,
-            query: {
-                created_by: params.created_by,
-                limit: params.limit,
-                offset: params.offset,
-                short_id: params.short_id,
-            },
-        })
-        return await withPostHogUrl(context, result, '/replay')
-    },
-})
-
-const SessionRecordingPlaylistGetSchema = SessionRecordingPlaylistsRetrieveParams.omit({ project_id: true })
-
-const sessionRecordingPlaylistGet = (): ToolBase<
-    typeof SessionRecordingPlaylistGetSchema,
-    Schemas.SessionRecordingPlaylist
-> => ({
-    name: 'session-recording-playlist-get',
-    schema: SessionRecordingPlaylistGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/session_recording_playlists/${params.short_id}/`,
-        })
-        return result
-    },
-})
+const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithPostHogUrl<Schemas.SessionRecording>> =>
+    withUiApp('session-recording', {
+        name: 'session-recording-get',
+        schema: SessionRecordingGetSchema,
+        handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SessionRecording>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/replay/${result.id}`)
+        },
+    })
 
 const SessionRecordingPlaylistCreateSchema = SessionRecordingPlaylistsCreateBody
 
@@ -121,8 +83,26 @@ const sessionRecordingPlaylistCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'POST',
-            path: `/api/projects/${projectId}/session_recording_playlists/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
             body,
+        })
+        return result
+    },
+})
+
+const SessionRecordingPlaylistGetSchema = SessionRecordingPlaylistsRetrieveParams.omit({ project_id: true })
+
+const sessionRecordingPlaylistGet = (): ToolBase<
+    typeof SessionRecordingPlaylistGetSchema,
+    Schemas.SessionRecordingPlaylist
+> => ({
+    name: 'session-recording-playlist-get',
+    schema: SessionRecordingPlaylistGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -161,10 +141,83 @@ const sessionRecordingPlaylistUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/session_recording_playlists/${params.short_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
             body,
         })
         return result
+    },
+})
+
+const SessionRecordingPlaylistsListSchema = SessionRecordingPlaylistsListQueryParams
+
+const sessionRecordingPlaylistsList = (): ToolBase<
+    typeof SessionRecordingPlaylistsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSessionRecordingPlaylistList>
+> => ({
+    name: 'session-recording-playlists-list',
+    schema: SessionRecordingPlaylistsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSessionRecordingPlaylistList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
+            query: {
+                created_by: params.created_by,
+                limit: params.limit,
+                offset: params.offset,
+                short_id: params.short_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SessionRecordingSummariesListSchema = SingleSessionSummariesListQueryParams
+
+const sessionRecordingSummariesList = (): ToolBase<
+    typeof SessionRecordingSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSingleSessionSummaryMinimalList>
+> => ({
+    name: 'session-recording-summaries-list',
+    schema: SessionRecordingSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSingleSessionSummaryMinimalList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/`,
+            query: {
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                distinct_id: params.distinct_id,
+                has_exceptions: params.has_exceptions,
+                has_visual_confirmation: params.has_visual_confirmation,
+                limit: params.limit,
+                offset: params.offset,
+                order: params.order,
+                outcome: params.outcome,
+                session_ids: params.session_ids,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SessionRecordingSummaryGetSchema = SingleSessionSummariesRetrieveParams.omit({ project_id: true })
+
+const sessionRecordingSummaryGet = (): ToolBase<
+    typeof SessionRecordingSummaryGetSchema,
+    WithPostHogUrl<Schemas.SingleSessionSummary>
+> => ({
+    name: 'session-recording-summary-get',
+    schema: SessionRecordingSummaryGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummaryGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SingleSessionSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/${encodeURIComponent(String(params.session_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
     },
 })
 
@@ -306,11 +359,11 @@ const AssistantGroupPropertyFilter = z.union([
 
 const AssistantCohortPropertyFilter = z.object({
     key: z.literal('id').default('id'),
-    operator: z.literal('in').default('in'),
+    operator: z.enum(['in', 'not_in']).default('in'),
     type: z
         .literal('cohort')
         .describe(
-            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`'
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples:\n- Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`\n- Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
         )
         .default('cohort'),
     value: integer.describe('The cohort ID to filter by.'),
@@ -597,23 +650,30 @@ const AssistantRecordingsQuery = z.object({
     properties: z
         .array(AssistantRecordingsQueryPropertyFilter)
         .describe(
-            'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).'
+            'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.'
+        )
+        .optional(),
+    session_ids: z
+        .array(z.string())
+        .describe(
+            'Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.'
         )
         .optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'session-recording-get': sessionRecordingGet,
     'session-recording-delete': sessionRecordingDelete,
-    'session-recording-playlists-list': sessionRecordingPlaylistsList,
-    'session-recording-playlist-get': sessionRecordingPlaylistGet,
+    'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
+    'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
+    'session-recording-playlists-list': sessionRecordingPlaylistsList,
+    'session-recording-summaries-list': sessionRecordingSummariesList,
+    'session-recording-summary-get': sessionRecordingSummaryGet,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,
         kind: 'RecordingsQuery',
         urlPrefix: '/replay',
-        mcpVersion: 2,
     }),
 }

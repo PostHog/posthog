@@ -110,12 +110,6 @@ class TestWebhookSourceManager:
         assert result.num_rows == 1
         assert result.column("event").to_pylist() == ["click"]
 
-    async def test_webhook_enabled_returns_false_when_flag_disabled(self):
-        manager = _make_manager()
-
-        with patch.object(manager, "_is_webhook_feature_flag_enabled", return_value=False):
-            assert await manager.webhook_enabled() is False
-
     @parameterized.expand(
         [
             ("no_hog_function", False, True, True, False, False),
@@ -149,12 +143,9 @@ class TestWebhookSourceManager:
                 return AsyncMock(return_value=mock_schema)
             return AsyncMock(return_value=has_webhook_function)
 
-        with (
-            patch.object(manager, "_is_webhook_feature_flag_enabled", return_value=True),
-            patch(
-                "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-                side_effect=mock_db_sync_to_async,
-            ),
+        with patch(
+            "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+            side_effect=mock_db_sync_to_async,
         ):
             assert await manager.webhook_enabled() is expected
 
@@ -345,70 +336,6 @@ class TestWebhookSourceManager:
 
         assert tables == []
 
-    async def test_feature_flag_returns_false_when_team_not_found(self):
-        from posthog.models import Team
-
-        manager = _make_manager(team_id=999)
-
-        with patch(
-            "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-            return_value=AsyncMock(side_effect=Team.DoesNotExist),
-        ):
-            result = await manager._is_webhook_feature_flag_enabled()
-
-        assert result is False
-
-    async def test_feature_flag_returns_false_on_analytics_exception(self):
-        manager = _make_manager()
-        mock_team = MagicMock()
-        mock_team.uuid = uuid.uuid4()
-        mock_team.organization_id = uuid.uuid4()
-        mock_team.id = 1
-
-        call_count = 0
-
-        async def mock_side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return mock_team
-            raise Exception("PostHog analytics error")
-
-        with (
-            patch(
-                "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-                return_value=mock_side_effect,
-            ),
-            patch("posthog.temporal.data_imports.sources.common.webhook_s3.capture_exception"),
-        ):
-            result = await manager._is_webhook_feature_flag_enabled()
-
-        assert result is False
-
-    async def test_feature_flag_returns_true_when_enabled(self):
-        manager = _make_manager()
-        mock_team = MagicMock()
-        mock_team.uuid = uuid.uuid4()
-        mock_team.organization_id = uuid.uuid4()
-        mock_team.id = 1
-
-        call_count = 0
-
-        async def mock_side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return mock_team
-            return True
-
-        with patch(
-            "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-            return_value=mock_side_effect,
-        ):
-            result = await manager._is_webhook_feature_flag_enabled()
-
-        assert result is True
-
 
 # -- Integration tests using MinIO --
 
@@ -529,7 +456,7 @@ class TestWebhookSourceManagerWithMinIO:
         assert len(tables) == 1
         assert tables[0].column_names == ["id"]
 
-    async def test_get_items_processes_multiple_files_in_order(self, minio_client):
+    async def test_get_items_batches_multiple_small_files(self, minio_client):
         team_id = 99
         schema_id = "test-schema-multi"
         prefix = f"source_webhook_producer/{team_id}/{schema_id}"
@@ -544,11 +471,39 @@ class TestWebhookSourceManagerWithMinIO:
         manager = _make_manager(team_id=team_id, schema_id=schema_id)
         tables = [table async for table in manager.get_items()]
 
-        assert len(tables) == 2
-        ids = sorted([t.column("id").to_pylist()[0] for t in tables])  # type: ignore
+        # Small files are batched into a single table
+        assert len(tables) == 1
+        ids = sorted(id for id in tables[0].column("id").to_pylist() if id is not None)
         assert ids == ["a", "b"]
 
         # Both files should be deleted
+        response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
+        assert response.get("Contents", []) == []
+
+    async def test_get_items_yields_multiple_batches_when_row_limit_exceeded(self, minio_client):
+        team_id = 99
+        schema_id = "test-schema-batch-limit"
+        prefix = f"source_webhook_producer/{team_id}/{schema_id}"
+
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/batch_a.parquet", [{"id": "a"}], team_id=team_id, schema_id=schema_id
+        )
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/batch_b.parquet", [{"id": "b"}], team_id=team_id, schema_id=schema_id
+        )
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/batch_c.parquet", [{"id": "c"}], team_id=team_id, schema_id=schema_id
+        )
+
+        manager = _make_manager(team_id=team_id, schema_id=schema_id)
+        # Set row limit to 2 so that 3 files (1 row each) produce 2 batches
+        tables = [table async for table in manager.get_items(batch_row_limit=2)]
+
+        assert len(tables) == 2
+        all_ids = sorted([row for t in tables for row in t.column("id").to_pylist() if row is not None])
+        assert all_ids == ["a", "b", "c"]
+
+        # All files should be deleted
         response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
         assert response.get("Contents", []) == []
 

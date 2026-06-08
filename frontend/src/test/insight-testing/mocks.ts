@@ -2,13 +2,16 @@ import { RestRequest } from 'msw'
 
 import { useMocks } from '~/mocks/jest'
 import { ActorsQueryResponse, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition, RawAnnotationType } from '~/types'
 
 import {
     actionDefinitions,
     eventDefinitions as defaultEventDefs,
+    type FunnelStepData,
+    funnelTrendsSteps,
     lookupActors,
     lookupCompareSeries,
+    lookupFunnelActors,
     lookupSeries,
     personProperties,
     propertyDefinitions as defaultPropDefs,
@@ -24,7 +27,21 @@ export interface QueryBody {
         breakdowns?: Array<{ property?: string }>
         breakdown?: string
     }
+    trendsFilter?: {
+        formula?: string
+        formulas?: string[]
+        formulaNodes?: unknown[]
+    }
     [key: string]: unknown
+}
+
+function hasFormula(query: QueryBody): boolean {
+    const tf = query.trendsFilter
+    return !!(tf?.formula || tf?.formulas?.length || tf?.formulaNodes?.length)
+}
+
+interface FunnelsQueryResponseLike {
+    results: FunnelStepData[]
 }
 
 export interface MockResponse {
@@ -32,7 +49,8 @@ export interface MockResponse {
     response:
         | TrendsQueryResponse
         | ActorsQueryResponse
-        | ((query: QueryBody) => TrendsQueryResponse | ActorsQueryResponse)
+        | FunnelsQueryResponseLike
+        | ((query: QueryBody) => TrendsQueryResponse | ActorsQueryResponse | FunnelsQueryResponseLike)
 }
 
 /** Build an ActorsQueryResponse shaped like the server response, with one row
@@ -58,24 +76,61 @@ export function buildActorsResponse(
     } as ActorsQueryResponse
 }
 
-function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
+// `isFormula` only models the single-formula shape: the real runner combines series per
+// formula (`action: null`, `order` = formula index). This mock doesn't combine series, so
+// it stamps `order: 0` on every row, which works for a single formula. A future multi-formula
+// test would need this to derive the formula index per row (0 for A, 1 for B, …).
+function buildTrendsResponse(series: SeriesData[], opts: { isFormula?: boolean } = {}): TrendsQueryResponse {
     return {
-        results: series.map((s, i) => ({
-            action: {
-                id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
-                type: 'events',
-                name: s.label,
-                order: s.compare ? 0 : i,
-            },
-            label: s.label,
-            count: s.data.reduce((a, b) => a + b, 0),
-            data: s.data,
-            labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
-            days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
-            breakdown_value: s.breakdown_value,
-            compare: s.compare,
-            compare_label: s.compare_label,
-        })),
+        results: series.map((s, i) => {
+            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
+            return {
+                action: opts.isFormula
+                    ? null
+                    : {
+                          id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                          type: 'events',
+                          name: s.label,
+                          order: seriesOrder,
+                      },
+                order: opts.isFormula ? 0 : seriesOrder,
+                label: s.label,
+                count: s.data.reduce((a, b) => a + b, 0),
+                aggregated_value: s.data.reduce((a, b) => a + b, 0),
+                data: s.data,
+                labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
+                days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
+                breakdown_value: s.breakdown_value,
+                compare: s.compare,
+                compare_label: s.compare_label,
+            }
+        }),
+    } as TrendsQueryResponse
+}
+
+/** Stickiness shares the TrendResult shape with trends, but uses integer-day labels
+ *  ("1 day", "2 days", …) and numeric `days` (1, 2, …). The mock reuses the canned
+ *  trends series for value diversity and re-keys the x-axis to stickiness form. */
+function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
+    return {
+        results: series.map((s, i) => {
+            const buckets = s.data.length
+            return {
+                action: {
+                    id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                    type: 'events',
+                    name: s.label,
+                    order: i,
+                },
+                label: s.label,
+                count: s.data.reduce((a, b) => a + b, 0),
+                aggregated_value: s.data.reduce((a, b) => a + b, 0),
+                data: s.data,
+                labels: Array.from({ length: buckets }, (_, j) => `${j + 1} day${j === 0 ? '' : 's'}`),
+                days: Array.from({ length: buckets }, (_, j) => j + 1),
+                breakdown_value: s.breakdown_value,
+            }
+        }),
     } as TrendsQueryResponse
 }
 
@@ -96,6 +151,35 @@ function resolveActors(query: QueryBody): Array<{ email: string }> {
         breakdown: insightSource?.breakdown,
         day: insightSource?.day,
     })
+}
+
+/** Funnels in trends-viz mode return a flat `FunnelStep[]` — one entry per series, or per breakdown value. */
+function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
+    const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
+    if (breakdownProp && funnelTrendsSteps.byBreakdown[breakdownProp]) {
+        return { results: funnelTrendsSteps.byBreakdown[breakdownProp] }
+    }
+    return { results: [funnelTrendsSteps.default] }
+}
+
+interface FunnelsActorsQueryShape {
+    kind?: string
+    funnelTrendsEntrancePeriodStart?: string | null
+    funnelStepBreakdown?: string | number | null
+}
+
+// PersonsModalLogic wraps the FunnelsActorsQuery in an ActorsQuery, so the funnel fields
+// sit one level deeper at body.source.*.
+function isFunnelsActorsQuery(query: QueryBody): boolean {
+    const source = (query as { source?: FunnelsActorsQueryShape }).source
+    return source?.kind === NodeKind.FunnelsActorsQuery
+}
+
+function resolveFunnelActors(query: QueryBody): Array<{ email: string }> {
+    const source = (query as { source?: FunnelsActorsQueryShape }).source ?? {}
+    // Actors are keyed by calendar date; the query sends a full 'YYYY-MM-DD HH:mm:ss' timestamp.
+    const day = source.funnelTrendsEntrancePeriodStart?.split(' ')[0] ?? null
+    return lookupFunnelActors({ day, breakdown: source.funnelStepBreakdown ?? null })
 }
 
 function resolveSeriesData(query: QueryBody): SeriesData[] {
@@ -135,6 +219,8 @@ export interface SetupMocksOptions {
      *  test wants to intercept one query kind (e.g. capture the ActorsQuery
      *  body) without losing the default mocks for the others. */
     additionalMockResponses?: MockResponse[]
+    /** Annotations returned by `/annotations/`. Defaults to []. */
+    annotations?: RawAnnotationType[]
 }
 
 // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW helper, not a React hook
@@ -144,11 +230,25 @@ export function setupInsightMocks({
     propertyValues: propValues = defaultPropValues,
     mockResponses,
     additionalMockResponses,
+    annotations = [],
 }: SetupMocksOptions = {}): void {
     const defaults: MockResponse[] = [
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
-            response: (query) => buildTrendsResponse(resolveSeriesData(query)),
+            response: (query) => buildTrendsResponse(resolveSeriesData(query), { isFormula: hasFormula(query) }),
+        },
+        {
+            match: (query) => query.kind === NodeKind.StickinessQuery,
+            response: (query) => buildStickinessResponse(resolveSeriesData(query)),
+        },
+        {
+            match: (query) => query.kind === NodeKind.FunnelsQuery,
+            response: (query) => buildFunnelsResponse(query),
+        },
+        // Must precede the generic ActorsQuery matcher so funnel actor queries route to lookupFunnelActors.
+        {
+            match: (query) => query.kind === NodeKind.ActorsQuery && isFunnelsActorsQuery(query),
+            response: (query) => buildActorsResponse(resolveFunnelActors(query)),
         },
         {
             match: (query) => query.kind === NodeKind.ActorsQuery,
@@ -181,6 +281,14 @@ export function setupInsightMocks({
             // and return them here, enabling tests that load insights by short ID
             '/api/environments/:team_id/insights/': { results: [] },
             '/api/environments/:team_id/insights/trend': [],
+            // Annotations layer fetches this on mount; resolve immediately so async
+            // state changes don't race against tooltip/click assertions.
+            '/api/projects/:team_id/annotations/': {
+                results: annotations,
+                count: annotations.length,
+                next: null,
+                previous: null,
+            },
         },
         post: {
             '/api/environments/:team_id/query/:kind': (req: RestRequest) => {

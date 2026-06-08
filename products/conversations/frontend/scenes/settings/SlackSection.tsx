@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonCheckbox, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -34,7 +36,7 @@ export function SlackSection(): JSX.Element {
 function SlackChannelSection(): JSX.Element {
     const {
         slackConnected,
-        slackChannelId,
+        slackChannelIds,
         slackChannels,
         slackChannelsLoading,
         slackTicketEmoji,
@@ -43,16 +45,25 @@ function SlackChannelSection(): JSX.Element {
         slackBotIconUrlValue,
         slackBotDisplayName,
         slackBotDisplayNameValue,
+        slackNotifyOnJoin,
+        slackNotifyOnLeave,
+        slackAlertChannelId,
+        currentTeamLoading,
     } = useValues(supportSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const memberAlertsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS]
     const {
         connectSlack,
-        setSlackChannel,
+        setSlackChannels,
         loadSlackChannelsWithToken,
         setSlackTicketEmojiValue,
         saveSlackTicketEmoji,
         setSlackBotIconUrlValue,
         setSlackBotDisplayNameValue,
         saveSlackBotSettings,
+        setSlackNotifyOnJoin,
+        setSlackNotifyOnLeave,
+        setSlackAlertChannel,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -85,28 +96,24 @@ function SlackChannelSection(): JSX.Element {
                     <LemonDivider />
                     <div className="gap-4">
                         <div>
-                            <label className="font-medium">Support channel</label>
+                            <label className="font-medium">Support channels</label>
                             <p className="text-xs text-muted-alt">
-                                Messages posted in this channel will automatically create support tickets. Thread
-                                replies become ticket messages.
+                                Messages posted in any of these channels will automatically create support tickets.
+                                Thread replies become ticket messages. Make sure the SupportHog bot is invited to every
+                                selected channel.
                             </p>
                         </div>
                         <div className="flex gap-2 items-center">
-                            <LemonSelect
-                                value={slackChannelId}
-                                options={[
-                                    { value: null, label: 'None' },
-                                    ...slackChannels.map((c: { id: string; name: string }) => ({
-                                        value: c.id,
-                                        label: `#${c.name}`,
-                                    })),
-                                ]}
-                                onChange={(value) => {
-                                    const channel = slackChannels.find((c: { id: string }) => c.id === value)
-                                    setSlackChannel(value, channel?.name ?? null)
-                                }}
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={slackChannelIds}
+                                options={slackChannels.map((c: { id: string; name: string }) => ({
+                                    key: c.id,
+                                    label: `#${c.name}`,
+                                }))}
+                                onChange={(newValue: string[]) => setSlackChannels(newValue)}
                                 loading={slackChannelsLoading}
-                                placeholder="Select channel"
+                                placeholder="Select channels"
                             />
                             <LemonButton
                                 type="secondary"
@@ -118,6 +125,54 @@ function SlackChannelSection(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
+                    {memberAlertsEnabled && (
+                        <>
+                            <LemonDivider />
+                            <div className="flex flex-col gap-2">
+                                <div>
+                                    <label className="font-medium">Channel membership alerts</label>
+                                    <p className="text-xs text-muted-alt">
+                                        Notify a channel when someone joins or leaves any channel the SupportHog bot is
+                                        in.
+                                    </p>
+                                </div>
+                                <LemonCheckbox
+                                    checked={slackNotifyOnJoin}
+                                    onChange={setSlackNotifyOnJoin}
+                                    disabled={currentTeamLoading}
+                                    label="Alert when someone joins a channel"
+                                />
+                                <LemonCheckbox
+                                    checked={slackNotifyOnLeave}
+                                    onChange={setSlackNotifyOnLeave}
+                                    disabled={currentTeamLoading}
+                                    label="Alert when someone leaves a channel"
+                                />
+                                <div className="flex gap-2 items-center">
+                                    <LemonInputSelect
+                                        mode="single"
+                                        value={slackAlertChannelId ? [slackAlertChannelId] : []}
+                                        options={slackChannels.map((c: { id: string; name: string }) => ({
+                                            key: c.id,
+                                            label: `#${c.name}`,
+                                        }))}
+                                        onChange={(newValue: string[]) => setSlackAlertChannel(newValue[0] ?? null)}
+                                        loading={slackChannelsLoading}
+                                        disabled={currentTeamLoading || (!slackNotifyOnJoin && !slackNotifyOnLeave)}
+                                        placeholder="Select alerts channel"
+                                    />
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={loadSlackChannelsWithToken}
+                                        disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
+                                    >
+                                        Refresh
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        </>
+                    )}
                     <LemonDivider />
                     <div className="flex items-center gap-4 justify-between">
                         <div>

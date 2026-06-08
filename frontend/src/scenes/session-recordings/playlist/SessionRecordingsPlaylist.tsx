@@ -186,10 +186,10 @@ function PlayerWrapper({
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
 
     const onPlayNextRecording = useCallback(() => {
-        if (nextSessionRecording?.id) {
+        if (nextSessionRecording?.id && !isFiltersExpanded) {
             setSelectedRecordingId(nextSessionRecording.id)
         }
-    }, [nextSessionRecording, setSelectedRecordingId])
+    }, [nextSessionRecording, setSelectedRecordingId, isFiltersExpanded])
 
     return (
         <div
@@ -199,7 +199,7 @@ function PlayerWrapper({
             style={style}
         >
             {isFiltersExpanded && (
-                <div className="h-full rounded border">
+                <div className="h-full overflow-y-auto rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
                         filters={filters}

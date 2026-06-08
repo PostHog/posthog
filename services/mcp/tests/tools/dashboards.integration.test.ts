@@ -14,8 +14,6 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import createInsightTool from '@/tools/insights/create'
-import updateInsightTool from '@/tools/insights/update'
 import type { Context } from '@/tools/types'
 
 describe('Dashboards', { concurrent: false }, () => {
@@ -196,10 +194,160 @@ describe('Dashboards', { concurrent: false }, () => {
         })
     })
 
+    describe('response excludes insight results', () => {
+        const createTool = getToolByName('dashboard-create')
+        const getOneTool = getToolByName('dashboard-get')
+        const updateTool = getToolByName('dashboard-update')
+
+        const STRIPPED_INSIGHT_FIELDS = [
+            'result',
+            'hasMore',
+            'columns',
+            'hogql',
+            'types',
+            'query_status',
+            'cache_target_age',
+            'next_allowed_client_refresh',
+            'filters_hash',
+            'dashboards',
+            'dashboard_tiles',
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'filters',
+            'is_sample',
+            'order',
+            'deleted',
+            'alerts',
+            'timezone',
+            'resolved_date_range',
+        ] as const
+
+        async function createDashboardWithInsight(namePrefix: string): Promise<{ dashboardId: number }> {
+            const dashboardResult = await createTool.handler(context, {
+                name: generateUniqueKey(namePrefix),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            const projectId = await context.stateManager.getProjectId()
+            const insight = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
+                    name: generateUniqueKey('Stripped Result Insight'),
+                    query: SAMPLE_HOGQL_QUERIES.pageviews,
+                    saved: true,
+                    dashboards: [dashboard.id],
+                },
+            })
+            createdResources.insights.push(insight.id)
+
+            return { dashboardId: dashboard.id }
+        }
+
+        function assertNoInsightResults(dashboard: any): void {
+            expect(dashboard.tiles).toBeTruthy()
+            expect(dashboard.tiles.length).toBeGreaterThan(0)
+
+            const insightTiles = dashboard.tiles.filter((t: any) => t?.insight)
+            expect(insightTiles.length).toBeGreaterThan(0)
+
+            for (const tile of insightTiles) {
+                for (const field of STRIPPED_INSIGHT_FIELDS) {
+                    expect(
+                        tile.insight[field],
+                        `expected tile.insight.${field} to be stripped but was present`
+                    ).toBeUndefined()
+                }
+                // Sanity: identifying metadata should still be present
+                expect(tile.insight.id).toBeTruthy()
+                expect(tile.insight.query).toBeTruthy()
+            }
+        }
+
+        it('dashboard-get strips insight result fields', async () => {
+            const { dashboardId } = await createDashboardWithInsight('Get Strips Results')
+
+            const result = await getOneTool.handler(context, { id: dashboardId })
+            const dashboard = parseToolResponse(result)
+
+            assertNoInsightResults(dashboard)
+        })
+
+        it('dashboard-update strips insight result fields', async () => {
+            const { dashboardId } = await createDashboardWithInsight('Update Strips Results')
+
+            const result = await updateTool.handler(context, {
+                id: dashboardId,
+                description: 'Updated to verify response stripping',
+            })
+            const dashboard = parseToolResponse(result)
+
+            assertNoInsightResults(dashboard)
+        })
+
+        it('dashboard-create response has no tiles (and therefore no insight results)', async () => {
+            // dashboard-create creates an empty dashboard — there are no tiles to strip from.
+            // The exclude list is still declared so the tool stays safe if tiles are ever
+            // returned on create (e.g. duplicated or template-based creation).
+            const result = await createTool.handler(context, {
+                name: generateUniqueKey('Create No Tiles'),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(result)
+            createdResources.dashboards.push(dashboard.id)
+
+            expect(Array.isArray(dashboard.tiles)).toBe(true)
+            expect(dashboard.tiles.length).toBe(0)
+        })
+    })
+
+    describe('dashboard-insights-run tool', () => {
+        const createTool = getToolByName('dashboard-create')
+        const runInsightsTool = getToolByName('dashboard-insights-run')
+
+        it('returns insight results for tiles (unlike dashboard-get)', async () => {
+            const dashboardResult = await createTool.handler(context, {
+                name: generateUniqueKey('Run Insights Dashboard'),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            const projectId = await context.stateManager.getProjectId()
+            const insight = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
+                    name: generateUniqueKey('Run Insights Insight'),
+                    query: SAMPLE_HOGQL_QUERIES.pageviews,
+                    saved: true,
+                    dashboards: [dashboard.id],
+                },
+            })
+            createdResources.insights.push(insight.id)
+
+            const result = await runInsightsTool.handler(context, {
+                id: dashboard.id,
+                refresh: 'blocking',
+            })
+            const response = parseToolResponse(result)
+
+            expect(Array.isArray(response.results)).toBe(true)
+            expect(response.results.length).toBeGreaterThan(0)
+
+            const tile = response.results[0]
+            expect(tile.insight).toBeTruthy()
+            expect(tile.insight.id).toBeTruthy()
+            // The distinguishing property of this endpoint vs dashboard-get: result is present
+            expect(tile.insight).toHaveProperty('result')
+        })
+    })
+
     describe('dashboard-reorder-tiles tool', () => {
         const createDashboard = getToolByName('dashboard-create')
-        const createInsight = createInsightTool()
-        const updateInsight = updateInsightTool()
         const reorderTiles = getToolByName('dashboard-reorder-tiles')
         const getOneDashboard = getToolByName('dashboard-get')
         const deleteDashboard = getToolByName('dashboard-delete')
@@ -221,47 +369,51 @@ describe('Dashboards', { concurrent: false }, () => {
             const dashboard2 = parseToolResponse(dashboard2Result)
             createdResources.dashboards.push(dashboard2.id)
 
-            // Create two insights
-            const insight1Result = await createInsight.handler(context, {
-                data: {
+            // Create two insights via API
+            const projectId = await context.stateManager.getProjectId()
+            const insight1 = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
                     name: generateUniqueKey('Insight 1'),
                     description: 'First insight',
                     query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
+                    saved: true,
                 },
             })
-            const insight1 = parseToolResponse(insight1Result)
             createdResources.insights.push(insight1.id)
 
-            const insight2Result = await createInsight.handler(context, {
-                data: {
+            const insight2 = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
                     name: generateUniqueKey('Insight 2'),
                     description: 'Second insight',
                     query: SAMPLE_HOGQL_QUERIES.topEvents,
-                    favorited: false,
+                    saved: true,
                 },
             })
-            const insight2 = parseToolResponse(insight2Result)
             createdResources.insights.push(insight2.id)
 
             // Add insight1 to the primary dashboard
-            await updateInsight.handler(context, {
-                insightId: String(insight1.id),
-                data: { dashboards: [dashboard.id] },
+            await context.api.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/insights/${insight1.id}/`,
+                body: { dashboards: [dashboard.id] },
             })
 
             // Add insight2 to the secondary dashboard first, then append the primary
             // dashboard — this verifies full-replacement semantics (must include all IDs)
-            await updateInsight.handler(context, {
-                insightId: String(insight2.id),
-                data: { dashboards: [dashboard2.id] },
+            await context.api.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/insights/${insight2.id}/`,
+                body: { dashboards: [dashboard2.id] },
             })
-            const updatedInsight2 = parseToolResponse(
-                await updateInsight.handler(context, {
-                    insightId: String(insight2.id),
-                    data: { dashboards: [dashboard2.id, dashboard.id] },
-                })
-            )
+            const updatedInsight2 = await context.api.request<any>({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/insights/${insight2.id}/`,
+                body: { dashboards: [dashboard2.id, dashboard.id] },
+            })
             expect(updatedInsight2.dashboards).toContain(dashboard.id)
             expect(updatedInsight2.dashboards).toContain(dashboard2.id)
 
@@ -303,6 +455,74 @@ describe('Dashboards', { concurrent: false }, () => {
             createdResources.dashboards = createdResources.dashboards.filter(
                 (id) => id !== dashboard.id && id !== dashboard2.id
             )
+        })
+    })
+
+    describe('dashboard widget tools', () => {
+        const catalogTool = getToolByName('dashboard-widget-catalog-list')
+        const batchAddWidgetTool = getToolByName('dashboard-widgets-batch-add')
+        const runWidgetsTool = getToolByName('dashboard-widgets-run')
+        const createTool = getToolByName('dashboard-create')
+        const getOneTool = getToolByName('dashboard-get')
+
+        it('dashboard-widget-catalog-list returns widget catalog entries', async () => {
+            const result = await catalogTool.handler(context, {})
+            const catalog = parseToolResponse(result)
+
+            expect(Array.isArray(catalog.results)).toBe(true)
+            const errorTracking = catalog.results.find(
+                (entry: { widget_type: string }) => entry.widget_type === 'error_tracking_list'
+            )
+            expect(errorTracking).toBeTruthy()
+            expect(errorTracking.config_schema_hints?.limit?.max).toBe(25)
+
+            const sessionReplay = catalog.results.find(
+                (entry: { widget_type: string }) => entry.widget_type === 'session_replay_list'
+            )
+            expect(sessionReplay).toBeTruthy()
+            expect(sessionReplay.config_schema_hints?.orderBy?.default).toBe('start_time')
+        })
+
+        it('dashboard-widgets-batch-add and dashboard-widgets-run workflow', async () => {
+            const dashboardResult = await createTool.handler(context, {
+                name: generateUniqueKey('Widget MCP Dashboard'),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            const addResult = await batchAddWidgetTool.handler(context, {
+                id: dashboard.id,
+                widgets: [
+                    {
+                        widget_type: 'error_tracking_list',
+                        config: { limit: 5 },
+                    },
+                ],
+            })
+
+            const batchResponse = parseToolResponse(addResult)
+            expect(Array.isArray(batchResponse.tiles)).toBe(true)
+            const tile = batchResponse.tiles[0]
+            expect(tile.id).toBeTruthy()
+            expect(tile.widget?.widget_type).toBe('error_tracking_list')
+            expect(batchResponse._posthogUrl).toContain(`/dashboard/${dashboard.id}`)
+
+            const dashboardWithTile = parseToolResponse(await getOneTool.handler(context, { id: dashboard.id }))
+            const widgetTile = dashboardWithTile.tiles?.find((t: { widget?: unknown }) => !!t.widget)
+            expect(widgetTile?.id).toBe(tile.id)
+
+            const runResult = await runWidgetsTool.handler(context, {
+                id: dashboard.id,
+                tile_ids: String(tile.id),
+            })
+            const runResponse = parseToolResponse(runResult)
+
+            expect(runResponse._posthogUrl).toContain(`/dashboard/${dashboard.id}`)
+            expect(Array.isArray(runResponse.results)).toBe(true)
+            expect(runResponse.results.length).toBe(1)
+            expect(runResponse.results[0].tile_id).toBe(tile.id)
+            expect(runResponse.results[0].widget_type).toBe('error_tracking_list')
         })
     })
 })

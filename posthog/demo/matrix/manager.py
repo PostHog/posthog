@@ -22,7 +22,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_project
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
@@ -55,6 +55,7 @@ class MatrixManager:
         password: str | None = None,
         is_staff: bool = False,
         email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
+        api_token: str | None = None,
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: User | None = User.objects.filter(email=email).first()
@@ -90,7 +91,11 @@ class MatrixManager:
                     theme_mode="system",
                     role_at_organization="engineering",
                 )
-                team = self.create_team(organization)
+                if api_token:
+                    # api_token is unique, so release it from any team that claimed it on a previous run
+                    # before the new team claims it. Kept in the same transaction so a failure can't orphan it.
+                    Team.objects.filter(api_token=api_token).update(api_token=generate_random_token_project())
+                team = self.create_team(organization, **({"api_token": api_token} if api_token else {}))
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
@@ -182,7 +187,7 @@ class MatrixManager:
                     self.matrix.now,
                 )
         try:
-            GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
+            GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)  # nosemgrep: no-direct-persons-db-orm
         except IntegrityError as e:
             print(f"SKIPPING GROUP TYPE MAPPING CREATION: {e}")
         for sim_person in sim_persons:
@@ -218,7 +223,7 @@ class MatrixManager:
         #         )
         #     ]
         # )
-        GroupTypeMapping.objects.filter(project_id=cls.MASTER_TEAM_ID).delete()
+        GroupTypeMapping.objects.filter(project_id=cls.MASTER_TEAM_ID).delete()  # nosemgrep: no-direct-persons-db-orm
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
@@ -236,11 +241,15 @@ class MatrixManager:
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
-        GroupTypeMapping.objects.filter(project_id=target_team.project_id).delete()
-        GroupTypeMapping.objects.bulk_create(
+        GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            project_id=target_team.project_id
+        ).delete()  # nosemgrep: no-direct-persons-db-orm
+        GroupTypeMapping.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
             (
                 GroupTypeMapping(team_id=target_team.id, project_id=target_team.project_id, **record)
-                for record in GroupTypeMapping.objects.filter(project_id=self.MASTER_TEAM_ID).values(
+                for record in GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                    project_id=self.MASTER_TEAM_ID
+                ).values(  # nosemgrep: no-direct-persons-db-orm
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
             ),
@@ -265,9 +274,11 @@ class MatrixManager:
             properties = json.loads(filtered_row.pop("properties", "{}"))
             bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **filtered_row)
         # This sets the pk in the bulk_persons dict so we can use them later
-        Person.objects.bulk_create(bulk_persons.values())
+        Person.objects.bulk_create(bulk_persons.values())  # nosemgrep: no-direct-persons-db-orm
         # Person distinct IDs
-        pre_existing_id_count = PersonDistinctId.objects.filter(team_id=target_team_id).count()
+        pre_existing_id_count = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            team_id=target_team_id
+        ).count()  # nosemgrep: no-direct-persons-db-orm
         clickhouse_distinct_ids = query_with_columns(
             SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
             list_params,
@@ -291,7 +302,9 @@ class MatrixManager:
                 pre_existing_id_count -= 1
         if pre_existing_id_count > 0:
             print(f"{pre_existing_id_count} IDS UNACCOUNTED FOR")
-        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
+        PersonDistinctId.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
+            bulk_person_distinct_ids, ignore_conflicts=True
+        )  # nosemgrep: no-direct-persons-db-orm
         # Groups
         clickhouse_groups = query_with_columns(
             SELECT_GROUPS_OF_TEAM,
@@ -312,7 +325,7 @@ class MatrixManager:
                 )
             )
         try:
-            Group.objects.bulk_create(bulk_groups)
+            Group.objects.bulk_create(bulk_groups)  # nosemgrep: no-direct-persons-db-orm
         except IntegrityError as e:
             print(f"SKIPPING GROUP CREATION: {e}")
 

@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "description": "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "content": {
+            "description": "Full markdown instructions to publish. Pass an empty string to erase the channel's instructions while keeping the instruction set.",
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the channel (desktop folder) whose instructions to update.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

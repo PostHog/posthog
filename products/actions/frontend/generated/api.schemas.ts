@@ -36,9 +36,9 @@
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type3f6EnumApi = (typeof Type3f6EnumApi)[keyof typeof Type3f6EnumApi]
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
-export const Type3f6EnumApi = {
+export const PropertyFilterTypeEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -76,10 +76,9 @@ export const Type3f6EnumApi = {
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type StringPropertyFilterOperatorEnumApi =
-    (typeof StringPropertyFilterOperatorEnumApi)[keyof typeof StringPropertyFilterOperatorEnumApi]
+export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
 
-export const StringPropertyFilterOperatorEnumApi = {
+export const StringMatchOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -96,45 +95,45 @@ export interface StringPropertyFilterApi {
     key: string
     /** Property type (event, person, session, etc.).
 
-* `event` - event
-* `event_metadata` - event_metadata
-* `feature` - feature
-* `person` - person
-* `cohort` - cohort
-* `element` - element
-* `static-cohort` - static-cohort
-* `dynamic-cohort` - dynamic-cohort
-* `precalculated-cohort` - precalculated-cohort
-* `group` - group
-* `recording` - recording
-* `log_entry` - log_entry
-* `behavioral` - behavioral
-* `session` - session
-* `hogql` - hogql
-* `data_warehouse` - data_warehouse
-* `data_warehouse_person_property` - data_warehouse_person_property
-* `error_tracking_issue` - error_tracking_issue
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
-* `revenue_analytics` - revenue_analytics
-* `flag` - flag
-* `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
     /** String value to match against. */
     value: string
     /** String comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `icontains` - icontains
-* `not_icontains` - not_icontains
-* `regex` - regex
-* `not_regex` - not_regex */
-    operator?: StringPropertyFilterOperatorEnumApi
+  * `exact` - exact
+  * `is_not` - is_not
+  * `icontains` - icontains
+  * `not_icontains` - not_icontains
+  * `regex` - regex
+  * `not_regex` - not_regex */
+    operator?: StringMatchOperatorEnumApi
 }
 
 /**
@@ -165,44 +164,44 @@ export interface NumericPropertyFilterApi {
     key: string
     /** Property type (event, person, session, etc.).
 
-* `event` - event
-* `event_metadata` - event_metadata
-* `feature` - feature
-* `person` - person
-* `cohort` - cohort
-* `element` - element
-* `static-cohort` - static-cohort
-* `dynamic-cohort` - dynamic-cohort
-* `precalculated-cohort` - precalculated-cohort
-* `group` - group
-* `recording` - recording
-* `log_entry` - log_entry
-* `behavioral` - behavioral
-* `session` - session
-* `hogql` - hogql
-* `data_warehouse` - data_warehouse
-* `data_warehouse_person_property` - data_warehouse_person_property
-* `error_tracking_issue` - error_tracking_issue
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
-* `revenue_analytics` - revenue_analytics
-* `flag` - flag
-* `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
     /** Numeric value to compare against. */
     value: number
     /** Numeric comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `gt` - gt
-* `lt` - lt
-* `gte` - gte
-* `lte` - lte */
+  * `exact` - exact
+  * `is_not` - is_not
+  * `gt` - gt
+  * `lt` - lt
+  * `gte` - gte
+  * `lte` - lte */
     operator?: NumericPropertyFilterOperatorEnumApi
 }
 
@@ -230,42 +229,42 @@ export interface ArrayPropertyFilterApi {
     key: string
     /** Property type (event, person, session, etc.).
 
-* `event` - event
-* `event_metadata` - event_metadata
-* `feature` - feature
-* `person` - person
-* `cohort` - cohort
-* `element` - element
-* `static-cohort` - static-cohort
-* `dynamic-cohort` - dynamic-cohort
-* `precalculated-cohort` - precalculated-cohort
-* `group` - group
-* `recording` - recording
-* `log_entry` - log_entry
-* `behavioral` - behavioral
-* `session` - session
-* `hogql` - hogql
-* `data_warehouse` - data_warehouse
-* `data_warehouse_person_property` - data_warehouse_person_property
-* `error_tracking_issue` - error_tracking_issue
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
-* `revenue_analytics` - revenue_analytics
-* `flag` - flag
-* `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
     /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
     value: string[]
     /** Array comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `in` - in
-* `not_in` - not_in */
+  * `exact` - exact
+  * `is_not` - is_not
+  * `in` - in
+  * `not_in` - not_in */
     operator?: ArrayPropertyFilterOperatorEnumApi
 }
 
@@ -274,10 +273,9 @@ export interface ArrayPropertyFilterApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type DatePropertyFilterOperatorEnumApi =
-    (typeof DatePropertyFilterOperatorEnumApi)[keyof typeof DatePropertyFilterOperatorEnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const DatePropertyFilterOperatorEnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -291,51 +289,51 @@ export interface DatePropertyFilterApi {
     key: string
     /** Property type (event, person, session, etc.).
 
-* `event` - event
-* `event_metadata` - event_metadata
-* `feature` - feature
-* `person` - person
-* `cohort` - cohort
-* `element` - element
-* `static-cohort` - static-cohort
-* `dynamic-cohort` - dynamic-cohort
-* `precalculated-cohort` - precalculated-cohort
-* `group` - group
-* `recording` - recording
-* `log_entry` - log_entry
-* `behavioral` - behavioral
-* `session` - session
-* `hogql` - hogql
-* `data_warehouse` - data_warehouse
-* `data_warehouse_person_property` - data_warehouse_person_property
-* `error_tracking_issue` - error_tracking_issue
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
-* `revenue_analytics` - revenue_analytics
-* `flag` - flag
-* `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
     /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
     value: string
     /** Date comparison operator.
 
-* `is_date_exact` - is_date_exact
-* `is_date_before` - is_date_before
-* `is_date_after` - is_date_after */
-    operator?: DatePropertyFilterOperatorEnumApi
+  * `is_date_exact` - is_date_exact
+  * `is_date_before` - is_date_before
+  * `is_date_after` - is_date_after */
+    operator?: DateOperatorEnumApi
 }
 
 /**
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
 
-export const Operator3e6EnumApi = {
+export const ExistenceOperatorEnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -348,39 +346,39 @@ export interface ExistencePropertyFilterApi {
     key: string
     /** Property type (event, person, session, etc.).
 
-* `event` - event
-* `event_metadata` - event_metadata
-* `feature` - feature
-* `person` - person
-* `cohort` - cohort
-* `element` - element
-* `static-cohort` - static-cohort
-* `dynamic-cohort` - dynamic-cohort
-* `precalculated-cohort` - precalculated-cohort
-* `group` - group
-* `recording` - recording
-* `log_entry` - log_entry
-* `behavioral` - behavioral
-* `session` - session
-* `hogql` - hogql
-* `data_warehouse` - data_warehouse
-* `data_warehouse_person_property` - data_warehouse_person_property
-* `error_tracking_issue` - error_tracking_issue
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
-* `revenue_analytics` - revenue_analytics
-* `flag` - flag
-* `workflow_variable` - workflow_variable */
-    type?: Type3f6EnumApi
+  * `event` - event
+  * `event_metadata` - event_metadata
+  * `feature` - feature
+  * `person` - person
+  * `cohort` - cohort
+  * `element` - element
+  * `static-cohort` - static-cohort
+  * `dynamic-cohort` - dynamic-cohort
+  * `precalculated-cohort` - precalculated-cohort
+  * `group` - group
+  * `recording` - recording
+  * `log_entry` - log_entry
+  * `behavioral` - behavioral
+  * `session` - session
+  * `hogql` - hogql
+  * `data_warehouse` - data_warehouse
+  * `data_warehouse_person_property` - data_warehouse_person_property
+  * `error_tracking_issue` - error_tracking_issue
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute
+  * `revenue_analytics` - revenue_analytics
+  * `flag` - flag
+  * `workflow_variable` - workflow_variable */
+    type?: PropertyFilterTypeEnumApi
     /** Existence check operator.
 
-* `is_set` - is_set
-* `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+  * `is_set` - is_set
+  * `is_not_set` - is_not_set */
+    operator: ExistenceOperatorEnumApi
 }
 
 export type ActionStepPropertyFilterApi =
@@ -395,17 +393,13 @@ export type ActionStepPropertyFilterApi =
  * `regex` - regex
  * `exact` - exact
  */
-export type UrlMatchingEnumApi = (typeof UrlMatchingEnumApi)[keyof typeof UrlMatchingEnumApi]
+export type ActionStepMatchingEnumApi = (typeof ActionStepMatchingEnumApi)[keyof typeof ActionStepMatchingEnumApi]
 
-export const UrlMatchingEnumApi = {
+export const ActionStepMatchingEnumApi = {
     Contains: 'contains',
     Regex: 'regex',
     Exact: 'exact',
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
 
 export interface ActionStepJSONApi {
     /**
@@ -437,10 +431,10 @@ export interface ActionStepJSONApi {
     text?: string | null
     /** How to match the text value. Defaults to exact.
 
-* `contains` - contains
-* `regex` - regex
-* `exact` - exact */
-    text_matching?: UrlMatchingEnumApi | NullEnumApi | null
+  * `contains` - contains
+  * `regex` - regex
+  * `exact` - exact */
+    text_matching?: ActionStepMatchingEnumApi | null
     /**
      * Link href attribute to match.
      * @nullable
@@ -448,10 +442,10 @@ export interface ActionStepJSONApi {
     href?: string | null
     /** How to match the href value. Defaults to exact.
 
-* `contains` - contains
-* `regex` - regex
-* `exact` - exact */
-    href_matching?: UrlMatchingEnumApi | NullEnumApi | null
+  * `contains` - contains
+  * `regex` - regex
+  * `exact` - exact */
+    href_matching?: ActionStepMatchingEnumApi | null
     /**
      * Page URL to match.
      * @nullable
@@ -459,10 +453,10 @@ export interface ActionStepJSONApi {
     url?: string | null
     /** How to match the URL value. Defaults to contains.
 
-* `contains` - contains
-* `regex` - regex
-* `exact` - exact */
-    url_matching?: UrlMatchingEnumApi | NullEnumApi | null
+  * `contains` - contains
+  * `regex` - regex
+  * `exact` - exact */
+    url_matching?: ActionStepMatchingEnumApi | null
 }
 
 /**
@@ -497,7 +491,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -517,7 +511,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -641,16 +635,64 @@ export interface ActionReferenceApi {
     created_by: UserBasicApi | null
 }
 
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
 export type ActionsListParams = {
     format?: ActionsListFormat
     /**
-     * Number of results to return per page.
+     * Maximum number of actions to return. Omit to return all.
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of actions to skip before returning results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring match on the action name.
+     */
+    search?: string
 }
 
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]
@@ -722,6 +764,18 @@ export type ActionsReferencesListParams = {
 export type ActionsReferencesListFormat = (typeof ActionsReferencesListFormat)[keyof typeof ActionsReferencesListFormat]
 
 export const ActionsReferencesListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type ActionsBulkUpdateTagsCreateParams = {
+    format?: ActionsBulkUpdateTagsCreateFormat
+}
+
+export type ActionsBulkUpdateTagsCreateFormat =
+    (typeof ActionsBulkUpdateTagsCreateFormat)[keyof typeof ActionsBulkUpdateTagsCreateFormat]
+
+export const ActionsBulkUpdateTagsCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

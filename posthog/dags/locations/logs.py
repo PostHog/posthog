@@ -1,11 +1,8 @@
-from django.conf import settings
-
 import dagster
 
 from posthog.dags import backups
-from posthog.dags.common.resources import ClickhouseClusterResource
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     jobs=[
@@ -15,10 +12,6 @@ defs = dagster.Definitions(
         backups.full_logs_backup_schedule,
         backups.incremental_logs_backup_schedule,
     ],
-    resources={
-        **resources,
-        "cluster": ClickhouseClusterResource(
-            host=settings.CLICKHOUSE_LOGS_HOST, cluster=settings.CLICKHOUSE_LOGS_CLUSTER
-        ),
-    },
+    loggers=loggers,
+    resources=resources,
 )

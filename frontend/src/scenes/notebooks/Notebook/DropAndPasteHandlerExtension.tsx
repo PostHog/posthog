@@ -6,6 +6,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { parseMarkdownToTipTap } from 'lib/utils/parseMarkdownToTipTap'
+
 import { NotebookNodeType } from '../types'
 
 export type TabularFormat = 'tsv' | 'csv'
@@ -57,6 +59,51 @@ export function parseTabularDataToTipTapTable(text: string, delimiter: string = 
     })
 
     return { type: 'table', content: tableRows }
+}
+
+// Block-level markdown signals. Inline-only markers like `**bold**` are intentionally
+// excluded so plain prose that happens to contain `*` is not silently transformed.
+const MARKDOWN_BLOCK_PATTERNS: RegExp[] = [
+    /^#{1,6} \S/m, // ATX heading: "# Title"
+    /^>\s+\S/m, // Blockquote: "> text"
+    /^[-*+] \S/m, // Unordered list: "- item"
+    /^\d+\.\s+\S/m, // Ordered list: "1. item"
+    /^```/m, // Fenced code block
+    /^(?:-{3,}|\*{3,}|_{3,})\s*$/m, // Horizontal rule
+    /^\|.+\|/m, // Table row
+]
+
+export function detectMarkdown(text: string): boolean {
+    if (!text) {
+        return false
+    }
+    return MARKDOWN_BLOCK_PATTERNS.some((pattern) => pattern.test(text))
+}
+
+// Decide what to insert when pasted plain text looks like markdown. Returns the parsed
+// nodes to insert, or null to defer to tiptap's default paste. We defer when the clipboard
+// also has an HTML representation (tiptap preserves its rendered structure) UNLESS the
+// markdown parses to a table: rich sources (AI chats, rendered docs) put flattened tables
+// on the clipboard as plain pipe-text in their HTML, which the default paste renders as a
+// paragraph and loses the table. Real <table> HTML is handled before this is ever called.
+export function parseMarkdownPasteContent(text: string, html: string | undefined): JSONContent[] | null {
+    if (!text || !detectMarkdown(text)) {
+        return null
+    }
+    let parsed: JSONContent[]
+    try {
+        parsed = parseMarkdownToTipTap(text)
+    } catch {
+        return null
+    }
+    if (parsed.length === 0) {
+        return null
+    }
+    const hasTable = parsed.some((node) => node.type === 'table')
+    if (html && !hasTable) {
+        return null
+    }
+    return parsed
 }
 
 export const DropAndPasteHandlerExtension = Extension.create({
@@ -172,6 +219,20 @@ export const DropAndPasteHandlerExtension = Extension.create({
                                 source: format,
                             })
                             return true
+                        }
+
+                        // Detect markdown source in plain-text pastes (see parseMarkdownPasteContent
+                        // for how HTML pastes and flattened tables are handled).
+                        if (text) {
+                            const parsed = parseMarkdownPasteContent(text, html)
+                            if (parsed) {
+                                this.editor.chain().focus().insertContent(parsed).run()
+                                posthog.capture('notebook markdown pasted', {
+                                    length: text.length,
+                                    blocks: parsed.length,
+                                })
+                                return true
+                            }
                         }
 
                         // Special handling for pasting files such as images

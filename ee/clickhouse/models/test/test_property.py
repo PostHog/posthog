@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Union, cast
+from typing import Any, Literal, Union, cast
 from uuid import UUID
 
 import pytest
@@ -1026,7 +1026,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
         materialize("events", "some_mat_prop2", table_column="person_properties")
-        materialize("events", "some_mat_prop3", table_column="group2_properties")
+        materialize("events", "some_mat_prop3", table_column=cast(Any, "group2_properties"))
         string_expr = get_property_string_expr(
             "events",
             "some_mat_prop2",
@@ -1227,7 +1227,7 @@ def test_breakdown_query_expression(
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
     column: str,
-    expected: str,
+    expected: tuple[str, dict[str, Any]],
 ):
     actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
 
@@ -1262,12 +1262,12 @@ def test_breakdown_query_expression_materialised(
     query_alias: Literal["prop", "value"],
     column: str,
     materialise_column: str,
-    expected_with: str,
-    expected_without: str,
+    expected_with: tuple[str, dict[str, Any]],
+    expected_without: tuple[str, dict[str, Any]],
 ):
     from posthog.models.team import util
 
-    util.can_enable_actor_on_events = True
+    util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
     materialize(table, breakdown[0], table_column="properties")
     actual = get_single_or_multi_property_string_expr(
@@ -1279,7 +1279,7 @@ def test_breakdown_query_expression_materialised(
     )
     assert actual == expected_with
 
-    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
     actual = get_single_or_multi_property_string_expr(
         breakdown,
         table,
@@ -1790,6 +1790,36 @@ def test_prop_filter_json_extract_materialized(
     assert uuids == expected
 
 
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
+    test_events, clean_up_materialised_columns, team
+):
+    column = materialize("events", "email", is_nullable=True)
+    cases = [
+        (Property(key="email", operator="is_set", value="is_set"), [0, 1]),
+        (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 27)),
+    ]
+
+    for property, expected_event_indexes in cases:
+        query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+
+        assert column.name not in query
+        assert "JSONHas" in query
+
+        uuids = sorted(
+            [
+                str(uuid)
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                    {"team_id": team.pk, **params},
+                )
+            ]
+        )
+        expected = sorted([test_events[index] for index in expected_event_indexes])
+
+        assert uuids == expected
+
+
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_person_on_events_materialized(
@@ -1799,7 +1829,7 @@ def test_prop_filter_json_extract_person_on_events_materialized(
         return
 
     # simulates a group property being materialised
-    materialize("events", property.key, table_column="group2_properties")
+    materialize("events", property.key, table_column=cast(Any, "group2_properties"))
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
     # this query uses the `properties` column, thus the materialized column is different.

@@ -8,7 +8,6 @@ import {
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
-    SurveyEventProperties,
 } from '~/types'
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
@@ -25,14 +24,10 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
                 {
                     id: SurveyEventName.SENT,
                     type: 'events',
-                    properties: [
-                        {
-                            key: SurveyEventProperties.SURVEY_RESPONSE,
-                            type: PropertyFilterType.Event,
-                            value: 'is_set',
-                            operator: PropertyOperator.IsSet,
-                        },
-                    ],
+                },
+                {
+                    id: SurveyEventName.DISMISSED,
+                    type: 'events',
                 },
             ],
         },
@@ -120,6 +115,180 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
         flag: FEATURE_FLAGS.LOGS_ALERTING,
     },
+    'logs-alert-auto-disabled': {
+        sub_template_id: 'logs-alert-auto-disabled',
+        type: 'internal_destination',
+        context_id: 'logs-alerting',
+        filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
+        flag: FEATURE_FLAGS.LOGS_ALERTING,
+    },
+    'logs-alert-errored': {
+        sub_template_id: 'logs-alert-errored',
+        type: 'internal_destination',
+        context_id: 'logs-alerting',
+        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
+        flag: FEATURE_FLAGS.LOGS_ALERTING,
+    },
+    'health-check-firing': {
+        sub_template_id: 'health-check-firing',
+        type: 'internal_destination',
+        context_id: 'health-alerts',
+        filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
+        flag: FEATURE_FLAGS.HEALTH_ALERTS,
+    },
+    'health-check-resolved': {
+        sub_template_id: 'health-check-resolved',
+        type: 'internal_destination',
+        context_id: 'health-alerts',
+        filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+        flag: FEATURE_FLAGS.HEALTH_ALERTS,
+    },
+}
+
+const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
+
+function buildFlagChangeVerbPhrase(): string {
+    const activity = 'event.properties.activity'
+    const change = 'event.properties.detail.changes[1]'
+    const afterGroups = `length(ifNull(${change}.after.groups, []))`
+    const beforeGroups = `length(ifNull(${change}.before.groups, []))`
+
+    const activeFieldVerb = `${change}.after == 'true' ? 'enabled' : 'disabled'`
+
+    const filtersFieldVerb = [
+        `${change}.after.multivariate != null ? 'updated variant rollout for'`,
+        `${afterGroups} > ${beforeGroups} ? 'added a release condition to'`,
+        `${afterGroups} < ${beforeGroups} ? 'removed a release condition from'`,
+        `'updated release conditions on'`,
+    ].join(' : ')
+
+    const verbPhrase = [
+        `${activity} == 'created' ? 'created'`,
+        `${activity} == 'deleted' ? 'deleted'`,
+        `${activity} == 'restored' ? 'restored'`,
+        `${change}.field == 'active' ? (${activeFieldVerb})`,
+        `${change}.field == 'filters' ? (${filtersFieldVerb})`,
+        `'updated'`,
+    ].join(' : ')
+
+    return `{${verbPhrase}}`
+}
+
+const FLAG_CHANGE_VERB_PHRASE = buildFlagChangeVerbPhrase()
+
+interface HealthAlertTemplateCopy {
+    slackHeader: string
+    slackBody: string
+    webhookSummary: string
+    emailSubject: string
+    emailHtml: string
+    emailText: string
+    discordContent: string
+    teamsText: string
+    actionButtonText: string
+    namePrefix: string
+    descriptionVerb: string
+}
+
+// Builds the 5 destination variants for a health-alert sub-template. The body
+// strings reference only the event envelope (title/summary/link/severity/kind),
+// so adding a new health-check kind requires no changes here.
+function buildHealthAlertSubTemplates(
+    subTemplateId: 'health-check-firing' | 'health-check-resolved',
+    copy: HealthAlertTemplateCopy
+): HogFunctionSubTemplateType[] {
+    const common = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
+    return [
+        {
+            ...common,
+            template_id: 'template-webhook',
+            name: `HTTP webhook when a ${copy.namePrefix}`,
+            description: `Send a webhook when a health check ${copy.descriptionVerb}`,
+            inputs: {
+                body: {
+                    value: {
+                        summary: copy.webhookSummary,
+                        title: '{event.properties.title}',
+                        message: '{event.properties.summary}',
+                        kind: '{event.properties.kind}',
+                        severity: '{event.properties.severity}',
+                        link: '{project.url}{event.properties.link}',
+                        payload: '{event.properties.payload}',
+                    },
+                },
+            },
+        },
+        {
+            ...common,
+            template_id: 'template-slack',
+            name: `Post to Slack when a ${copy.namePrefix}`,
+            description: `Post to a Slack channel when a health check ${copy.descriptionVerb}`,
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: copy.slackHeader } },
+                        { type: 'section', text: { type: 'mrkdwn', text: copy.slackBody } },
+                        {
+                            type: 'context',
+                            elements: [
+                                {
+                                    type: 'mrkdwn',
+                                    text: 'Severity: {event.properties.severity} · Project: <{project.url}|{project.name}>',
+                                },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}{event.properties.link}',
+                                    text: { text: copy.actionButtonText, type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: { value: copy.webhookSummary },
+            },
+        },
+        {
+            ...common,
+            template_id: 'template-discord',
+            name: `Post to Discord when a ${copy.namePrefix}`,
+            description: `Post to a Discord channel when a health check ${copy.descriptionVerb}`,
+            inputs: { content: { value: copy.discordContent } },
+        },
+        {
+            ...common,
+            template_id: 'template-microsoft-teams',
+            name: `Post to Microsoft Teams when a ${copy.namePrefix}`,
+            description: `Post to a Microsoft Teams channel when a health check ${copy.descriptionVerb}`,
+            inputs: { text: { value: copy.teamsText } },
+        },
+        {
+            ...common,
+            template_id: 'template-email',
+            name: `Email when a ${copy.namePrefix}`,
+            description: `Send an email when a health check ${copy.descriptionVerb}`,
+            inputs: {
+                email: {
+                    value: {
+                        to: { email: '', name: '' },
+                        from: { email: '', name: 'PostHog' },
+                        replyTo: '',
+                        cc: '',
+                        bcc: '',
+                        subject: copy.emailSubject,
+                        preheader: '{event.properties.summary}',
+                        text: copy.emailText,
+                        html: copy.emailHtml,
+                    },
+                },
+            },
+        },
+    ]
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -128,16 +297,16 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on survey response',
-            description: 'Send a webhook when a survey response is submitted',
+            description: 'Send a webhook when a survey is completed or dismissed',
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-discord',
             name: 'Post to Discord on survey response',
-            description: 'Posts a message to Discord when a user responds to a survey',
+            description: 'Posts a message to Discord when a survey is completed or dismissed',
             inputs: {
                 content: {
-                    value: '**{person.name}** responded to survey **{event.properties.$survey_name}**',
+                    value: "**{person.name}** {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey **{event.properties.$survey_name}**",
                 },
             },
         },
@@ -145,10 +314,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on survey response',
-            description: 'Posts a message to Microsoft Teams when a user responds to a survey',
+            description: 'Posts a message to Microsoft Teams when a survey is completed or dismissed',
             inputs: {
                 text: {
-                    value: '**{person.name}** responded to survey **{event.properties.$survey_name}**',
+                    value: "**{person.name}** {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey **{event.properties.$survey_name}**",
                 },
             },
         },
@@ -156,13 +325,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-slack',
             name: 'Post to Slack on survey response',
-            description: 'Posts a message to Slack when a user responds to a survey',
+            description: 'Posts a message to Slack when a survey is completed or dismissed',
             inputs: {
                 blocks: {
                     value: [
                         {
                             text: {
-                                text: '*{person.name}* responded to survey *{event.properties.$survey_name}*',
+                                text: "*{person.name}* {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey *{event.properties.$survey_name}*",
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -185,7 +354,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: '*{person.name}* responded to survey *{event.properties.$survey_name}*',
+                    value: "*{person.name}* {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey *{event.properties.$survey_name}*",
                 },
             },
         },
@@ -261,7 +430,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Send a webhook when a team activity occurs',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
+                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
         },
@@ -272,7 +441,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a team activity occurs',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
+                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
         },
@@ -283,7 +452,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when a team activity occurs',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
+                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
         },
@@ -297,7 +466,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: '*{person.name}* {event.properties.activity} {event.properties.scope} {event.properties.item_id} ',
+                                text: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -305,7 +474,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: '*{person.name}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}',
+                    value: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
                 },
             },
         },
@@ -318,7 +487,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Send a webhook when a feature flag is changed',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} feature flag `{event.properties.item_id}`',
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -329,7 +498,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a feature flag is changed',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} feature flag `{event.properties.item_id}`',
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -340,7 +509,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when a feature flag is changed',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} feature flag `{event.properties.item_id}`',
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -354,7 +523,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: '*{person.name}* {event.properties.activity} feature flag `{event.properties.item_id}`',
+                                text: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -372,7 +541,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: '*{person.name}* {event.properties.activity} feature flag `{event.properties.item_id}`',
+                    value: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -634,6 +803,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         },
     ],
     'error-tracking-issue-spiking': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on issue spiking',
+            description: 'Send a webhook when an issue is spiking',
+        },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
             template_id: 'template-discord',
@@ -923,6 +1098,145 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'logs-alert-auto-disabled': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-auto-disabled'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on log alert auto-disabled',
+            description: 'Send a webhook when a log alert is auto-disabled due to repeated failures',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-auto-disabled'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on log alert auto-disabled',
+            description: 'Post to Slack when a log alert is auto-disabled due to repeated failures',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Log alert '{event.properties.alert_name}' was auto-disabled",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n*Last error:* {event.properties.last_error_message}',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    text: { text: 'View alert', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Log alert '{event.properties.alert_name}' was auto-disabled after {event.properties.consecutive_failures} consecutive failures",
+                },
+            },
+        },
+    ],
+    'health-check-firing': buildHealthAlertSubTemplates('health-check-firing', {
+        // Verbs/copy chosen so the same template body works for any health-check kind.
+        slackHeader: '{event.properties.title}',
+        slackBody: '{event.properties.summary}',
+        webhookSummary: '{event.properties.title}: {event.properties.summary}',
+        emailSubject: 'PostHog health check: {event.properties.title}',
+        emailHtml:
+            '<p><strong>{event.properties.title}</strong></p><p>{event.properties.summary}</p><p>Severity: {event.properties.severity}</p><p><a href="{project.url}{event.properties.link}">View in PostHog</a></p>',
+        emailText:
+            '{event.properties.title}\n\n{event.properties.summary}\n\nSeverity: {event.properties.severity}\n\n{project.url}{event.properties.link}',
+        discordContent:
+            '**🩺 PostHog health check**\n\n*{event.properties.title}*\n{event.properties.summary}\n\n[View in PostHog]({project.url}{event.properties.link})',
+        teamsText:
+            '**🩺 PostHog health check:** *{event.properties.title}* — {event.properties.summary} (View in [PostHog]({project.url}{event.properties.link}))',
+        actionButtonText: 'View in PostHog',
+        namePrefix: 'health check fires',
+        descriptionVerb: 'fires',
+    }),
+    'health-check-resolved': buildHealthAlertSubTemplates('health-check-resolved', {
+        slackHeader: 'Resolved: {event.properties.title}',
+        slackBody: '{event.properties.summary}',
+        webhookSummary: 'Resolved: {event.properties.title} — {event.properties.summary}',
+        emailSubject: 'PostHog health check resolved: {event.properties.title}',
+        emailHtml:
+            '<p><strong>Resolved: {event.properties.title}</strong></p><p>{event.properties.summary}</p><p><a href="{project.url}{event.properties.link}">View in PostHog</a></p>',
+        emailText:
+            'Resolved: {event.properties.title}\n\n{event.properties.summary}\n\n{project.url}{event.properties.link}',
+        discordContent:
+            '**✅ PostHog health check resolved**\n\n*{event.properties.title}*\n{event.properties.summary}\n\n[View in PostHog]({project.url}{event.properties.link})',
+        teamsText:
+            '**✅ Resolved:** *{event.properties.title}* — {event.properties.summary} (View in [PostHog]({project.url}{event.properties.link}))',
+        actionButtonText: 'View in PostHog',
+        namePrefix: 'health check resolves',
+        descriptionVerb: 'resolves',
+    }),
+    'logs-alert-errored': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-errored'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on log alert evaluation error',
+            description: 'Send a webhook when a log alert fails to evaluate',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['logs-alert-errored'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on log alert evaluation error',
+            description: 'Post to Slack when a log alert fails to evaluate',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "Log alert '{event.properties.alert_name}' couldn't evaluate",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    text: { text: 'View alert', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Log alert '{event.properties.alert_name}' couldn't evaluate: {event.properties.error_message}",
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -948,7 +1262,12 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'discussion-mention'
         case '$logs_alert_firing':
         case '$logs_alert_resolved':
+        case '$logs_alert_auto_disabled':
+        case '$logs_alert_errored':
             return 'logs-alerting'
+        case '$health_check_issue_firing':
+        case '$health_check_issue_resolved':
+            return 'health-alerts'
         default:
             return 'standard'
     }

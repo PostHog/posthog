@@ -1,15 +1,19 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::Json;
+use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
 use tokio::net::TcpListener;
+use tokio::time::sleep;
 
-use ingestion_consumer::router::MessageRouter;
-use ingestion_consumer::transport::HttpTransport;
+use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::transport::{HttpTransport, TransportError};
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
+use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
 fn make_message(
     token: &str,
@@ -89,12 +93,84 @@ async fn start_failing_worker() -> (String, tokio::task::JoinHandle<()>) {
     (url, handle)
 }
 
+/// Spin up a mock worker that always returns 503 (worker-busy contract violation).
+async fn start_always_busy_worker() -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/ingest",
+        post(|Json(req): Json<IngestBatchRequest>| async move {
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                axum::Json(IngestBatchResponse {
+                    batch_id: req.batch_id,
+                    status: "error".to_string(),
+                    accepted: 0,
+                    error: Some("at concurrent batch capacity (1)".to_string()),
+                }),
+            )
+                .into_response()
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://127.0.0.1:{}", addr.port());
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (url, handle)
+}
+
+/// Spin up a mock worker that sleeps `delay` before responding ok. Records
+/// the max number of overlapping in-flight requests it ever observed.
+async fn start_slow_worker(
+    delay: Duration,
+    max_concurrent: Arc<AtomicUsize>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/ingest",
+        post({
+            let in_flight = in_flight.clone();
+            let max_concurrent = max_concurrent.clone();
+            move |Json(req): Json<IngestBatchRequest>| {
+                let in_flight = in_flight.clone();
+                let max_concurrent = max_concurrent.clone();
+                async move {
+                    let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(now, Ordering::SeqCst);
+                    sleep(delay).await;
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    Json(IngestBatchResponse {
+                        batch_id: req.batch_id,
+                        status: "ok".to_string(),
+                        accepted: req.messages.len() as u32,
+                        error: None,
+                    })
+                }
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://127.0.0.1:{}", addr.port());
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (url, handle)
+}
+
 #[tokio::test]
 async fn transport_sends_batch_and_receives_ack() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let (url, _handle) = start_mock_worker(received.clone()).await;
 
-    let transport = HttpTransport::new(Duration::from_secs(5), 0, None);
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1);
 
     let messages = vec![
         make_message("tok1", "user-a", 0, r#"{"event":"$pageview"}"#),
@@ -126,7 +202,8 @@ async fn transport_sends_batch_and_receives_ack() {
 async fn transport_retries_on_server_error() {
     let (url, _handle) = start_failing_worker().await;
 
-    let transport = HttpTransport::new(Duration::from_secs(1), 2, None);
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(1), 2, None, &urls, 1);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
@@ -135,18 +212,165 @@ async fn transport_retries_on_server_error() {
 }
 
 #[tokio::test]
-async fn transport_fails_on_unreachable_worker() {
-    let transport = HttpTransport::new(Duration::from_secs(1), 0, None);
+async fn transport_fails_fast_on_worker_busy_without_retry() {
+    // The Rust consumer's per-worker semaphore is supposed to prevent 503s.
+    // If the worker still returns 503, that's a contract violation, not a
+    // transient state — fail immediately rather than hammering an already
+    // overloaded worker.
+    let (url, _handle) = start_always_busy_worker().await;
+
+    let urls = vec![url.clone()];
+    // max_retries = 3 — irrelevant for this path since WorkerBusy is non-retriable.
+    let transport = HttpTransport::new(Duration::from_secs(5), 3, None, &urls, 1);
+
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
-    let result = transport
-        .send_batch("http://127.0.0.1:1", "batch-fail", messages)
-        .await;
+    let start = std::time::Instant::now();
+    let err = transport
+        .send_batch(&url, "batch-busy", messages)
+        .await
+        .unwrap_err();
+    let elapsed = start.elapsed();
+
+    assert!(
+        matches!(err, TransportError::WorkerBusy(_)),
+        "expected WorkerBusy, got {err:?}"
+    );
+    // No retry backoff should have been applied (would have been ≥100ms+200ms+400ms = 700ms).
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "expected fail-fast on 503 (<200ms), got {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn transport_fails_on_unreachable_worker() {
+    let url = "http://127.0.0.1:1".to_string();
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(1), 0, None, &urls, 1);
+    let messages = vec![make_message("tok", "user", 0, "{}")];
+
+    let result = transport.send_batch(&url, "batch-fail", messages).await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
-async fn router_and_transport_end_to_end() {
+async fn transport_rejects_send_to_unknown_worker() {
+    // Caller bug: send_batch invoked with a URL that wasn't registered at
+    // construction. We bail with UnknownWorker rather than silently bypassing
+    // the semaphore.
+    let urls = vec!["http://known-worker:9001".to_string()];
+    let transport = HttpTransport::new(Duration::from_secs(1), 0, None, &urls, 1);
+
+    let messages = vec![make_message("tok", "user", 0, "{}")];
+    let err = transport
+        .send_batch("http://unknown-worker:9999", "batch-x", messages)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, TransportError::UnknownWorker(_)),
+        "expected UnknownWorker, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn transport_serializes_concurrent_sends_to_same_worker() {
+    // With concurrency=1 and a 500ms-slow worker, two parallel send_batch
+    // calls must serialize: total elapsed ≈ 1s (not 500ms), and the worker
+    // never sees more than 1 concurrent request.
+    let max_concurrent = Arc::new(AtomicUsize::new(0));
+    let (url, _h) = start_slow_worker(Duration::from_millis(500), max_concurrent.clone()).await;
+
+    let urls = vec![url.clone()];
+    let transport = Arc::new(HttpTransport::new(
+        Duration::from_secs(5),
+        0,
+        None,
+        &urls,
+        1,
+    ));
+
+    let start = std::time::Instant::now();
+    let mut handles = Vec::new();
+    for i in 0..2 {
+        let t = transport.clone();
+        let u = url.clone();
+        handles.push(tokio::spawn(async move {
+            t.send_batch(
+                &u,
+                &format!("batch-{i}"),
+                vec![make_message("tok", "u", 0, "{}")],
+            )
+            .await
+            .unwrap()
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+    let elapsed = start.elapsed();
+
+    assert_eq!(
+        max_concurrent.load(Ordering::SeqCst),
+        1,
+        "semaphore must serialize calls to the same worker"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(900),
+        "expected ≥900ms for serialized 500ms calls, got {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn transport_parallelizes_across_different_workers() {
+    // Semaphores are per-URL: two different workers must run in parallel.
+    let max_a = Arc::new(AtomicUsize::new(0));
+    let max_b = Arc::new(AtomicUsize::new(0));
+    let (url_a, _h_a) = start_slow_worker(Duration::from_millis(500), max_a.clone()).await;
+    let (url_b, _h_b) = start_slow_worker(Duration::from_millis(500), max_b.clone()).await;
+
+    let urls = vec![url_a.clone(), url_b.clone()];
+    let transport = Arc::new(HttpTransport::new(
+        Duration::from_secs(5),
+        0,
+        None,
+        &urls,
+        1,
+    ));
+
+    let start = std::time::Instant::now();
+    let t1 = {
+        let t = transport.clone();
+        let u = url_a.clone();
+        tokio::spawn(async move {
+            t.send_batch(&u, "batch-a", vec![make_message("tok", "u", 0, "{}")])
+                .await
+                .unwrap()
+        })
+    };
+    let t2 = {
+        let t = transport.clone();
+        let u = url_b.clone();
+        tokio::spawn(async move {
+            t.send_batch(&u, "batch-b", vec![make_message("tok", "u", 0, "{}")])
+                .await
+                .unwrap()
+        })
+    };
+    t1.await.unwrap();
+    t2.await.unwrap();
+    let elapsed = start.elapsed();
+
+    // ≈ 500ms (parallel), well under 1s (which would mean serialized).
+    assert!(
+        elapsed < Duration::from_millis(900),
+        "expected ≈500ms for parallel workers, got {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn dispatcher_and_transport_end_to_end() {
     // Start 2 mock workers
     let received_1 = Arc::new(Mutex::new(Vec::new()));
     let received_2 = Arc::new(Mutex::new(Vec::new()));
@@ -154,10 +378,29 @@ async fn router_and_transport_end_to_end() {
     let (url_2, _h2) = start_mock_worker(received_2.clone()).await;
 
     let worker_urls = [url_1.clone(), url_2.clone()];
-    let router = MessageRouter::new(worker_urls.len());
-    let transport = Arc::new(HttpTransport::new(Duration::from_secs(5), 0, None));
+    let registry = Arc::new(WorkerRegistry::new(
+        &worker_urls,
+        WorkerRegistryConfig {
+            probe_interval: Duration::from_secs(60),
+            dead_declaration: Duration::from_secs(60),
+            passive_window: Duration::from_secs(30),
+            passive_error_threshold: 0.5,
+            passive_min_samples: 1000,
+            degraded_hold: Duration::from_secs(10),
+            min_state_duration: Duration::ZERO,
+            probe_failure_threshold: 2,
+        },
+    ));
+    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+    let transport = Arc::new(HttpTransport::new(
+        Duration::from_secs(5),
+        0,
+        None,
+        &worker_urls,
+        1,
+    ));
 
-    // Create messages for multiple distinct_ids
+    // Create messages for multiple distinct_ids — user-1 appears twice
     let messages = vec![
         make_message("tok", "user-1", 0, r#"{"event":"a"}"#),
         make_message("tok", "user-2", 1, r#"{"event":"b"}"#),
@@ -165,16 +408,23 @@ async fn router_and_transport_end_to_end() {
         make_message("tok", "user-3", 3, r#"{"event":"d"}"#),
     ];
 
-    // Route
-    let groups = router.route_batch(messages);
+    let sub_batches = dispatcher.assign(messages);
 
     // Scatter to workers
     let mut handles = Vec::new();
-    for (worker_idx, sub_batch) in groups {
+    for sub_batch in sub_batches {
         let t = transport.clone();
-        let url = worker_urls[worker_idx].clone();
+        let url = worker_urls[sub_batch.worker_idx].clone();
+        let routing_keys = sub_batch.routing_keys.clone();
+        let worker_idx = sub_batch.worker_idx;
+        let d = Arc::clone(&dispatcher);
         handles.push(tokio::spawn(async move {
-            t.send_batch(&url, "batch-e2e", sub_batch).await.unwrap()
+            let result = t
+                .send_batch(&url, "batch-e2e", sub_batch.messages)
+                .await
+                .unwrap();
+            d.on_sub_batch_resolved(worker_idx, &routing_keys);
+            result
         }));
     }
 
@@ -183,10 +433,9 @@ async fn router_and_transport_end_to_end() {
     for h in handles {
         total_accepted += h.await.unwrap();
     }
-
     assert_eq!(total_accepted, 4);
 
-    // Verify all messages for the same distinct_id landed on the same worker
+    // user-1 messages (offsets 0 and 2) must have landed on the same worker
     let batches_1 = received_1.lock().unwrap();
     let batches_2 = received_2.lock().unwrap();
 
@@ -197,7 +446,6 @@ async fn router_and_transport_end_to_end() {
         .collect();
     assert_eq!(all_messages.len(), 4);
 
-    // user-1 messages (offsets 0, 2) must be on the same worker
     let user1_workers: Vec<usize> = all_messages
         .iter()
         .filter(|m| m.headers.get("distinct_id").map(|s| s.as_str()) == Some("user-1"))
@@ -223,7 +471,8 @@ async fn wire_format_preserves_unicode_and_null_fields() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let (url, _handle) = start_mock_worker(received.clone()).await;
 
-    let transport = HttpTransport::new(Duration::from_secs(5), 0, None);
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1);
 
     let messages = vec![SerializedKafkaMessage {
         topic: "test".to_string(),

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode } from '~/queries/schema/schema-general'
+import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
@@ -22,6 +22,9 @@ import {
     getReferenceStep,
     getStepBreakdownSeries,
     getVisibilityKey,
+    hasBreakdown,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     parseDisplayNameForCorrelation,
     stepsWithConversionMetrics,
 } from './funnelUtils'
@@ -750,5 +753,110 @@ describe('getStepBreakdownSeries', () => {
         },
     ])('$scenario', ({ step, breakdownFilter, expected }) => {
         expect(getStepBreakdownSeries(step as any, breakdownFilter as any)).toBe(expected)
+    })
+})
+
+describe('isFunnelWithEnoughSteps', () => {
+    it.each([
+        { scenario: 'no steps', series: [], expected: false },
+        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
+        {
+            scenario: 'two steps',
+            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+    it.each([
+        {
+            scenario: 'no steps',
+            series: [],
+            expected: false,
+        },
+        {
+            scenario: 'non-funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'complete funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    aggregation_target_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'missing aggregation target field',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                },
+            ],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('hasBreakdown', () => {
+    it.each([
+        { scenario: 'undefined value', breakdownValue: undefined, expected: false },
+        { scenario: '"Baseline" string', breakdownValue: 'Baseline', expected: false },
+        { scenario: '["Baseline"] array', breakdownValue: ['Baseline'], expected: false },
+        {
+            scenario: '["Baseline", "mobile"] multi-breakdown array',
+            breakdownValue: ['Baseline', 'mobile'],
+            expected: false,
+        },
+        { scenario: 'numeric zero (regression: 0 must count as a real breakdown)', breakdownValue: 0, expected: true },
+        {
+            scenario: 'empty string (regression: "" must count as a real breakdown)',
+            breakdownValue: '',
+            expected: true,
+        },
+        { scenario: 'non-baseline string', breakdownValue: 'Chrome', expected: true },
+        { scenario: 'non-baseline number', breakdownValue: 42, expected: true },
+        { scenario: 'non-baseline array', breakdownValue: ['Chrome', 'mobile'], expected: true },
+        { scenario: 'null', breakdownValue: null, expected: true },
+    ])('returns $expected for $scenario', ({ breakdownValue, expected }) => {
+        expect(hasBreakdown(breakdownValue as Parameters<typeof hasBreakdown>[0])).toBe(expected)
     })
 })

@@ -40,6 +40,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -59,9 +61,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    enable_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -112,6 +115,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -131,9 +136,10 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    enable_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -184,6 +190,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -229,6 +237,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -259,6 +269,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -276,6 +288,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -306,6 +320,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -336,6 +352,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -353,6 +371,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -361,7 +381,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -371,6 +391,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
                    use_hive_partitioning=0
   '''
@@ -401,6 +423,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -417,7 +441,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -430,6 +454,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -438,7 +464,7 @@
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -448,6 +474,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
                    use_hive_partitioning=0
   '''
@@ -485,7 +513,7 @@
           (SELECT posthog_test_test_table_1.id AS id,
                   posthog_test_test_table_1.prop_1 AS e__person__posthog_test_test_table_1___prop_1
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__person__posthog_test_test_table_1 ON equals(e__person.e__person___properties___email, e__person__posthog_test_test_table_1.e__person__posthog_test_test_table_1___prop_1)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(equals(e__person__posthog_test_test_table_1.id, 'false'), 0))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(equals(e__person__posthog_test_test_table_1.id, 'false'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -499,6 +527,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -529,6 +559,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -545,7 +577,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), and(equals(e.prop_1, 'a'), equals(e.prop_2, 'e')))
+        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), and(equals(e.prop_1, 'a'), equals(e.prop_2, 'e'), equals(e.prop_1, 'a')))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -559,6 +591,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''

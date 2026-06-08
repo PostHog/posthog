@@ -58,7 +58,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Visualize how events or actions vary over time.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-trends"]',
             },
             {
@@ -67,7 +67,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Track how users move through steps like signup → activation → purchase.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-funnels"]',
             },
             {
@@ -76,7 +76,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'See how many users return on subsequent days after an initial action.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-retention"]',
             },
             {
@@ -85,7 +85,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Trace the journeys users take within your product.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-paths"]',
             },
             {
@@ -94,7 +94,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'See what keeps users coming back by viewing repeated actions.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-stickiness"]',
             },
             {
@@ -103,7 +103,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Break down users into new, returning, resurrected, and dormant.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstInsight],
-                getUrl: () => urls.insightOptions(),
+                getUrl: () => urls.insightQuickStart(),
                 targetSelector: '[data-attr="insight-option-lifecycle"]',
             },
             {
@@ -476,51 +476,51 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         ],
     },
 
-    [ProductKey.LLM_ANALYTICS]: {
-        productKey: ProductKey.LLM_ANALYTICS,
-        title: 'Get started with LLM analytics',
+    [ProductKey.AI_OBSERVABILITY]: {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        title: 'Get started with AI observability',
         tasks: [
             {
                 id: SetupTaskId.IngestFirstLlmEvent,
-                title: 'Send your first LLM event',
+                title: 'Send your first AI event',
                 description: 'Install the PostHog LLM SDK to start tracking AI usage.',
-                skipWarning: "Without LLM events, you can't track AI model usage.",
+                skipWarning: "Without AI events, you can't track AI model usage.",
                 taskType: 'setup',
                 getUrl: () =>
-                    urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL }),
+                    urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL }),
                 targetSelector: '[data-attr="menu-item-llm_analytics"]',
             },
             SET_UP_REVERSE_PROXY,
             {
                 id: SetupTaskId.ViewFirstTrace,
                 title: 'View your first trace',
-                description: 'See a complete LLM request trace with prompts and latency.',
+                description: 'See a complete AI request trace with prompts and latency.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.IngestFirstEvent],
-                getUrl: () => urls.llmAnalyticsTraces(),
+                getUrl: () => urls.aiObservabilityTraces(),
                 targetSelector: '[data-attr="llm-trace-table"]',
             },
             {
                 id: SetupTaskId.TrackCosts,
-                title: 'Track LLM costs and usage',
+                title: 'Track AI costs and usage',
                 description: 'Monitor AI spending and usage by model and use case.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.IngestFirstEvent],
-                getUrl: () => urls.llmAnalyticsDashboard(),
+                getUrl: () => urls.aiObservabilityDashboard(),
             },
             {
                 id: SetupTaskId.SetUpLlmEvaluation,
                 title: 'Set up LLM evaluation',
-                description: 'Score and evaluate LLM outputs for quality.',
+                description: 'Score and evaluate AI outputs for quality.',
                 taskType: 'explore',
-                getUrl: () => urls.llmAnalyticsEvaluations(),
+                getUrl: () => urls.aiObservabilityEvaluations(),
             },
             {
                 id: SetupTaskId.RunAiPlayground,
                 title: 'Run your first AI playground',
                 description: 'Test and refine your AI prompts with real-time feedback.',
                 taskType: 'explore',
-                getUrl: () => urls.llmAnalyticsPlayground(),
+                getUrl: () => urls.aiObservabilityPlayground(),
                 targetSelector: '[data-attr="ai-playground-run-button"]',
             },
         ],
@@ -570,7 +570,9 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Start sending logs from your application to PostHog.',
                 taskType: 'setup',
                 requiresManualCompletion: true,
+                getUrl: () => urls.onboarding({ productKey: ProductKey.LOGS, stepKey: OnboardingStepKey.INSTALL }),
                 docsUrl: 'https://posthog.com/docs/logs',
+                targetSelector: '[data-attr="menu-item-logs"]',
             },
             {
                 id: SetupTaskId.ViewFirstLogs,

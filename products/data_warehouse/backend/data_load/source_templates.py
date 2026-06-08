@@ -2,10 +2,10 @@ from django.db import close_old_connections
 
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 LOGGER = get_logger(__name__)
 
@@ -49,7 +49,7 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
         .first()
     )
 
-    source: ExternalDataSourceType = job.pipeline.source_type
+    source = ExternalDataSourceType(job.pipeline.source_type)
 
     # Quick exit if this isn't the first sync, or a stripe source
     if source != ExternalDataSourceType.STRIPE or last_successful_job is not None:

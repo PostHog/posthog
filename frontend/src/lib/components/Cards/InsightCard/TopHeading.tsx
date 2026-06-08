@@ -1,4 +1,4 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { dateFilterToText } from 'lib/utils'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -32,12 +32,16 @@ export function TopHeading({
     hasTileOverrides,
     resolvedDateRange,
     showInsightType = true,
+    dateFromOverride,
+    dateToOverride,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    dateFromOverride?: string | null
+    dateToOverride?: string | null
 }): JSX.Element {
     const insightType = getInsightType(query)
 
@@ -48,6 +52,12 @@ export function TopHeading({
             date_from = queryDateRange.date_from
             date_to = queryDateRange.date_to
         }
+    }
+    if (dateFromOverride != null) {
+        date_from = dateFromOverride
+    }
+    if (dateToOverride != null) {
+        date_to = dateToOverride
     }
 
     let dateText: string | null = null
@@ -62,22 +72,15 @@ export function TopHeading({
     const resolvedDateTooltip = formatResolvedDateRange(alignResolvedDateRangeToInterval(resolvedDateRange, interval))
 
     return (
-        <div className="flex items-center gap-1">
-            {showInsightType && <span title={insightType?.description}>{insightType?.name}</span>}
-            {dateText ? (
-                <>
-                    {showInsightType && <span>•</span>}
-                    {resolvedDateTooltip ? (
-                        <Tooltip title={resolvedDateTooltip}>
-                            <span className="whitespace-nowrap">{dateText}</span>
-                        </Tooltip>
-                    ) : (
-                        <span className="whitespace-nowrap">{dateText}</span>
-                    )}
-                </>
-            ) : null}
+        <CardTopHeadingRow
+            typeLabel={insightType?.name}
+            typeTitle={insightType?.description}
+            showTypeLabel={showInsightType}
+            dateText={dateText}
+            dateTooltip={resolvedDateTooltip}
+        >
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
-        </div>
+        </CardTopHeadingRow>
     )
 }

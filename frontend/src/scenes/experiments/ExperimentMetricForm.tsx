@@ -37,7 +37,10 @@ import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConve
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
-import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
+import {
+    ExperimentMetricOutlierHandling,
+    ExperimentRatioMetricOutlierHandling,
+} from './ExperimentMetricOutlierHandling'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -186,11 +189,23 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
-                newMetric.series = sources.filter(
-                    (s): s is ExperimentFunnelMetricStep =>
-                        s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
-                )
+                // Filter sources based on feature flag support
+                if (isExperimentFunnelDWHSupport) {
+                    // Include all supported types including DataWarehouseNode
+                    newMetric.series = sources.filter(
+                        (s): s is ExperimentFunnelMetricStep =>
+                            s &&
+                            (s.kind === NodeKind.EventsNode ||
+                                s.kind === NodeKind.ActionsNode ||
+                                s.kind === NodeKind.ExperimentDataWarehouseNode)
+                    )
+                } else {
+                    // Legacy: only support EventsNode and ActionsNode
+                    newMetric.series = sources.filter(
+                        (s): s is ExperimentFunnelMetricStep =>
+                            s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
+                    )
+                }
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
@@ -301,6 +316,7 @@ export function ExperimentMetricForm({
                             </>
                         )}
                         <Tooltip
+                            docLink="https://posthog.com/docs/experiments/exposures"
                             title={
                                 <div className="space-y-2">
                                     <p>
@@ -312,9 +328,6 @@ export function ExperimentMetricForm({
                                             ? 'The exposure event is shared across all metrics in this experiment.'
                                             : 'The exposure event will be configured at the experiment level and shared across all metrics.'}
                                     </p>
-                                    <Link to="https://posthog.com/docs/experiments/exposures">
-                                        Learn more in the docs
-                                    </Link>
                                 </div>
                             }
                         >
@@ -639,6 +652,12 @@ export function ExperimentMetricForm({
             {isExperimentMeanMetric(metric) && (
                 <>
                     <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
+            {isExperimentRatioMetric(metric) && (
+                <>
+                    <ExperimentRatioMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
                     <SceneDivider />
                 </>
             )}

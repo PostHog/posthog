@@ -16,6 +16,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StreamMode
+from opentelemetry import trace
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.schema import (
@@ -38,6 +39,8 @@ from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
+
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
@@ -66,9 +69,9 @@ from ee.hogai.utils.types.base import (
     LangGraphUpdateEvent,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
-from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 
 class SubagentCallbackHandler(CallbackHandler):
@@ -623,12 +626,16 @@ class BaseAgentRunner(ABC):
     ):
         if not self._user:
             return
-        await database_sync_to_async(report_user_action)(
-            self._user,
-            event_name,
-            properties,
-            send_feature_flags=True,
-        )
+        with _tracer.start_as_current_span(
+            "posthog_ai.runner.report_conversation_state",
+            attributes={"posthog_ai.event_name": event_name},
+        ):
+            await database_sync_to_async(report_user_action)(
+                self._user,
+                event_name,
+                properties,
+                send_feature_flags=True,
+            )
 
     @asynccontextmanager
     async def _lock_conversation(self):
@@ -640,12 +647,14 @@ class BaseAgentRunner(ABC):
             return
 
         try:
-            self._conversation.status = Conversation.Status.IN_PROGRESS
-            await self._conversation.asave(update_fields=["status"])
+            with _tracer.start_as_current_span("posthog_ai.runner.lock_conversation"):
+                self._conversation.status = Conversation.Status.IN_PROGRESS
+                await self._conversation.asave(update_fields=["status"])
             yield
         finally:
-            self._conversation.status = Conversation.Status.IDLE
-            await self._conversation.asave(update_fields=["status", "updated_at"])
+            with _tracer.start_as_current_span("posthog_ai.runner.unlock_conversation"):
+                self._conversation.status = Conversation.Status.IDLE
+                await self._conversation.asave(update_fields=["status", "updated_at"])
 
     def _capture_exception(self, e: Exception):
         posthoganalytics.capture_exception(

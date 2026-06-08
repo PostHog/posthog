@@ -11,7 +11,7 @@ from ee.api.test.test_team import team_enterprise_api_test_factory
 from ee.models.rbac.access_control import AccessControl
 
 
-class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
+class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]
     """
     We inherit from TestTeamEnterpriseAPI, as previously /api/projects/ referred to the Team model, which used to mean "project".
     Now as Team means "environment" and Project is separate, we must ensure backward compatibility of /api/projects/.
@@ -102,7 +102,9 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
         assert other_org.id != self.user.current_organization_id
         response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
         self.assertEqual(response.status_code, 403, msg=response.json())
-        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
+        assert response.json() == self.permission_denied_response(
+            "You need to be an organization admin or above to create new projects."
+        )
 
     def test_user_that_does_not_belong_to_an_org_cannot_create_a_projec(self):
         user = User.objects.create(email="no_org@posthog.com")

@@ -2,6 +2,10 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cerrno>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -108,6 +112,25 @@ bool containsMatchingProperty(const Json& json, const string& prop_name, const s
     return true;
   }
   return false;
+}
+
+bool isQuotedIdentifier(const string& text) {
+  return text.size() >= 2 &&
+         ((text.front() == '`' && text.back() == '`') || (text.front() == '"' && text.back() == '"'));
+}
+
+string unquoteIdentifierText(const string& text) {
+  if (isQuotedIdentifier(text)) {
+    return parse_string_literal_text(text);
+  }
+  return text;
+}
+
+void assertValidAlias(const vector<string>& reserved_keywords, const string& alias, const string& raw_text) {
+  if (!isQuotedIdentifier(raw_text) &&
+      find(reserved_keywords.begin(), reserved_keywords.end(), to_lower_copy(alias)) != reserved_keywords.end()) {
+    throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
+  }
 }
 
 // PARSING AND AST CONVERSION
@@ -327,11 +350,6 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return visit(func_stmt_ctx);
     }
 
-    auto var_assignment_ctx = ctx->varAssignment();
-    if (var_assignment_ctx) {
-      return visit(var_assignment_ctx);
-    }
-
     auto block_ctx = ctx->block();
     if (block_ctx) {
       return visit(block_ctx);
@@ -349,16 +367,39 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     throw ParsingError(
         "Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, "
-        "funcStmt, "
-        "varAssignment, block, exprStmt, or emptyStmt"
+        "funcStmt, block, exprStmt, or emptyStmt"
     );
   }
 
   VISIT(ExprStmt) {
     Json json = Json::object();
+    if (ctx->COLONEQUALS()) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["left"] = visitAsJSON(ctx->expression(0));
+      json["right"] = visitAsJSON(ctx->expression(1));
+      return json;
+    }
+    // `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+    // statement is a variable assignment. Checked on the parse tree, so parens are not
+    // unwrapped: `(x := 1)` stays an expression statement.
+    auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
+    if (named_arg) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      Json left = Json::object();
+      left["node"] = "Field";
+      if (!is_internal) addPositionInfo(left, named_arg->identifier());
+      Json chain = Json::array();
+      chain.pushBack(visitAsString(named_arg->identifier()));
+      left["chain"] = std::move(chain);
+      json["left"] = std::move(left);
+      json["right"] = visitAsJSON(named_arg->columnExpr());
+      return json;
+    }
     json["node"] = "ExprStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->expression());
+    json["expr"] = visitAsJSON(ctx->expression(0));
     return json;
   }
 
@@ -374,7 +415,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ThrowStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSONOrNull(ctx->expression());
+    // Grammar requires the expression (`throwStmt: THROW expression SEMICOLON?`) — a bare `throw` is a parse error.
+    json["expr"] = visitAsJSON(ctx->expression());
     return json;
   }
 
@@ -613,7 +655,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (subsequent_clauses.empty()) {
       Json result = visitAsJSON(ctx->selectStmtWithParens());
-      if (limit_clause) {
+      // A set-level LIMIT/OFFSET clause only attaches to SelectQuery/SelectSetQuery nodes, not a bare placeholder body, matching the Python parser.
+      const std::string& result_node = result["node"].getString();
+      bool result_takes_limit = result_node == "SelectQuery" || result_node == "SelectSetQuery";
+      if (limit_clause && result_takes_limit) {
         auto exprs = limit_clause->columnExpr();
         if (limit_clause->OFFSET()) {
           if (limit_clause->LIMIT()) {
@@ -712,7 +757,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     // Add basic query fields
     json["ctes"] = visitAsJSONOrNull(ctx->withClause());
-    json["select"] = visitAsJSONOrEmptyArray(ctx->selectColumnExprList());
+    json["select"] = visitAsJSONOrEmptyArray(ctx->selectColumnExprListBeforeFrom());
     json["distinct"] = ctx->DISTINCT() ? Json(true) : Json(nullptr);
     json["select_from"] = visitAsJSONOrNull(ctx->fromClause());
     json["where"] = visitAsJSONOrNull(ctx->whereClause());
@@ -731,7 +776,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["group_by_mode"] = "rollup";
       }
     }
-    json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
+    if (const auto order_by_ctx = ctx->orderByClause()) {
+      json["order_by"] = visitAsJSON(order_by_ctx->orderExprList());
+      if (const auto interpolate_ctx = order_by_ctx->interpolateClause()) {
+        json["interpolate"] = visitJSONArrayOfObjects(interpolate_ctx->interpolateExpr());
+      }
+    }
 
     // Handle window clause
     if (const auto window_clause_ctx = ctx->windowClause()) {
@@ -816,6 +866,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->settingsClause()) {
       throw NotImplementedError("Unsupported: SelectStmt.settingsClause()");
     }
+    // `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
+    if (!ctx->sampleClause().empty()) {
+      throw NotImplementedError("Unsupported: SelectStmt.sampleClause()");
+    }
 
     return json;
   }
@@ -881,7 +935,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(QualifyClause) { return visit(ctx->columnExpr()); }
 
-  VISIT(OrderByClause) { return visit(ctx->orderExprList()); }
+  VISIT(OrderByClause) {
+    // Note: In the select statement, order_by and interpolate are extracted directly.
+    // This visitor is used by withinGroupClause.
+    return visit(ctx->orderExprList());
+  }
 
   VISIT(LimitByClause) {
     // LimitExpr returns either single JSON or a JSON array [limit, offset]
@@ -1245,6 +1303,37 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["expr"] = visitAsJSON(ctx->columnExpr());
     json["order"] = order;
+    if (const auto with_fill_ctx = ctx->withFillClause()) {
+      json["with_fill"] = visitAsJSON(with_fill_ctx);
+    }
+    return json;
+  }
+
+  VISIT(WithFillClause) {
+    Json json = Json::object();
+    json["node"] = "WithFillExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    const auto column_exprs = ctx->columnExpr();
+    size_t idx = 0;
+    if (ctx->FROM()) {
+      json["from_value"] = visitAsJSON(column_exprs[idx++]);
+    }
+    if (ctx->TO()) {
+      json["to_value"] = visitAsJSON(column_exprs[idx++]);
+    }
+    if (ctx->STEP()) {
+      json["step_value"] = visitAsJSON(column_exprs[idx++]);
+    }
+    return json;
+  }
+
+  VISIT(InterpolateExpr) {
+    Json json = Json::object();
+    json["node"] = "InterpolateExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    const auto column_exprs = ctx->columnExpr();
+    json["expr"] = visitAsJSON(column_exprs[0]);
+    json["value"] = visitAsJSON(column_exprs[1]);
     return json;
   }
 
@@ -1322,7 +1411,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(WinOrderByClause) { return visit(ctx->orderExprList()); }
 
-  VISIT(WithinGroupClause) { return visit(ctx->orderByClause()); }
+  VISIT(WithinGroupClause) { return visit(ctx->orderByClause()->orderExprList()); }
 
   VISIT(WinFrameClause) { return visit(ctx->winFrameExtend()); }
 
@@ -1439,14 +1528,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprList) { return visitJSONArrayOfObjects(ctx->columnExpr()); }
 
+  VISIT(SelectColumnExprListBeforeFromTrailingComma) { return visitJSONArrayOfObjects(ctx->selectColumnExpr()); }
+
+  VISIT(SelectColumnExprListBeforeFromPlain) { return visit(ctx->selectColumnExprList()); }
+
   VISIT(SelectColumnExprList) { return visitJSONArrayOfObjects(ctx->selectColumnExpr()); }
 
   VISIT(ColumnExprAliasBefore) {
     string alias = visitAsString(ctx->identifier());
-
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
-    }
+    assertValidAlias(RESERVED_KEYWORDS, alias, ctx->identifier()->getText());
 
     Json json = Json::object();
     json["node"] = "Alias";
@@ -1473,17 +1563,33 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprAlias) {
     string alias;
+    string raw_alias_text;
     if (ctx->identifier()) {
       alias = visitAsString(ctx->identifier());
+      raw_alias_text = ctx->identifier()->getText();
     } else if (ctx->STRING_LITERAL()) {
       alias = parse_string_literal_ctx(ctx->STRING_LITERAL());
+      raw_alias_text = ctx->STRING_LITERAL()->getText();
     } else {
       throw ParsingError("A ColumnExprAlias must have the alias in some form");
     }
+    assertValidAlias(RESERVED_KEYWORDS, alias, raw_alias_text);
 
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
-    }
+    Json json = Json::object();
+    json["node"] = "Alias";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["alias"] = alias;
+    return json;
+  }
+
+  VISIT(ColumnExprInvalidFromImplicitAlias) {
+    throw SyntaxError("Cannot use \"from\" before an implicit alias");
+  }
+
+  VISIT(ColumnExprAliasImplicit) {
+    string alias = visitAsString(ctx->implicitAlias());
+    assertValidAlias(RESERVED_KEYWORDS, alias, ctx->implicitAlias()->getText());
 
     Json json = Json::object();
     json["node"] = "Alias";
@@ -1907,15 +2013,16 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnTypeCastExprSimple) {
-    return Json(to_lower_copy(visitAsString(ctx->identifier())));
+    return Json(to_lower_copy(visitAsString(ctx->columnTypeCastIdentifier())));
   }
 
-  VISIT(ColumnTypeCastExprCompound) {
-    string result;
-    for (auto ident : ctx->identifier()) {
-      if (!result.empty()) result += " ";
-      result += visitAsString(ident);
+  VISIT(ColumnTypeCastExprWithTimeZone) {
+    string result = visitAsString(ctx->columnTypeCastIdentifier());
+    result += " with ";
+    if (ctx->LOCAL()) {
+      result += "local ";
     }
+    result += "time zone";
     return Json(to_lower_copy(result));
   }
 
@@ -2528,7 +2635,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(NestedIdentifier) { return visitAsVectorOfStrings(ctx->identifier()); }
+  VISIT(NestedIdentifier) {
+    return visitAsVectorOfStrings(ctx->identifier());
+  }
 
   VISIT(TableExprIdentifier) {
     vector<string> chain_vec = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
@@ -2648,10 +2757,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();
-    string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("ALIAS is a reserved keyword");
-    }
+    string alias = alias_ctx ? visitAsString(alias_ctx) : visitAsString(ctx->identifier());
+    string raw_alias_text = alias_ctx ? alias_ctx->getText() : ctx->identifier()->getText();
+    assertValidAlias(RESERVED_KEYWORDS, alias, raw_alias_text);
 
     // Parse column aliases if present
     Json column_aliases = nullptr;
@@ -2741,35 +2849,92 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     string text = ctx->getText();
     to_lower(text);
 
+    // Grammar admits an optional leading sign on every numberLiteral, including INF/NAN.
+    // Strip a leading '+' so downstream comparisons (and stoll's sign handling) work uniformly.
+    if (!text.empty() && text[0] == '+') {
+      text.erase(0, 1);
+    }
+
+    // Hex: route through the integer branch — `stod` would parse "0xfe" as a double and lose precision near 2^53.
+    bool is_hex = (text.compare(0, 2, "0x") == 0) ||
+                  (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0x") == 0);
+    // Binary (`0b…`, BINARY_LITERAL token): strip prefix, parse base 2.
+    bool is_binary = (text.compare(0, 2, "0b") == 0) ||
+                     (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0b") == 0);
+    // `0o…` (Postgres-16 octal, OCTAL_PREFIX_LITERAL token): unsupported, rejected below.
+    bool is_postgres_octal = (text.compare(0, 2, "0o") == 0) ||
+                             (text.size() > 2 && text[0] == '-' && text.compare(1, 2, "0o") == 0);
+    if (is_postgres_octal) {
+      throw SyntaxError(
+          "HogQL does not support `0o`-prefixed octal integer literals; got `" +
+          text + "`. Use a plain decimal literal instead.");
+    }
+
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
-      // Handle special number cases (infinity and NaN)
-      // Mark these with value_type="number" so the deserializer knows to convert them
-      if (!text.compare("-inf")) {
+      // INF token matches both `inf` and `infinity`. value_type="number" tells the deserializer to convert.
+      if (!text.compare("-inf") || !text.compare("-infinity")) {
         json["value"] = "-Infinity";
-      } else if (!text.compare("inf")) {
+      } else if (!text.compare("inf") || !text.compare("infinity")) {
         json["value"] = "Infinity";
       } else {
         json["value"] = "NaN";
       }
       json["value_type"] = "number";
-    } else if (text.find(".") != string::npos || text.find("e") != string::npos) {
-      try {
-        json["value"] = Json(stod(text));  // Float
-      } catch (const std::out_of_range&) {
+    } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
+      // `stod` collapses overflow + underflow into the same `out_of_range`; use `strtod` + errno to keep them apart.
+      errno = 0;
+      const char* c_str = text.c_str();
+      char* end = nullptr;
+      double value = std::strtod(c_str, &end);
+      bool consumed_all = end == c_str + text.size();
+      if (!consumed_all) {
+        // Malformed input — defer to `stod` so callers see the historical SyntaxError shape.
+        json["value"] = Json(stod(text));
+      } else if (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL)) {
         json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
         json["value_type"] = "number";
+      } else {
+        // No errno (in range) or `ERANGE` underflow (subnormal / 0) — keep the value.
+        json["value"] = Json(value);
       }
+      return json;
+    } else if (is_binary) {
+      // ClickHouse caps binary literals at 64 bits — magnitude must fit UInt64
+      // (positive) or Int64 (negative); wider literals are rejected.
+      bool negative = text[0] == '-';
+      string digits = negative ? text.substr(3) : text.substr(2);
+      uint64_t magnitude;
+      try {
+        magnitude = stoull(digits, nullptr, 2);
+      } catch (const std::out_of_range&) {
+        throw SyntaxError("HogQL binary integer literals are limited to 64 bits; got `" + text + "`.");
+      }
+      if (negative) {
+        if (magnitude > 9223372036854775808ULL) {
+          throw SyntaxError("HogQL binary integer literals are limited to 64 bits; got `" + text + "`.");
+        }
+        json["value"] = (magnitude == 9223372036854775808ULL) ? INT64_MIN : -static_cast<int64_t>(magnitude);
+      } else if (magnitude > static_cast<uint64_t>(INT64_MAX)) {
+        // Exceeds Int64 but fits UInt64; Json has no unsigned slot, so emit
+        // the exact value as a raw JSON number rather than rounding to double.
+        json["value"] = Json::raw(std::to_string(magnitude));
+      } else {
+        json["value"] = static_cast<int64_t>(magnitude);
+      }
+      return json;
+    } else if (is_hex && ctx->floatingLiteral() != nullptr) {
+      // Hex-float literal (e.g. `0x1p4`) — route through `stod`; the integer path's `stoll` would drop the exponent.
+      json["value"] = Json(stod(text));
       return json;
     } else {
       try {
-        json["value"] = static_cast<int64_t>(stoll(text));  // Integer
+        // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.
+        int base = is_hex ? 16 : 10;
+        json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
-        try {
-          json["value"] = Json(stod(text));  // Too large for int64, use float
-        } catch (const std::out_of_range&) {
-          json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
-          json["value_type"] = "number";
-        }
+        // Beyond Int64 — keep the literal lossless via the `value_type: "number"` string envelope; the deserialiser rebuilds an arbitrary-precision Python int.
+        json["value"] = text;
+        json["value_type"] = "number";
       }
       return json;
     }
@@ -2799,27 +2964,17 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(Keyword)
 
-  VISIT_UNSUPPORTED(KeywordForAlias)
+  VISIT(KeywordForAlias) { return unquoteIdentifierText(ctx->getText()); }
 
-  VISIT(Alias) {
-    string text = ctx->getText();
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(text)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("ALIAS is a reserved keyword");
-    }
-    return text;
-  }
+  VISIT(KeywordForImplicitAlias) { return unquoteIdentifierText(ctx->getText()); }
 
-  VISIT(Identifier) {
-    string text = ctx->getText();
-    if (text.size() >= 2) {
-      char first_char = text.front();
-      char last_char = text.back();
-      if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return parse_string_literal_text(text);
-      }
-    }
-    return text;
-  }
+  VISIT(Identifier) { return unquoteIdentifierText(ctx->getText()); }
+
+  VISIT(ColumnTypeCastIdentifier) { return unquoteIdentifierText(ctx->getText()); }
+
+  VISIT(Alias) { return unquoteIdentifierText(ctx->getText()); }
+
+  VISIT(ImplicitAlias) { return unquoteIdentifierText(ctx->getText()); }
 
   VISIT(HogqlxTagAttribute) {
     Json json = Json::object();

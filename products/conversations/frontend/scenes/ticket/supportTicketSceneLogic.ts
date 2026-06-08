@@ -5,6 +5,7 @@ import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -146,6 +147,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
         setTags: (tags: string[]) => ({ tags }),
+        setSnoozedUntil: (snoozedUntil: string | null) => ({ snoozedUntil }),
 
         // Session context actions
         loadPerson: true,
@@ -264,6 +266,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket?.tags || [],
             },
         ],
+        snoozedUntil: [
+            null as string | null,
+            {
+                setSnoozedUntil: (_, { snoozedUntil }) => snoozedUntil,
+                setTicket: (_, { ticket }) => ticket?.snoozed_until || null,
+            },
+        ],
         messages: [
             [] as CommentType[],
             {
@@ -323,8 +332,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     selectors({
         hasUnsavedChanges: [
-            (s) => [s.status, s.priority, s.assignee, s.tags, s.ticket],
-            (status, priority, assignee, tags, ticket): boolean => {
+            (s) => [s.status, s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket],
+            (status, priority, assignee, tags, snoozedUntil, ticket): boolean => {
                 if (!ticket) {
                     return false
                 }
@@ -332,7 +341,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     status !== ticket.status ||
                     priority !== ticket.priority ||
                     JSON.stringify(assignee) !== JSON.stringify(ticket.assignee) ||
-                    JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())
+                    JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort()) ||
+                    (snoozedUntil ? dayjs(snoozedUntil).unix() : null) !==
+                        (ticket.snoozed_until ? dayjs(ticket.snoozed_until).unix() : null)
                 )
             },
         ],
@@ -363,12 +374,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     } else if (authorType === 'AI') {
                         displayName = 'PostHog Assistant'
                     } else if (authorType === 'customer') {
-                        // For Slack messages, use the per-message author info
                         const slackAuthorName = message.item_context?.slack_author_name
+                        const emailAuthorName = message.item_context?.email_from_name
                         if (slackAuthorName) {
                             displayName = slackAuthorName
+                        } else if (emailAuthorName) {
+                            displayName = emailAuthorName
                         } else {
-                            // Fallback to ticket-level info for widget messages
                             displayName =
                                 ticket?.person?.properties?.name ||
                                 ticket?.person?.properties?.email ||
@@ -387,6 +399,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         createdBy: message.created_by,
                         createdAt: message.created_at,
                         isPrivate: message.item_context?.is_private || false,
+                        emailDeliveryStatus: message.item_context?.email_delivery_status,
                     }
                 }),
         ],
@@ -469,16 +482,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     priority: string
                     assignee: TicketAssignee
                     tags: string[]
+                    snoozed_until: string | null
                 }> = {}
 
-                if (values.status) {
+                if (values.status && values.status !== values.ticket?.status) {
                     data.status = values.status
                 }
-                if (values.priority) {
+                if (values.priority && values.priority !== values.ticket?.priority) {
                     data.priority = values.priority
                 }
                 data.assignee = values.assignee
                 data.tags = values.tags
+                data.snoozed_until = values.snoozedUntil
 
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)

@@ -4,10 +4,11 @@ from typing import Optional
 
 from django.utils.timezone import now
 
+import httpx
 import structlog
-from kafka.producer.kafka import FutureRecordMetadata
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import ProduceResult
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 from posthog.models.team.team import Team
 from posthog.security.outbound_proxy import internal_httpx_async_client, internal_requests
@@ -49,6 +50,23 @@ def _build_embedding_payload(team: Team, content: str, model: str | None, no_tru
     }
 
 
+def _raise_for_embedding_response(response) -> None:
+    """raise_for_status() with a clearer hint when the worker rejects ad-hoc requests
+    because the organization has not opted into AI data processing — a common dev
+    foot-gun where the underlying 403 body is hidden behind a generic HTTPStatusError.
+    """
+    if response.status_code == 403 and "ai" in response.text.lower():
+        raise httpx.HTTPStatusError(
+            f"Embedding worker returned 403: {response.text}. "
+            "Likely the organization has not opted into AI data processing — "
+            "set Organization.is_ai_data_processing_approved=True (Settings > AI, "
+            "or via SQL in local dev) and retry.",
+            request=response.request,
+            response=response,
+        )
+    response.raise_for_status()
+
+
 def _parse_embedding_response(data: dict) -> EmbeddingResponse:
     return EmbeddingResponse(
         embedding=data["embedding"],
@@ -63,7 +81,7 @@ def generate_embedding(
     logger.info(f"Generating ad-hoc embedding for team {team.pk}")
     payload = _build_embedding_payload(team, content, model, no_truncate)
     response = internal_requests.post(_EMBEDDING_URL, json=payload)
-    response.raise_for_status()
+    _raise_for_embedding_response(response)
     return _parse_embedding_response(response.json())
 
 
@@ -75,7 +93,7 @@ async def async_generate_embedding(
     payload = _build_embedding_payload(team, content, model, no_truncate)
     async with internal_httpx_async_client(timeout=30.0) as client:
         response = await client.post(_EMBEDDING_URL, json=payload)
-        response.raise_for_status()
+        _raise_for_embedding_response(response)
         return _parse_embedding_response(response.json())
 
 
@@ -90,7 +108,7 @@ def emit_embedding_request(
     models: list[str],
     timestamp: Optional[datetime] = None,
     metadata: Optional[dict] = None,
-) -> FutureRecordMetadata:
+) -> ProduceResult:
     """
     Emit an embedding request to Kafka for processing by the embedding worker.
     The worker will generate embeddings and emit them to clickhouse_document_embeddings.
@@ -140,5 +158,5 @@ def emit_embedding_request(
         "models": models,
     }
 
-    producer = KafkaProducer()
+    producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)

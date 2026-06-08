@@ -346,8 +346,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
-        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -426,6 +424,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ correlationType, action, props }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
+        reportProjectNoticeShown: (variant: string) => ({ variant }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -452,6 +451,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardEditModeDiscardPrompt: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            action: 'shown' | 'discarded' | 'kept_editing'
+        ) => ({ dashboard, action }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -534,6 +537,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
+        reportDashboardInsightAnnotationsToggled: (
+            dashboardId: number | undefined,
+            insightId: number,
+            source: DashboardEventSource
+        ) => ({ dashboardId, insightId, source }),
         /** Empty-state AI prompt chips (ai-first empty dashboard only). */
         reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
             promptLabel,
@@ -592,6 +600,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             warningKey,
         }),
+        reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -599,6 +608,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: 'manual' | 'auto-refresh'
                 auto_refresh_enabled?: boolean
                 auto_refresh_interval?: number
+                previous_refresh_id?: string | null
+                previous_refresh_age_ms?: number | null
+                previous_refresh_state?: string | null
+                previous_refresh_triggered_by?: string | null
             }
         ) => ({
             experiment,
@@ -669,32 +682,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             dashboardId,
         }),
-        reportExperimentMetricTimeout: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-        }),
-        reportExperimentMetricOutOfMemory: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null,
-            errorCode?: string | null,
-            errorMessage?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            errorCode,
-            errorMessage,
-        }),
         reportExperimentMetricFinished: (
             experimentId: ExperimentIdType,
             metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
@@ -708,6 +695,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -728,9 +716,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
-                error_type: 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown'
+                error_type:
+                    | 'timeout'
+                    | 'out_of_memory'
+                    | 'server_error'
+                    | 'network_error'
+                    | 'not_found'
+                    | 'authentication'
+                    | 'authorization'
+                    | 'validation_error'
+                    | 'unknown'
                 error_code: string | null
                 error_message: string | null
+                error_detail: string | null
                 status_code: number | null
             }
         ) => ({
@@ -756,6 +754,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_duration_hours: number | null
                 experiment_status: string | null
                 total_metrics_count: number
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -905,8 +904,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
         reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
@@ -1017,6 +1022,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => ({ props }),
         reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
         reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
+        reportWebAnalyticsFocusModeOnboardingShown: true,
+        reportWebAnalyticsFocusModeOnboardingStarted: true,
+        reportWebAnalyticsFocusModeOnboardingSkipped: true,
+        reportWebAnalyticsFocusModeOnboardingCompleted: (props: { concern_count: number }) => ({ props }),
         reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
@@ -1073,20 +1082,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
         // navbar starred
-        reportNavbarStarredItemAdded: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
+        }),
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string) => ({
+            itemType,
+            itemName,
+        }),
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string) => ({
+            itemType,
+            itemName,
+        }),
+        reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
+            itemCount,
             isAIFirst,
         }),
-        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, isAIFirst: boolean) => ({
-            itemType,
-            itemName,
-            isAIFirst,
-        }),
-        reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
-            itemType,
-            itemName,
-            isAIFirst,
+        // MCP hints
+        reportMCPHintShown: (surfaceKey: string) => ({ surfaceKey }),
+        reportMCPHintDismissed: (dismissType: 'surface' | 'all', surfaceKey?: string) => ({
+            dismissType,
+            surfaceKey,
         }),
     }),
     listeners(({ values }) => ({
@@ -1123,7 +1139,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
-            for (const prop of Object.keys(person.properties)) {
+            for (const prop of Object.keys(person.properties ?? {})) {
                 if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
@@ -1132,9 +1148,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const properties = {
-                properties_count: Object.keys(person.properties).length,
-                has_email: !!person.properties.email,
-                has_name: !!person.properties.name,
+                properties_count: Object.keys(person.properties ?? {}).length,
+                has_email: !!person.properties?.email,
+                has_name: !!person.properties?.name,
                 custom_properties_count,
                 posthog_properties_count,
             }
@@ -1164,12 +1180,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
-        },
-        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
-        },
-        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
         },
         reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -1239,6 +1249,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         properties[key] += 1
                     }
                     properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                } else if (item.widget) {
+                    if (!properties['widget_tiles_count']) {
+                        properties['widget_tiles_count'] = 1
+                    } else {
+                        properties['widget_tiles_count'] += 1
+                    }
                 } else {
                     if (!properties['text_tiles_count']) {
                         properties['text_tiles_count'] = 1
@@ -1266,6 +1282,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectNoticeDismissed: async ({ key }) => {
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportProjectNoticeShown: async ({ variant }) => {
+            posthog.capture('project notice shown', { variant })
         },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
@@ -1306,6 +1325,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
                 layout_zoom: layoutZoom,
                 source,
+            })
+        },
+        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
+            posthog.capture('dashboard edit mode discard prompt', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                action,
             })
         },
         reportDashboardRefreshed: async ({
@@ -1414,6 +1440,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardInsightLegendToggled: async ({ dashboardId, insightId, source }) => {
             posthog.capture('dashboard insight legend toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                source,
+            })
+        },
+        reportDashboardInsightAnnotationsToggled: async ({ dashboardId, insightId, source }) => {
+            posthog.capture('dashboard insight annotations toggled', {
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,
@@ -1573,6 +1606,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 warning_key: warningKey,
             })
         },
+        reportExperimentBiasWarningShown: ({ experiment }) => {
+            posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1580,6 +1618,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: context?.triggered_by || 'manual',
                 auto_refresh_enabled: context?.auto_refresh_enabled,
                 auto_refresh_interval: context?.auto_refresh_interval,
+                previous_refresh_id: context?.previous_refresh_id ?? null,
+                previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
+                previous_refresh_state: context?.previous_refresh_state ?? null,
+                previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
             })
         },
         reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
@@ -1691,26 +1733,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_name: experiment.name,
                 experiment_id: experiment.id,
                 dashboard_id: dashboardId,
-            })
-        },
-        reportExperimentMetricTimeout: ({ experimentId, metric, teamId, queryId }) => {
-            posthog.capture('experiment metric timeout', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-            })
-        },
-        reportExperimentMetricOutOfMemory: ({ experimentId, metric, teamId, queryId, errorCode, errorMessage }) => {
-            posthog.capture('experiment metric out of memory', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                error_code: errorCode,
-                error_message: errorMessage,
-                ...getEventPropertiesForMetric(metric),
-                metric,
             })
         },
         reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
@@ -2135,14 +2157,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 entry_point: entrypoint,
             })
         },
-        reportOnboardingStepCompleted: ({ stepKey }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
+                // Optional — only set when the caller knows which product owns the step.
+                // Lets dashboards split step funnels by product without joining elsewhere.
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -2329,6 +2355,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
         },
+        reportWebAnalyticsFocusModeOnboardingShown: () => {
+            posthog.capture('web analytics focus mode onboarding shown')
+        },
+        reportWebAnalyticsFocusModeOnboardingStarted: () => {
+            posthog.capture('web analytics focus mode onboarding started')
+        },
+        reportWebAnalyticsFocusModeOnboardingSkipped: () => {
+            posthog.capture('web analytics focus mode onboarding skipped')
+        },
+        reportWebAnalyticsFocusModeOnboardingCompleted: ({ props }) => {
+            posthog.capture('web analytics focus mode onboarding completed', props)
+        },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
         },
@@ -2466,25 +2504,39 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
         },
-        reportNavbarStarredItemAdded: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item added', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemRemoved: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemRemoved: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item removed', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemClicked: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemClicked: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
+            })
+        },
+        reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
+            posthog.capture('navbar starred items reordered', {
+                item_count: itemCount,
                 is_ai_first: isAIFirst,
+            })
+        },
+        reportMCPHintShown: ({ surfaceKey }) => {
+            posthog.capture('mcp hint shown', {
+                surface_key: surfaceKey,
+            })
+        },
+        reportMCPHintDismissed: ({ dismissType, surfaceKey }) => {
+            posthog.capture('mcp hint dismissed', {
+                dismiss_type: dismissType,
+                surface_key: surfaceKey,
             })
         },
     })),

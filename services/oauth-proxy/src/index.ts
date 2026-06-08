@@ -84,12 +84,12 @@ export default {
                     continue
                 }
                 if (route.paths.some((p) => normalizePath(p) === normalized)) {
-                    return route.handler(request, env.AUTH_KV)
+                    return await route.handler(request, env.AUTH_KV)
                 }
             }
 
             if (normalized === '') {
-                return new Response('PostHog OAuth Proxy — https://posthog.com/docs/model-context-protocol', {
+                return new Response('PostHog OAuth Proxy - https://posthog.com/docs/api/oauth', {
                     headers: { 'Content-Type': 'text/plain' },
                 })
             }

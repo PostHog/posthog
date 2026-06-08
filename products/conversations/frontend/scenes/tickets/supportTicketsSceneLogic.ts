@@ -39,6 +39,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: Sorting | null) => ({ sorting }),
+        setSearchQuery: (query: string) => ({ query }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
@@ -47,6 +48,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
+        bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        setBulkUpdating: (updating: boolean) => ({ updating }),
+        setSelectedTicketIds: (ids: string[]) => ({ ids }),
+        clearSelectedTickets: true,
     }),
     reducers({
         tickets: [
@@ -121,6 +126,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 applyViewFilters: (state, { filters }) => filters.tags ?? state,
             },
         ],
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { query }) => query,
+                applyViewFilters: (state, { filters }) => filters.search ?? state,
+            },
+        ],
         dateFrom: [
             '-7d' as string | null,
             { persist: true },
@@ -151,6 +163,20 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 clearActiveView: () => null,
             },
         ],
+        bulkUpdating: [
+            false,
+            {
+                setBulkUpdating: (_, { updating }) => updating,
+            },
+        ],
+        selectedTicketIds: [
+            [] as string[],
+            {
+                setSelectedTicketIds: (_, { ids }) => ids,
+                clearSelectedTickets: () => [],
+                loadTickets: () => [],
+            },
+        ],
     }),
     selectors({
         orderBy: [
@@ -161,6 +187,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 const prefix = sorting.order === 1 ? '' : '-'
                 return `${prefix}${sorting.columnKey}`
+            },
+        ],
+        selectedTickets: [
+            (s) => [s.tickets, s.selectedTicketIds],
+            (tickets: Ticket[], selectedIds: string[]): Ticket[] => {
+                const idSet = new Set(selectedIds)
+                return tickets.filter((t) => idSet.has(t.id))
             },
         ],
         currentFilters: [
@@ -174,6 +207,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.dateFrom,
                 s.dateTo,
                 s.sorting,
+                s.searchQuery,
             ],
             (
                 status: TicketStatus[],
@@ -184,7 +218,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 tags: string[],
                 dateFrom: string | null,
                 dateTo: string | null,
-                sorting: Sorting | null
+                sorting: Sorting | null,
+                search: string
             ): TicketViewFilters => ({
                 status,
                 priority,
@@ -195,6 +230,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 dateFrom,
                 dateTo,
                 sorting,
+                search: search || undefined,
             }),
         ],
     }),
@@ -229,6 +265,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.tagsFilter.length > 0) {
                 params.tags = JSON.stringify(values.tagsFilter)
             }
+            if (values.searchQuery) {
+                params.search = values.searchQuery
+            }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom
             }
@@ -253,6 +292,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
         setCurrentPage: () => {
             actions.loadTickets()
+        },
+        setSearchQuery: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
         },
         setStatusFilter: () => {
             actions.clearActiveView()
@@ -299,12 +342,26 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 router.actions.replace(router.values.location.pathname, rest)
             }
         },
+        bulkUpdateStatus: async ({ ids, status }) => {
+            actions.setBulkUpdating(true)
+            try {
+                const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
+                lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.clearSelectedTickets()
+                actions.loadTickets()
+            } catch {
+                lemonToast.error('Failed to update tickets')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
     })),
     afterMount(({ actions }) => {
         const { searchParams } = router.values
         const viewShortId = searchParams.view
         if (viewShortId) {
             const teamId = teamLogic.values.currentTeamId
+            // nosemgrep: prefer-codegen-api
             api.get(`api/environments/${teamId}/conversations/views/${viewShortId}`)
                 .then((view: SavedTicketView) => {
                     actions.applyViewFilters(view.filters || {})

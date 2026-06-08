@@ -5,3 +5,51 @@
         margin-bottom: 0;
     }
 }
+
+.active-query-outline {
+    box-sizing: border-box;
+    pointer-events: none;
+    border: 1px solid rgb(54 130 246 / 45%);
+    border-radius: 3px;
+}
+
+.active-query-gutter {
+    width: 2px !important;
+    margin-left: 3px;
+    background-color: rgb(54 130 246 / 40%);
+}
+
+.active-subquery-border-invalid {
+    width: 3px !important;
+    margin-left: 2px;
+    background-color: var(--warning);
+}
+
+.active-subquery-glyph-invalid {
+    &::before {
+        display: block;
+        width: 14px;
+        height: 14px;
+        margin: 3px auto 0;
+        content: '';
+        background-color: var(--warning);
+        mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 2L1 21h22L12 2zm0 4.5L19.5 19h-15L12 6.5zm-1 6.5v3h2v-3h-2zm0 4v2h2v-2h-2z'/></svg>");
+        mask-repeat: no-repeat;
+        mask-size: contain;
+    }
+}
+
+.active-query-highlight-flash {
+    background-color: rgb(54 130 246 / 25%);
+    animation: ActiveQueryHighlight__flash 0.6s ease-out;
+}
+
+@keyframes ActiveQueryHighlight__flash {
+    0% {
+        background-color: rgb(54 130 246 / 35%);
+    }
+
+    100% {
+        background-color: rgb(54 130 246 / 25%);
+    }
+}

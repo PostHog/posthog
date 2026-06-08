@@ -1,9 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { List, useDynamicRowHeight } from 'react-window'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
+import { AutoSizer } from 'lib/components/AutoSizer'
+import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
@@ -134,8 +137,41 @@ function getTimelineTicks(durationUs: number): number[] {
 }
 
 const INDENT_PX = 16
-const LABEL_WIDTH = 280
+const DEFAULT_LABEL_COLUMN_WIDTH = 280
+const MIN_LABEL_COLUMN_WIDTH = 120
+const MAX_LABEL_COLUMN_WIDTH = 800
+const LABEL_COLUMN_WIDTH_STORAGE_KEY = 'tracing-trace-label-width'
+/** Hit area for the vertical splitter (centered on the label/timeline border). */
+const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
+// Cap the windowed list viewport; taller traces scroll inside it instead of growing the modal.
+const MAX_FLAME_HEIGHT = 600
+// Rough extra room reserved when a span's detail panel is open, so a selection near the top of a
+// short trace doesn't pop an unexpected scrollbar.
+const SELECTED_DETAIL_RESERVE = 320
+
+function clampLabelColumnWidth(px: number): number {
+    return Math.min(MAX_LABEL_COLUMN_WIDTH, Math.max(MIN_LABEL_COLUMN_WIDTH, Math.round(px)))
+}
+
+function readStoredLabelColumnWidth(): number | null {
+    if (typeof window === 'undefined') {
+        return null
+    }
+    try {
+        const raw = window.localStorage.getItem(LABEL_COLUMN_WIDTH_STORAGE_KEY)
+        if (raw == null) {
+            return null
+        }
+        const n = Number.parseInt(raw, 10)
+        if (!Number.isFinite(n)) {
+            return null
+        }
+        return clampLabelColumnWidth(n)
+    } catch {
+        return null
+    }
+}
 const ERROR_COLOR = 'var(--danger)'
 
 const TREE_LINE_W = 2
@@ -248,13 +284,207 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
     )
 }
 
+interface FlameRowData {
+    flatSpans: SpanNode[]
+    traceStartUs: number
+    traceDurationUs: number
+    serviceColorMap: Map<string, number>
+    ticks: number[]
+    labelColumnWidth: number
+    selectedSpanId: string | null
+    onSelect: (spanId: string) => void
+    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
+}
+
+function FlameRow({
+    node,
+    traceStartUs,
+    traceDurationUs,
+    serviceColorMap,
+    ticks,
+    labelColumnWidth,
+    selectedSpanId,
+    onSelect,
+}: Omit<FlameRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
+    const { span } = node
+    const spanStartUs = parseTimestampUs(span.timestamp)
+    const spanDurationUs = span.duration_nano / 1_000
+    const leftPct = traceDurationUs > 0 ? Math.max(((spanStartUs - traceStartUs) / traceDurationUs) * 100, 0) : 0
+    const rawWidthPct = traceDurationUs > 0 ? (spanDurationUs / traceDurationUs) * 100 : 100
+    const widthPct = Math.max(Math.min(rawWidthPct, 100 - leftPct), 0.3)
+
+    const isError = span.status_code === 2
+    const isUnmatched = !span.matched_filter
+    const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
+    const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
+    const barColor = isUnmatched ? 'var(--border)' : seriesColor
+    const isSelected = selectedSpanId === span.uuid
+
+    return (
+        <div>
+            <div
+                className={`flex items-stretch cursor-pointer transition-colors ${
+                    isSelected ? 'bg-surface-primary-active' : 'hover:bg-surface-primary-hover'
+                }`}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ minHeight: ROW_HEIGHT }}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                onClick={() => onSelect(span.uuid)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSelect(span.uuid)
+                    }
+                }}
+            >
+                {/* Label column */}
+                <div
+                    className="shrink-0 flex items-center overflow-hidden border-r border-border px-2"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: labelColumnWidth }}
+                >
+                    <TreeIndent node={node} />
+                    {isError && (
+                        <Tooltip title="This span has an error status">
+                            <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
+                        </Tooltip>
+                    )}
+                    <Tooltip title={span.name}>
+                        <span
+                            className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
+                        >
+                            {span.name}
+                        </span>
+                    </Tooltip>
+                </div>
+
+                {/* Timeline column */}
+                <div
+                    className="relative grow self-center"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ height: ROW_HEIGHT - 8 }}
+                >
+                    {/* Grid lines */}
+                    {ticks.map((tickUs) => {
+                        const pct = (tickUs / traceDurationUs) * 100
+                        return (
+                            <span
+                                key={tickUs}
+                                className="absolute top-0 bottom-0 border-l border-border"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ left: `${pct}%` }}
+                            />
+                        )
+                    })}
+
+                    {/* Span bar */}
+                    <Tooltip
+                        title={
+                            <span>
+                                <strong>{span.name}</strong>
+                                <br />
+                                {span.service_name} · {formatDuration(span.duration_nano)}
+                                {isError ? ' · Error' : ''}
+                            </span>
+                        }
+                    >
+                        <div
+                            className="absolute h-full flex items-center px-1.5 overflow-hidden"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                left: `${leftPct}%`,
+                                width: `${widthPct}%`,
+                                minWidth: 2,
+                                backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
+                                borderLeft: `1px solid ${barColor}`,
+                            }}
+                        >
+                            <span
+                                className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                            >
+                                <span className="text-muted-alt font-medium">{span.service_name}</span>
+                                <span className="text-muted">{formatDuration(span.duration_nano)}</span>
+                            </span>
+                        </div>
+                    </Tooltip>
+                </div>
+            </div>
+
+            {/* Detail panel */}
+            {isSelected && <SpanDetailPanel span={span} />}
+        </div>
+    )
+}
+
+function FlameListRow({
+    ariaAttributes,
+    index,
+    style,
+    flatSpans,
+    traceStartUs,
+    traceDurationUs,
+    serviceColorMap,
+    ticks,
+    labelColumnWidth,
+    selectedSpanId,
+    onSelect,
+    dynamicRowHeight,
+}: {
+    ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
+    index: number
+    style: CSSProperties
+} & FlameRowData): JSX.Element {
+    const rowRef = useRef<HTMLDivElement>(null)
+    const node = flatSpans[index]
+
+    useEffect(() => {
+        if (rowRef.current) {
+            return dynamicRowHeight.observeRowElements([rowRef.current])
+        }
+    }, [dynamicRowHeight])
+
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div {...ariaAttributes} ref={rowRef} style={style} data-index={index} data-row-key={node.span.uuid}>
+            <FlameRow
+                node={node}
+                traceStartUs={traceStartUs}
+                traceDurationUs={traceDurationUs}
+                serviceColorMap={serviceColorMap}
+                ticks={ticks}
+                labelColumnWidth={labelColumnWidth}
+                selectedSpanId={selectedSpanId}
+                onSelect={onSelect}
+            />
+        </div>
+    )
+}
+
 export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
     const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
     const [cursorPct, setCursorPct] = useState<number | null>(null)
+    const [labelColumnWidth, setLabelColumnWidth] = useState(
+        () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
+    )
+    const labelResizeActiveRef = useRef(false)
+    const labelSplitterDragCleanupRef = useRef<(() => void) | null>(null)
     const timelineRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        return () => {
+            labelSplitterDragCleanupRef.current?.()
+        }
+    }, [])
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
+    const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT })
+
+    const handleSelect = useCallback((spanId: string): void => {
+        setSelectedSpanId((cur) => (cur === spanId ? null : spanId))
+    }, [])
 
     const { traceStartUs, traceDurationUs } = useMemo(() => {
         if (spans.length === 0) {
@@ -283,8 +513,64 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
 
     const SNAP_THRESHOLD_PX = 6
 
+    const persistLabelColumnWidth = useCallback((width: number): void => {
+        try {
+            window.localStorage.setItem(LABEL_COLUMN_WIDTH_STORAGE_KEY, String(width))
+        } catch {
+            // Quota or private mode
+        }
+    }, [])
+
+    const handleLabelSplitterMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setCursorPct(null)
+            labelResizeActiveRef.current = true
+            document.body.classList.add('is-resizing')
+            const startX = e.clientX
+            const startWidth = labelColumnWidth
+            let lastWidth = startWidth
+
+            const onMove = (ev: MouseEvent): void => {
+                lastWidth = clampLabelColumnWidth(startWidth + (ev.clientX - startX))
+                setLabelColumnWidth(lastWidth)
+            }
+            const onUp = (): void => {
+                labelSplitterDragCleanupRef.current = null
+                document.removeEventListener('mousemove', onMove)
+                document.removeEventListener('mouseup', onUp)
+                document.body.classList.remove('is-resizing')
+                labelResizeActiveRef.current = false
+                persistLabelColumnWidth(lastWidth)
+            }
+            labelSplitterDragCleanupRef.current = onUp
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+        },
+        [labelColumnWidth, persistLabelColumnWidth]
+    )
+
+    const handleLabelSplitterKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault()
+                const delta = e.key === 'ArrowLeft' ? -10 : 10
+                setLabelColumnWidth((w) => {
+                    const next = clampLabelColumnWidth(w + delta)
+                    persistLabelColumnWidth(next)
+                    return next
+                })
+            }
+        },
+        [persistLabelColumnWidth]
+    )
+
     const handleTimelineMouseMove = useCallback(
         (e: React.MouseEvent) => {
+            if (labelResizeActiveRef.current) {
+                return
+            }
             const timeline = timelineRef.current
             if (!timeline) {
                 return
@@ -334,7 +620,9 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 <div
                     className="absolute top-0 bottom-0 border-l border-dashed border-primary pointer-events-none z-20"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ left: `calc(${LABEL_WIDTH}px + (100% - ${LABEL_WIDTH}px) * ${cursorPct / 100})` }}
+                    style={{
+                        left: `calc(${labelColumnWidth}px + (100% - ${labelColumnWidth}px) * ${cursorPct / 100})`,
+                    }}
                 />
             )}
 
@@ -343,7 +631,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 <div
                     className="shrink-0 text-xs font-medium text-muted px-2 flex items-center border-r border-border"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: LABEL_WIDTH }}
+                    style={{ width: labelColumnWidth }}
                 >
                     Span
                 </div>
@@ -389,120 +677,55 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 </div>
             </div>
 
-            {/* Span rows */}
-            {flatSpans.map((node) => {
-                const { span } = node
-                const spanStartUs = parseTimestampUs(span.timestamp)
-                const spanDurationUs = span.duration_nano / 1_000
-                const leftPct =
-                    traceDurationUs > 0 ? Math.max(((spanStartUs - traceStartUs) / traceDurationUs) * 100, 0) : 0
-                const rawWidthPct = traceDurationUs > 0 ? (spanDurationUs / traceDurationUs) * 100 : 100
-                const widthPct = Math.max(Math.min(rawWidthPct, 100 - leftPct), 0.3)
+            {/* Span rows (virtualized) */}
+            <AutoSizer
+                disableHeight
+                renderProp={({ width }: SizeProps) => (
+                    <List<FlameRowData>
+                        style={{
+                            height: Math.min(
+                                flatSpans.length * ROW_HEIGHT + (selectedSpanId ? SELECTED_DETAIL_RESERVE : 0),
+                                MAX_FLAME_HEIGHT
+                            ),
+                            width,
+                        }}
+                        overscanCount={10}
+                        rowCount={flatSpans.length}
+                        rowHeight={dynamicRowHeight}
+                        rowComponent={FlameListRow}
+                        rowProps={{
+                            flatSpans,
+                            traceStartUs,
+                            traceDurationUs,
+                            serviceColorMap,
+                            ticks,
+                            labelColumnWidth,
+                            selectedSpanId,
+                            onSelect: handleSelect,
+                            dynamicRowHeight,
+                        }}
+                    />
+                )}
+            />
 
-                const isError = span.status_code === 2
-                const isUnmatched = !span.matched_filter
-                const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
-                const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
-                const barColor = isUnmatched ? 'var(--border)' : seriesColor
-                const isSelected = selectedSpanId === span.uuid
-
-                return (
-                    <div key={span.uuid}>
-                        <div
-                            className={`flex items-stretch cursor-pointer transition-colors ${
-                                isSelected ? 'bg-surface-primary-active' : 'hover:bg-surface-primary-hover'
-                            }`}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ minHeight: ROW_HEIGHT }}
-                            role="button"
-                            tabIndex={0}
-                            aria-pressed={isSelected}
-                            onClick={() => setSelectedSpanId(isSelected ? null : span.uuid)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    setSelectedSpanId(isSelected ? null : span.uuid)
-                                }
-                            }}
-                        >
-                            {/* Label column */}
-                            <div
-                                className="shrink-0 flex items-center overflow-hidden border-r border-border px-2"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: LABEL_WIDTH }}
-                            >
-                                <TreeIndent node={node} />
-                                {isError && (
-                                    <Tooltip title="This span has an error status">
-                                        <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
-                                    </Tooltip>
-                                )}
-                                <Tooltip title={span.name}>
-                                    <span
-                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
-                                    >
-                                        {span.name}
-                                    </span>
-                                </Tooltip>
-                            </div>
-
-                            {/* Timeline column */}
-                            <div
-                                className="relative grow self-center"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ height: ROW_HEIGHT - 8 }}
-                            >
-                                {/* Grid lines */}
-                                {ticks.map((tickUs) => {
-                                    const pct = (tickUs / traceDurationUs) * 100
-                                    return (
-                                        <span
-                                            key={tickUs}
-                                            className="absolute top-0 bottom-0 border-l border-border"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{ left: `${pct}%` }}
-                                        />
-                                    )
-                                })}
-
-                                {/* Span bar */}
-                                <Tooltip
-                                    title={
-                                        <span>
-                                            <strong>{span.name}</strong>
-                                            <br />
-                                            {span.service_name} · {formatDuration(span.duration_nano)}
-                                            {isError ? ' · Error' : ''}
-                                        </span>
-                                    }
-                                >
-                                    <div
-                                        className="absolute h-full flex items-center px-1.5 overflow-hidden"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            left: `${leftPct}%`,
-                                            width: `${widthPct}%`,
-                                            minWidth: 2,
-                                            backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
-                                            borderLeft: `1px solid ${barColor}`,
-                                        }}
-                                    >
-                                        <span
-                                            className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
-                                        >
-                                            <span className="text-muted-alt font-medium">{span.service_name}</span>
-                                            <span className="text-muted">{formatDuration(span.duration_nano)}</span>
-                                        </span>
-                                    </div>
-                                </Tooltip>
-                            </div>
-                        </div>
-
-                        {/* Detail panel */}
-                        {isSelected && <SpanDetailPanel span={span} />}
-                    </div>
-                )
-            })}
+            {/* Full-height splitter between label column and timeline */}
+            <div
+                role="separator"
+                aria-label="Resize span name column"
+                aria-orientation="vertical"
+                aria-valuenow={labelColumnWidth}
+                aria-valuemin={MIN_LABEL_COLUMN_WIDTH}
+                aria-valuemax={MAX_LABEL_COLUMN_WIDTH}
+                tabIndex={0}
+                className="absolute top-0 bottom-0 z-30 cursor-ew-resize touch-none hover:bg-accent-highlight-primary/30"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    left: labelColumnWidth - LABEL_SPLITTER_HIT_PX / 2,
+                    width: LABEL_SPLITTER_HIT_PX,
+                }}
+                onMouseDown={handleLabelSplitterMouseDown}
+                onKeyDown={handleLabelSplitterKeyDown}
+            />
         </div>
     )
 }

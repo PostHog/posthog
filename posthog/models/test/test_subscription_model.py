@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -7,22 +8,28 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.utils import timezone
 
 import jwt
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.insight import Insight
-from posthog.models.subscription import (
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.subscription import (
+    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
+    SubscriptionDelivery,
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 
-@patch.object(settings, "SECRET_KEY", "not-so-secret")
+@patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
@@ -49,6 +56,68 @@ class TestSubscription(BaseTest):
         assert subscription.title == "My Subscription"
         subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")))
         assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
+
+    def _create_subscription(self, **kwargs) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC")),
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "insight_relation",
+                lambda self: self._create_subscription(insight=Insight.objects.create(team=self.team)),
+                Subscription.ResourceType.INSIGHT,
+            ),
+            (
+                "dashboard_relation",
+                lambda self: self._create_subscription(dashboard=Dashboard.objects.create(team=self.team)),
+                Subscription.ResourceType.DASHBOARD,
+            ),
+            (
+                "prompt_no_relation",
+                lambda self: self._create_subscription(prompt="Summarize signups"),
+                Subscription.ResourceType.AI_PROMPT,
+            ),
+        ]
+    )
+    def test_resource_type_derived_from_relation(
+        self, _name: str, make_subscription: Callable[..., Subscription], expected: "Subscription.ResourceType"
+    ):
+        subscription = make_subscription(self)
+
+        assert subscription.resource_type == expected
+        subscription.refresh_from_db()
+        assert subscription.resource_type == expected
+
+    def test_resource_type_raises_without_relation(self):
+        subscription = self._create_subscription()
+        with self.assertRaises(ValueError):
+            _ = subscription.resource_type
+
+    @parameterized.expand(
+        [
+            ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),
+            ("dashboard", None, 2, None, Subscription.ResourceType.DASHBOARD),
+            ("prompt", None, None, "Summarize signups", Subscription.ResourceType.AI_PROMPT),
+            ("insight_takes_precedence", 1, 2, "ignored", Subscription.ResourceType.INSIGHT),
+        ]
+    )
+    def test_derive_resource_type(
+        self, _name: str, insight_id: int | None, dashboard_id: int | None, prompt: str | None, expected: str
+    ):
+        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt) == expected
+
+    @parameterized.expand([("all_none", None), ("empty_prompt", "")])
+    def test_derive_resource_type_raises_when_relationless(self, _name: str, prompt: str | None):
+        with pytest.raises(ValueError, match="no insight, dashboard, or prompt"):
+            Subscription.derive_resource_type(None, None, prompt)
 
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()
@@ -282,6 +351,139 @@ class TestSubscription(BaseTest):
 
     @parameterized.expand(
         [
+            ("daily", "daily", 1),
+            ("weekly", "weekly", 7),
+            ("monthly", "monthly", 30),
+            ("yearly", "yearly", 365),
+            ("unknown_falls_back_to_weekly", "", 7),
+        ]
+    )
+    def test_ai_report_window_days(self, _name, frequency, expected_days):
+        # Construct with a valid cadence (the model eagerly builds an rrule on init), then assign
+        # the case under test — `ai_report_window_days` reads `frequency` live.
+        subscription = Subscription(frequency="daily")
+        subscription.frequency = frequency
+        assert subscription.ai_report_window_days == expected_days
+
+    def test_subscription_delivery_creation(self):
+        subscription = self._create_insight_subscription()
+
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="test-key-1",
+            trigger_type="scheduled",
+            target_type=subscription.target_type,
+            target_value=subscription.target_value,
+            status=SubscriptionDelivery.Status.STARTING,
+        )
+
+        assert delivery.status == "starting"
+        assert delivery.subscription == subscription
+        assert delivery.error is None
+        assert delivery.recipient_results == []
+        assert delivery.exported_asset_ids == []
+        assert delivery.finished_at is None
+
+    def test_duplicate_idempotency_key_raises(self):
+        subscription = self._create_insight_subscription()
+
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="same-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        with pytest.raises(IntegrityError):
+            SubscriptionDelivery.objects.create(
+                subscription=subscription,
+                team=self.team,
+                temporal_workflow_id="process-subscription-1",
+                idempotency_key="same-key",
+                trigger_type="scheduled",
+                target_type="email",
+                target_value="test@posthog.com",
+            )
+
+    def test_distinct_idempotency_keys_create_two_rows(self):
+        subscription = self._create_insight_subscription()
+
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="key-run-1",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        second = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="key-run-2",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+        first = SubscriptionDelivery.objects.get(idempotency_key="key-run-1")
+        assert first.id != second.id
+        assert SubscriptionDelivery.objects.filter(subscription=subscription).count() == 2
+
+    def test_subscription_delivery_get_or_create_idempotency(self):
+        subscription = self._create_insight_subscription()
+
+        delivery1, created1 = SubscriptionDelivery.objects.get_or_create(
+            idempotency_key="idem-key",
+            defaults={
+                "subscription": subscription,
+                "team": self.team,
+                "temporal_workflow_id": "wf-1",
+                "trigger_type": "scheduled",
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+            },
+        )
+        delivery2, created2 = SubscriptionDelivery.objects.get_or_create(
+            idempotency_key="idem-key",
+            defaults={
+                "subscription": subscription,
+                "team": self.team,
+                "temporal_workflow_id": "wf-1",
+                "trigger_type": "scheduled",
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+            },
+        )
+
+        assert created1 is True
+        assert created2 is False
+        assert delivery1.id == delivery2.id
+
+    def test_subscription_delivery_cascades_on_subscription_delete(self):
+        subscription = self._create_insight_subscription()
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-1",
+            idempotency_key="cascade-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        assert SubscriptionDelivery.objects.count() == 1
+        subscription.insight.delete()  # cascades to subscription, then to delivery
+        assert SubscriptionDelivery.objects.count() == 0
+
+    @parameterized.expand(
+        [
             # First weekday of month — Jan 1 is Saturday, so first weekday is Mon Jan 3
             ("first_weekday_sat_start", "2022-01-01", 1, datetime(2022, 1, 3, 9, 0, tzinfo=ZoneInfo("UTC"))),
             # First weekday of month starting on Sunday
@@ -313,3 +515,82 @@ class TestSubscription(BaseTest):
             )
             subscription.set_next_delivery_date()
             assert subscription.next_delivery_date == expected_next
+
+
+class TestSubscriptionLimit(BaseTest):
+    def _create_subscriptions(self, count: int) -> None:
+        insight = Insight.objects.create(team=self.team)
+        for i in range(count):
+            Subscription.objects.create(
+                team=self.team,
+                insight=insight,
+                target_type="email",
+                target_value=f"user{i}@posthog.com",
+                frequency="daily",
+                start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
+
+    @parameterized.expand(
+        [
+            ("zero", 0, False),
+            ("below_limit", SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER - 1, False),
+            ("at_limit", SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER, True),
+            ("over_limit", SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER + 1, True),
+        ]
+    )
+    def test_free_org_limit(self, _name: str, count: int, blocked: bool) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self._create_subscriptions(count)
+        result = Subscription.check_subscription_limit(self.team.id, self.organization)
+        if blocked:
+            assert result is not None
+            assert str(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER) in result
+        else:
+            assert result is None
+
+    def test_free_org_limit_reads_constant(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self._create_subscriptions(2)
+        with patch("products.exports.backend.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
+            result = Subscription.check_subscription_limit(self.team.id, self.organization)
+        assert result is not None
+        assert "2" in result
+
+    def test_paid_org_unlimited_returns_none(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SUBSCRIPTIONS, "name": "subscriptions", "limit": None}
+        ]
+        self.organization.save()
+        self._create_subscriptions(50)
+        assert Subscription.check_subscription_limit(self.team.id, self.organization) is None
+
+    @parameterized.expand(
+        [
+            ("under_limit", 3, 2, None),
+            ("at_limit", 3, 3, "3"),
+            ("over_limit", 3, 4, "3"),
+            ("zero_allowance", 0, 0, "0"),
+        ]
+    )
+    def test_paid_org_numeric_limit(self, _name: str, limit: int, count: int, expected_in_msg: str | None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SUBSCRIPTIONS, "name": "subscriptions", "limit": limit}
+        ]
+        self.organization.save()
+        self._create_subscriptions(count)
+        result = Subscription.check_subscription_limit(self.team.id, self.organization)
+        if expected_in_msg is None:
+            assert result is None
+        else:
+            assert result is not None
+            assert expected_in_msg in result
+
+    def test_soft_deleted_excluded_from_count(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self._create_subscriptions(5)
+        assert Subscription.check_subscription_limit(self.team.id, self.organization) is not None
+        Subscription.objects.filter(team=self.team).update(deleted=True)
+        assert Subscription.check_subscription_limit(self.team.id, self.organization) is None

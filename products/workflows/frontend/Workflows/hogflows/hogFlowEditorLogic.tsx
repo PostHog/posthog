@@ -12,15 +12,14 @@ import {
 } from '@xyflow/react'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -149,7 +148,7 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
+    key((props) => `hog-flow-editor-${props.id}`),
     connect(() => ({
         values: [
             workflowLogic,
@@ -594,9 +593,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             selectable: false,
                         })
 
-                        // If this branch edge has same target as other edges, we also add a single dropzone near the target node
+                        // If multiple edges share the same target, add a single dropzone near the target node
+                        // to allow branch convergence (fan-in). This covers both branch edges directly
+                        // from a conditional node and continue edges from downstream nodes in parallel paths.
                         const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
-                        if (edge.data?.edge.type === 'branch' && hasSiblingEdges) {
+                        if (hasSiblingEdges) {
                             // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
                             const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
                             // Avoid duplicating dropzones for multiple branch edges to the same target
@@ -604,7 +605,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 return
                             }
 
-                            // For branch edges, we also add a dropzone near the target node to allow easier dropping
+                            // Add a dropzone near the target node to allow merging parallel branches
                             dropzoneNodes.push({
                                 id: branchJoinDropzoneTargetId,
                                 type: 'dropzone',
@@ -774,6 +775,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ['slack_channel_id', 'Slack channel ID'],
                                 ['slack_thread_ts', 'Slack thread timestamp'],
                                 ['slack_team_id', 'Slack team ID'],
+                                ['email_subject', 'Email subject'],
+                                ['email_from', 'Email from'],
+                                ['email_to', 'Email to'],
+                                ['cc_participants', 'CC participants'],
                             ]
 
                             const newVars = spreadFields
@@ -918,7 +923,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const syncProperty = (
             key: string,
             value: string | null
@@ -938,7 +943,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
             const { node = null, mode } = search
             if (node !== values.selectedNodeId) {

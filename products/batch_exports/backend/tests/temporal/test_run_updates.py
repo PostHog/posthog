@@ -8,8 +8,9 @@ from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, Organization, Team
+from posthog.models import Organization, Team
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import delete_batch_export, sync_batch_export
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -240,7 +241,7 @@ async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(acti
     )
 
     batch_export_id = str(batch_export.id)
-    failure_threshold = 10
+    failure_threshold = 3
 
     for run_number in range(1, failure_threshold * 2):
         run_id = await activity_environment.run(start_batch_export_run, inputs)

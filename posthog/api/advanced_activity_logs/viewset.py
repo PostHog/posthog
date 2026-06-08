@@ -1,8 +1,9 @@
+import re
 import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Any, Optional, get_args
+from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
@@ -11,10 +12,13 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
+from rest_framework.permissions import BasePermission
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
 from posthog.models.activity_logging.activity_log import (
@@ -22,8 +26,12 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     apply_activity_visibility_restrictions,
 )
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
+from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager
@@ -54,7 +62,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        exclude = ["team_id"]
+        fields = "__all__"
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -95,6 +103,9 @@ class ActivityLogPagination(BasePagination):
         else:
             return self.cursor_pagination.get_paginated_response(data)
 
+    def get_paginated_response_schema(self, schema):
+        return self.page_number_pagination.get_paginated_response_schema(schema)
+
 
 class ActivityLogScopeField(serializers.ChoiceField):
     def __init__(self, **kwargs):
@@ -134,13 +145,15 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["activity_logs", "platform_features"])
+@extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
@@ -199,18 +212,124 @@ class JSONStringFilterField(serializers.JSONField):
     pass
 
 
+_IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
+_IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def _validate_ip_or_wildcard(value: str) -> None:
+    v = (value or "").strip()
+    if not v or not _IP_FILTER_RE.match(v):
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+    if "*" in v:
+        return  # wildcard patterns are accepted as-is
+    if _IPV4_RE.match(v):
+        if not all(int(octet) <= 255 for octet in v.split(".")):
+            raise serializers.ValidationError(
+                "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+            )
+        return
+    if ":" not in v:
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+
+
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
-    start_date = serializers.DateTimeField(required=False)
-    end_date = serializers.DateTimeField(required=False)
-    users = serializers.ListField(child=serializers.UUIDField(), required=False, default=[])
-    scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
-    activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
-    search_text = serializers.CharField(required=False, allow_blank=True)
-    detail_filters = JSONStringFilterField(required=False)
-    hogql_filter = serializers.CharField(required=False, allow_blank=True)
-    was_impersonated = OptionalBooleanField(required=False)
-    is_system = OptionalBooleanField(required=False)
-    item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    start_date = serializers.DateTimeField(
+        required=False,
+        help_text="Lower bound on `created_at` (inclusive), ISO-8601.",
+    )
+    end_date = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound on `created_at` (inclusive), ISO-8601.",
+    )
+    users = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=[],
+        help_text="Filter by users who performed the activity (user UUIDs).",
+    )
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text='Filter by activity scopes (e.g. "FeatureFlag", "Insight").',
+    )
+    activities = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text='Filter by activity types (e.g. "created", "updated", "deleted").',
+    )
+    clients = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+    )
+    ip_addresses = serializers.ListField(
+        child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
+        required=False,
+        default=[],
+        help_text=(
+            "Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns "
+            "using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined."
+        ),
+    )
+    team_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=[],
+        help_text=(
+            "Filter by project (team) IDs. Only honored on the organization-scoped endpoint; "
+            "ignored on the project-scoped endpoint."
+        ),
+    )
+    search_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-text search across the `detail` JSON column.",
+    )
+    detail_filters = JSONStringFilterField(
+        required=False,
+        help_text=(
+            "JSON-encoded map of `detail` field paths to {operation, value} filters. "
+            "Allowed operations: exact, contains, in."
+        ),
+    )
+    hogql_filter = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Reserved for future HogQL-based filtering.",
+    )
+    was_impersonated = OptionalBooleanField(
+        required=False,
+        help_text="When set, filters rows where the actor was impersonating another user.",
+    )
+    is_system = OptionalBooleanField(
+        required=False,
+        help_text="When set, filters rows authored by the system (no user).",
+    )
+    item_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text="Filter by the `item_id` of the affected resource(s).",
+    )
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
@@ -234,6 +353,8 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "scope",
             "item_id",
             "detail",
+            "client",
+            "ip_address",
             "created_at",
         ]
 
@@ -245,6 +366,10 @@ class StaticFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
     scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+    clients = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="API clients that have generated activity (from x-posthog-client header).",
+    )
 
 
 class AvailableFiltersResponseSerializer(serializers.Serializer):
@@ -252,7 +377,7 @@ class AvailableFiltersResponseSerializer(serializers.Serializer):
     detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
 
 
-@extend_schema(tags=["platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
@@ -261,6 +386,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "activity_log"
     scope_object_read_actions = ["list", "retrieve", "available_filters"]
     queryset = ActivityLog.objects.all()
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     def _should_skip_parents_filter(self) -> bool:
         """
@@ -420,3 +547,68 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self.logger.exception(f"Failed to create export: {e}")
             capture_exception(e)
             return Response({"error": "Failed to create export"}, status=500)
+
+
+class OrganizationActivityLogPermission(BasePermission):
+    """
+    Restrict the organization-scoped activity logs endpoint to organization admins and owners.
+
+    Used in addition to OrganizationMemberPermissions, which TeamAndOrgViewSetMixin adds for
+    org-nested viewsets (so we already know the user is in the organization).
+    """
+
+    message = "Only organization admins and owners can view organization-wide activity logs."
+
+    def has_permission(self, request: Request, view) -> bool:
+        try:
+            organization = view.organization
+        except (Organization.DoesNotExist, ValueError):
+            return False
+
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            return False
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
+
+
+@extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
+class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
+    """
+    Organization-wide view of activity logs across every project in the organization.
+
+    Mounted at /api/organizations/<organization_id>/advanced_activity_logs/.
+    Restricted to organization admins and owners.
+    """
+
+    permission_classes = [PremiumFeaturePermission, OrganizationActivityLogPermission]
+    # The parent declares {"project_id": "team_id"} but our nested route only carries
+    # organization_id, so the rewrite would KeyError on missing "project_id". Reset it.
+    filter_rewrite_rules: dict[str, str] = {}
+
+    def _should_skip_parents_filter(self) -> bool:
+        # parents_query_dict is {"organization_id": <uuid>} on this nested route, so let
+        # TeamAndOrgViewSetMixin filter the queryset by organization_id automatically.
+        return False
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        queryset = queryset.select_related("user")
+
+        lookback_date = get_activity_log_lookback_restriction(self.organization)
+        if lookback_date:
+            queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+
+        return queryset.order_by("-created_at")
+
+    @action(detail=False, methods=["POST"])
+    def export(self, request, **kwargs):  # type: ignore[override]
+        # Override the parent's export action: it depends on self.team (for ExportedAsset.team)
+        # which is not available on org-nested routes. Defer export support until we have an
+        # org-aware ExportedAsset story.
+        return Response(
+            {"error": "Export is not yet supported on the organization-scoped activity logs endpoint."},
+            status=400,
+        )

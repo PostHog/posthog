@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
@@ -85,6 +85,86 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         db_results = self._exclude_virtual(response.json()["results"])
         assert len(db_results) == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
         assert "first_visit" not in [r["name"] for r in db_results]
+
+    def test_list_property_definitions_with_exclude_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        # restrict "$browser" for the current user
+        prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        # without exclude_restricted, $browser should still appear
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "$browser" in [r["name"] for r in db_results]
+
+        # with exclude_restricted=true, $browser should be excluded
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "$browser" not in [r["name"] for r in db_results]
+
+    def test_list_property_definitions_exclude_restricted_does_not_affect_unrestricted(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        # restrict "$browser" but not "plan"
+        prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "plan" in [r["name"] for r in db_results]
+        assert "$browser" not in [r["name"] for r in db_results]
+
+    def test_list_property_definitions_exclude_restricted_read_access_still_visible(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        # set "$browser" to READ (not NONE) — should still be visible
+        prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.READ.value,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
+        assert response.status_code == status.HTTP_200_OK
+        db_results = self._exclude_virtual(response.json()["results"])
+        assert "$browser" in [r["name"] for r in db_results]
 
     def test_list_property_definitions_with_excluded_core_properties(self):
         # core property that doesn't start with $
@@ -500,6 +580,21 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         if expected_names:
             assert [r["name"] for r in response.json()["results"]] == expected_names
 
+    def test_feature_flag_filter_with_event_names_does_not_require_eventproperty_rows(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="$feature/my-flag", property_type="Boolean")
+        PropertyDefinition.objects.create(team=self.team, name="$feature/other-flag", property_type="Boolean")
+        # No EventProperty rows for $feature/* — this is the post-fix state
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/"
+            f"?is_feature_flag=true&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        names = [r["name"] for r in response.json()["results"]]
+        assert "$feature/my-flag" in names
+        assert "$feature/other-flag" in names
+        assert all(r["is_seen_on_filtered_events"] is None for r in response.json()["results"])
+
     @patch("posthoganalytics.capture")
     def test_delete_property_definition(self, mock_capture):
         property_definition = PropertyDefinition.objects.create(
@@ -539,9 +634,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             scope="PropertyDefinition", activity="deleted"
         ).first()
         assert activity_log is not None
-        assert activity_log.detail["type"] == "event"
+        detail = cast(dict[str, Any], activity_log.detail)
+        assert detail["type"] == "event"
         assert activity_log.item_id == str(property_definition.id)
-        assert activity_log.detail["name"] == "test_property"
+        assert detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
     def test_event_name_filter_json_contains_int(self):
@@ -621,6 +717,42 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == expected_results
+
+    def test_seen_together_runs_one_query_per_request(self) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        for event_name in ["e1", "e2", "e3", "e4", "e5"]:
+            EventProperty.objects.create(team=self.team, event=event_name, property="$session_id")
+
+        # Build the query string with many event_names so a regression to the N+1
+        # loop would show up as a query count that grows with the input size.
+        event_name_params = "&".join(f"event_names=e{i}" for i in range(1, 11))
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/seen_together/?{event_name_params}&property_name=$session_id"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "e1": True,
+            "e2": True,
+            "e3": True,
+            "e4": True,
+            "e5": True,
+            "e6": False,
+            "e7": False,
+            "e8": False,
+            "e9": False,
+            "e10": False,
+        }
+
+        event_property_queries = [q for q in ctx.captured_queries if "posthog_eventproperty" in q["sql"]]
+        assert len(event_property_queries) == 1, (
+            f"expected a single posthog_eventproperty query, got {len(event_property_queries)}: "
+            f"{[q['sql'] for q in event_property_queries]}"
+        )
 
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)

@@ -5,11 +5,14 @@ from django.db import transaction
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import ValidationError
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -29,7 +32,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import SandboxEnvironment
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
 
@@ -53,9 +56,9 @@ class RunAgenticReportOutput:
     repository: str
 
 
-def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
+async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
-    report = SignalReport.objects.filter(id=report_id).only("title", "summary").first()
+    report = await SignalReport.objects.filter(id=report_id).only("title", "summary").afirst()
     if report is None or not report.title or not report.summary:
         logger.info(
             "load previous research: no report or missing title/summary, treating as first run",
@@ -63,21 +66,22 @@ def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
             has_report=report is not None,
         )
         return None
-    artefacts = list(
-        SignalReportArtefact.objects.filter(
-            report_id=report_id,
-            # Only types we care about for the agentic report generation
-            type__in=[
-                SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
-                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            ],
-        ).order_by("created_at")
-    )
+
+    artefacts_qs = SignalReportArtefact.objects.filter(
+        report_id=report_id,
+        # Only types we care about for the agentic report generation
+        type__in=[
+            SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
+            SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+        ],
+    ).order_by("created_at")
+
     findings: list[SignalFinding] = []
     actionability: ActionabilityAssessment | None = None
     priority: PriorityAssessment | None = None
-    for artefact in artefacts:
+
+    async for artefact in artefacts_qs:
         match artefact.type:
             case SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
                 findings.append(SignalFinding.model_validate_json(artefact.content))
@@ -92,6 +96,7 @@ def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
                     )
             case SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
                 priority = PriorityAssessment.model_validate_json(artefact.content)
+
     if not findings or actionability is None:
         logger.info(
             "load previous research: missing artefacts, treating as first run",
@@ -100,6 +105,7 @@ def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
             has_actionability=actionability is not None,
         )
         return None
+
     return ReportResearchOutput(
         title=report.title,
         summary=report.summary,
@@ -118,23 +124,26 @@ _AGENTIC_ARTEFACT_TYPES = [
 ]
 
 
-def _resolve_and_build_reviewers_artefact(
+def _build_reviewers_content(
     team_id: int,
-    report_id: str,
     repository: str,
     findings: list[SignalFinding],
-) -> SignalReportArtefact | None:
-    """Resolve commit authors to suggested reviewers and build the artefact.
+) -> list[ReviewerContent]:
+    """Collect relevant commit SHAs from research findings and resolve them to GitHub reviewers.
 
-    Content is a plain list of GitHub-only reviewer dicts:
-      [{"github_login": "...", "github_name": "...", "relevant_commits": [...]}, ...]
+    Deduplicates commit hashes across all findings (keeping the first reason seen per SHA),
+    then calls resolve_suggested_reviewers to identify the authors/committers of those commits
+    and returns them as serializable ReviewerContent dicts.
 
-    PostHog user enrichment happens at read time (serializer) so it stays
-    fresh when users connect/disconnect their GitHub account.
+    The returned list is stored as a ``suggested_reviewers`` artefact keyed only by
+    github_login — no PostHog user IDs are persisted. This is intentional:
 
-    The list view resolves is_suggested_reviewer by looking up the current
-    user's GitHub login and checking for jsonb containment on github_login
-    in this artefact's content — no cached user IDs needed.
+    - PostHog user enrichment happens at read time (in the artefact serializer via
+      ``enrich_reviewer_dicts_with_org_members``) so it stays fresh when users
+      connect/disconnect their GitHub account.
+    - The list view resolves ``is_suggested_reviewer`` by looking up the current
+      user's GitHub login and checking for jsonb containment on ``github_login``
+      in this artefact's content — no cached user IDs needed.
     """
     commit_hashes_with_reasons: dict[str, str] = {}
     for finding in findings:
@@ -143,33 +152,43 @@ def _resolve_and_build_reviewers_artefact(
                 commit_hashes_with_reasons[sha] = str(reason) if reason else ""
 
     if not commit_hashes_with_reasons or not repository:
-        return None
+        return []
 
     resolved = resolve_suggested_reviewers(team_id, repository, commit_hashes_with_reasons)
     if not resolved:
-        return None
+        return []
 
-    content = [
-        {
-            "github_login": r.login.lower(),
-            "github_name": r.name,
-            "relevant_commits": [c.model_dump() for c in r.commits],
-        }
-        for r in resolved
-    ]
-
-    return SignalReportArtefact(
-        team_id=team_id,
-        report_id=report_id,
-        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        content=json.dumps(content),
-    )
+    reviewers_content: list[ReviewerContent] = []
+    for reviewer in resolved:
+        reviewers_content.append(
+            ReviewerContent(
+                github_login=reviewer.login.lower(),
+                github_name=reviewer.name,
+                relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits],
+            )
+        )
+    return reviewers_content
 
 
-def _persist_agentic_report_artefacts(
+def _replace_agentic_report_artefacts(
+    team_id: int,
+    report_id: str,
+    artefacts: list[SignalReportArtefact],
+) -> None:
+    with transaction.atomic():
+        # Delete artefacts from previous agentic runs (re-promotion) before writing new ones.
+        # Only deletes types owned by this path — safety_judgment is created by the safety judge
+        # activity and left untouched.
+        SignalReportArtefact.objects.filter(
+            team_id=team_id, report_id=report_id, type__in=_AGENTIC_ARTEFACT_TYPES
+        ).delete()
+        SignalReportArtefact.objects.bulk_create(artefacts)
+
+
+async def _persist_agentic_report_artefacts(
     team_id: int, report_id: str, result: ReportResearchOutput, repo_selection: RepoSelectionResult
 ) -> None:
-    artefacts = [
+    artefacts: list[SignalReportArtefact] = [
         SignalReportArtefact(
             team_id=team_id,
             report_id=report_id,
@@ -205,26 +224,51 @@ def _persist_agentic_report_artefacts(
         )
 
     # Resolve suggested reviewers from commit hashes
-    reviewers_artefact = _resolve_and_build_reviewers_artefact(
+    reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
         team_id=team_id,
-        report_id=report_id,
         repository=repo_selection.repository or "",
         findings=result.findings,
     )
-    if reviewers_artefact:
-        artefacts.append(reviewers_artefact)
+    if reviewers_content:
+        artefacts.append(
+            SignalReportArtefact(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps(reviewers_content),
+            )
+        )
 
-    with transaction.atomic():
-        # Delete artefacts from previous agentic runs (re-promotion) before writing new ones.
-        # Only deletes types owned by this path — safety_judgment is created by the safety judge
-        # activity and left untouched.
-        SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id=report_id, type__in=_AGENTIC_ARTEFACT_TYPES
-        ).delete()
-        SignalReportArtefact.objects.bulk_create(artefacts)
+    await database_sync_to_async(_replace_agentic_report_artefacts, thread_sensitive=False)(
+        team_id=team_id,
+        report_id=report_id,
+        artefacts=artefacts,
+    )
+
+    try:
+        await maybe_autostart_implementation_task(
+            team_id=team_id,
+            report_id=report_id,
+            repository=repo_selection.repository or "",
+            title=result.title,
+            summary=result.summary,
+            actionability=result.actionability,
+            priority=result.priority,
+            reviewers_content=reviewers_content,
+        )
+    except Exception as error:
+        posthoganalytics.capture_exception(error)
+        logger.exception(
+            "signals auto-start task failed",
+            report_id=report_id,
+            team_id=team_id,
+            repository=repo_selection.repository,
+            error=str(error),
+        )
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
@@ -246,20 +290,17 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 posthog_mcp_scopes="read_only",  # Needs only read (queries, insights)
             )
             # 2. Load previous research if this is a re-promoted report
-            previous_research = await database_sync_to_async(_load_previous_research, thread_sensitive=False)(
-                input.report_id
-            )
+            previous_research = await _load_previous_research(input.report_id)
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                branch="master",
                 signal_report_id=input.report_id,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
-            await database_sync_to_async(_persist_agentic_report_artefacts, thread_sensitive=False)(
+            await _persist_agentic_report_artefacts(
                 input.team_id,
                 input.report_id,
                 result,

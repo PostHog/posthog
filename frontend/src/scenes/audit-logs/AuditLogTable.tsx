@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
@@ -12,9 +12,11 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 export interface AuditLogTableProps {
     logItems: HumanizedActivityLogItem[]
     pagination?: PaginationManual
+    /** When provided, renders a Project column resolving each row's team_id via this map. */
+    teamsById?: Record<number, string>
 }
 
-const columns: LemonTableColumns<HumanizedActivityLogItem> = [
+const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
         title: 'Description',
         dataIndex: 'description',
@@ -29,21 +31,30 @@ const columns: LemonTableColumns<HumanizedActivityLogItem> = [
                       : (description as React.ReactNode) || 'No description'}
             </span>
         ),
-        width: '40%',
+        width: '30%',
     },
     {
         title: 'User',
         key: 'user',
         render: (_, logItem) => (
-            <ProfilePicture
-                showName={true}
-                user={{
-                    first_name: logItem.isSystem ? 'PostHog' : logItem.name,
-                    email: logItem.email ?? undefined,
-                }}
-                type={logItem.isSystem ? 'system' : 'person'}
-                size="md"
-            />
+            <div className="flex items-center gap-1.5">
+                <ProfilePicture
+                    showName={true}
+                    user={{
+                        first_name: logItem.isSystem ? 'PostHog' : logItem.name,
+                        email: logItem.email ?? undefined,
+                    }}
+                    type={logItem.isSystem ? 'system' : 'person'}
+                    size="md"
+                />
+                {logItem.unprocessed?.client === 'mcp' && (
+                    <Tooltip title="This action was performed via the MCP (Model Context Protocol) integration">
+                        <LemonTag type="muted" size="small">
+                            mcp
+                        </LemonTag>
+                    </Tooltip>
+                )}
+            </div>
         ),
         width: '20%',
     },
@@ -51,7 +62,7 @@ const columns: LemonTableColumns<HumanizedActivityLogItem> = [
         title: 'Activity',
         key: 'action',
         render: (_, logItem) => <span>{humanizeActivity(logItem.unprocessed?.activity || 'unknown')}</span>,
-        width: '20%',
+        width: '15%',
     },
     {
         title: 'Scope',
@@ -61,17 +72,52 @@ const columns: LemonTableColumns<HumanizedActivityLogItem> = [
                 {logItem.unprocessed?.scope ? humanizeScope(logItem.unprocessed.scope, true) : 'Unknown'}
             </span>
         ),
-        width: '20%',
+        width: '15%',
     },
     {
         title: 'Time',
         key: 'time',
         render: (_, logItem) => <TZLabel time={logItem.created_at} />,
+        width: '15%',
+    },
+    {
+        title: 'IP address',
+        key: 'ip_address',
+        render: (_, logItem) =>
+            logItem.unprocessed?.ip_address ? (
+                <span className="font-mono text-xs">{logItem.unprocessed.ip_address}</span>
+            ) : (
+                <span className="text-muted">—</span>
+            ),
         width: '10%',
     },
 ]
 
-export function AuditLogTable({ logItems, pagination }: AuditLogTableProps): JSX.Element {
+function buildColumns(teamsById?: Record<number, string>): LemonTableColumns<HumanizedActivityLogItem> {
+    if (!teamsById) {
+        return baseColumns
+    }
+
+    const projectColumn: LemonTableColumns<HumanizedActivityLogItem>[number] = {
+        title: 'Project',
+        key: 'project',
+        render: (_, logItem) => {
+            const teamId = (logItem.unprocessed as { team_id?: number | null } | undefined)?.team_id
+            if (teamId == null) {
+                return <span className="text-muted">Organization-wide</span>
+            }
+            const teamName = teamsById[teamId]
+            return <span>{teamName ?? `Project #${teamId}`}</span>
+        },
+        width: '15%',
+    }
+
+    // Insert Project as the second column (after Description, before User).
+    return [baseColumns[0], projectColumn, ...baseColumns.slice(1)]
+}
+
+export function AuditLogTable({ logItems, pagination, teamsById }: AuditLogTableProps): JSX.Element {
+    const columns = buildColumns(teamsById)
     const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
     const toggleRowExpansion = (_: HumanizedActivityLogItem, index: number): void => {

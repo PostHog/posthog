@@ -1,26 +1,28 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from '@posthog/lemon-ui'
+import {
+    subscriptionsList,
+    subscriptionsTestDeliveryCreate,
+} from '@posthog/products-subscriptions/frontend/generated/api'
+import {
+    SubscriptionsListResourceType,
+    TargetTypeEnumApi,
+    type PaginatedSubscriptionListApi,
+    type SubscriptionsListTargetType,
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { toggleSubscriptionEnabled } from 'lib/components/Subscriptions/toggleSubscriptionEnabled'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { subscriptionsList, subscriptionsTestDeliveryCreate } from '~/generated/core/api'
-import {
-    SubscriptionsListResourceType,
-    TargetTypeEnumApi,
-    type PaginatedSubscriptionListApi,
-    type SubscriptionsListTargetType,
-} from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
 
 import type { subscriptionsSceneLogicType } from './subscriptionsSceneLogicType'
@@ -32,6 +34,7 @@ export enum SubscriptionsTab {
     Mine = 'mine',
     Dashboard = 'dashboard',
     Insight = 'insight',
+    AI = 'ai_prompt',
 }
 
 /** Return type is full `SubscriptionsTab` so Kea typegen does not collapse state to the `All` literal. */
@@ -57,10 +60,9 @@ export interface SubscriptionsQueryFromUrl {
 
 function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): SubscriptionsQueryFromUrl {
     const rawTab = searchParams['tab']
-    const tab: SubscriptionsTab =
-        rawTab === SubscriptionsTab.Mine || rawTab === SubscriptionsTab.Dashboard || rawTab === SubscriptionsTab.Insight
-            ? rawTab
-            : SubscriptionsTab.All
+    const tab: SubscriptionsTab = (Object.values(SubscriptionsTab) as string[]).includes(rawTab as string)
+        ? (rawTab as SubscriptionsTab)
+        : SubscriptionsTab.All
 
     const search = urlSearchParamToString(searchParams['search'])
 
@@ -194,7 +196,6 @@ function buildSubscriptionsListOrdering(sorting: Sorting | null): string {
 
 export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
     path(['scenes', 'subscriptions', 'subscriptionsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({ values: [userLogic, ['user']] })),
     actions({
         loadSubscriptions: true,
@@ -205,10 +206,14 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         setSubscriptionsSorting: (sorting: Sorting | null) => ({ sorting }),
         setTargetTypeFilter: (targetType: SubscriptionsListTargetType | null) => ({ targetType }),
         applySubscriptionsQueryFromUrl: (query: SubscriptionsQueryFromUrl) => ({ query }),
+        setSubscriptionModalId: (id: number | 'new' | null) => ({ id }),
         deleteSubscriptionSuccess: true,
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: true,
+        setSubscriptionEnabledFailure: true,
     }),
     reducers({
         search: [
@@ -260,6 +265,14 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 applySubscriptionsQueryFromUrl: (_, { query }) => query.targetTypeFilter,
             },
         ],
+        // Drives the create/edit modal that now renders OVER the list (route-driven), so the
+        // list stays painted behind it instead of swapping to a separate scene. `null` = closed.
+        subscriptionModalId: [
+            null as number | 'new' | null,
+            {
+                setSubscriptionModalId: (_, { id }) => id,
+            },
+        ],
         /**
          * True after `setSearch` until the debounced list request finishes. Avoids treating stale
          * empty `subscriptionsResponse` as "no subscriptions in project" when filters were cleared.
@@ -280,6 +293,16 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 deliverSubscriptionFailure: () => null,
             },
         ],
+        // Tracks the subscription whose Pause/Resume PATCH is in flight so the row's
+        // menu item can show a busy state and prevent double-clicks.
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         subscriptionsResponse: [
@@ -292,6 +315,8 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                         resourceType = SubscriptionsListResourceType.Dashboard
                     } else if (values.currentTab === SubscriptionsTab.Insight) {
                         resourceType = SubscriptionsListResourceType.Insight
+                    } else if (values.currentTab === SubscriptionsTab.AI) {
+                        resourceType = SubscriptionsListResourceType.AiPrompt
                     }
                     const createdBy =
                         values.currentTab === SubscriptionsTab.Mine
@@ -372,8 +397,17 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 actions.deliverSubscriptionFailure()
             }
         },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            const ok = await toggleSubscriptionEnabled(id, enabled)
+            if (ok) {
+                actions.setSubscriptionEnabledSuccess()
+            } else {
+                actions.setSubscriptionEnabledFailure()
+            }
+        },
+        setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const syncUrl = (
             replace: boolean
         ): [string, Record<string, any>, Record<string, unknown> | undefined, { replace: boolean }] | undefined => {
@@ -402,8 +436,18 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             setCurrentTab: () => syncUrl(false),
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
+        [urls.subscriptionNew()]: () => {
+            actions.setSubscriptionModalId('new')
+        },
+        [urls.subscriptionEdit(':subscriptionId')]: ({ subscriptionId }) => {
+            const editingId = Number(subscriptionId)
+            actions.setSubscriptionModalId(Number.isFinite(editingId) ? editingId : 'new')
+        },
         [urls.subscriptions()]: (_, searchParams) => {
+            if (values.subscriptionModalId !== null) {
+                actions.setSubscriptionModalId(null)
+            }
             const parsed = parseSubscriptionsSearchParams(searchParams)
             const listState = {
                 currentTab: values.currentTab,

@@ -1,8 +1,9 @@
-import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { RequiredExcept } from 'lib/utils/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -55,7 +56,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
         return props.vizKey
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
+    actions({
+        setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }),
+        toggleRowExpanded: (rowIndex: number) => ({ rowIndex }),
+    }),
     reducers(({ props }) => ({
         columnsInQuery: [getColumnsForQuery(props.query), { setColumnsInQuery: (_, { columns }) => columns }],
     })),
@@ -65,6 +69,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentTeam'],
+            tabUiStateLogic,
+            ['expandedRowsFor'],
             dataNodeLogic({
                 key: props.dataNodeLogicKey ?? props.dataKey,
                 query: props.query.source,
@@ -76,9 +82,21 @@ export const dataTableLogic = kea<dataTableLogicType>([
             }),
             ['response', 'responseLoading', 'responseError'],
         ],
+        actions: [tabUiStateLogic, ['toggleExpandedRow']],
+    })),
+    listeners(({ props, actions }) => ({
+        toggleRowExpanded: ({ rowIndex }) => {
+            actions.toggleExpandedRow(undefined, props.vizKey, rowIndex)
+        },
     })),
     selectors({
         context: [() => [(_, props) => props.context], (context) => context],
+        expandedRows: [
+            (s) => [s.expandedRowsFor, (_, p) => p.vizKey],
+            (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], vizKey: string): number[] =>
+                expandedRowsFor(undefined, vizKey),
+            { resultEqualityCheck: objectsEqual },
+        ],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
             (_, p) => [p.query, (_, props) => props.context],
@@ -238,6 +256,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
                         showTableViews: query.showTableViews ?? false,
+                        showAbsoluteTime: query.showAbsoluteTime ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:

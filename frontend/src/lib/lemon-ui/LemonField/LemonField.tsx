@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
+import { cloneElement, isValidElement, useId } from 'react'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -103,9 +104,17 @@ export const LemonField = ({
     renderError,
     labelClassName,
     premiumFeature,
+    htmlFor,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
+    // Stable fallback id so clicking the label focuses the wrapped input. Used when neither the
+    // caller nor kea-forms (function-as-child case) put an id on the rendered input.
+    const generatedId = useId()
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
+        const kidsElement = isValidElement(kids) ? (kids as React.ReactElement<{ id?: string }>) : null
+        const existingId = kidsElement?.props.id
+        const inputId = htmlFor ?? existingId ?? generatedId
+        const renderedKids = kidsElement && existingId !== inputId ? cloneElement(kidsElement, { id: inputId }) : kids
         return (
             <LemonPureField
                 label={label}
@@ -118,8 +127,9 @@ export const LemonField = ({
                 renderError={renderError}
                 labelClassName={labelClassName}
                 premiumFeature={premiumFeature}
+                htmlFor={inputId}
             >
-                {kids as React.ReactNode}
+                {renderedKids as React.ReactNode}
             </LemonPureField>
         )
     }

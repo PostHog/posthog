@@ -5,6 +5,7 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
@@ -45,7 +46,7 @@ export const DEFAULT_ACTION_STEP: ActionStepType = {
 export const actionEditLogic = kea<actionEditLogicType>([
     path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => `${props.id || 'new'}`),
     connect(() => ({
         actions: [
             actionsModel,
@@ -66,8 +67,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
         deleteAction: true,
         migrateToHogFunction: true,
         setReferencesSearch: (search: string) => ({ search }),
+        setOriginalAction: (action: ActionType | null) => ({ action }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         createNew: [
             false,
             {
@@ -80,7 +82,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 setReferencesSearch: (_, { search }) => search,
             },
         ],
-    }),
+        // originalAction mirrors the action at the time it was first loaded, so edits can be
+        // compared against it (e.g. to detect cohort filter additions). It is stored as a
+        // reducer rather than derived from props because the logic may outlive the initial
+        // props.action (e.g. when the logic is mounted eagerly by the scene logic before the
+        // action has loaded).
+        originalAction: [
+            (props.action ?? null) as ActionType | null,
+            {
+                setOriginalAction: (_, { action }) => action,
+            },
+        ],
+    })),
     forms(({ actions, props }) => ({
         action: {
             defaults:
@@ -140,14 +153,16 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 lemonToast.success(`Action saved`)
                 actions.resetAction(updatedAction)
+                actions.setOriginalAction(action)
                 refreshTreeItem('action', String(action.id))
                 if (!props.id) {
                     // Mark task complete when creating a new action
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.DefineActions)
+                    tryShowMCPHint('actions.create')
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string
-                    const logic = actionLogic.findMounted(id)
+                    const logic = actionLogic.findMounted({ id })
                     logic?.actions.loadActionSuccess(action)
                 }
 
@@ -168,7 +183,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 false,
         ],
         originalActionHasCohortFilters: [
-            () => [(_, p: ActionEditLogicProps) => p.action],
+            (s) => [s.originalAction],
             (action) =>
                 action?.steps?.some((step: ActionStepType) => step.properties?.find((p: any) => p.type === 'cohort')) ??
                 false,
@@ -194,6 +209,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
                     return response
                 },
@@ -251,6 +267,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             if (props.action) {
                 // Sync the prop action with the internal state when mounting with an existing action
                 actions.setAction(props.action, { merge: false })
+                actions.setOriginalAction(props.action)
             }
             actions.loadReferences()
         }

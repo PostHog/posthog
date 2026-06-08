@@ -22,6 +22,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from pydantic import ValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -61,19 +62,20 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.trends.breakdown import (
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_OTHER_DISPLAY, TrendsQueryRunner
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -1021,6 +1023,54 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
 
+    def test_cohort_breakdown_does_not_leak_series_filter_cohort(self):
+        # Regression: when a trends series has a `person is in cohort` property filter AND the
+        # breakdown is by a list of other cohorts, the LEFTJOIN_CONJOINED resolver unions every
+        # referenced cohort into the `__in_cohort` join. Previously the breakdown column was
+        # read straight from that join, so the series-filter cohort leaked in as an extra bar.
+        self._create_test_events()
+        cohort_breakdown_a = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="breakdown a",
+        )
+        cohort_breakdown_a.calculate_people_ch(pending_version=0)
+        cohort_breakdown_b = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+            name="breakdown b",
+        )
+        cohort_breakdown_b.calculate_people_ch(pending_version=0)
+        cohort_series_filter = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "name", "value": ["p1", "p2", "p3"], "type": "person", "operator": "exact"}]}
+            ],
+            name="series filter",
+        )
+        cohort_series_filter.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[{"key": "id", "value": cohort_series_filter.pk, "type": "cohort"}],
+                )
+            ],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[cohort_breakdown_a.pk, cohort_breakdown_b.pk],
+            ),
+        )
+
+        breakdown_values = {result["breakdown_value"] for result in response.results}
+        assert breakdown_values == {cohort_breakdown_a.pk, cohort_breakdown_b.pk}
+        assert cohort_series_filter.pk not in breakdown_values
+
     def test_trends_avg_session_duration_with_cohort_breakdown(self):
         # Regression test: queries with avg session_duration and multiple cohort
         # breakdowns should not crash with AttributeError on SelectQueryAliasType
@@ -1060,6 +1110,111 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["count"] == 0
         assert len(response.results[1]["data"]) == 12
         assert len(response.results[1]["days"]) == 12
+
+    @parameterized.expand(
+        [
+            ("2_cohorts_limit_1", 2, 1),
+            ("3_cohorts_limit_1", 3, 1),
+            ("5_cohorts_limit_2", 5, 2),
+        ]
+    )
+    def test_cohort_breakdown_with_lower_breakdown_limit(self, _name, cohort_count, breakdown_limit):
+        # Regression: a breakdown_limit smaller than the number of selected cohorts
+        # used to bucket the surplus cohorts as the "Other" sentinel, which then
+        # crashed the label lookup in build_series_response with
+        # ValueError: Field 'id' expected a number but got '$$_posthog_breakdown_other_$$'.
+        self._create_test_events()
+        cohorts = []
+        for i in range(cohort_count):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": f"p{i + 1}", "type": "person"}]}],
+                name=f"cohort p{i + 1}",
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            cohorts.append(cohort)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[c.pk for c in cohorts],
+                breakdown_limit=breakdown_limit,
+            ),
+        )
+
+        breakdown_values = {result["breakdown_value"] for result in response.results}
+        assert BREAKDOWN_OTHER_STRING_LABEL not in breakdown_values
+        # Every emitted breakdown_value must be one of the selected cohort PKs.
+        assert breakdown_values.issubset({c.pk for c in cohorts})
+
+    @parameterized.expand(
+        [
+            ("total_value_display", TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE)),
+            ("line_graph_display", None),
+        ]
+    )
+    def test_cohort_breakdown_with_filter_only_cohort(self, _name, trends_filter):
+        # Setup:
+        #   - 4 narrow breakdown cohorts (one person each)
+        #   - 1 broad filter-only cohort, used only in a series `person in cohort` filter
+        #   - `breakdown_limit` below the cohort count
+        # Runs through both outer-query paths (total-value rank and line-chart CTE chain).
+        self._create_test_events()
+
+        breakdown_cohorts = [
+            Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": name, "type": "person"}]}],
+                name=f"breakdown {name}",
+            )
+            for name in ("p1", "p2", "p3", "p4")
+        ]
+        for cohort in breakdown_cohorts:
+            cohort.calculate_people_ch(pending_version=0)
+
+        # Broad enough to outrank any breakdown cohort — so if the filter-only cohort were to
+        # leak into the breakdown, it would push a declared cohort past the limit.
+        filter_only_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "name", "value": ["p1", "p2", "p3", "p4"], "type": "person", "operator": "exact"}
+                    ]
+                }
+            ],
+            name="filter only",
+        )
+        filter_only_cohort.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.DAU,
+                    properties=[{"key": "id", "value": filter_only_cohort.pk, "type": "cohort"}],
+                )
+            ],
+            trends_filter,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[c.pk for c in breakdown_cohorts],
+                breakdown_limit=2,
+            ),
+        )
+
+        breakdown_values = {result["breakdown_value"] for result in response.results}
+        assert BREAKDOWN_OTHER_STRING_LABEL not in breakdown_values
+        assert filter_only_cohort.pk not in breakdown_values
+        assert breakdown_values.issubset({c.pk for c in breakdown_cohorts})
 
     def test_trends_avg_session_duration_with_event_breakdown(self):
         # Regression test: queries with avg session_duration and event property
@@ -1411,6 +1566,51 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["10-Jan-2020", "11-Jan-2020", "12-Jan-2020", "13-Jan-2020", "14-Jan-2020"],
             response.results[1]["labels"],
         )
+
+    @parameterized.expand(
+        [
+            # name, date_from, date_to, compare_filter, expected_from, expected_to
+            ("no_compare", "2020-01-09", "2020-01-20", None, None, None),
+            (
+                "previous_period",
+                "-7d",
+                None,
+                CompareFilter(compare=True),
+                datetime(2020, 1, 1, 0, 0, 0),
+                datetime(2020, 1, 8, 23, 59, 59, 999999),
+            ),
+            (
+                "explicit_compare_to",
+                "-7d",
+                None,
+                CompareFilter(compare=True, compare_to="-1w"),
+                datetime(2020, 1, 1, 0, 0, 0),
+                datetime(2020, 1, 8, 23, 59, 59, 999999),
+            ),
+        ]
+    )
+    def test_trends_resolved_compare_date_range(
+        self, _name, date_from, date_to, compare_filter, expected_from, expected_to
+    ):
+        self._create_test_events()
+        utc = zoneinfo.ZoneInfo("UTC")
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            response = self._run_trends_query(
+                date_from,
+                date_to,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(),
+                compare_filters=compare_filter,
+            )
+
+        if expected_from is None:
+            self.assertIsNone(response.resolved_compare_date_range)
+        else:
+            assert response.resolved_compare_date_range is not None
+            self.assertEqual(response.resolved_compare_date_range.date_from, expected_from.replace(tzinfo=utc))
+            self.assertEqual(response.resolved_compare_date_range.date_to, expected_to.replace(tzinfo=utc))
 
     def test_trends_compare_weeks(self):
         self._create_test_events()
@@ -1895,6 +2095,95 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
         assert "is not supported with histogram breakdowns" in str(exc_info.value)
+
+    @parameterized.expand(
+        [
+            # Numeric-looking values stored as strings register the property as
+            # String, so the property-type swapper does not coerce it. The
+            # histogram bin math (max - min) must still work rather than raising
+            # ILLEGAL_TYPE_OF_ARGUMENT.
+            ("numeric_strings", ["10", "40"], {"[10,25]", "[25,40.01]"}),
+            # A stray non-numeric value must bucket as NULL (toFloat maps to
+            # accurateCastOrNull) rather than throw and fail the whole query.
+            (
+                "mixed_with_non_numeric",
+                ["10", "40", "abc"],
+                {"[10,25]", "[25,40.01]", BREAKDOWN_NULL_STRING_LABEL},
+            ),
+            # Missing property entirely also buckets as NULL.
+            (
+                "mixed_with_missing",
+                ["10", "40", None],
+                {"[10,25]", "[25,40.01]", BREAKDOWN_NULL_STRING_LABEL},
+            ),
+        ]
+    )
+    def test_trends_histogram_breakdown_on_string_typed_property(self, _name, values, expected_buckets):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id=f"p{i}",
+                    events=[Series(event="$pageview", timestamps=[f"2020-01-1{1 + i}T12:00:00Z"])],
+                    properties={"str_amount": value} if value is not None else {},
+                )
+                for i, value in enumerate(values)
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-15",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        assert {r["breakdown_value"] for r in response.results} == expected_buckets
+
+    def test_trends_histogram_breakdown_on_string_typed_property_actors_drill_in(self):
+        # The actors drill-in filter (_get_actors_query_where_expr) coerces the
+        # property to a float the same way the breakdown column does — exercise
+        # that path so the toFloatOrNull symmetry stays pinned end to end.
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
+                    properties={"str_amount": "10"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"str_amount": "40"},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        query_runner = self._create_query_runner(
+            "2020-01-11",
+            "2020-01-13",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        actors_query = query_runner.to_actors_query(
+            time_frame="2020-01-11", series_index=0, breakdown_value="[10,25]", compare_value=None
+        )
+        result = execute_hogql_query(query=actors_query, team=self.team)
+        actual_actor_ids = [row[2][0] for row in result.results]
+        assert actual_actor_ids == ["p1"]
 
     def test_trends_aggregation_hogql(self):
         self._create_test_events()
@@ -2728,6 +3017,99 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert modifiers.inCohortVia == InCohortVia.AUTO
+
+    @parameterized.expand(
+        [
+            ("flag_off_no_breakdown", False, None, False),
+            (
+                "flag_off_session_multi",
+                False,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                False,
+            ),
+            ("flag_on_no_breakdown", True, None, False),
+            (
+                "flag_on_event_multi",
+                True,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]),
+                False,
+            ),
+            (
+                "flag_on_session_multi",
+                True,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                True,
+            ),
+            (
+                "flag_on_session_legacy",
+                True,
+                BreakdownFilter(breakdown_type=BreakdownType.SESSION, breakdown="$channel_type"),
+                True,
+            ),
+            (
+                "flag_on_event_legacy",
+                True,
+                BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+                False,
+            ),
+        ]
+    )
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    def test_session_property_pre_aggregation_modifier_gate(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        breakdown_filter: Optional[BreakdownFilter],
+        expected: bool,
+        patch_feature_enabled,
+    ):
+        patch_feature_enabled.return_value = flag_enabled
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")], breakdownFilter=breakdown_filter),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is expected
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
+        # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
+        # query state, not the initial one — so a session-breakdown query that gets overridden
+        # with an event breakdown must clear the modifier back to False.
+        from posthog.schema import DashboardFilter
+
+        patch_feature_enabled.return_value = True
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]
+                ),
+            ),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is True
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]
+                )
+            )
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is False
+
+    def test_raises_for_empty_series(self):
+        query_runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[],
+            ),
+        )
+
+        with self.assertRaises(DRFValidationError) as context:
+            query_runner.calculate()
+
+        self.assertIn("Trends insights require at least one series.", str(context.exception))
 
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):

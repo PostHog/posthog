@@ -7,7 +7,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { JSSnippet, JSSnippetV2 as JSSnippetV2Component } from 'lib/components/JSSnippet'
+import { JSSnippet } from 'lib/components/JSSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -72,19 +72,6 @@ export function WebSnippet(): JSX.Element {
     )
 }
 
-export function WebSnippetV2(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-
-    return currentTeamLoading && !currentTeam ? (
-        <div className="deprecated-space-y-4">
-            <LemonSkeleton className="w-1/2 h-4" />
-            <LemonSkeleton repeat={3} />
-        </div>
-    ) : (
-        <JSSnippetV2Component />
-    )
-}
-
 function DebugInfoPanel(): JSX.Element | null {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -109,7 +96,11 @@ function DebugInfoPanel(): JSX.Element | null {
             <h3 id="debug-info" className="min-w-[25rem]">
                 Debug information
             </h3>
-            <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
+            <p>
+                Include this snippet when creating an issue (feature request or bug report) on GitHub. The session and
+                admin links inside it are internal references the PostHog team uses to look into your report — they only
+                resolve for PostHog staff.
+            </p>
             {anyLoading ? (
                 <LemonSkeleton repeat={2} active={true} />
             ) : (

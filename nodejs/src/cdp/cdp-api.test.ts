@@ -1,4 +1,5 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -80,7 +81,10 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub.postgres)
 
         cdpDeps = createCdpConsumerDeps(hub)
-        api = new CdpApi(hub, cdpDeps)
+        api = new CdpApi(hub, cdpDeps, {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -488,6 +492,55 @@ describe('CDP API', () => {
         `)
     })
 
+    it('redacts secret input values in mocked async function logs', async () => {
+        const SECRET_TOKEN = 'super-secret-bearer-token-xyz'
+
+        const hogFunctionWithSecret = await insertHogFunction({
+            name: 'test hog function with secret in headers',
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+                {
+                    key: 'method',
+                    type: 'choice',
+                    label: 'HTTP Method',
+                    secret: false,
+                    choices: [
+                        { label: 'POST', value: 'POST' },
+                        { label: 'GET', value: 'GET' },
+                    ],
+                    required: true,
+                },
+                { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+                { key: 'body', type: 'json', label: 'Body', secret: false, required: true },
+            ],
+            inputs: {
+                url: { value: 'https://example.com/posthog-webhook' },
+                access_token: { value: SECRET_TOKEN },
+                method: { value: 'POST' },
+                headers: { value: { Authorization: `Bearer ${SECRET_TOKEN}` } },
+                body: { value: {} },
+            },
+        })
+
+        const res = await supertest(app)
+            .post(
+                `/api/projects/${hogFunctionWithSecret.team_id}/hog_functions/${hogFunctionWithSecret.id}/invocations`
+            )
+            .send({ globals, mock_async_functions: true })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
+
+        const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(allLogText).not.toContain(SECRET_TOKEN)
+        // Confirm the sanitization path actually ran rather than the test passing by virtue of
+        // no fetch log being emitted at all.
+        expect(allLogText).toContain('***REDACTED***')
+    })
+
     describe('transformations', () => {
         let configuration: HogFunctionType
 
@@ -635,12 +688,93 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow invocation groups', () => {
+        const resolvedGroup = {
+            id: 'org-1',
+            type: 'organization',
+            index: 0,
+            url: 'http://localhost:8000/groups/0/org-1',
+            properties: { plan: 'enterprise' },
+        }
+
+        const groupGlobals: Partial<HogFunctionInvocationGlobals> = {
+            ...globals,
+            groups: {},
+            event: {
+                ...globals.event!,
+                properties: { $groups: { organization: 'org-1' } },
+            },
+        }
+
+        let executeSpy: jest.SpyInstance
+        let getGroupsSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            executeSpy = jest.spyOn(api['hogFlowExecutor'], 'executeCurrentAction').mockImplementation(((
+                invocation: any
+            ) =>
+                Promise.resolve({
+                    invocation,
+                    error: null,
+                    logs: [],
+                    execResult: null,
+                })) as any)
+            getGroupsSpy = jest
+                .spyOn(api['groupsManager'], 'getGroupsForEvent')
+                .mockResolvedValue({ organization: resolvedGroup })
+        })
+
+        afterEach(() => {
+            executeSpy.mockRestore()
+            getGroupsSpy.mockRestore()
+        })
+
+        it('resolves groups from the event when none are provided', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({ globals: groupGlobals, mock_async_functions: true, configuration: {} })
+
+            expect(res.status).toEqual(200)
+            expect(getGroupsSpy).toHaveBeenCalledWith(
+                team.id,
+                expect.objectContaining({ $groups: { organization: 'org-1' } }),
+                expect.stringContaining(`/project/${team.id}`)
+            )
+            // Resolved groups flow into filterGlobals so conditional branches can evaluate them
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.group_0).toEqual({ properties: { plan: 'enterprise' } })
+            expect(invocation.filterGlobals.$group_0).toEqual('org-1')
+        })
+
+        it('does not override groups provided in the payload', async () => {
+            const providedGroups = {
+                organization: { ...resolvedGroup, id: 'org-provided', properties: { plan: 'startup' } },
+            }
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...groupGlobals, groups: providedGroups },
+                    mock_async_functions: true,
+                    configuration: {},
+                })
+
+            expect(res.status).toEqual(200)
+            expect(getGroupsSpy).not.toHaveBeenCalled()
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.$group_0).toEqual('org-provided')
+        })
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let originalKafkaProducer: any
+        let produceSpy: jest.SpyInstance
 
         beforeEach(async () => {
-            originalKafkaProducer = cdpDeps.kafkaProducer
+            // The batch hogflow route now goes through the outputs registry, which in
+            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
+            // on its `produce` intercepts the produced message without reconstructing
+            // the api.
+            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -666,7 +800,7 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            cdpDeps.kafkaProducer = originalKafkaProducer
+            produceSpy.mockRestore()
         })
 
         it('errors if missing team', async () => {
@@ -715,8 +849,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job request to kafka', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            cdpDeps.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
@@ -728,7 +861,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -746,8 +879,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job with filters from hog flow config when not provided', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            cdpDeps.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
@@ -755,7 +887,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -771,17 +903,6 @@ describe('CDP API', () => {
                 key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
             })
         })
-
-        it('errors if kafka producer not available', async () => {
-            cdpDeps.kafkaProducer = undefined as any
-
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
-                .send({})
-
-            expect(res.status).toEqual(500)
-            expect(res.body.error).toEqual('Kafka producer not available')
-        })
     })
 
     describe('scheduled hogflow invocations', () => {
@@ -790,7 +911,7 @@ describe('CDP API', () => {
 
         beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
 
             scheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),

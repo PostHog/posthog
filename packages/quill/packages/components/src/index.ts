@@ -7,13 +7,8 @@
 // dropdown menu chaining, DataTable wiring sort + filter + selection on
 // top of Table primitives. Opinionated wrappers you'd otherwise hand-roll
 // in every app.
-//
-// None of these are implemented yet. This file is an empty module so
-// TypeScript treats it as one and downstream packages (the @posthog/quill
-// aggregate in particular) can `export * from '@posthog/quill-components'`
-// without hitting a "not a module" error while the layer is still empty.
-// Each new component should be added here as a named export and will flow
-// through to the public @posthog/quill surface automatically on the next
-// build.
 
-export {}
+export { DataTable, type DataTableProps } from './data-table'
+export { DateTimePicker, type DateTimePickerProps, type DateTimeValue, type DateFormatOrder } from './date-time-picker'
+export { quickRanges, CUSTOM_RANGE, type DateTimeRange, type DateTimeRangeName } from './date-time-ranges'
+export { useCalendar, Day, Month, type UseCalendarOptions, type UseCalendarReturn } from './use-calendar'

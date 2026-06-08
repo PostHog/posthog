@@ -8,8 +8,9 @@ use axum::Router;
 use envconfig::Envconfig;
 use futures::future::ready;
 use lifecycle::{ComponentOptions, Manager};
-use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -18,7 +19,9 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::transport::HttpTransport;
+use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
 
@@ -86,10 +89,34 @@ async fn async_main(config: Config) -> Result<()> {
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
-    // Install Prometheus recorder
+    // Install Prometheus recorder with custom histogram buckets matching the
+    // Node.js ingestion consumer, so existing dashboards and alerts work during switchover.
     let recorder_handle = if config.export_prometheus {
         Some(
             PrometheusBuilder::new()
+                .set_buckets_for_metric(
+                    Matcher::Full("ingestionLagHistogram".into()),
+                    &[
+                        1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0,
+                        300_000.0, 600_000.0, 900_000.0,
+                    ],
+                )
+                .expect("ingestionLagHistogram buckets")
+                .set_buckets_for_metric(
+                    Matcher::Full("consumerBatchSize".into()),
+                    &[
+                        0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
+                    ],
+                )
+                .expect("consumerBatchSize buckets")
+                .set_buckets_for_metric(
+                    Matcher::Full("consumerBatchSizeKb".into()),
+                    &[
+                        0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0,
+                        102_400.0, 204_800.0,
+                    ],
+                )
+                .expect("consumerBatchSizeKb buckets")
                 .install_recorder()
                 .expect("failed to install Prometheus recorder"),
         )
@@ -99,7 +126,27 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    // Spawn the consumer task
+    let worker_urls = config.worker_urls();
+
+    // Build the worker health registry and start background probe tasks.
+    let registry_config = WorkerRegistryConfig {
+        probe_interval: Duration::from_millis(config.worker_probe_interval_ms),
+        dead_declaration: Duration::from_millis(config.worker_dead_declaration_ms),
+        passive_window: Duration::from_millis(config.worker_passive_window_ms),
+        passive_error_threshold: config.worker_passive_error_threshold,
+        passive_min_samples: config.worker_passive_min_samples,
+        degraded_hold: Duration::from_millis(config.worker_degraded_hold_ms),
+        min_state_duration: Duration::from_millis(config.worker_min_state_duration_ms),
+        probe_failure_threshold: config.worker_probe_failure_threshold,
+    };
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
+
+    // Probe tasks run until the consumer shuts down.
+    let probe_token = CancellationToken::new();
+    Arc::clone(&registry).start_probing(probe_token.clone());
+
+    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+
     let api_secret = if config.internal_api_secret.is_empty() {
         None
     } else {
@@ -109,13 +156,17 @@ async fn async_main(config: Config) -> Result<()> {
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
         api_secret,
+        &worker_urls,
+        config.ingestion_worker_concurrent_batches,
     ));
 
-    let consumer = IngestionConsumer::new(&config, transport, consumer_handle)
+    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
         .context("Failed to create Kafka consumer")?;
 
     tokio::spawn(async move {
         consumer.process().await;
+        // Cancel probe tasks once the consumer loop exits.
+        probe_token.cancel();
     });
 
     // Build and serve the health/metrics HTTP server

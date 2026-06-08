@@ -1,14 +1,14 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
 
 import {
@@ -33,55 +33,62 @@ import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/lo
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'configuration']
+export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
+
+// Scope the viewer id (and so its persisted state: pinned logs, filters, config) per project.
+// A static id would persist across projects in the same browser, leaking one project's pinned log payloads into another.
+export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
+
+export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
-export interface LogsLogicProps {
-    tabId: string
+const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
+    if (typeof params.alertId === 'string' && params.alertId.length > 0) {
+        return 'alerts'
+    }
+    if (typeof params.activeTab === 'string' && VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab)) {
+        return params.activeTab as LogsSceneActiveTab
+    }
+    return null
 }
 
 export const logsSceneLogic = kea<logsSceneLogicType>([
-    props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
-    tabAwareScene(),
-    connect((props: LogsLogicProps) => ({
+    connect(() => ({
         actions: [
-            logsViewerFiltersLogic({ id: props.tabId }),
+            logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setFilters'],
-            logsFilterHistoryLogic({ id: props.tabId }),
+            logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
-            logsViewerConfigLogic({ id: props.tabId }),
+            logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setOrderBy'],
-            logsViewerDataLogic({ id: props.tabId }),
+            logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
-            logsViewerLogic({ id: props.tabId }),
+            logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setLinkToLogId', 'clearLinkToLogId'],
-            logDetailsModalLogic({ id: props.tabId }),
+            logDetailsModalLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['closeLogDetails'],
         ],
         values: [
-            logsViewerFiltersLogic({ id: props.tabId }),
+            logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
-            logsViewerConfigLogic({ id: props.tabId }),
+            logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['orderBy'],
-            logsViewerDataLogic({ id: props.tabId }),
+            logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
-            logsViewerLogic({ id: props.tabId }),
+            logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['linkToLogId'],
         ],
     })),
-    tabAwareUrlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
             }
-            if (
-                typeof params.activeTab === 'string' &&
-                VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab) &&
-                params.activeTab !== values.activeTab
-            ) {
-                actions.setActiveTab(params.activeTab as LogsSceneActiveTab)
+            const requestedTab = resolveActiveTabFromParams(params)
+            if (requestedTab && requestedTab !== values.activeTab) {
+                actions.setActiveTab(requestedTab)
             }
 
             const filtersFromUrl: Partial<LogsViewerFilters> = {}
@@ -163,7 +170,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         }
     }),
 
-    tabAwareActionToUrl(({ values, cache }) => {
+    trackedActionToUrl(({ values, cache }) => {
         const syncUrl = (): [
             string,
             Params,
@@ -233,6 +240,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         syncUrl: true,
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
+        keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
 
     reducers({
@@ -250,11 +258,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         ],
     }),
 
-    selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
-    }),
-
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
             const index = breakdowns.indexOf(key)
@@ -267,6 +271,16 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         },
         setOrderBy: () => {
             actions.syncUrl()
+        },
+        keepSqlEditorMounted: ({ editorTabId }) => {
+            if (cache.sqlEditorTabId === editorTabId) {
+                return
+            }
+            cache.unmountSqlEditor?.()
+            cache.sqlEditorTabId = editorTabId
+            // Intentionally not cleaned up in beforeUnmount: keeps the embedded sqlEditorLogic
+            // alive across navigation so the user's query survives leaving and re-entering /logs.
+            cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
         },
     })),
 ])

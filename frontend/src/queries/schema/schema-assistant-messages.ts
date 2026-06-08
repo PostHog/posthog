@@ -15,6 +15,7 @@ import type {
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
     LifecycleQuery,
@@ -157,7 +158,7 @@ export interface MultiQuestionFormQuestion {
     type?: MultiQuestionFormQuestionType
     /** Available answer options (required for select and multi_select) */
     options?: MultiQuestionFormQuestionOption[]
-    /** Whether to show a "Type your answer" option (default: true). Only used for select type. */
+    /** Whether to show a "Type your answer" option (default: true). Used for select and multi_select types. */
     allow_custom_answer?: boolean
     /** Fields for multi_field type questions, grouped with a shared submit button */
     fields?: MultiQuestionFormField[]
@@ -194,6 +195,8 @@ export interface AssistantMessageMetadata {
     form?: AssistantForm
     /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
+    /** Provenance for non-LLM-authored messages. Format: `slash_command:<name>`. */
+    source?: string
 }
 
 export interface AssistantToolCall {
@@ -240,6 +243,7 @@ export interface ContextMessage extends BaseAssistantMessage {
  * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
  */
 export type AnyAssistantGeneratedQuery =
+    | DataVisualizationNode
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
@@ -450,6 +454,7 @@ export type AssistantTool =
     | 'search_session_recordings'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
+    | 'create_user_interview_topic'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -494,6 +499,22 @@ export type AssistantTool =
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'list_llm_skills'
+    | 'get_llm_skill'
+    | 'get_llm_skill_file'
+    | 'create_llm_skill'
+    | 'update_llm_skill'
+    | 'archive_llm_skill'
+    | 'diagnose_proxy'
+    | 'web_analytics_doctor'
+    | 'marketing_diagnose_setup'
+    | 'marketing_explain_conversion_goal'
+    | 'marketing_list_conversion_goals'
+    | 'marketing_list_data_sources'
+    | 'marketing_audit_utm'
+    | 'marketing_suggest_conversion_goals'
+    | 'marketing_suggest_utm_mappings'
+    | 'summarize_replay_vision_summaries'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -505,8 +526,9 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
+    UserInterview = 'user_interview',
 }
 
 export enum SlashCommandName {

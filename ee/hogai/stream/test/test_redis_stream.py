@@ -15,6 +15,8 @@ from posthog.schema import (
     AssistantMessage,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_PREFIX,
     CONVERSATION_STREAM_TIMEOUT,
@@ -28,7 +30,6 @@ from ee.hogai.stream.redis_stream import (
     get_subagent_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
-from ee.models.assistant import Conversation
 
 
 class TestRedisStream(BaseTest):
@@ -62,7 +63,7 @@ class TestRedisStream(BaseTest):
             mock_client.exists = AsyncMock(return_value=False)
 
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("ee.hogai.stream.redis_stream.asyncio.get_event_loop") as mock_get_loop:
+                with patch("ee.hogai.stream.redis_stream.asyncio.get_running_loop") as mock_get_loop:
                     from unittest.mock import MagicMock
 
                     mock_loop = MagicMock()
@@ -135,7 +136,7 @@ class TestRedisStream(BaseTest):
             # Mock xread to return no messages indefinitely
             mock_client.xread = AsyncMock(return_value=[])
 
-            with patch("asyncio.get_event_loop") as mock_loop:
+            with patch("ee.hogai.stream.redis_stream.asyncio.get_running_loop") as mock_loop:
                 mock_loop.return_value.time.side_effect = [0, CONVERSATION_STREAM_TIMEOUT + 1]
 
                 with self.assertRaises(StreamError) as context:

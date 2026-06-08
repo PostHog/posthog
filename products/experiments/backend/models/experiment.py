@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel
@@ -24,7 +25,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         STOPPED = "stopped", "Stopped"
 
     name = models.CharField(max_length=400)
-    description = models.CharField(max_length=400, null=True, blank=True)
+    description = models.CharField(max_length=3000, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     # Filters define the target metric of an Experiment
@@ -44,7 +45,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     secondary_metrics = models.JSONField(default=list, null=True, blank=True)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
-    feature_flag = models.ForeignKey("posthog.FeatureFlag", blank=False, on_delete=models.RESTRICT)
+    feature_flag = models.ForeignKey("feature_flags.FeatureFlag", blank=False, on_delete=models.RESTRICT)
     exposure_cohort = models.ForeignKey("posthog.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
     holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -54,7 +55,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False, null=True)
-    type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
+    type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
     exposure_criteria = models.JSONField(default=dict, null=True, blank=True)
@@ -74,7 +75,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=Status,
         default=None,
         null=True,
         blank=True,
@@ -126,6 +127,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.is_launched and self.end_date is not None
 
     @property
+    def is_paused(self) -> bool:
+        # Pause is not stored on the experiment — it is the running state with the linked flag deactivated.
+        return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
+
+    @property
     def computed_status(self) -> "Experiment.Status":
         if self.is_stopped:
             return Experiment.Status.STOPPED
@@ -150,6 +156,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
+            "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
             "created_at": self.created_at,
         }
@@ -158,9 +165,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.stats_config.get(key) if self.stats_config else None
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
-        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -251,7 +258,9 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
         db_table = "posthog_experimentsavedmetric"
 
 
-class ExperimentToSavedMetric(models.Model):
+class ExperimentToSavedMetric(ModelActivityMixin, models.Model):
+    activity_logging_on_delete = True
+
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 
@@ -280,7 +289,7 @@ class ExperimentMetricResult(models.Model):
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     result = models.JSONField(null=True, blank=True, default=None)
     query_id = models.CharField(max_length=255, null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -311,7 +320,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
     metric = models.JSONField()
     fingerprint = models.CharField(max_length=64)  # SHA256 hash
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     last_successful_date = models.DateField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

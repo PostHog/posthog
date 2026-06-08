@@ -22,6 +22,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _preload_active_external_data_schemas,
     build_database_root_node,
     get_data_warehouse_table_name,
 )
@@ -36,6 +37,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -48,11 +50,13 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
@@ -356,6 +360,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert table is not None
         assert len(table.fields.keys()) == 1
 
+        # The table is also queryable by its raw underscore name, so it must be surfaced for search
+        assert table.search_aliases == ["stripe_table_1"]
+
         assert table.source is not None
         assert table.source.id == str(source.id)
         assert table.source.status == "Completed"
@@ -375,6 +382,78 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.hogql_value == "id"
         assert field.type == "string"
         assert field.schema_valid is True
+
+    def _create_warehouse_table(self, *, name, url_pattern, source=None, credential=None):
+        return DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            credential=credential,
+            url_pattern=url_pattern,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+    def test_create_hogql_database_ignores_tables_of_deleted_sources(self):
+        # A table left behind by a soft-deleted source must not shadow the live table that a
+        # re-connected source created under the same name (the orphan-table resolution bug).
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+
+        deleted_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="old",
+            connection_id="old",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        # Created first, so without the fix it would win the first-come tree insertion. Mark the
+        # source — not the table — deleted to reproduce the orphan state (table.deleted stays False).
+        self._create_warehouse_table(
+            name="pull_requests", url_pattern="s3://orphan/*", source=deleted_source, credential=credential
+        )
+        deleted_source.deleted = True
+        deleted_source.save()
+
+        live_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="new",
+            connection_id="new",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self._create_warehouse_table(
+            name="pull_requests", url_pattern="s3://live/*", source=live_source, credential=credential
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("pull_requests")
+        assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://live/*"
+
+    def test_create_hogql_database_keeps_self_managed_table_without_source(self):
+        # Guards the deleted-source exclusion against the Django exclude()-with-NULL gotcha:
+        # a self-managed table (no source) must still resolve.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        self._create_warehouse_table(name="self_managed", url_pattern="s3://self/*", credential=credential)
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("self_managed")
+        assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
+
+    def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
+        # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        older = self._create_warehouse_table(name="pull_requests", url_pattern="s3://older/*", credential=credential)
+        newer = self._create_warehouse_table(name="pull_requests", url_pattern="s3://newer/*", credential=credential)
+
+        # Pin created_at explicitly (bypasses auto_now_add) so the tiebreak is deterministic.
+        DataWarehouseTable.objects.filter(pk=older.pk).update(created_at="2024-01-01T00:00:00+00:00")
+        DataWarehouseTable.objects.filter(pk=newer.pk).update(created_at="2024-06-01T00:00:00+00:00")
+
+        database = Database.create_for(team=self.team)
+
+        assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://newer/*"
 
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(
@@ -465,7 +544,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     @snapshot_postgres_queries
@@ -605,6 +684,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         sql = "select some_field.key from events"
         prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+
+    def test_database_warehouse_joins_on_system_table_are_serialized(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="system.accounts",
+            source_table_key="external_id",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="my_join_field",
+        )
+
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=db)
+        serialized = db.serialize(context, include_only={"system.accounts"})
+
+        assert "system.accounts" in serialized
+        assert "my_join_field" in serialized["system.accounts"].fields
 
     def test_database_warehouse_joins_deleted_join(self):
         DataWarehouseJoin.objects.create(
@@ -1037,6 +1133,86 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse"
         )
 
+    @parameterized.expand(
+        [
+            ("self_managed", False),
+            ("external_source", True),
+        ]
+    )
+    def test_data_warehouse_events_modifiers_when_view_and_table_share_a_name(
+        self, _name: str, use_external_source: bool
+    ):
+        shared_name = "analytics_search_history"
+
+        warehouse_table_kwargs: dict[str, Any] = {}
+        if use_external_source:
+            credentials = DataWarehouseCredential.objects.create(
+                access_key="test_key", access_secret="test_secret", team=self.team
+            )
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="source_id",
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            warehouse_table_kwargs = {
+                "credential": credentials,
+                "external_data_source": source,
+            }
+
+        DataWarehouseTable.objects.create(
+            name=shared_name,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            url_pattern=f"s3://test/{shared_name}",
+            queryable_folder=f"{shared_name}__query_1776789614",
+            columns={
+                "email": "Nullable(String)",
+                "user_name": "Nullable(String)",
+                "created_at": "Nullable(DateTime64(6))",
+                "search_count": "Nullable(Float64)",
+                "search_source": "Nullable(String)",
+            },
+            **warehouse_table_kwargs,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=shared_name,
+            query={"query": "SELECT 1 AS ignored_value", "kind": "HogQLQuery"},
+            columns={"ignored_value": "UInt8"},
+        )
+
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name=shared_name,
+                    id_field="user_name",
+                    timestamp_field="created_at",
+                    distinct_id_field="user_name",
+                )
+            ]
+        )
+
+        db = Database.create_for(team=self.team, modifiers=modifiers)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        actual_table = db.get_table(shared_name)
+
+        assert isinstance(actual_table, Table)
+        assert isinstance(actual_table.fields.get("id"), ExpressionField)
+        assert isinstance(actual_table.fields.get("timestamp"), ExpressionField)
+        assert isinstance(actual_table.fields.get("distinct_id"), ExpressionField)
+        assert isinstance(actual_table.fields.get("person_id"), ExpressionField)
+
+        prepare_and_print_ast(
+            parse_select(f"SELECT id, timestamp, distinct_id, person_id FROM {shared_name}"),
+            context,
+            dialect="clickhouse",
+        )
+
     def test_direct_postgres_table_supports_properties_virtual_table(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -1063,6 +1239,105 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert isinstance(direct_table, Table)
         assert "properties" in direct_table.fields
+
+    def test_global_database_skips_loading_direct_query_tables(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        direct_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source_id",
+            connection_id="direct_connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        warehouse_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="warehouse_source_id",
+            connection_id="warehouse_connection_id",
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+        direct_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=direct_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=warehouse_source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "string", "clickhouse": "String", "schema_valid": True}},
+        )
+
+        with patch(
+            "posthog.hogql.database.database._preload_active_external_data_schemas",
+            wraps=_preload_active_external_data_schemas,
+        ) as preload_mock:
+            Database.create_for(team=self.team)
+
+        loaded_table_ids = {table.id for table in preload_mock.call_args.args[0]}
+
+        assert warehouse_table.id in loaded_table_ids
+        assert direct_table.id not in loaded_table_ids
+
+    def test_direct_database_only_loads_requested_connection_tables(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        first_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="first_source_id",
+            connection_id="first_connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="first",
+        )
+        second_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="second_source_id",
+            connection_id="second_connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="second",
+        )
+        first_table = DataWarehouseTable.objects.create(
+            name="first_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=first_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="second_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=second_source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+
+        with patch(
+            "posthog.hogql.database.database._preload_active_external_data_schemas",
+            wraps=_preload_active_external_data_schemas,
+        ) as preload_mock:
+            Database.create_for(team=self.team, connection_id=str(first_source.id))
+
+        loaded_tables = preload_mock.call_args.args[0]
+
+        assert [table.id for table in loaded_tables] == [first_table.id]
 
     def test_adds_foreign_key_joins_for_direct_postgres_tables(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -1314,6 +1589,77 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert isinstance(orders.fields.get("customer"), LazyJoin)
         assert isinstance(customers.fields.get("orders"), LazyJoin)
+
+    def test_direct_postgres_inferred_foreign_key_uses_matching_column_and_skips_self_reference(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ducklake_demo_finance",
+        )
+        invoice_table = DataWarehouseTable.objects.create(
+            name="ducklake_demo_finance.invoices",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "invoice_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "customer_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "invoice_date": {"hogql": "date", "clickhouse": "Date", "schema_valid": True},
+            },
+        )
+        payment_table = DataWarehouseTable.objects.create(
+            name="ducklake_demo_finance.payments",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={
+                "payment_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "invoice_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "paid_at": {"hogql": "datetime", "clickhouse": "DateTime", "schema_valid": True},
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            name="ducklake_demo_finance.invoices", team=self.team, source=source, table=invoice_table
+        )
+        ExternalDataSchema.objects.create(
+            name="ducklake_demo_finance.payments", team=self.team, source=source, table=payment_table
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        payments = database.get_table("ducklake_demo_finance.payments")
+        invoices = database.get_table("ducklake_demo_finance.invoices")
+
+        invoice_join = cast(LazyJoin, payments.fields.get("invoice"))
+
+        assert invoice_join.from_field == ["invoice_id"]
+        assert invoice_join.to_field == ["invoice_id"]
+        assert invoices.fields.get("invoice") is None
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+
+        prepare_and_print_ast(
+            parse_select("SELECT invoice.invoice_id FROM ducklake_demo_finance.payments"),
+            context,
+            dialect="postgres",
+        )
+
+        with pytest.raises(ExposedHogQLError):
+            prepare_and_print_ast(
+                parse_select("SELECT invoice.invoice_id FROM ducklake_demo_finance.invoices"),
+                context,
+                dialect="postgres",
+            )
 
     def test_direct_postgres_foreign_key_join_allows_user_traversal(self):
         credentials = DataWarehouseCredential.objects.create(
@@ -1724,7 +2070,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "disabled_table" not in serialized
         assert database.get_serialization_errors() == {}
 
-    def test_direct_postgres_direct_mode_skips_tables_materialized_from_views(self) -> None:
+    def test_direct_postgres_direct_mode_includes_tables_materialized_from_views(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -1755,8 +2101,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team, connection_id=str(source.id))
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert not database.has_table("materialized_table")
-        assert "materialized_table" not in serialized
+        assert database.has_table("materialized_table")
+        assert "materialized_table" in serialized
 
     def test_deleted_direct_postgres_schema_does_not_reenable_table(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
@@ -2102,6 +2448,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "web_pre_aggregated_bounces",
             "preaggregation_results",
             "experiment_exposures_preaggregated",
+            "experiment_metric_events_preaggregated",
             "persons_revenue_analytics",
             "groups_revenue_analytics",
             "raw_session_replay_events",

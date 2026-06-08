@@ -1,7 +1,6 @@
-import { type DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 
-import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
+import { Chart, ChartType, DeepPartial, LegendOptions, defaults } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -35,6 +34,7 @@ export function ActionsLineGraph({
         showValuesOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        showAnnotations,
         trendsFilter,
         lifecycleFilter,
         isLifecycle,
@@ -205,7 +205,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
-            hideAnnotations={inSharedMode}
+            hideAnnotations={inSharedMode || showAnnotations === false}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             anomalyPoints={alertAnomalyPoints}
             onDateRangeZoom={context?.onDateRangeZoom}

@@ -1,6 +1,6 @@
 import urllib.parse
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -23,7 +23,7 @@ from posthog.models.team import Team
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct, CustomerProductAddon
+from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
@@ -47,127 +47,121 @@ def create_billing_response(**kwargs) -> dict[str, Any]:
 
 
 def create_missing_billing_customer(**kwargs) -> CustomerInfo:
-    data = CustomerInfo(
-        customer_id="cus_123",
-        deactivated=False,
-        custom_limits_usd={},
-        has_active_subscription=False,
-        current_total_amount_usd="0.00",
-        products=None,
-        billing_period=BillingPeriod(
+    data: dict[str, Any] = {
+        "customer_id": "cus_123",
+        "deactivated": False,
+        "custom_limits_usd": {},
+        "has_active_subscription": False,
+        "current_total_amount_usd": "0.00",
+        "current_total_amount_usd_after_discount": "0.00",
+        "discount_percent": None,
+        "discount_amount_usd": None,
+        "customer_trust_scores": {},
+        "products": None,
+        "billing_period": BillingPeriod(
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
+            interval="month",
         ),
-        usage_summary=create_usage_summary(),
-        free_trial_until=None,
-        available_product_features=[],
-    )
+        "usage_summary": create_usage_summary(),
+        "free_trial_until": None,
+        "available_product_features": [],
+    }
     data.update(kwargs)
-    return data
+    return cast(CustomerInfo, data)
 
 
 def create_billing_customer(**kwargs) -> CustomerInfo:
-    data = CustomerInfo(
-        customer_id="cus_123",
-        custom_limits_usd={},
-        has_active_subscription=True,
-        current_total_amount_usd="100.00",
-        deactivated=False,
-        products=[
-            CustomerProduct(
-                name="Product OS",
-                description="Product Analytics, event pipelines, data warehousing",
-                price_description=None,
-                type="product_analytics",
-                image_url="https://posthog.com/static/images/product-os.png",
-                free_allocation=10000,
-                tiers=[
-                    {
-                        "unit_amount_usd": "0.00",
-                        "up_to": 1000000,
-                        "current_amount_usd": "0.00",
-                    },
-                    {
-                        "unit_amount_usd": "0.00045",
-                        "up_to": 2000000,
-                        "current_amount_usd": "0.00",
-                    },
+    data: dict[str, Any] = {
+        "customer_id": "cus_123",
+        "custom_limits_usd": {},
+        "has_active_subscription": True,
+        "current_total_amount_usd": "100.00",
+        "current_total_amount_usd_after_discount": "100.00",
+        "discount_percent": None,
+        "discount_amount_usd": None,
+        "deactivated": False,
+        "products": [
+            {
+                "name": "Product OS",
+                "description": "Product Analytics, event pipelines, data warehousing",
+                "price_description": None,
+                "type": "product_analytics",
+                "image_url": "https://posthog.com/static/images/product-os.png",
+                "free_allocation": 10000,
+                "tiers": [
+                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": "0.00"},
                 ],
-                tiered=True,
-                unit_amount_usd="0.00",
-                current_amount_usd="0.00",
-                current_usage=0,
-                usage_limit=None,
-                has_exceeded_limit=False,
-                percentage_usage=0,
-                projected_usage=0,
-                projected_amount_usd="0.00",
-                projected_amount_usd_with_limit="0.00",
-                usage_key="events",
-                addons=[
-                    CustomerProductAddon(
-                        name="Addon",
-                        description="Test Addon",
-                        price_description=None,
-                        type="addon",
-                        image_url="https://posthog.com/static/images/product-os.png",
-                        free_allocation=10000,
-                        tiers=[
-                            {
-                                "unit_amount_usd": "0.00",
-                                "up_to": 1000000,
-                                "current_amount_usd": "0.00",
-                            },
-                            {
-                                "unit_amount_usd": "0.0000135",
-                                "up_to": 2000000,
-                                "current_amount_usd": "0.00",
-                            },
+                "tiered": True,
+                "unit_amount_usd": "0.00",
+                "current_amount_usd": "0.00",
+                "current_usage": 0,
+                "usage_limit": None,
+                "has_exceeded_limit": False,
+                "percentage_usage": 0,
+                "projected_usage": 0,
+                "projected_amount_usd": "0.00",
+                "projected_amount_usd_with_limit": "0.00",
+                "usage_key": "events",
+                "addons": [
+                    {
+                        "name": "Addon",
+                        "description": "Test Addon",
+                        "price_description": None,
+                        "type": "addon",
+                        "image_url": "https://posthog.com/static/images/product-os.png",
+                        "free_allocation": 10000,
+                        "tiers": [
+                            {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
+                            {"unit_amount_usd": "0.0000135", "up_to": 2000000, "current_amount_usd": "0.00"},
                         ],
-                        tiered=True,
-                        unit_amount_usd="0.00",
-                        current_amount_usd="0.00",
-                        current_usage=0,
-                        usage_limit=None,
-                        has_exceeded_limit=False,
-                        percentage_usage=0,
-                        projected_usage=0,
-                        projected_amount_usd="0.00",
-                        usage_key="events",
-                        subscribed=True,
-                    )
+                        "tiered": True,
+                        "unit_amount_usd": "0.00",
+                        "current_amount_usd": "0.00",
+                        "current_usage": 0,
+                        "usage_limit": None,
+                        "has_exceeded_limit": False,
+                        "percentage_usage": 0,
+                        "projected_usage": 0,
+                        "projected_amount_usd": "0.00",
+                        "usage_key": "events",
+                        "subscribed": True,
+                    }
                 ],
-            )
+            }
         ],
-        customer_trust_scores={
+        "customer_trust_scores": {
             "surveys": 15,
             "feature_flags": 15,
             "data_warehouse": 15,
             "session_replay": 15,
             "product_analytics": 15,
         },
-        billing_period=BillingPeriod(
+        "billing_period": BillingPeriod(
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
+            interval="month",
         ),
-        usage_summary=create_usage_summary(),
-        free_trial_until=None,
-    )
+        "usage_summary": create_usage_summary(),
+        "free_trial_until": None,
+        "available_product_features": [],
+    }
     data.update(kwargs)
-    return data
+    return cast(CustomerInfo, data)
 
 
 def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct]]:
     data: Any = {
         "products": [
-            CustomerProduct(
-                name="Product OS",
-                description="Product Analytics, event pipelines, data warehousing",
-                price_description=None,
-                type="events",
-                image_url="https://posthog.com/static/images/product-os.png",
-                free_allocation=10000,
-                tiers=[
+            {
+                "name": "Product OS",
+                "description": "Product Analytics, event pipelines, data warehousing",
+                "price_description": None,
+                "type": "events",
+                "image_url": "https://posthog.com/static/images/product-os.png",
+                "free_allocation": 10000,
+                "tiers": [
                     {
                         "unit_amount_usd": "0.00",
                         "up_to": 1000000,
@@ -187,7 +181,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                         "projected_usage": None,
                     },
                 ],
-                addons=[
+                "addons": [
                     {
                         "current_amount_usd": 0.0,
                         "current_usage": 0,
@@ -228,23 +222,23 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                         "usage_limit": None,
                     },
                 ],
-                tiered=True,
-                unit_amount_usd="0.00",
-                current_amount_usd=0.0,
-                current_usage=0,
-                usage_limit=None,
-                has_exceeded_limit=False,
-                percentage_usage=0,
-                projected_usage=0,
-                projected_amount=0,
-                projected_amount_usd=0.00,
-                projected_amount_usd_with_limit=0.00,
-                usage_key="events",
-            )
+                "tiered": True,
+                "unit_amount_usd": "0.00",
+                "current_amount_usd": 0.0,
+                "current_usage": 0,
+                "usage_limit": None,
+                "has_exceeded_limit": False,
+                "percentage_usage": 0,
+                "projected_usage": 0,
+                "projected_amount": 0,
+                "projected_amount_usd": 0.00,
+                "projected_amount_usd_with_limit": 0.00,
+                "usage_key": "events",
+            }
         ]
     }
     data.update(kwargs)
-    return data
+    return cast(dict[str, list[CustomerProduct]], data)
 
 
 class TestUnlicensedBillingAPI(APIBaseTest):
@@ -276,6 +270,16 @@ class TestUnlicensedBillingAPI(APIBaseTest):
             "available_product_features": [],
             "products": create_default_products_response()["products"],
         }
+
+    def test_license_patch_denied_for_members(self):
+        # Unlicensed instance, so the permission layer (not the "license already exists"
+        # guard) decides the outcome. Setting the instance-wide license key is an
+        # admin-only action.
+        TEST_clear_instance_license_cache()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.patch("/api/billing/license", {}, content_type="application/json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestBillingAPI(APILicensedTest):
@@ -368,6 +372,9 @@ class TestBillingAPI(APILicensedTest):
             "has_active_subscription": True,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "current_total_amount_usd": "100.00",
+            "current_total_amount_usd_after_discount": "100.00",
+            "discount_percent": None,
+            "discount_amount_usd": None,
             "deactivated": False,
             "products": [
                 {
@@ -438,6 +445,7 @@ class TestBillingAPI(APILicensedTest):
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
+                "interval": "month",
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
@@ -467,6 +475,7 @@ class TestBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "customer_id": "cus_123",
+            "customer_trust_scores": {},
             "license": {"plan": "cloud"},
             "custom_limits_usd": {},
             "has_active_subscription": False,
@@ -557,16 +566,22 @@ class TestBillingAPI(APILicensedTest):
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
+                "interval": "month",
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
+            "current_total_amount_usd_after_discount": "0.00",
+            "discount_percent": None,
+            "discount_amount_usd": None,
             "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
     def test_billing_stores_valid_license(self, mock_request):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.license.delete()
 
         mock_request.return_value.status_code = 200
@@ -591,6 +606,8 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_billing_ignores_invalid_license(self, mock_request):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.license.delete()
 
         mock_request.return_value.status_code = 403
@@ -630,6 +647,7 @@ class TestBillingAPI(APILicensedTest):
         assert self.license.plan == "scale"
         TEST_clear_instance_license_cache()
         license = get_cached_instance_license()
+        assert license is not None
         assert license.plan == "scale"
         assert license.valid_until == datetime(2022, 1, 2, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
 
@@ -642,6 +660,7 @@ class TestBillingAPI(APILicensedTest):
 
         self.client.get("/api/billing")
         license = get_cached_instance_license()
+        assert license is not None
         assert license.plan == "enterprise"
         # Should be extended by 30 days
         assert license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=ZoneInfo("UTC"))
@@ -711,12 +730,13 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.side_effect = mock_implementation
 
-        assert not self.organization.usage
+        self.assertIsNone(self.organization.usage)
         res = self.client.get("/api/billing")
         assert res.status_code == 200
-        self.organization.refresh_from_db()
+        organization = Team.objects.get(pk=self.team.pk).organization
+        assert organization.usage is not None
         TestCase().assertDictEqual(
-            self.organization.usage,
+            organization.usage,
             create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0}),
         )
 
@@ -882,7 +902,7 @@ class TestPortalBillingAPI(APILicensedTest):
         response = self.client.get("/api/billing/portal")
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("https://billing.stripe.com/p/session/test_1234", response.url)
+        self.assertIn("https://billing.stripe.com/p/session/test_1234", cast(Any, response).url)
 
 
 class TestActivateBillingAPI(APILicensedTest):

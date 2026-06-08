@@ -3,10 +3,14 @@ from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.dispatch import receiver
+from django.utils import timezone
 
+import structlog
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -16,7 +20,7 @@ from oauth2_provider.models import (
 )
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -53,12 +57,12 @@ class OAuthApplication(AbstractApplication):
     # NOTE: By default an application should be linked to the organization that created it.
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
     # Only admins of the organization should have permission to edit the application.
-    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]
+    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
     )
 
     # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
-    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     logo_uri: models.URLField = models.URLField(
         max_length=2048, null=True, blank=True, help_text="URL to the client's logo image"
@@ -90,6 +94,19 @@ class OAuthApplication(AbstractApplication):
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
         default=OAuthApplicationAuthBrand.POSTHOG.value,
         help_text="Branding to use on authentication pages",
+    )
+
+    # Server-stored scope ceiling for tokens issued for this app.
+    # CharField max_length matches PersonalAPIKey.scopes (`max_length=100`)
+    # so the same `obj:action` strings fit identically across both
+    # PAT and OAuth surfaces.
+    scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
     )
 
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
@@ -139,14 +156,51 @@ class OAuthApplication(AbstractApplication):
     provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
         default=True, help_text="Can this app provision projects and API keys"
     )
+    provisioning_issues_personal_api_key: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Whether provisioning mints a Personal API Key for this app. Off by default; "
+            "only grandfathered apps (the legacy Stripe app) still issue one, capped at the app's scopes."
+        ),
+    )
     provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
+    )
+    provisioning_rate_limit_account_requests_source: models.CharField = models.CharField(
+        max_length=24,
+        blank=True,
+        default="",
+        choices=[
+            ("default_unverified", "default_unverified"),
+            ("default_verified", "default_verified"),
+            ("admin", "admin"),
+        ],
+        help_text=(
+            "Records who set provisioning_rate_limit_account_requests so verification flips don't "
+            "overwrite an explicit admin override."
+        ),
     )
     provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
     )
     provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
+    )
+    provisioning_disabled: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text=(
+            "Kill switch for misbehaving partners. When true, apply_provisioning_defaults will not "
+            "re-enable the app on subsequent CIMD requests."
+        ),
+    )
+    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
+    )
+    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
     )
 
     @property
@@ -159,13 +213,13 @@ class OAuthApplication(AbstractApplication):
         swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(skip_authorization=False),
+                condition=models.Q(skip_authorization=False),
                 name="enforce_skip_authorization_false",
             ),
             # Note: We do not support HS256 since we don't want to store the client secret in plaintext
-            models.CheckConstraint(check=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
+            models.CheckConstraint(condition=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
             models.CheckConstraint(
-                check=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
+                condition=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
                 name="enforce_supported_grant_types",
             ),
         ]
@@ -252,7 +306,7 @@ class OAuthAccessToken(AbstractAccessToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -263,6 +317,27 @@ class OAuthAccessToken(AbstractAccessToken):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
+    # When set, this token was minted by a staff user impersonating `user`. Used to revoke
+    # tokens at impersonation end. SET_NULL so the customer's tokens survive admin deactivation.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
+
+    # Optional user-facing label set at mint time. Carried across refreshes so
+    # it persists for the life of the connection, not just one rotated token.
+    label: models.CharField = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Optional user-facing label so a user can identify a token (per-device, per-IP, or by purpose).",
+    )
+
 
 class OAuthIDToken(AbstractIDToken):
     class Meta(AbstractIDToken.Meta):
@@ -272,7 +347,7 @@ class OAuthIDToken(AbstractIDToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -289,7 +364,7 @@ class OAuthRefreshToken(AbstractRefreshToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_refresh_tokens",
@@ -297,6 +372,16 @@ class OAuthRefreshToken(AbstractRefreshToken):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+    # See OAuthAccessToken.impersonated_by — propagated through token rotation.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
 
 
 class OAuthGrant(AbstractGrant):
@@ -308,14 +393,14 @@ class OAuthGrant(AbstractGrant):
         # Note: We do not support plaintext code challenge methods since they are not secure
         constraints = [
             models.CheckConstraint(
-                check=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
+                condition=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
                 name="enforce_supported_code_challenge_method",
             )
         ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_grants",
@@ -323,6 +408,16 @@ class OAuthGrant(AbstractGrant):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+    # See OAuthAccessToken.impersonated_by — propagated from grant to access token at code exchange.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
 
 
 def find_oauth_access_token(token: str) -> OAuthAccessToken | None:
@@ -383,3 +478,142 @@ def revoke_oauth_session(
 
         # Delete all grants for this user+application
         OAuthGrant.objects.filter(user=user, application=application).delete()
+
+
+def generate_random_token_cimd_verification() -> str:
+    return "phvt_" + generate_random_token()
+
+
+class CIMDVerificationToken(models.Model):
+    """Token that links a CIMD partner app to a PostHog organization.
+
+    A partner embeds the plaintext token in their CIMD metadata document under
+    `posthog_verification_token`. On fetch, we hash and look up the token; if it
+    matches, we link the resulting OAuthApplication to this organization and
+    apply the verified-partner rate-limit tier.
+    """
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+    organization: "Organization" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.Organization", on_delete=models.CASCADE, related_name="cimd_verification_tokens"
+    )
+    label: models.CharField = models.CharField(max_length=40)
+    mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
+    secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
+    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "CIMD Verification Token"
+        verbose_name_plural = "CIMD Verification Tokens"
+
+
+def find_cimd_verification_token(token: str) -> "CIMDVerificationToken | None":
+    if not token or not token.startswith("phvt_"):
+        return None
+    secure_value = hash_key_value(token)
+    try:
+        return CIMDVerificationToken.objects.select_related("organization").get(secure_value=secure_value)
+    except CIMDVerificationToken.DoesNotExist:
+        return None
+
+
+def create_cimd_verification_token(
+    *, organization: "Organization", label: str, created_by: "User | None" = None
+) -> tuple[CIMDVerificationToken, str]:
+    """Create a new token, returning (instance, plaintext). Plaintext is only
+    available at creation time — we only persist its hash."""
+    plaintext = generate_random_token_cimd_verification()
+    token = CIMDVerificationToken.objects.create(
+        organization=organization,
+        label=label,
+        created_by=created_by,
+        secure_value=hash_key_value(plaintext),
+        mask_value=mask_key_value(plaintext),
+    )
+    return token, plaintext
+
+
+class CIMDBlocklistEntry(models.Model):
+    """Persistent blocklist for CIMD partner URLs.
+
+    Source of truth for is_cimd_url_blocked - the Redis check is a read-through
+    cache. Persisting in Postgres means the blocklist survives Redis flushes /
+    LRU eviction and a deleted CIMD app can stay blocked across restarts.
+    """
+
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+    cimd_url: models.URLField = models.URLField(max_length=2048, unique=True)
+    reason: models.CharField = models.CharField(max_length=200, blank=True, default="")
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        verbose_name = "CIMD Blocklist Entry"
+        verbose_name_plural = "CIMD Blocklist Entries"
+
+
+logger = structlog.get_logger(__name__)
+
+
+@receiver(user_logged_out)
+def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
+    """Revoke OAuth tokens minted during an impersonation session when it ends.
+
+    Fires on every logout, but only acts on impersonation logouts — when the loginas
+    session flag is still set and we can recover the original (staff) user. Tokens
+    are matched by `(user=<impersonated>, impersonated_by=<staff>)`, so only tokens
+    this admin minted during this kind of impersonation are revoked; the customer's
+    own pre-existing tokens (impersonated_by IS NULL) are untouched.
+
+    Lives in the model module so the receiver is registered as soon as Django
+    imports `OAuthAccessToken` — no explicit `apps.py` wiring required.
+    """
+    if request is None or user is None:
+        return
+
+    from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+
+    if not is_impersonated_session(request):
+        return
+
+    impersonator = get_original_user_from_session(request)
+    if impersonator is None:
+        return
+
+    now = timezone.now()
+    access_deleted, _ = OAuthAccessToken.objects.filter(user=user, impersonated_by=impersonator).delete()
+    refresh_revoked = OAuthRefreshToken.objects.filter(
+        user=user, impersonated_by=impersonator, revoked__isnull=True
+    ).update(revoked=now)
+    grants_deleted, _ = OAuthGrant.objects.filter(user=user, impersonated_by=impersonator).delete()
+
+    if access_deleted or refresh_revoked or grants_deleted:
+        logger.info(
+            "impersonation_oauth_tokens_revoked",
+            impersonated_user_id=user.pk,
+            impersonator_user_id=impersonator.pk,
+            access_tokens_deleted=access_deleted,
+            refresh_tokens_revoked=refresh_revoked,
+            grants_deleted=grants_deleted,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OAuthApplication)
+def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **kwargs):
+    # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
+    # can't immediately recreate the same partner. Admin can explicitly
+    # unblock via unblock_cimd_url if they want to allow re-registration.
+    if not (instance.is_cimd_client and instance.cimd_metadata_url):
+        return
+    from posthog.api.oauth.cimd import block_cimd_url
+
+    block_cimd_url(
+        instance.cimd_metadata_url,
+        reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
+    )

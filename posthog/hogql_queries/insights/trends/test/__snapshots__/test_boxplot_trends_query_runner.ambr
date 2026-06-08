@@ -9,7 +9,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'purchase'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'purchase'))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -20,6 +20,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -34,7 +36,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -45,6 +47,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -59,7 +63,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -70,6 +74,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -84,7 +90,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalMinute(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 10:05:00', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 10:00:00', 'UTC')), toIntervalMinute(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 10:05:00', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -95,6 +101,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -109,7 +117,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-11-27 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-11-27 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -120,6 +128,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -134,7 +144,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-10-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-31 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -145,6 +155,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -159,7 +171,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -170,6 +182,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -184,7 +198,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -195,6 +209,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -226,7 +242,7 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -237,6 +253,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -251,7 +269,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -262,106 +280,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_multiple_users_aggregate_within_same_day
-  '''
-  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
-         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
-         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
-         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
-         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
-         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
-  FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
-  GROUP BY day_start
-  ORDER BY day_start ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_no_data_fills_all_dates_with_zeros
-  '''
-  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
-         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
-         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
-         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
-         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
-         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
-  FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
-  GROUP BY day_start
-  ORDER BY day_start ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_0_all_missing
-  '''
-  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
-         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
-         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
-         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
-         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
-         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
-  FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
-  GROUP BY day_start
-  ORDER BY day_start ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_1_single_missing
-  '''
-  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
-         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
-         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
-         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
-         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
-         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
-  FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
-  GROUP BY day_start
-  ORDER BY day_start ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -376,7 +296,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -387,6 +307,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -401,7 +323,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'other_event'))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'other_event'))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -412,6 +334,116 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBoxPlotTrendsQueryRunner.test_multiple_users_aggregate_within_same_day
+  '''
+  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
+         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
+         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
+         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
+         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
+         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  GROUP BY day_start
+  ORDER BY day_start ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBoxPlotTrendsQueryRunner.test_no_data_fills_all_dates_with_zeros
+  '''
+  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
+         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
+         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
+         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
+         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
+         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-10 23:59:59', 'UTC'))))
+  GROUP BY day_start
+  ORDER BY day_start ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_0_all_missing
+  '''
+  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
+         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
+         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
+         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
+         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
+         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  GROUP BY day_start
+  ORDER BY day_start ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBoxPlotTrendsQueryRunner.test_none_property_values_become_zero_1_single_missing
+  '''
+  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
+         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
+         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
+         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
+         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
+         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  GROUP BY day_start
+  ORDER BY day_start ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -426,7 +458,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -437,6 +469,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -451,7 +485,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -462,6 +496,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -476,7 +512,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -487,6 +523,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -501,7 +539,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -512,6 +550,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -534,9 +574,8 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
-     WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+        GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
+     WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
      GROUP BY e.`$session_id`,
               day_start)
   GROUP BY day_start
@@ -549,6 +588,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -563,7 +604,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -574,6 +615,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -588,7 +631,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -599,6 +642,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -613,7 +658,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -624,6 +669,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -638,7 +685,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -649,6 +696,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -663,7 +712,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -674,6 +723,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -688,7 +739,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -699,6 +750,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -713,7 +766,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -724,6 +777,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -738,7 +793,7 @@
          max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -749,6 +804,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''

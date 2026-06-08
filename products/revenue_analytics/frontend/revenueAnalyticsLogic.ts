@@ -1,15 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -25,6 +23,8 @@ import {
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
 import { Breadcrumb, DataWarehouseSavedQuery, InsightLogicProps, InsightShortId, SimpleIntervalType } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
@@ -122,7 +122,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ['dataWarehouseSavedQueries'],
         ],
         actions: [
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['loadSourcesSuccess'],
             dataWarehouseViewsLogic,
             ['loadDataWarehouseSavedQueries'],
@@ -453,13 +453,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             }
         },
     })),
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
         setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
             setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.revenueAnalytics()]: (_, { filters, date_from, date_to }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||

@@ -1,15 +1,24 @@
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+from django.db.models import Q
 
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.models.insight import Insight
+from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.product_analytics.backend.models.insight import Insight
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -482,11 +491,17 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
     )
 
 
-def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
+def create_from_template(
+    dashboard: Dashboard,
+    template: DashboardTemplate,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
-    dashboard.description = template.dashboard_description
+    dashboard.description = template.dashboard_description or ""
     for template_tag in template.tags or []:
         tag, _ = Tag.objects.get_or_create(
             name=template_tag,
@@ -496,7 +511,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
-    for template_tile in template.tiles:
+    for template_tile in template.tiles or []:
         if template_tile["type"] == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(
@@ -527,6 +542,17 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user
                 style=template_tile.get("style", "primary"),
                 transparent_background=template_tile.get("transparent_background"),
             )
+        elif template_tile["type"] == "WIDGET":
+            _create_tile_for_widget(
+                dashboard,
+                widget_type=template_tile.get("widget_type", ""),
+                config=template_tile.get("config", {}),
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                transparent_background=template_tile.get("transparent_background"),
+                user=user,
+                user_access_control=user_access_control,
+            )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
@@ -545,6 +571,7 @@ def _create_tile_for_text(
     DashboardTile.objects.create(
         text=text,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
@@ -571,7 +598,48 @@ def _create_tile_for_button(
     DashboardTile.objects.create(
         button_tile=button_tile,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
+        color=color,
+        transparent_background=transparent_background,
+    )
+
+
+def _create_tile_for_widget(
+    dashboard: Dashboard,
+    widget_type: str,
+    config: dict,
+    layouts: dict | None,
+    color: Optional[str],
+    transparent_background: Optional[bool] = None,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    from products.dashboards.backend.widget_create import (
+        prepare_widget_tile_create,  # noqa: PLC0415 — breaks posthog.models import cycle
+    )
+
+    normalized_widget_type, validated_config = prepare_widget_tile_create(
+        team=dashboard.team,
+        widget_type=widget_type,
+        config=config,
+        user=user,
+        user_access_control=user_access_control,
+    )
+    with team_scope(dashboard.team_id):
+        widget = DashboardWidget.objects.create(
+            team=dashboard.team,
+            widget_type=normalized_widget_type,
+            config=validated_config,
+            created_by=user,
+            last_modified_by=user,
+        )
+    DashboardTile.objects.create(
+        widget=widget,
+        dashboard=dashboard,
+        team_id=dashboard.team_id,
+        layouts=layouts or {},
         color=color,
         transparent_background=transparent_background,
     )
@@ -598,16 +666,26 @@ def _create_tile_for_insight(
     DashboardTile.objects.create(
         insight=insight,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
     )
 
 
-def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> None:
+def create_dashboard_from_template(
+    template_key: str,
+    dashboard: Dashboard,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     if template_key in DASHBOARD_TEMPLATES:
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
-    template = DashboardTemplate.objects.filter(template_name=template_key).first()
+    template = DashboardTemplate.objects.filter(
+        Q(team_id=dashboard.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL),
+        template_name=template_key,
+    ).first()
     if not template:
         original_template = DashboardTemplate.original_template()
         if template_key == original_template.template_name:
@@ -615,7 +693,7 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
         else:
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
-    create_from_template(dashboard, template)
+    create_from_template(dashboard, template, user, user_access_control=user_access_control)
 
 
 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
@@ -917,6 +995,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
         tile = DashboardTile.objects.create(
             insight=insight,
             dashboard=dashboard,
+            team_id=dashboard.team_id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": x, "y": y, "minH": 1, "minW": 1},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
