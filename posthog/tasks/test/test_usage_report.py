@@ -2278,6 +2278,70 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             model=BatchExport.Model.EVENTS,
         )
 
+        batch_export_on_demand_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+            config={"format": "Parquet"},
+        )
+        with team_scope(team_id=3, canonical=True):
+            batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_on_demand_destination,
+                model=BatchExport.Model.EVENTS,
+            )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export=batch_export,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export_on_demand=batch_export_on_demand,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_exported_in_period"] == 1200
+        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 1200
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_batch_export_rows_exported_in_period_excludes_workflows(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.WORKFLOWS,
+            config={},
+        )
+        batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.EVENTS,
+        )
+
         with team_scope(team_id=3, canonical=True):
             batch_export_on_demand = BatchExportOnDemand.objects.create(
                 team_id=3,
@@ -2316,8 +2380,8 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["rows_exported_in_period"] == 1200
-        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 1200
+        assert org_1_report["rows_exported_in_period"] == 0
+        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 0
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
