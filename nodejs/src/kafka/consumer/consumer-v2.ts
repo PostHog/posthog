@@ -38,6 +38,10 @@ import {
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const STATISTICS_INTERVAL_MS = 5000
 const LOOP_STALL_THRESHOLD_MS_DEFAULT = 60_000
+// auto.offset.reset is a topic-level property and which config form librdkafka honors varies by
+// version (see node-rdkafka #984), so it's applied to both the global config and the explicit
+// topic config. This is the default when a consumer doesn't opt into an override.
+const DEFAULT_AUTO_OFFSET_RESET = 'earliest'
 
 export type KafkaConsumerV2Config = {
     groupId: string
@@ -142,11 +146,9 @@ export class KafkaConsumerV2 {
             'socket.timeout.ms': 30_000,
             'enable.partition.eof': this.config.enablePartitionEof ?? true,
             'statistics.interval.ms': STATISTICS_INTERVAL_MS,
-            // auto.offset.reset is a topic-level property and which form librdkafka honors
-            // varies by version (see node-rdkafka #984), so we set it in both: here as the
-            // global/default-topic-conf fallback, and explicitly in the topic config in
-            // createConsumer (the resolved value, including any override). Keep them in sync.
-            ['auto.offset.reset' as keyof ConsumerGlobalConfig]: 'earliest' as never,
+            // Global/default-topic-conf fallback; the resolved value (incl. any override) is
+            // also applied to the explicit topic config in createConsumer.
+            ['auto.offset.reset' as keyof ConsumerGlobalConfig]: DEFAULT_AUTO_OFFSET_RESET as never,
             ...getKafkaConfigFromEnv('CONSUMER'),
             ...rdKafkaOverrides,
             // Settings we don't allow callers to override.
@@ -534,14 +536,13 @@ export class KafkaConsumerV2 {
     // === RdKafkaConsumer construction + event wiring ===
 
     private createConsumer(): RdKafkaConsumer {
-        // auto.offset.reset is a topic-level property: a value in the global config is ignored by
-        // librdkafka unless mirrored into the topic config here. Honor an override carried on the
-        // resolved config (e.g. `latest`) and default to earliest.
+        // Mirror the resolved auto.offset.reset (incl. any override) into the explicit topic
+        // config — the form librdkafka honors on our version. See DEFAULT_AUTO_OFFSET_RESET.
         const autoOffsetReset =
             (this.rdKafkaConfig['auto.offset.reset' as keyof ConsumerGlobalConfig] as
                 | 'earliest'
                 | 'latest'
-                | undefined) ?? 'earliest'
+                | undefined) ?? DEFAULT_AUTO_OFFSET_RESET
         const consumer = new RdKafkaConsumer(this.rdKafkaConfig, { 'auto.offset.reset': autoOffsetReset })
 
         consumer.on('event.log', (log) => logger.info('📝', 'kafka_consumer_v2_librdkafka_log', { log }))
