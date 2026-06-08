@@ -4,6 +4,10 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.business_knowledge.backend import logic
@@ -143,60 +147,37 @@ class TestHybridSearch(BaseTest):
         # FTS also finds nothing for "quantum physics experiments" so result is empty
         assert results == []
 
+    @parameterized.expand(
+        [
+            (
+                "unsafe_verdict",
+                lambda t, s: KnowledgeDocument.objects.filter(source_id=s.id).update(
+                    safety_verdict=SafetyVerdict.UNSAFE
+                ),
+            ),
+            (
+                "tombstoned",
+                lambda t, s: KnowledgeDocument.objects.filter(source_id=s.id).update(tombstoned_at=timezone.now()),
+            ),
+            (
+                "source_not_ready",
+                lambda t, s: KnowledgeSource.objects.filter(id=s.id).update(status=SourceStatus.PROCESSING),
+            ),
+        ]
+    )
     @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
-    def test_unsafe_chunks_filtered_by_rejoin(self, mock_semantic: MagicMock) -> None:
-        source = self._ready_source_with_chunks(["Safe content here.", "Also safe content."])
-        chunk_ids = self._get_chunk_ids(source)
-
-        # Mark the document as UNSAFE after vectors were emitted
-        with team_scope(self.team.id, canonical=True):
-            KnowledgeDocument.objects.filter(source_id=source.id).update(safety_verdict=SafetyVerdict.UNSAFE)
-
-        # Semantic returns a hit pointing at the now-unsafe chunk
-        mock_semantic.return_value = [_SemanticCandidate(chunk_id=chunk_ids[0], distance=0.2)]
-
-        results = search_knowledge(
-            self.team.id,
-            "safe content",
-            use_semantic=True,
-            query_embedding=[0.1] * 10,
-        )
-        # The re-join filters it out since the doc is now UNSAFE
-        assert results == []
-
-    @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
-    def test_tombstoned_doc_filtered_by_rejoin(self, mock_semantic: MagicMock) -> None:
-        from django.utils import timezone
-
-        source = self._ready_source_with_chunks(["Content in tombstoned doc."])
+    def test_rejoin_filters_ineligible_chunks(self, _name: str, mark_ineligible, mock_semantic: MagicMock) -> None:  # noqa: ANN001
+        source = self._ready_source_with_chunks(["Some indexed content here."])
         chunk_ids = self._get_chunk_ids(source)
 
         with team_scope(self.team.id, canonical=True):
-            KnowledgeDocument.objects.filter(source_id=source.id).update(tombstoned_at=timezone.now())
+            mark_ineligible(self.team, source)
 
         mock_semantic.return_value = [_SemanticCandidate(chunk_id=chunk_ids[0], distance=0.2)]
 
         results = search_knowledge(
             self.team.id,
-            "content tombstoned",
-            use_semantic=True,
-            query_embedding=[0.1] * 10,
-        )
-        assert results == []
-
-    @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
-    def test_source_not_ready_filtered_by_rejoin(self, mock_semantic: MagicMock) -> None:
-        source = self._ready_source_with_chunks(["Content in processing source."])
-        chunk_ids = self._get_chunk_ids(source)
-
-        with team_scope(self.team.id, canonical=True):
-            KnowledgeSource.objects.filter(id=source.id).update(status=SourceStatus.PROCESSING)
-
-        mock_semantic.return_value = [_SemanticCandidate(chunk_id=chunk_ids[0], distance=0.2)]
-
-        results = search_knowledge(
-            self.team.id,
-            "content processing",
+            "indexed content",
             use_semantic=True,
             query_embedding=[0.1] * 10,
         )
@@ -204,8 +185,6 @@ class TestHybridSearch(BaseTest):
 
     @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
     def test_overfetch_still_yields_results_after_filtering(self, mock_semantic: MagicMock) -> None:
-        from django.utils import timezone
-
         # Create two sources: one SAFE, one will be tombstoned
         src_safe = self._ready_source_with_chunks(["Safe searchable chunk about dogs."], name="safe_src")
         src_dead = self._ready_source_with_chunks(["Dead chunk about dogs too."], name="dead_src")

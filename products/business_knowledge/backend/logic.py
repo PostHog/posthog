@@ -1523,16 +1523,22 @@ def _semantic_chunk_candidates(
 
     ch_limit = limit * BK_SEMANTIC_OVERFETCH
 
+    # Distance is computed in the inner SELECT and filtered in the outer WHERE
+    # so cosineDistance runs once per row (ClickHouse can't reuse a SELECT alias
+    # in the same level's WHERE — WHERE is evaluated first). Matters at 1536 dims.
     hogql_query = """
-        SELECT
-            document_id,
-            cosineDistance(embedding, {embedding}) AS distance
-        FROM document_embeddings
-        WHERE model_name = {model_name}
-          AND product = {product}
-          AND document_type = {document_type}
-          AND team_id = {team_id}
-          AND cosineDistance(embedding, {embedding}) < {cutoff}
+        SELECT document_id, distance
+        FROM (
+            SELECT
+                document_id,
+                cosineDistance(embedding, {embedding}) AS distance
+            FROM document_embeddings
+            WHERE model_name = {model_name}
+              AND product = {product}
+              AND document_type = {document_type}
+              AND team_id = {team_id}
+        )
+        WHERE distance < {cutoff}
         ORDER BY distance ASC
         LIMIT {limit}
     """
@@ -1671,7 +1677,10 @@ def search_knowledge(
         semantic_candidates = _semantic_chunk_candidates(team_id, query_embedding, limit=limit)
 
     # --- Fusion or FTS-only ---
-    if use_semantic and (fts_anchor_ids or semantic_candidates):
+    # Fusion requires an actual embedding; when it's None (e.g. embedding-service
+    # timeout) semantic_candidates is empty, so fall through to the FTS-only
+    # branch which reuses the already-filtered, rank-ordered anchors.
+    if use_semantic and query_embedding and (fts_anchor_ids or semantic_candidates):
         fused_ids = _rrf_fuse(fts_anchor_ids, semantic_candidates)
         if not fused_ids:
             return []
