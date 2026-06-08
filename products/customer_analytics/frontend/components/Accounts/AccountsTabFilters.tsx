@@ -145,11 +145,11 @@ function RolePicker({
     const buttonLabel =
         value.length === 0 ? `Any ${label}` : value.length === 1 ? `1 ${label}` : `${value.length} ${label}s`
     return (
-        <div className="flex gap-1 items-center">
+        <div className="flex gap-1 items-center" data-attr={dataAttr}>
             <LemonDropdown
                 closeOnClickInside={false}
                 overlay={
-                    <div className="p-2 min-w-64" data-attr={dataAttr}>
+                    <div className="p-2 min-w-64">
                         <MemberSelectMultiple
                             idKey="id"
                             value={value}
