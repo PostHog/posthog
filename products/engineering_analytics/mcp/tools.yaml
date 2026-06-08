@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Engineering analytics
 feature: engineering_analytics
-url_prefix: /engineering_analytics
+url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
     engineering-analytics-ci-cards:
@@ -66,6 +66,8 @@ tools:
             destructive: false
             idempotent: true
         list: true
+        # Deep-link to the Workflows tab rather than the default Pull requests tab.
+        url_prefix: /engineering-analytics/workflows
         title: Per-workflow CI health
         description: >
             Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use
