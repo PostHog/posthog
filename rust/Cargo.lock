@@ -4966,7 +4966,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
- "chrono",
  "common-alloc",
  "envconfig",
  "futures",
@@ -4977,13 +4976,11 @@ dependencies = [
  "rdkafka",
  "reqwest 0.12.28",
  "serde",
- "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

@@ -7,7 +7,6 @@ import structlog
 from django_redis import get_redis_connection
 from temporalio import activity
 
-from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import TaskRun
@@ -45,7 +44,6 @@ class SendFollowupToSandboxInput:
 
 
 @activity.defn
-@close_db_connections
 def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     """Send a follow-up user message to the sandbox and write result markers to Redis.
 

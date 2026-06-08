@@ -4,6 +4,8 @@ from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
+from django.db.models import Q
+
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -44,11 +46,8 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
             table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
-        # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
-        DataWarehouseTable.objects.queryable()
+        DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
         .filter(team=team, name__in=table_names)
-        # Deterministic resolution when more than one live table matches: newest wins.
-        .order_by("-created_at")
         .first()
     )
     if table is None:
@@ -135,9 +134,6 @@ def remove_named_tuples(type):
 def clean_type(column_type: str) -> str:
     # Replace newline characters followed by empty space
     column_type = re.sub(r"\n\s+", "", column_type)
-
-    if column_type.startswith("LowCardinality("):
-        column_type = column_type.replace("LowCardinality(", "")[:-1]
 
     if column_type.startswith("Nullable("):
         column_type = column_type.replace("Nullable(", "")[:-1]

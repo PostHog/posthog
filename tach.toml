@@ -88,7 +88,6 @@ depends_on = [
     "products.live_debugger",
     "products.ai_observability",
     "products.logs",
-    "products.managed_migrations",
     "products.marketing_analytics",
     "products.mcp_store",
     "products.messaging",
@@ -353,10 +352,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.managed_migrations"
-depends_on = [
-    "posthog",
-    "products.batch_exports",
-]
+depends_on = []
 layer = "modules"
 
 [[modules]]

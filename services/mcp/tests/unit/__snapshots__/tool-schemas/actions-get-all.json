@@ -2,16 +2,12 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "limit": {
-            "description": "Maximum number of actions to return. Omit to return all.",
+            "description": "Number of results to return per page.",
             "type": "number"
         },
         "offset": {
-            "description": "Number of actions to skip before returning results.",
+            "description": "The initial index from which to return the results.",
             "type": "number"
-        },
-        "search": {
-            "description": "Case-insensitive substring match on the action name.",
-            "type": "string"
         }
     },
     "type": "object"

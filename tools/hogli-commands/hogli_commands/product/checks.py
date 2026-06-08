@@ -503,10 +503,6 @@ class MisplacedFilesCheck(ProductCheck):
     # `templates` is allowed because Django's app_directories loader requires
     # the folder to live at <app>/templates/, and templates aren't Python
     # imports so import-linter contracts don't apply.
-    # `admin` is allowed because Django's autodiscover_modules("admin") requires
-    # the admin module at <app>.admin — and that module can be a flat `admin.py`
-    # or an `admin/` package (both resolve to the same import). The file form is
-    # already accepted, so the package form has to be too.
     # `hogql_queries` is the established home for HogQL query runners across
     # products (web_analytics, revenue_analytics, product_analytics), so it is
     # allowed in isolated products too rather than forcing query code into logic/.
@@ -522,7 +518,6 @@ class MisplacedFilesCheck(ProductCheck):
         "logic",
         "hogql_queries",
         "templates",
-        "admin",
         "__pycache__",
     }
 

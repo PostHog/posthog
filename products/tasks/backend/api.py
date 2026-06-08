@@ -123,7 +123,6 @@ from .serializers import (
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
 )
-from .services.code_usage_gate import cloud_usage_limit_response
 from .services.connection_token import create_sandbox_connection_token
 from .services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
@@ -975,9 +974,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
             404: OpenApiResponse(description="Task not found"),
-            429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
-            ),
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
@@ -985,11 +981,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
-
-        # Always cloud: gate before creating the run.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
-            return limit_response
-
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
@@ -1303,9 +1294,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
-            429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
-            ),
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
@@ -1323,12 +1311,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if task is None:
             raise NotFound("Task not found")
         environment = request.validated_data.get("environment", TaskRun.Environment.LOCAL)
-
-        # Gate cloud runs before the run row is created; local runs aren't limited.
-        if environment == TaskRun.Environment.CLOUD:
-            if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
-                return limit_response
-
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
@@ -1440,9 +1422,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
             404: OpenApiResponse(description="Task run not found"),
-            429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
-            ),
         },
         summary="Start task run",
         description="Start an existing cloud run after any initial run-scoped attachments have been uploaded.",
@@ -1469,10 +1448,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        # Backstop: don't launch the cloud workflow for an over-limit team.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
-            return limit_response
 
         if pending_user_artifact_ids:
             _, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, pending_user_artifact_ids)
@@ -2648,9 +2623,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
             ),
-            429: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
-            ),
         },
         summary="Resume task run in cloud",
         description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
@@ -2663,10 +2635,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def resume_in_cloud(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-
-        # Resume also runs in cloud: gate before handoff.
-        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
-            return limit_response
 
         logger.info(
             "resume_in_cloud_called",

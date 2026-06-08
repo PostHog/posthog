@@ -77,8 +77,6 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
 
 def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
     """Convert a SimpleSurveyQuestion to the internal question dict."""
-    if q.type in ("single_choice", "multiple_choice") and not q.choices:
-        raise serializers.ValidationError(f"Question of type '{q.type}' must include a non-empty 'choices' list")
     result = dict(QUESTION_TYPE_MAP[q.type])
     result["question"] = q.question
     if q.description is not None:

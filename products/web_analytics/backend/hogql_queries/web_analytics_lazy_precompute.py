@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional, Protocol, Union
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.schema import (
@@ -28,8 +29,6 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models.team import Team
-
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 
 logger = structlog.get_logger(__name__)
 
@@ -242,7 +241,20 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     #     None (falsy) on failure, so a flag-service outage fails-closed.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
     #     "Allow precompute" toggle).
-    if not is_precompute_enabled_for_team(runner.team):
+    if not posthoganalytics.feature_enabled(
+        "web-analytics-precompute-toggle",
+        str(runner.team.uuid),
+        groups={
+            "organization": str(runner.team.organization_id),
+            "project": str(runner.team.id),
+        },
+        group_properties={
+            "organization": {"id": str(runner.team.organization_id)},
+            "project": {"id": str(runner.team.id)},
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    ):
         raise OrgFeatureFlagDisabled()
 
     if query.useWebAnalyticsPrecompute is not True:

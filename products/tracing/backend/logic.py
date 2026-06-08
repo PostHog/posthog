@@ -399,10 +399,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         ts_op = ">=" if self.query.orderBy == "earliest" else "<="
 
         # rootSpans is opt-in and gated on `is True` (not truthiness): the frontend never sends it
-        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the
-        # trace-selection subquery to `is_root_span = 1`, so we only pick traces whose root matches
-        # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
-        # span of the selected traces so the waterfall gets its children.
+        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the result
+        # to root spans only — applied to both the trace-selection subquery (so we pick traces whose
+        # root matches the filter) and the outer fetch (so only those roots come back), keeping
+        # matched_filter consistent instead of surfacing roots flagged 0.
         root_only = self.query.rootSpans is True
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
@@ -481,7 +481,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes}
             FROM posthog.trace_spans
-            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND {root_filter} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
@@ -489,6 +489,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                "root_filter": parse_expr("is_root_span = 1") if root_only else ast.Constant(value=True),
                 # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
                 # excluded we still SELECT a column so the positional result mapping stays stable —
                 # an empty map instead of the real one.

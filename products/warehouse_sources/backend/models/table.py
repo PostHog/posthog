@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict
 from uuid import UUID
 
 from django.db import models
@@ -94,29 +94,14 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
 
-class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
-    def queryable(self) -> "DataWarehouseTableQuerySet":
-        # A table you can actually query: not soft-deleted, and not orphaned by a soft-deleted source.
-        return self.exclude(deleted=True).exclude(external_data_source__deleted=True)
-
-
-# `Manager.from_queryset(...)` can't be used as a base class here because it also overrides
-# `get_queryset()` — mypy/django-stubs can't model that dynamic base. Wire the queryset class in
-# manually instead so `objects.queryable()` and the eager-loading `get_queryset()` both work.
-class DataWarehouseTableManager(models.Manager["DataWarehouseTable"]):
-    _queryset_class = DataWarehouseTableQuerySet
-
-    def get_queryset(self) -> DataWarehouseTableQuerySet:
-        return cast(
-            DataWarehouseTableQuerySet,
+class DataWarehouseTableManager(models.Manager):
+    def get_queryset(self):
+        return (
             super()
             .get_queryset()
             .select_related("created_by", "external_data_source")
-            .prefetch_related("externaldataschema_set"),
+            .prefetch_related("externaldataschema_set")
         )
-
-    def queryable(self) -> DataWarehouseTableQuerySet:
-        return self.get_queryset().queryable()
 
 
 class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
@@ -126,7 +111,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     objects = DataWarehouseTableManager()
 
     # Use if it's certain externaldataschemas aren't needed
-    raw_objects = DataWarehouseTableQuerySet.as_manager()
+    raw_objects = models.Manager()
 
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"

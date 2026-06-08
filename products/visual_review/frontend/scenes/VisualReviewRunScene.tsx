@@ -152,9 +152,9 @@ function QuarantinedThumbnailsToggle({
             onClick={onClick}
             aria-expanded={isExpanded}
             data-attr="visual-review-toggle-quarantined-thumbnails"
-            className="shrink-0 text-xs text-muted hover:text-default hover:underline underline-offset-2 transition-colors"
+            className="flex flex-col items-center justify-center shrink-0 rounded p-1.5 w-[100px] h-full text-warning-dark border border-dashed border-warning hover:bg-warning/10 transition-colors"
         >
-            {label}
+            <span className="text-[11px] font-semibold text-center leading-tight">{label}</span>
         </button>
     )
 }
@@ -254,7 +254,6 @@ export function VisualReviewRunScene(): JSX.Element {
         ? navSnapshots
         : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
     const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
-    const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
 
     const currentIndex = selectedSnapshot
         ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
@@ -513,52 +512,44 @@ export function VisualReviewRunScene(): JSX.Element {
                                     />
                                 )
                             })}
-                        </div>
-                    )}
-
-                    {/* Pagination — below thumbnails, right-aligned */}
-                    {(showQuarantinedToggle || navSnapshots.length > 1) && (
-                        <div
-                            className={`flex items-center gap-2 px-3 pb-2 ${
-                                showQuarantinedToggle ? 'justify-between' : 'justify-end'
-                            }`}
-                        >
-                            {showQuarantinedToggle && (
+                            {quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails) && (
                                 <QuarantinedThumbnailsToggle
                                     hiddenCount={hiddenQuarantinedCount}
                                     isExpanded={showQuarantinedThumbnails}
                                     onClick={toggleQuarantinedThumbnails}
                                 />
                             )}
-                            {navSnapshots.length > 1 && (
-                                <div className="flex items-center gap-2">
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconChevronLeft />}
-                                        sideIcon={<KeyboardShortcut p />}
-                                        onClick={goToPrevious}
-                                        disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
-                                        data-attr="visual-review-snapshot-previous"
-                                    >
-                                        Previous
-                                    </LemonButton>
-                                    {currentIndex >= 0 && (
-                                        <span className="text-xs text-muted">
-                                            {currentIndex + 1} of {navSnapshots.length}
-                                        </span>
-                                    )}
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<KeyboardShortcut n />}
-                                        sideIcon={<IconChevronRight />}
-                                        onClick={goToNext}
-                                        disabledReason={!hasNext ? 'No next snapshot' : undefined}
-                                        data-attr="visual-review-snapshot-next"
-                                    >
-                                        Next
-                                    </LemonButton>
-                                </div>
+                        </div>
+                    )}
+
+                    {/* Pagination — below thumbnails, right-aligned */}
+                    {navSnapshots.length > 1 && (
+                        <div className="flex items-center justify-end gap-2 px-3 pb-2">
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconChevronLeft />}
+                                sideIcon={<KeyboardShortcut p />}
+                                onClick={goToPrevious}
+                                disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                                data-attr="visual-review-snapshot-previous"
+                            >
+                                Previous
+                            </LemonButton>
+                            {currentIndex >= 0 && (
+                                <span className="text-xs text-muted">
+                                    {currentIndex + 1} of {navSnapshots.length}
+                                </span>
                             )}
+                            <LemonButton
+                                size="xsmall"
+                                icon={<KeyboardShortcut n />}
+                                sideIcon={<IconChevronRight />}
+                                onClick={goToNext}
+                                disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                                data-attr="visual-review-snapshot-next"
+                            >
+                                Next
+                            </LemonButton>
                         </div>
                     )}
                 </div>
