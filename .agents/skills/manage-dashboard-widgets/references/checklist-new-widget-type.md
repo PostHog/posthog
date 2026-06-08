@@ -4,24 +4,21 @@
 
 1. Complete [widget-intake.md](widget-intake.md) — infer, batched questions, **spec confirmation** (mandatory).
 2. Work **§1 → §8 below in order**. Do not skip step 2 (permissions).
-3. **§5b, §9, §10** — after MVP tests green.
+3. **§5b** after MVP tests green; **skill docs** per [skill-maintenance.md](skill-maintenance.md) if workflow changed.
 
-Default **implementation template:** mirror `products/dashboards/frontend/widgets/error_tracking/` (`error_tracking_list`). Use `session_replay_list` / `widgets/session_replay/` when replay throttles, availability, or session RBAC apply.
+Copy spine: [widget-intake.md § Defaults](widget-intake.md#defaults-and-inference).
 
-## 1. Backend registry
+## 1. Backend config contract + registry
 
-Files: `products/dashboards/backend/widgets/<widget_type>.py` + `widget_registry.py`
+Files: `products/dashboards/backend/widget_specs/` + `widgets/<widget_type>.py`
 
-- [ ] `validate_<type>_config(config) -> dict` in `widgets/<widget_type>.py` — normalize defaults; reject bad input with `DRFValidationError`
-- [ ] Merge `merge_base_widget_config_fields(config)` for shared fields (`filterTestAccounts`)
-- [ ] `run_<type>_widget(team, config) -> dict` — call the **same** query runner the standalone product uses (no parallel query path); pass `resolve_filter_test_accounts(config)` when the query supports it
-- [ ] Register in `WIDGET_REGISTRY` with `required_scopes` (docs only) and `required_product_access` when RBAC-gated (must match catalog `productAccess`)
-- [ ] Add type to `EXPECTED_WIDGET_TYPES` and `frontend/widget_types/expectedWidgetTypes.ts` (must equal `WIDGET_REGISTRY.keys()` — enforced in tests)
-- [ ] Extend `DashboardWidgetType` (`Literal[...]`) with the new canonical `widget_type` string
+- [ ] **`widget_specs/configs.py`** — new `*WidgetConfig` Pydantic model + `*_WIDGET_TYPE` constant; extend shared fields via `common.py` when appropriate
+- [ ] **`widgets/<widget_type>.py`** — `run_<type>_widget` calling `validate_widget_config(TYPE, config)` then the **same** product query runner (no parallel query path); pass `resolve_filter_test_accounts(config, team)` when supported
+- [ ] **`widget_specs/registry.py`** — add one `WidgetSpec` to `_load_widget_specs()` (lazy-import `run_*`): `config_model`, scopes, `group_id`/`group_label`/`label`/`description`, `required_product_access`, `product_access_denied_message`, `availability_requirements`
+- [ ] `EXPECTED_WIDGET_TYPES`, OpenAPI polymorphic serializers, and Zod codegen inputs update automatically from `WIDGET_SPECS` + `configs.py` — enforced in `test_run_widgets.py`
 - [ ] Use `DEFAULT_WIDGET_LIST_LIMIT` from `backend/constants.py` unless this type needs a different default
-- [ ] Pass through time-scoped fields (`dateRange`) when the query is date-filtered — use `validate_widget_date_range` from `widgets/config.py`
-- [ ] List widgets with `orderDirection`: mirror `z.enum(['ASC', 'DESC'])` from existing list schemas in `configSchemas.ts`
-- [ ] Throttled product listings (session replay): wire the same throttle checks in `run_widgets` that the standalone API uses
+- [ ] List widgets with `orderDirection`: use `WidgetOrderDirection` literal in Pydantic (`ASC` / `DESC`)
+- [ ] Throttles: `get_dashboard_widget_query_throttle_error` in `run_widgets` (`widget_query_throttle.py`); plus product listing throttles when applicable (replay)
 
 See [architecture.md](architecture.md) for registry entry shape.
 
@@ -29,24 +26,38 @@ See [architecture.md](architecture.md) for registry entry shape.
 
 Follow [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac). Checklist:
 
-- [ ] Set `required_product_access` on the `WIDGET_REGISTRY` entry when RBAC-gated (must match catalog `productAccess`)
+- [ ] Set `required_product_access` on the `WidgetSpec` in `registry.py` when RBAC-gated (must match FE catalog `productAccess`)
 - [ ] Optional friendly denial in `PRODUCT_ACCESS_DENIED_MESSAGES` / catalog `product_access_denied_message`
 - [ ] Return per-tile `{ tile_id, error }` — do not fail the whole request for one bad tile
 - [ ] Catch query exceptions → per-tile error in response (see existing `dashboard_run_widgets_failed` logging)
 
 ## 3. Backend catalog (agents + REST)
 
-File: `products/dashboards/backend/widget_catalog.py`
+Derived from `WIDGET_SPECS` — no hand-maintained `WIDGET_CATALOG` dict.
 
-- [ ] Add entry to `WIDGET_CATALOG` with `group_id`, `group_label`, `label`, `description`, `config_schema_hints`, `required_product_access`
-- [ ] **`config_schema_hints`** — structured hints for MCP/agents (mirror validate defaults). Per field: `type`, optional `min`/`max`, `choices`, `default`, `optional`, nested objects (e.g. `dateRange.date_from` with `choices` from `WIDGET_DATE_FROM_VALUES`). See `error_tracking_list` / `session_replay_list` entries in `widget_catalog.py`.
-- [ ] **`availability_requirements`** — string ids for agent catalog (e.g. `["session_replay_enabled"]`). Set even when FE omits catalog `availability` and uses inline setup gating in the widget `Component` (ET still sets `["exception_autocapture"]` on BE).
-- [ ] **`product_access_denied_message`** (optional) — friendly RBAC copy for catalog/MCP when generic fallback is not enough
-- [ ] Keeps REST/MCP catalog in sync with frontend defaults; agents call `dashboard-widget-catalog-list` / `GET .../widget_catalog/`
+- [ ] `WidgetSpec` catalog fields in **`registry.py`** are enough for BE catalog — `widget_catalog.py` exposes `config_schema` via `config_model.model_json_schema()`
+- [ ] **`availability_requirements`** on `WidgetSpec` — string ids for agent catalog (e.g. `session_replay_enabled`). Set even when FE omits catalog `availability` and uses inline setup gating in the widget `Component`
+- [ ] **`product_access_denied_message`** on `WidgetSpec` when generic fallback is not enough
+- [ ] Agents read **`config_schema`** (typed OpenAPI per `widget_type`) via `dashboard-widget-catalog-list` / `GET .../widget_catalog/`
 
-## 4. Frontend catalog + config schema
+## 4. Frontend catalog + config schema + codegen
 
-- [ ] `widget_types/configSchemas.ts` — per-type Zod schema extending `baseWidgetConfigSchema`; list widgets also export a form schema via `widgetListFormSchema(orderBySchema)` (or extend shared list fields)
+Apply locked values from intake [defaults](widget-intake.md#defaults-and-inference) and [spec recap](widget-intake.md#spec-fields-to-lock) — do not re-infer `groupId`, layout, RBAC, or list UX here.
+
+Runtime validation = Pydantic in `widget_specs/`. OpenAPI components derive from `model_json_schema()` via `pydantic_openapi.py` — do not hand-write parallel DRF config serializers or FE Zod.
+
+- [ ] Name the Pydantic config model `*ListWidgetConfig` (or `*WidgetConfig`) so `generate-widget-config-zod.mjs` auto-derives friendly Zod re-exports
+- [ ] Run **`hogli build:openapi`** after §1 and **commit** `products/dashboards/frontend/generated/*` (CI `check-openapi-types` — [config-and-codegen.md § Codegen & CI](config-and-codegen.md#codegen--ci)). Regenerates (do not edit by hand):
+  - `frontend/generated/api.schemas.ts` — TS types incl. polymorphic `DashboardWidgetConfigApi`
+  - `products/dashboards/frontend/generated/widget-config-schemas/*.zod.ts` — per-component Orval Zod (`generateReusableSchemas`)
+  - `products/dashboards/frontend/generated/widget-configs.zod.ts` — friendly re-exports, inferred types, form `.pick()` schemas (**import this**, not raw Orval component names)
+  - `products/dashboards/frontend/generated/widget-config-property-keys.json` — per-type config property keys (`generate-widget-config-zod.mjs`)
+  - `products/dashboards/frontend/generated/widget-date-from-options.json` — date preset values + labels (`build-dashboard-widget-types.py`)
+  - `products/dashboards/frontend/generated/widget-form-fields.json` — modal field manifest from `WidgetSpec.form_fields`
+  - MCP tool schemas (`services/mcp/...`)
+- [ ] If `build:openapi-schema` warns on `widget_type` enum collision: `python manage.py find_enum_collisions` → add `{YourWidgetTypeEnum: ["your_widget_type"]}` to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` (see [config-and-codegen.md § Codegen & CI](config-and-codegen.md#codegen--ci))
+- [ ] Add `form_fields` on the `WidgetSpec` row in `registry.py` (drives generated `*WidgetFormSchema`)
+- [ ] `widgets/<product>/<type>WidgetConfigValidation.ts` — import generated form schema; export `parse*WidgetConfigApiError` for registry `parseConfigApiError`
 - [ ] `widget_types/catalog.ts` — add entry to `DASHBOARD_WIDGET_CATALOG` (catalog key = `widget_type`):
   - **`groupId`** — required; product area for add-modal grouping. Add label to `DASHBOARD_WIDGET_GROUP_LABELS` when introducing a new group
   - **`label`, `description`** — required; variant name within the group (e.g. "Top issues", "Recent recordings")
@@ -54,19 +65,19 @@ File: `products/dashboards/backend/widget_catalog.py`
   - Do **not** set `headerLayout` / `headerMeta` unless overriding defaults — `getDashboardWidgetCatalogEntry()` resolves `dashboard_tile` + default meta
   - Optional: `headerTitle`, `titleHref`, `productAccess`, **`sharedPlaceholder`** (public/shared dashboard body copy when `run_widgets` is not loaded)
   - Optional: `availability` — simple team-flag prerequisite for `WidgetRuntimeAvailabilityGuard` (omit when the widget handles richer setup gating inline). Gate at **tile render** only (never in add modal). See [availability-and-gating.md](availability-and-gating.md).
-- [ ] `widgets/<product>/<type>WidgetConfigValidation.ts` — thin wrapper around shared helpers in `widgets/widgetConfigValidation.ts` (no hand-rolled typeof guards for config fields)
+
+Invoke `improving-drf-endpoints` before editing dashboard `@extend_schema`. Invoke `implementing-mcp-tools` when MCP snapshots or `tools.yaml` help text must list the new type.
 
 No change to `AddWidgetModal` grouping for normal adds — `getDashboardWidgetCatalogGroups()` derives groups from catalog entries automatically.
 
 ### 4b. Adding a variant to an existing group
 
-Use when the product area already has a widget and you need another **list/table/card** presentation in the same group — not a chart ([architecture.md § Charts → insight tiles](architecture.md#charts--use-insight-tiles-not-widgets)).
+Use when the product area already has a widget and you need another visualization (e.g. a chart alongside a list widget in the same group).
 
-- [ ] Confirmed the ask is **not** chart-primary — trends/graphs → insight tile on the dashboard
-- [ ] New **unique** catalog key / `widget_type` (e.g. `error_tracking_top_issues`) — not a config fork of the existing type
+- [ ] New **unique** catalog key / `widget_type` (e.g. `error_tracking_trends`) — not a config fork of the existing type
 - [ ] Reuse sibling **`groupId`** exactly; label comes from `DASHBOARD_WIDGET_GROUP_LABELS[groupId]`
 - [ ] Distinct **`label`**, **`description`**, **`defaultConfig`**, **`defaultLayout`** (and usually `headerTitle`)
-- [ ] Full backend stack: new `widgets/<widget_type>.py`, `WIDGET_REGISTRY` entry with `required_product_access`, `EXPECTED_WIDGET_TYPES`, extend `DashboardWidgetType`
+- [ ] Full backend stack: new `widget_specs/configs.py` model, `widgets/<widget_type>.py`, `registry.py` `WidgetSpec` entry
 - [ ] Full frontend stack: new component (same `widgets/<product>/` dir), edit modal + kea logic, preview in `widgets/previews/` + `DASHBOARD_WIDGET_PREVIEWS` in `catalog.ts`, registry entry in `registry.tsx`, extend `DashboardWidgetProductAccess` + `WIDGET_PRODUCT_ACCESS_CHECKS` in `widgetProductAccess.ts` when RBAC-gated
 - [ ] Tests: assert shared `groupId` in `registry.test.tsx` like existing ET variants
 
@@ -74,7 +85,7 @@ Use when the product area already has a widget and you need another **list/table
 
 Use when introducing a new **`groupId`**, not just another variant in an existing group.
 
-- [ ] Add **`groupId`** to `DASHBOARD_WIDGET_GROUP_LABELS` in `catalog.ts`; matching **`group_id`** / **`group_label`** in BE `WIDGET_CATALOG`
+- [ ] Add **`groupId`** to `DASHBOARD_WIDGET_GROUP_LABELS` in `catalog.ts`; matching `group_id`/`group_label` on BE **`WidgetSpec`**
 - [ ] Storybook title path: `'Dashboards/Dashboard Widgets/Widget types/<groupLabel>/<label>'`
 - [ ] **UI + query reuse** — pick one pattern (do not fork query paths):
 
@@ -84,9 +95,8 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 | Scenes / posthog helper | Import shared helper (e.g. `posthog.session_recordings…`) | Import from `scenes/<area>/…` when UI still lives there | `session_replay_list` |
 
 - [ ] If importing **`products/<product>/frontend/…`**: add **`products.<product>`** to `tach.toml` → `products.dashboards` `depends_on`
-- [ ] **Product visual parity** — tile body uses the same list/card/empty/skeleton/setup components as the product scene where they exist; see [composition.md § Product visual parity](composition.md#product-visual-parity)
-- [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `required_product_access` (+ optional `PRODUCT_ACCESS_DENIED_MESSAGES` / catalog `product_access_denied_message`)
-- [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `availability_requirements` string when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
+- [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `WidgetSpec.required_product_access` (+ optional `product_access_denied_message`)
+- [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `WidgetSpec.availability_requirements` when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)
 - [ ] Net-new product: see [`products/README.md`](../../../products/README.md) for product bootstrap before wiring the widget
 
@@ -96,9 +106,9 @@ Directory: `products/dashboards/frontend/widgets/<product>/` (snake_case product
 
 - [ ] Implement `Component` with `DashboardWidgetComponentProps` (`tileId`, `config`, `result`, `loading`, `error`, `onRefresh`, `onUpdateConfig`)
 - [ ] Setup gating: catalog `availability` for simple team-flag checks, or private setup gate inside the widget `Component` for richer rules — do not modify product `SetupPrompt`
-- [ ] **Own loading UI** — early-return with `WidgetLoadingState` (typed skeleton as `children` when helpful); prefer the **product's** skeleton component (e.g. `ErrorTrackingIssueListSkeleton`), not a generic placeholder
-- [ ] **Product visual parity** — import list/card/empty/setup UI from the product scene ([composition.md § Product visual parity](composition.md#product-visual-parity)); avoid dashboard-only row markup when shared components exist
-- [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states only when the product has no shared empty component
+- [ ] **Own loading UI** — early-return with `WidgetLoadingState` (typed skeleton as `children` when helpful)
+- [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states
+- [ ] **List widgets:** follow [list-widget-patterns.md](list-widget-patterns.md) — `hasMore`, footer, tile filter bar, `titleHref`
 - [ ] Do **not** render card chrome — `DashboardWidgetItem` + catalog handle headers/menus
 
 Minimal skeleton:
@@ -132,12 +142,13 @@ File: `products/dashboards/frontend/widgets/<product>/<YourWidget>.stories.tsx`
 
 Reference: `products/dashboards/frontend/widgets/error_tracking/ErrorTrackingWidget.stories.tsx`
 
-- [ ] Storybook meta: **string literal** `title: 'Dashboards/Dashboard Widgets/Widget types/<groupLabel>/<label>'` (must match catalog — CSF rejects function calls), `layout: 'padded'`, `WidgetTileFrame` decorator (see `ErrorTrackingWidget.stories.tsx`; platform primitives in `WidgetCard.stories.tsx`)
+- [ ] Storybook meta: **string literal** `title: 'Dashboards/Dashboard Widgets/Widget types/<groupLabel>/<label>'` (must match catalog — CSF rejects function calls), `layout: 'padded'`, spread `widgetStorybookParameters` (frozen `mockDate` for VR snapshots), `WidgetTileFrame` decorator (see `ErrorTrackingWidget.stories.tsx`; platform primitives in `WidgetCard.stories.tsx`)
 - [ ] Compose stories with `WidgetCard` + `WidgetCardHeader` + `WidgetCardBody` + catalog header metadata — not the bare widget component
 - [ ] Kea seed decorators: add helpers to `widgetCardStoryFixtures.tsx` — **do not** export decorators from `*.stories.tsx` (Storybook treats exports as stories). See [composition.md § Storybook](composition.md#storybook)
 - [ ] Mock `DashboardWidgetComponentProps` via `args` — no Kea, no `run_widgets` fetch
 - [ ] Export stories for each visual state the tile can show:
-  - **Populated** — realistic `result` payload (shape matches `run_*` output)
+  - **Populated** — realistic `result` payload (shape matches `run_*` output); include `totalCount` / `totalCountCapped` when `hasMore: true`
+  - **TileFiltersReadOnly** (when type has tile filters) — `tileFiltersReadOnly` story arg; mirrors ET/SR stories
   - **Loading** — `loading: true`, `result: null`
   - **Empty** — `loading: false`, empty `result` (e.g. `{ results: [] }`)
   - **Error** — when the component renders `error` (pass a string or error-shaped prop your component expects)
@@ -156,9 +167,9 @@ Repo rule: presentational widget components belong in Storybook (see `.cursor/ru
 ## 6. Edit modal + add-widget preview
 
 - [ ] `EditModal` + `edit*WidgetModalLogic.ts` — Zod validate → `LemonField` errors; disable save while `saving` / invalid
-- [ ] Compose `EditWidgetModalTileDetailsSection`, `EditWidgetModalFiltersSection`, and a type-specific `<section>` titled with `getDashboardWidgetGroupLabel(groupId)` — separate with `LemonDivider`; see [composition.md](composition.md)
+- [ ] Compose `EditWidgetModalTileDetailsSection`, then a product `<section>` (`getDashboardWidgetGroupLabel`) with `EditWidgetModalFiltersSubsection` (test accounts) + sorting — **do not** put date/status/property filters in the modal if they belong on the tile bar — see [composition.md](composition.md)
 - [ ] Spread shared kea **actions** from `editWidgetModalBuilders.ts`; **inline reducers** (typegen breaks on spread); inline typed `fieldErrors` / `activeFieldErrors` / `saveDisabledReason`
-- [ ] Date-filtered widgets: date range select from `WIDGET_DATE_RANGE_SELECT_OPTIONS` in `configSchemas.ts`
+- [ ] Date-filtered widgets: date range select from `WIDGET_DATE_RANGE_SELECT_OPTIONS` in `widgetConfigShared.ts`
 - [ ] Wire per-type API error parsing: export `parse*WidgetConfigApiError` from `*WidgetConfigValidation.ts` and set **`parseConfigApiError`** on the `DASHBOARD_WIDGET_REGISTRY` entry (`parseDashboardWidgetConfigApiError` in `registry.tsx` → `updateDashboardWidgetTile`)
 - [ ] Preview: component in `widgets/previews/`; register in `DASHBOARD_WIDGET_PREVIEWS` in `widget_types/catalog.ts` (reuse sample data from `widgetOverviewStoryFixtures.ts` when possible)
 
@@ -172,40 +183,13 @@ File: `products/dashboards/frontend/widgets/registry.tsx` — entry shape in [ar
 
 ## 8. Tests
 
-Run [SKILL.md § Verify](../SKILL.md#verify). Minimum for a new type:
+Run [SKILL.md §6 Verify](../SKILL.md#6-verify). Minimum for a new type:
 
 - [ ] Assert `EXPECTED_WIDGET_TYPES == WIDGET_REGISTRY.keys()`
 - [ ] `registry.test.tsx`: every catalog key registered; each entry has **`parseConfigApiError`**
+- [ ] `test_widget_config_schema_parity.py` + `widgetConfigSchemaParity.test.ts` when config fields change
+- [ ] `test_widget_openapi_enums.py` when adding a `widget_type` (ENUM_NAME_OVERRIDES)
 - [ ] Test create/update config validation, activity logging, permission denial in `run_widgets`
 - [ ] MCP: `services/mcp/tests/tools/dashboards.integration.test.ts` when catalog/OpenAPI surfaces change
 - [ ] Analytics: first insert fires `dashboard tile added` and `dashboard widget added` with `widget_type` on PATCH and POST add paths (`test_dashboard_widgets.py`)
 - [ ] No empty test scaffolds — every `.test.tsx` must assert real behavior
-
-## 9. OpenAPI / generated types
-
-Runtime validation stays in `validate_*_config`. OpenAPI/MCP schemas are separate.
-
-### 9a. Dashboard serializers (`dashboard.py`)
-
-After tile/widget serializer field changes:
-
-```sh
-hogli build:openapi
-```
-
-### 9b. Polymorphic widget config (`widget_openapi_serializers.py`)
-
-When adding or changing config fields agents should see:
-
-- [ ] Add or extend `*WidgetConfigSerializer` in `products/dashboards/backend/api/widget_openapi_serializers.py`
-- [ ] Register it on `_DashboardWidgetConfigOpenApi` (`PolymorphicProxySerializer`)
-- [ ] Run `hogli build:openapi` — regenerates `products/dashboards/frontend/generated/api.ts`, `api.schemas.ts` and MCP tool schemas. Do not edit generated files.
-
-Invoke `improving-drf-endpoints` before editing serializers. Invoke `adopting-generated-api-types` when migrating manual API calls. Invoke `implementing-mcp-tools` when MCP snapshots or `tools.yaml` help text must list the new type.
-
-## 10. Agent skill docs
-
-Follow [skill-maintenance.md](skill-maintenance.md) when agent-facing behavior or contributor workflow changes — same PR as code.
-
-- [ ] Update mapped reference docs from the change → doc table in `skill-maintenance.md`
-- [ ] Run registry sync tests below

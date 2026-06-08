@@ -1,5 +1,7 @@
 # Dashboard widgets architecture
 
+Platform file map and invariants. **Config/codegen depth:** [config-and-codegen.md](config-and-codegen.md). **List widget UX:** [list-widget-patterns.md](list-widget-patterns.md).
+
 ## Mental model
 
 ```text
@@ -12,28 +14,29 @@ Dashboard
               └── team FK (tenant isolation)
 ```
 
-| Layer             | Location                                                                      | Role                                                                                                                |
-| ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Persistence       | `products/dashboards/backend/models/dashboard_widget.py`, `dashboard_tile.py` | Exactly one content FK per tile: insight \| text \| button_tile \| widget (DB CHECK)                                |
-| Backend runtime   | `products/dashboards/backend/widgets/<type>.py` + `widget_registry.py`        | Per-type validate/run; aggregator registry                                                                          |
-| Backend access    | `products/dashboards/backend/widget_access.py`                                | `required_product_access` → RBAC check                                                                              |
-| Backend catalog   | `products/dashboards/backend/widget_catalog.py`                               | Labels, grouping, `config_schema_hints` for REST/MCP                                                                |
-| Data fetch        | `GET .../dashboards/:id/run_widgets?tile_ids=` in `dashboard.py`              | Batched per-tile results + per-tile errors (generic loop); emits **`dashboard_widget_delivery`** SLO per tile query |
-| Frontend dispatch | `widgets/registry.tsx`                                                        | `DASHBOARD_WIDGET_REGISTRY` → `Component` + `EditModal`                                                             |
-| Catalog / layout  | `frontend/widget_types/`                                                      | Add modal, defaults, headers, RBAC map, grid sizing                                                                 |
-| Scene glue        | `frontend/src/scenes/dashboard/`                                              | Fetch, CRUD, copy/move, undo remove                                                                                 |
+| Layer             | Location                                                                      | Role                                                                                                                 |
+| ----------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Persistence       | `products/dashboards/backend/models/dashboard_widget.py`, `dashboard_tile.py` | Exactly one content FK per tile: insight \| text \| button_tile \| widget (DB CHECK)                                 |
+| Backend runtime   | `products/dashboards/backend/widgets/<type>.py` + `widget_specs/registry.py`  | Per-type `run_*`; manifest in `WIDGET_SPECS` (`WidgetSpec`)                                                          |
+| Config contract   | `products/dashboards/backend/widget_specs/`                                   | Pydantic SSOT → validation, OpenAPI, Zod — [config-and-codegen.md](config-and-codegen.md)                            |
+| Backend access    | `products/dashboards/backend/widget_access.py`                                | `required_product_access` → RBAC check                                                                               |
+| Backend catalog   | `products/dashboards/backend/widget_catalog.py`                               | Built from `WIDGET_SPECS`; REST/MCP `config_schema` = Pydantic `model_json_schema()` (bounds, choices, descriptions) |
+| Data fetch        | `GET .../dashboards/:id/run_widgets?tile_ids=` in `dashboard.py`              | Batched per-tile results + per-tile errors (generic loop); emits **`dashboard_widget_delivery`** SLO per tile query  |
+| Frontend dispatch | `widgets/registry.tsx`                                                        | `DASHBOARD_WIDGET_REGISTRY` → `Component` + `EditModal`                                                              |
+| Catalog / layout  | `frontend/widget_types/`                                                      | Add modal, defaults, headers, RBAC map, grid sizing                                                                  |
+| Scene glue        | `frontend/src/scenes/dashboard/`                                              | Fetch, CRUD, copy/move, undo remove                                                                                  |
 
 **New `widget_type` strings need no migration** — register in both backend and frontend registries + catalog.
 
 ## Naming
 
-| Context                                      | Convention             | Example                                     |
-| -------------------------------------------- | ---------------------- | ------------------------------------------- |
-| Product widget dirs under `widgets/`         | `snake_case`           | `widgets/error_tracking/`                   |
-| Catalog keys / `widget_type` / registry keys | `snake_case`           | `error_tracking_list`                       |
-| Shared `widget_types/` modules               | `snake_case` filenames | `configSchemas.ts`, `widgetAvailability.ts` |
-| React component dirs under `components/`     | `PascalCase`           | `WidgetCard/`, `DashboardWidgetItem/`       |
-| MCP tool names                               | `kebab-case`           | `dashboard-widgets-run`                     |
+| Context                                      | Convention             | Example                                          |
+| -------------------------------------------- | ---------------------- | ------------------------------------------------ |
+| Product widget dirs under `widgets/`         | `snake_case`           | `widgets/error_tracking/`                        |
+| Catalog keys / `widget_type` / registry keys | `snake_case`           | `error_tracking_list`                            |
+| Shared `widget_types/` modules               | `snake_case` filenames | `widgetConfigShared.ts`, `widgetAvailability.ts` |
+| React component dirs under `components/`     | `PascalCase`           | `WidgetCard/`, `DashboardWidgetItem/`            |
+| MCP tool names                               | `kebab-case`           | `dashboard-widgets-run`                          |
 
 Colocate widget code in `widgets/<product>/` — do not scaffold empty `hooks/` or `logic/` dirs until kea is actually needed.
 
@@ -41,14 +44,12 @@ Colocate widget code in `widgets/<product>/` — do not scaffold empty `hooks/` 
 
 **Do not hand-maintain type lists in this skill.** Canonical set:
 
-- `EXPECTED_WIDGET_TYPES` / `WIDGET_REGISTRY` — `backend/widget_registry.py`
-- `WIDGET_CATALOG` — `backend/widget_catalog.py`
-- `DASHBOARD_WIDGET_CATALOG` — `frontend/widget_types/catalog.ts`
-- OpenAPI config serializers — `backend/api/widget_openapi_serializers.py`
+- `EXPECTED_WIDGET_TYPES` / `WIDGET_REGISTRY` — `backend/widget_registry.py` (re-exports `widget_specs/registry.py`; enforced in `test_run_widgets.py` — no separate FE union file)
+- `WIDGET_CATALOG` — `backend/widget_catalog.py` (derived from `WIDGET_SPECS`)
+- `DASHBOARD_WIDGET_CATALOG` — `frontend/widget_types/catalog.ts` (hand-written UI metadata)
+- OpenAPI config serializers — `backend/widget_specs/openapi.py` (derived from `WIDGET_SPECS`; re-exported from `api/widget_openapi_serializers.py`)
 
 CI: `test_run_widgets.py` (registry + catalog + OpenAPI serializer count), `registry.test.tsx` (FE catalog ↔ registry).
-
-Default pattern: copy `error_tracking_list` end-to-end (`frontend/widgets/error_tracking/`). Use `session_replay_list` when you need catalog `availability`, replay throttles, or session-recording RBAC.
 
 ## Charts → use insight tiles, not widgets
 
@@ -67,22 +68,32 @@ Per-type add flow (ordered checklist): [checklist-new-widget-type.md](checklist-
 
 ## Backend registry entry shape
 
-Files: `products/dashboards/backend/widgets/<widget_type>.py` + `widget_registry.py`
+Files: `products/dashboards/backend/widgets/<widget_type>.py` + `widget_specs/registry.py`
 
 ```python
-# widgets/your_type.py — validate + run for one widget_type
-# widget_registry.py — aggregator only
-WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
-    "your_type": {
-        "validate_config": validate_your_type_config,
-        "query_fn": run_your_type_widget,
-        "required_scopes": ["your_product:read"],  # documentation only
-        "required_product_access": "your_product",  # RBAC gate via widget_access.py
-    },
-}
+# widgets/your_type.py — run_* only; validation via widget_specs/registry.py
+def run_your_type_widget(team, config, user=None, **kwargs) -> dict:
+    typed = validate_widget_config(YOUR_TYPE, config)
+    ...
+
+# widget_specs/registry.py — WIDGET_SPECS manifest (lazy-imports run_*)
+WIDGET_SPECS[YOUR_TYPE] = WidgetSpec(
+    widget_type=YOUR_TYPE,
+    config_model=YourWidgetConfig,
+    query_fn=run_your_type_widget,
+    required_scopes=("your_product:read",),
+    group_id="your_product",
+    group_label="Your product",
+    label="Your widget",
+    description="Agent-facing catalog copy.",
+    required_product_access="your_product",
+    product_access_denied_message="You do not have access to your product.",
+    availability_requirements=("your_setup_flag",),
+)
 ```
 
-- `validate_<type>_config` / `run_<type>_widget` live in `widgets/<widget_type>.py` — call the **same** query runner the standalone product uses
+- Config validation is **Pydantic-only** — no per-type `validate_<type>_config` functions
+- `run_<type>_widget` lives in `widgets/<widget_type>.py` — call the **same** query runner the standalone product uses
 - Registry wiring checklist: [checklist-new-widget-type.md §1–2](checklist-new-widget-type.md)
 - Product RBAC: [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)
 
@@ -138,22 +149,27 @@ Import `Component` / `EditModal` directly in `registry.tsx` (no `React.lazy`). E
 
 ## CI type-safety nets
 
+- **OpenAPI drift:** [config-and-codegen.md § Codegen & CI](config-and-codegen.md#codegen--ci)
 - BE: `EXPECTED_WIDGET_TYPES == WIDGET_REGISTRY.keys()` and `WIDGET_CATALOG` keys match
 - BE: OpenAPI polymorphic config serializer count matches registry (`test_run_widgets.py`)
+- BE: catalog `config_schema` matches Pydantic JSON schema (`test_widget_config_schema_parity.py`)
+- BE: per-type `widget_type` enum overrides (`test_widget_openapi_enums.py`; `build:widget-types` preflight)
+- BE: dashboard PATCH OpenAPI ⊆ runtime writables (`test_dashboard_openapi.py` + `api/test/dashboard_openapi_contract.py`)
 - FE: `DASHBOARD_WIDGET_REGISTRY satisfies Record<DashboardWidgetCatalogKey, …>`
 - FE: `DASHBOARD_WIDGET_PREVIEWS` keyed by catalog; `registry.test.tsx` covers every catalog key
+- FE: Zod config top-level keys match backend property map (`widgetConfigSchemaParity.test.ts` + `widget-config-property-keys.json`)
 - Runtime: `getDashboardWidgetDefinition` → PostHog `captureException` on miss (deploy skew)
 
 ## Footguns
 
-| Mistake                                                     | Fix                                                                                                                                                                    |
-| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Nested per-type widget config serializer on dashboard PATCH | Keep tile `config` as `JSONField` on serializers — typed OpenAPI serializers belong in `widget_openapi_serializers.py` only                                            |
-| Registry entry without catalog entry                        | Catalog drives add modal, layouts, headers, previews — registry alone is not enough                                                                                    |
-| Reused `widget_type` for a new variant                      | Each variant needs its own catalog key + full BE/FE stack; share `groupId` only                                                                                        |
-| `gridChildren` used for widget body                         | RGL resize handles only — content goes in composed `WidgetCardBody`                                                                                                    |
-| Config API error parsing in `utils.ts`                      | Per-type **`parseConfigApiError`** on `DASHBOARD_WIDGET_REGISTRY` entry                                                                                                |
-| Export vs public/shared confused                            | Export hides widget tiles; public/shared render **`WidgetCardSharedPlaceholderBody`** without `run_widgets` — [permissions-and-sharing.md](permissions-and-sharing.md) |
+| Mistake                                | Fix                                                                                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config / OpenAPI / Zod mistakes        | [config-and-codegen.md § Footguns](config-and-codegen.md#footguns-config--codegen)                                                                                     |
+| Registry entry without catalog entry   | Catalog drives add modal, layouts, headers, previews — registry alone is not enough                                                                                    |
+| Reused `widget_type` for a new variant | Each variant needs its own catalog key + full BE/FE stack; share `groupId` only                                                                                        |
+| `gridChildren` used for widget body    | RGL resize handles only — content goes in composed `WidgetCardBody`                                                                                                    |
+| Config API error parsing in `utils.ts` | Per-type **`parseConfigApiError`** on `DASHBOARD_WIDGET_REGISTRY` entry                                                                                                |
+| Export vs public/shared confused       | Export hides widget tiles; public/shared render **`WidgetCardSharedPlaceholderBody`** without `run_widgets` — [permissions-and-sharing.md](permissions-and-sharing.md) |
 
 Easy-to-miss paths when adding a type: `backend/widget_layouts.py` (batch-add placement), `posthog/models/resource_transfer/visitors/dashboard_widget.py` (cross-project copy), `posthog/api/test/test_sharing.py` (shared payload).
 
@@ -202,4 +218,4 @@ Cross-project transfer, cross-dashboard copy/move, and dashboard duplication all
 
 ## Reference implementation
 
-Mirror `products/dashboards/frontend/widgets/error_tracking/` for end-to-end patterns.
+Mirror `products/dashboards/frontend/widgets/error_tracking/` (`error_tracking_list`). Replay pattern: `widgets/session_replay/` — see [widget-intake.md § Defaults](widget-intake.md#defaults-and-inference).
