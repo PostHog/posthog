@@ -1,24 +1,63 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import {
+    convertUniversalFiltersToRecordingsQuery,
+    recordingsQueryToUniversalFilters,
+} from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
-import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter } from '~/types'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
-const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
+// Mirrors the recordings list, minus its playlist-only groups (saved/suggested filters).
+const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.Replay,
+    TaxonomicFilterGroupType.Events,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.Actions,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.EventFeatureFlags,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.SessionProperties,
-    TaxonomicFilterGroupType.Cohorts,
-    TaxonomicFilterGroupType.Events,
 ]
+
+// Recursively renders the bound universal-filter group's values + the add-filter button.
+function ScannerFilterGroup(): JSX.Element {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+
+    return (
+        <div className="inline-flex flex-col gap-2">
+            {filterGroup.values.map((filterOrGroup, index) =>
+                isUniversalGroupFilterLike(filterOrGroup) ? (
+                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                        <ScannerFilterGroup />
+                    </UniversalFilters.Group>
+                ) : (
+                    <UniversalFilters.Value
+                        key={index}
+                        index={index}
+                        filter={filterOrGroup}
+                        onRemove={() => removeGroupValue(index)}
+                        onChange={(value) => replaceGroupValue(index, value)}
+                    />
+                )
+            )}
+            <div>
+                <UniversalFilters.AddFilterButton title="Add filter" type="secondary" size="xsmall" />
+            </div>
+        </div>
+    )
+}
 
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
@@ -68,30 +107,28 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
             <LemonField name="query" label="Recording filters">
                 {({ value, onChange }) => {
-                    const query = value as RecordingsQuery | null
-                    const properties = query?.properties ?? []
-                    const updateProperties = (next: AnyPropertyFilter[]): void => {
-                        onChange({
-                            kind: NodeKind.RecordingsQuery,
-                            ...query,
-                            properties: next,
-                        })
-                    }
+                    const universal = recordingsQueryToUniversalFilters(value as RecordingsQuery | null)
                     return (
                         <div className="space-y-2">
                             <div className="text-sm text-muted">
-                                Filter by person, session, cohort, or event properties. Leave empty to scan all
-                                completed recordings.
+                                Filter by event, action, person, session, or cohort. Leave empty to scan all completed
+                                recordings.
                             </div>
-                            <PropertyFilters
-                                propertyFilters={properties}
-                                onChange={updateProperties}
-                                pageKey={`replay-scanner-${scanner.id}-properties`}
-                                taxonomicGroupTypes={RECORDING_FILTER_TYPES}
-                                addText="Add filter"
-                                hasRowOperator={false}
-                                sendAllKeyUpdates
-                            />
+                            <UniversalFilters
+                                rootKey={`replay-scanner-${scanner.id}`}
+                                group={universal.filter_group}
+                                taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                onChange={(filterGroup) =>
+                                    onChange(
+                                        convertUniversalFiltersToRecordingsQuery({
+                                            ...universal,
+                                            filter_group: filterGroup,
+                                        })
+                                    )
+                                }
+                            >
+                                <ScannerFilterGroup />
+                            </UniversalFilters>
                         </div>
                     )
                 }}
