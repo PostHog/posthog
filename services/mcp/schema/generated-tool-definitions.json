@@ -6414,6 +6414,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-global-stats": {
+        "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are red, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Workflow stats overview",
+        "title": "Workflow stats overview",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",
@@ -6429,7 +6443,7 @@
         }
     },
     "workflows-list-batch-jobs": {
-        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-metrics for the outcome of a run.",
+        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-stats for the outcome of a run.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "List workflow batch runs",
@@ -6470,12 +6484,12 @@
             "readOnlyHint": true
         }
     },
-    "workflows-metrics": {
-        "description": "Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing success and failure counts over a configurable interval (hour, day, or week). Use to understand workflow health, identify failure spikes, and monitor execution reliability. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
+    "workflows-stats": {
+        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
         "category": "Workflows",
         "feature": "workflows",
-        "summary": "Get workflow metrics",
-        "title": "Get workflow metrics",
+        "summary": "Get workflow stats",
+        "title": "Get workflow stats",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,

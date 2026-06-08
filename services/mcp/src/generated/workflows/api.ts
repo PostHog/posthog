@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -547,4 +547,25 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
+})
+
+export const HogFlowsMetricsGlobalRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFlowsMetricsGlobalRetrieveQueryAfterDefault = `-7d`
+
+export const HogFlowsMetricsGlobalRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod
+        .string()
+        .min(1)
+        .default(hogFlowsMetricsGlobalRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
+        ),
+    before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
 })

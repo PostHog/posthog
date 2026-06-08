@@ -238,6 +238,54 @@ def fetch_app_metric_totals(
     return AppMetricsTotalsResponse(totals=totals)
 
 
+def fetch_app_metric_totals_by_source(
+    team_id: int,
+    app_source: str,
+    after: Optional[datetime] = None,
+    before: Optional[datetime] = None,
+    name: Optional[list[str]] = None,
+) -> dict[str, dict[str, int]]:
+    """Per-`app_source_id` metric totals for a whole team in one grouped query.
+
+    Unlike `fetch_app_metric_totals` (single object), this drops the `app_source_id`
+    filter and groups by it, so callers get counts for every object at once — e.g. a
+    failure overview across all workflows. Returns `{app_source_id: {metric_name: count}}`.
+    """
+    name = name or ["succeeded", "failed"]
+
+    clickhouse_kwargs: dict[str, Any] = {
+        "team_id": team_id,
+        "app_source": app_source,
+        "after": after.strftime("%Y-%m-%dT%H:%M:%S") if after else None,
+        "before": before.strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "name": name,
+    }
+
+    clickhouse_query = f"""
+        SELECT
+            app_source_id,
+            metric_name,
+            sum(count) as count
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+        AND app_source = %(app_source)s
+        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        AND metric_name IN %(name)s
+        GROUP BY app_source_id, metric_name
+    """
+
+    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+
+    if not isinstance(results, list):
+        raise ValueError("Unexpected results from ClickHouse")
+
+    totals: dict[str, dict[str, int]] = {}
+    for app_source_id, metric_name, count in results:
+        totals.setdefault(app_source_id, {})[metric_name] = count
+    return totals
+
+
 class AppMetricsMixin(viewsets.GenericViewSet):
     app_source: str  # Should be set by the inheriting class
 

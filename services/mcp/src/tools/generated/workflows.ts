@@ -13,6 +13,7 @@ import {
     HogFlowsListQueryParams,
     HogFlowsLogsRetrieveParams,
     HogFlowsLogsRetrieveQueryParams,
+    HogFlowsMetricsGlobalRetrieveQueryParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsRetrieveQueryParams,
     HogFlowsPartialUpdateBody,
@@ -199,14 +200,14 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
     },
 })
 
-const WorkflowsMetricsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
+const WorkflowsStatsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
     HogFlowsMetricsRetrieveQueryParams.shape
 )
 
-const workflowsMetrics = (): ToolBase<typeof WorkflowsMetricsSchema, Schemas.AppMetricsResponse> => ({
-    name: 'workflows-metrics',
-    schema: WorkflowsMetricsSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsMetricsSchema>) => {
+const workflowsStats = (): ToolBase<typeof WorkflowsStatsSchema, Schemas.AppMetricsResponse> => ({
+    name: 'workflows-stats',
+    schema: WorkflowsStatsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsStatsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AppMetricsResponse>({
             method: 'GET',
@@ -222,6 +223,28 @@ const workflowsMetrics = (): ToolBase<typeof WorkflowsMetricsSchema, Schemas.App
             },
         })
         return result
+    },
+})
+
+const WorkflowsGlobalStatsSchema = HogFlowsMetricsGlobalRetrieveQueryParams
+
+const workflowsGlobalStats = (): ToolBase<
+    typeof WorkflowsGlobalStatsSchema,
+    WithPostHogUrl<Schemas.WorkflowStatsRow[]>
+> => ({
+    name: 'workflows-global-stats',
+    schema: WorkflowsGlobalStatsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsGlobalStatsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WorkflowStatsRow[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/metrics/global/`,
+            query: {
+                after: params.after,
+                before: params.before,
+            },
+        })
+        return await withPostHogUrl(context, result, '/pipeline/destinations')
     },
 })
 
@@ -336,7 +359,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-logs': workflowsLogs,
-    'workflows-metrics': workflowsMetrics,
+    'workflows-stats': workflowsStats,
+    'workflows-global-stats': workflowsGlobalStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
     'workflows-update-schedule': workflowsUpdateSchedule,

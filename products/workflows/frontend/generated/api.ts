@@ -23,6 +23,7 @@ import type {
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
+    HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
     HogInvocationResultApi,
@@ -32,6 +33,7 @@ import type {
     PatchedHogFlowApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    WorkflowStatsRowApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -589,6 +591,36 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsMetricsGlobalRetrieveUrl = (
+    projectId: string,
+    params?: HogFlowsMetricsGlobalRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/metrics/global/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/metrics/global/`
+}
+
+export const hogFlowsMetricsGlobalRetrieve = async (
+    projectId: string,
+    params?: HogFlowsMetricsGlobalRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowStatsRowApi[]> => {
+    return apiMutator<WorkflowStatsRowApi[]>(getHogFlowsMetricsGlobalRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

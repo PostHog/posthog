@@ -664,6 +664,15 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface WorkflowStatsRowApi {
+    /** The workflow these counts are for. */
+    workflow_id: string
+    /** Successful invocations in the window. */
+    succeeded: number
+    /** Failed invocations in the window. */
+    failed: number
+}
+
 /**
  * Property filters to apply
  */
@@ -942,3 +951,16 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type HogFlowsMetricsGlobalRetrieveParams = {
+    /**
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+}

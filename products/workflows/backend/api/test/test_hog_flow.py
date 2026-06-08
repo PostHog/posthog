@@ -1,6 +1,7 @@
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -11,6 +12,7 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Cohort, Organization, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.fixtures import create_app_metric2
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -1997,3 +1999,83 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_error:
             assert response.json()["detail"] == expected_error
+
+
+class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.flow_a = HogFlow.objects.create(team=self.team, name="Flow A")
+        self.flow_b = HogFlow.objects.create(team=self.team, name="Flow B")
+
+    def _global(self, params=None):
+        return self.client.get(f"/api/projects/{self.team.id}/hog_flows/metrics/global/", params)
+
+    def _seed(self, workflow_id, *, succeeded=0, failed=0, timestamp=None, team_id=None, app_source="hog_flow"):
+        tid = team_id or self.team.pk
+        if succeeded:
+            create_app_metric2(
+                team_id=tid,
+                app_source=app_source,
+                app_source_id=str(workflow_id),
+                metric_kind="success",
+                metric_name="succeeded",
+                count=succeeded,
+                timestamp=timestamp,
+            )
+        if failed:
+            create_app_metric2(
+                team_id=tid,
+                app_source=app_source,
+                app_source_id=str(workflow_id),
+                metric_kind="failure",
+                metric_name="failed",
+                count=failed,
+                timestamp=timestamp,
+            )
+
+    def test_returns_empty_when_no_metrics(self):
+        res = self._global()
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json() == []
+
+    def test_aggregates_per_workflow_sorted_most_failing_first(self):
+        self._seed(self.flow_a.id, succeeded=3, failed=1)
+        self._seed(self.flow_b.id, succeeded=5, failed=4)
+        rows = self._global().json()
+        by_id = {r["workflow_id"]: r for r in rows}
+        assert by_id[str(self.flow_a.id)] == {"workflow_id": str(self.flow_a.id), "succeeded": 3, "failed": 1}
+        assert by_id[str(self.flow_b.id)] == {"workflow_id": str(self.flow_b.id), "succeeded": 5, "failed": 4}
+        # Most-failing first.
+        assert rows[0]["workflow_id"] == str(self.flow_b.id)
+
+    def test_time_window_filter(self):
+        now = datetime.now(tz=UTC)
+        self._seed(self.flow_a.id, failed=4, timestamp=now)
+        self._seed(self.flow_a.id, failed=9, timestamp=now - timedelta(days=30))
+        recent = {r["workflow_id"]: r for r in self._global({"after": "-7d"}).json()}
+        assert recent[str(self.flow_a.id)]["failed"] == 4
+        wide = {r["workflow_id"]: r for r in self._global({"after": "-60d"}).json()}
+        assert wide[str(self.flow_a.id)]["failed"] == 13
+
+    def test_isolated_from_other_team_and_app_source(self):
+        self._seed(self.flow_a.id, succeeded=2)
+        # Same id but a hog_function metric, and another team — neither must leak in.
+        self._seed(self.flow_a.id, succeeded=7, app_source="hog_function")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._seed(self.flow_a.id, succeeded=99, team_id=other_team.pk)
+        rows = self._global().json()
+        assert {r["workflow_id"]: r["succeeded"] for r in rows} == {str(self.flow_a.id): 2}
+
+    def test_personal_api_key_hog_flow_read_only_allowed(self):
+        # Aggregate counts carry no person data, so hog_flow:read alone is sufficient (no person:read).
+        self._seed(self.flow_a.id, failed=1)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        res = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/metrics/global/",
+            headers={"authorization": f"Bearer {key}"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}

@@ -165,7 +165,7 @@ tools:
         description: >
             List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows
             the audience filters and variable overrides the run used, plus when it was created. The status field is not
-            tracked — use workflows-logs / workflows-metrics for the outcome of a run.
+            tracked — use workflows-logs / workflows-stats for the outcome of a run.
     workflows-list-invocations:
         operation: hog_flows_invocation_results_retrieve
         enabled: true
@@ -198,7 +198,7 @@ tools:
             Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
             LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
             results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
-    workflows-metrics:
+    workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
         scopes:
@@ -207,12 +207,29 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get workflow metrics
+        title: Get workflow stats
         description: >
-            Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing success and
-            failure counts over a configurable interval (hour, day, or week). Use to understand workflow health,
-            identify failure spikes, and monitor execution reliability. Supports breakdown by metric kind
-            (success/failure) or name, and time range filtering.
+            Execution stats for a single workflow by ID: time-series success/failure counts over a configurable
+            interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability
+            trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in
+            here. Supports breakdown by metric kind (success/failure) or name, and time range filtering.
+    workflows-global-stats:
+        operation: hog_flows_metrics_global_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Workflow stats overview
+        description: >
+            At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window
+            (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which
+            workflows are red, then drill into those with workflows-list-invocations (who it failed for) →
+            workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning
+            every workflow one at a time. For a single workflow's time-series, use workflows-stats.
     workflows-test-run:
         operation: hog_flows_invocations_create
         enabled: true

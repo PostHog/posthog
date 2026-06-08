@@ -41149,6 +41149,15 @@ export namespace Schemas {
       last_failure_at: string | null;
     }
 
+    export interface WorkflowStatsRow {
+      /** The workflow these counts are for. */
+      workflow_id: string;
+      /** Successful invocations in the window. */
+      succeeded: number;
+      /** Failed invocations in the window. */
+      failed: number;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -43553,6 +43562,19 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type EnvironmentsHogFlowsMetricsGlobalRetrieveParams = {
+    /**
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    };
 
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
@@ -49270,6 +49292,19 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type HogFlowsMetricsGlobalRetrieveParams = {
+    /**
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    };
 
     export type HogFunctionTemplatesListParams = {
     /**
