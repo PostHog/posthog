@@ -39,7 +39,7 @@ export function AIGatewayScene(): JSX.Element {
 
     const columns: LemonTableColumns<GatewayApi> = [
         {
-            title: 'Slug',
+            title: 'Gateway',
             dataIndex: 'slug',
             render: (slug, gateway) => (
                 <Link to={urls.aiGatewayDetail(gateway.id)} className="font-mono font-semibold">
@@ -48,27 +48,22 @@ export function AIGatewayScene(): JSX.Element {
             ),
         },
         {
-            title: 'Credentials',
-            dataIndex: 'bound_credentials_count',
-            render: (count) => `${count ?? 0}`,
-        },
-        {
-            title: 'Created by',
-            dataIndex: 'created_by',
-            render: (_, gateway) =>
-                gateway.created_by ? (
-                    <div className="flex items-center gap-2">
-                        <ProfilePicture user={profileUser(gateway.created_by)} size="md" />
-                        <span>{gateway.created_by.first_name || gateway.created_by.email}</span>
-                    </div>
-                ) : (
-                    <span className="text-secondary">—</span>
-                ),
-        },
-        {
             title: 'Created',
             dataIndex: 'created_at',
-            render: (createdAt) => <TZLabel time={createdAt as string} />,
+            render: (_, gateway) => (
+                <div className="flex items-center gap-2">
+                    {gateway.created_by ? (
+                        <>
+                            <ProfilePicture user={profileUser(gateway.created_by)} size="sm" />
+                            <span>{gateway.created_by.first_name || gateway.created_by.email}</span>
+                        </>
+                    ) : (
+                        <span className="text-secondary">System</span>
+                    )}
+                    <span className="text-secondary">·</span>
+                    <TZLabel time={gateway.created_at} />
+                </div>
+            ),
         },
         {
             width: 0,
