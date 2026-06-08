@@ -5,6 +5,7 @@ import {
     ChangeEvent as ReactChangeEvent,
     ClipboardEvent as ReactClipboardEvent,
     type CSSProperties,
+    FocusEvent as ReactFocusEvent,
     FormEvent,
     Fragment,
     KeyboardEvent,
@@ -268,6 +269,8 @@ export function MarkdownNotebook({
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
+    const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
+    const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
     const [componentPanels, setComponentPanels] = useState<Record<string, ComponentPanelVisibility>>({})
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [isDebugOpen, setIsDebugOpen] = useState(false)
@@ -1599,6 +1602,37 @@ export function MarkdownNotebook({
         }
     }
 
+    const updateActiveBoundaryFromRow = (event: ReactMouseEvent<HTMLElement>, rowIndex: number): void => {
+        setActiveRowIndex(rowIndex)
+
+        if (focusedRowIndex !== null || insertMenu) {
+            setActiveBoundaryIndex(null)
+            return
+        }
+
+        setActiveBoundaryIndex(getClosestInsertBoundaryIndex(event.currentTarget, rowIndex, event.clientY))
+    }
+
+    const handleRowFocus = (rowIndex: number): void => {
+        setActiveRowIndex(rowIndex)
+        setActiveBoundaryIndex(null)
+        setFocusedRowIndex(rowIndex)
+    }
+
+    const handleRowBlur = (event: ReactFocusEvent<HTMLDivElement>, rowIndex: number): void => {
+        const nextTarget = event.relatedTarget
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+            return
+        }
+
+        setFocusedRowIndex((currentRowIndex) => (currentRowIndex === rowIndex ? null : currentRowIndex))
+    }
+
+    const handleCanvasMouseLeave = (): void => {
+        setActiveRowIndex(null)
+        setActiveBoundaryIndex(null)
+    }
+
     return (
         <div
             className={clsx('MarkdownNotebook', isDebugOpen && 'MarkdownNotebook--debug-open', className)}
@@ -1631,11 +1665,7 @@ export function MarkdownNotebook({
                             ))}
                         </div>
                     ) : null}
-                    <div
-                        className="MarkdownNotebook__canvas"
-                        ref={canvasRef}
-                        onMouseLeave={() => setActiveRowIndex(null)}
-                    >
+                    <div className="MarkdownNotebook__canvas" ref={canvasRef} onMouseLeave={handleCanvasMouseLeave}>
                         {showInsertBoundaries ? (
                             <InsertBoundaryButton
                                 boundaryIndex={0}
@@ -1643,13 +1673,12 @@ export function MarkdownNotebook({
                                 isVisible={isInsertBoundaryVisible(
                                     renderedNodes,
                                     0,
-                                    activeRowIndex,
+                                    activeBoundaryIndex,
+                                    focusedRowIndex,
                                     insertMenu?.nodeId
                                 )}
                                 insertEmptyParagraphAtBoundary={insertEmptyParagraphAtBoundary}
-                                setActiveRowIndex={(boundaryIndex) =>
-                                    setActiveRowIndex(getBoundaryActiveRowIndex(renderedNodes, boundaryIndex))
-                                }
+                                setActiveBoundaryIndex={setActiveBoundaryIndex}
                             />
                         ) : null}
                         {renderedNodes.map((node, index) => {
@@ -1773,8 +1802,10 @@ export function MarkdownNotebook({
                                             'MarkdownNotebook__row',
                                             isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open'
                                         )}
-                                        onMouseEnter={() => setActiveRowIndex(index)}
-                                        onFocusCapture={() => setActiveRowIndex(index)}
+                                        onMouseEnter={(event) => updateActiveBoundaryFromRow(event, index)}
+                                        onMouseMove={(event) => updateActiveBoundaryFromRow(event, index)}
+                                        onFocusCapture={() => handleRowFocus(index)}
+                                        onBlurCapture={(event) => handleRowBlur(event, index)}
                                     >
                                         {renderNode({
                                             node,
@@ -1890,15 +1921,12 @@ export function MarkdownNotebook({
                                             isVisible={isInsertBoundaryVisible(
                                                 renderedNodes,
                                                 index + 1,
-                                                activeRowIndex,
+                                                activeBoundaryIndex,
+                                                focusedRowIndex,
                                                 insertMenu?.nodeId
                                             )}
                                             insertEmptyParagraphAtBoundary={insertEmptyParagraphAtBoundary}
-                                            setActiveRowIndex={(boundaryIndex) =>
-                                                setActiveRowIndex(
-                                                    getBoundaryActiveRowIndex(renderedNodes, boundaryIndex)
-                                                )
-                                            }
+                                            setActiveBoundaryIndex={setActiveBoundaryIndex}
                                         />
                                     ) : null}
                                 </Fragment>
@@ -3805,16 +3833,16 @@ function InsertBoundaryButton({
     isAvailable,
     isVisible,
     insertEmptyParagraphAtBoundary,
-    setActiveRowIndex,
+    setActiveBoundaryIndex,
 }: {
     boundaryIndex: number
     isAvailable: boolean
     isVisible: boolean
     insertEmptyParagraphAtBoundary: (boundaryIndex: number) => void
-    setActiveRowIndex: (boundaryIndex: number) => void
+    setActiveBoundaryIndex: (boundaryIndex: number) => void
 }): JSX.Element {
     return (
-        <div className="MarkdownNotebook__insert-boundary" onMouseEnter={() => setActiveRowIndex(boundaryIndex)}>
+        <div className="MarkdownNotebook__insert-boundary" onMouseEnter={() => setActiveBoundaryIndex(boundaryIndex)}>
             {isAvailable ? (
                 <LemonButton
                     size="xsmall"
@@ -4800,27 +4828,30 @@ function isInsertBoundaryAvailable(
 function isInsertBoundaryVisible(
     nodes: NotebookBlockNode[],
     boundaryIndex: number,
-    activeRowIndex: number | null,
+    activeBoundaryIndex: number | null,
+    focusedRowIndex: number | null,
     insertMenuNodeId?: string
 ): boolean {
-    if (activeRowIndex === null || !isInsertBoundaryAvailable(nodes, boundaryIndex, insertMenuNodeId)) {
+    if (
+        activeBoundaryIndex === null ||
+        focusedRowIndex !== null ||
+        insertMenuNodeId !== undefined ||
+        !isInsertBoundaryAvailable(nodes, boundaryIndex, insertMenuNodeId)
+    ) {
         return false
     }
 
-    return boundaryIndex === activeRowIndex || boundaryIndex === activeRowIndex + 1
+    return boundaryIndex === activeBoundaryIndex
 }
 
-function getBoundaryActiveRowIndex(nodes: NotebookBlockNode[], boundaryIndex: number): number | null {
-    const previousRowIndex = boundaryIndex - 1
-    const nextRowIndex = boundaryIndex
+function getClosestInsertBoundaryIndex(rowElement: HTMLElement, rowIndex: number, clientY: number): number {
+    const rowRect = rowElement.getBoundingClientRect()
 
-    if (previousRowIndex >= 0 && !isInlineInsertMenuRow(nodes[previousRowIndex])) {
-        return previousRowIndex
+    if (rowRect.height <= 0) {
+        return rowIndex
     }
-    if (nextRowIndex < nodes.length && !isInlineInsertMenuRow(nodes[nextRowIndex])) {
-        return nextRowIndex
-    }
-    return null
+
+    return clientY <= rowRect.top + rowRect.height / 2 ? rowIndex : rowIndex + 1
 }
 
 function ensureEditableTrailingParagraph(document: NotebookDocument): NotebookDocument {

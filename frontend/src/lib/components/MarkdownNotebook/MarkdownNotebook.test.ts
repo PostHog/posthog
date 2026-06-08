@@ -745,7 +745,7 @@ Second paragraph`,
         expect(boundaryButtons).toHaveLength(3)
     })
 
-    it('only reveals boundary add buttons around the active populated row', () => {
+    it('only reveals the closest boundary add button while hovering populated rows', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: `First paragraph
@@ -757,6 +757,23 @@ Third paragraph`,
         )
         const canvas = container.querySelector('.MarkdownNotebook__canvas')
         const rows = Array.from(container.querySelectorAll('.MarkdownNotebook__row'))
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const setRowRect = (row: Element, top: number, height: number): void => {
+            Object.defineProperty(row, 'getBoundingClientRect', {
+                configurable: true,
+                value: () => ({
+                    bottom: top + height,
+                    height,
+                    left: 0,
+                    right: 500,
+                    top,
+                    width: 500,
+                    x: 0,
+                    y: top,
+                    toJSON: () => ({}),
+                }),
+            })
+        }
         const getVisibleBoundaryIndexes = (): string[] =>
             Array.from(container.querySelectorAll('.MarkdownNotebook__insert-boundary-button--visible')).map(
                 (button) => (button as HTMLElement).dataset.boundaryIndex ?? ''
@@ -764,13 +781,26 @@ Third paragraph`,
 
         expect(canvas).toBeInstanceOf(HTMLElement)
         expect(rows).toHaveLength(3)
+        expect(textBlocks).toHaveLength(3)
+        expect(getVisibleBoundaryIndexes()).toEqual([])
+        setRowRect(rows[0], 0, 100)
+        setRowRect(rows[1], 100, 100)
+
+        fireEvent.mouseEnter(rows[1], { clientY: 120 })
+        expect(getVisibleBoundaryIndexes()).toEqual(['1'])
+
+        fireEvent.mouseMove(rows[1], { clientY: 180 })
+        expect(getVisibleBoundaryIndexes()).toEqual(['2'])
+
+        fireEvent.focus(textBlocks[1])
         expect(getVisibleBoundaryIndexes()).toEqual([])
 
-        fireEvent.mouseEnter(rows[1])
-        expect(getVisibleBoundaryIndexes()).toEqual(['1', '2'])
+        fireEvent.blur(textBlocks[1])
+        fireEvent.mouseMove(rows[1], { clientY: 180 })
+        expect(getVisibleBoundaryIndexes()).toEqual(['2'])
 
-        fireEvent.mouseEnter(rows[0])
-        expect(getVisibleBoundaryIndexes()).toEqual(['0', '1'])
+        fireEvent.mouseEnter(rows[0], { clientY: 75 })
+        expect(getVisibleBoundaryIndexes()).toEqual(['1'])
 
         fireEvent.mouseLeave(canvas as HTMLElement)
         expect(getVisibleBoundaryIndexes()).toEqual([])
