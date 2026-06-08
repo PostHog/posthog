@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 
 from parameterized import parameterized
 
-from products.batch_exports.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
+from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
 
 class TestBatchImportModel(BaseTest):

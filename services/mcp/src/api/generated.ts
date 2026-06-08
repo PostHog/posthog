@@ -26027,6 +26027,8 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
+      /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+      quarantined_count?: number;
     }
 
     /**
@@ -46407,13 +46409,17 @@ export namespace Schemas {
     export type ActionsListParams = {
     format?: ActionsListFormat;
     /**
-     * Number of results to return per page.
+     * Maximum number of actions to return. Omit to return all.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of actions to skip before returning results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring match on the action name.
+     */
+    search?: string;
     };
 
     export type ActionsListFormat = typeof ActionsListFormat[keyof typeof ActionsListFormat];
@@ -52389,6 +52395,10 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean;
     /**
      * Number of results to return per page.
      */

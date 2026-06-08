@@ -7,6 +7,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.utils import close_db_connections
 
 POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS = 60
 # Matches the mention workflow's picker wait window so the bot's behaviour is
@@ -191,6 +192,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
 
 @activity.defn
+@close_db_connections
 def resolve_posthog_code_slack_command_user_activity(
     inputs: PostHogCodeSlackMentionCommandWorkflowInputs,
 ) -> int | None:
@@ -236,6 +238,7 @@ def resolve_posthog_code_slack_command_user_activity(
 
 
 @activity.defn
+@close_db_connections
 def handle_posthog_code_slack_mention_command_activity(
     inputs: PostHogCodeSlackMentionCommandWorkflowInputs,
     user_id: int,

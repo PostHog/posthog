@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib import admin
 
-from products.batch_exports.backend.models.batch_imports import BatchImport
+from products.managed_migrations.backend.models.batch_imports import BatchImport
 
 
 class BatchImportAdminForm(forms.ModelForm):

@@ -66,7 +66,7 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
             [] as ParserRecipeApi[],
             {
                 loadRecipes: async () => {
-                    if (!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER]) {
+                    if (!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS]) {
                         return []
                     }
                     return (await llmAnalyticsParserRecipesList(String(values.currentTeamId), { limit: 1000 })).results
@@ -113,7 +113,7 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
         loadKey: [
             (s) => [s.currentTeamId, s.featureFlags],
             (currentTeamId, featureFlags): number | null =>
-                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER] ? currentTeamId : null,
+                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS] ? currentTeamId : null,
         ],
     }),
     subscriptions(({ actions }) => ({
