@@ -24,8 +24,11 @@ import { useAgent, useRevisions } from '@/components/agent-context'
 import { AgentDescription } from '@/components/AgentDescription'
 import { useDockStore } from '@/components/dock-context'
 import { EditWithAIButton } from '@/components/EditWithAIButton'
+import { useSessionTeamId } from '@/components/session-context'
+import { listAgentApprovals, listMemoryFiles, listSessionsForAgent } from '@/lib/apiClient'
+import { useResource } from '@/lib/useResource'
 
-const TABS = ['overview', 'configuration', 'connections', 'sessions', 'memory'] as const
+const TABS = ['overview', 'configuration', 'connections', 'sessions', 'approvals', 'memory'] as const
 type TabKey = (typeof TABS)[number]
 
 interface TabDef {
@@ -40,8 +43,11 @@ const TAB_DEFS: TabDef[] = [
     { key: 'configuration', label: 'Configuration', path: '/configuration' },
     { key: 'connections', label: 'Connections', path: '/connections' },
     { key: 'sessions', label: 'Sessions', path: '/sessions' },
+    { key: 'approvals', label: 'Approvals', path: '/approvals' },
     { key: 'memory', label: 'Memory', path: '/memory' },
 ]
+
+const TAB_COUNT_POLL_MS = 30_000
 
 export function AgentLayout({ children }: { children: React.ReactNode }): React.ReactElement {
     const agent = useAgent()
@@ -49,6 +55,8 @@ export function AgentLayout({ children }: { children: React.ReactNode }): React.
     const router = useRouter()
     const pathname = usePathname() ?? ''
     const { enterPlayground } = useDockStore()
+    const teamId = useSessionTeamId()
+    const tabCounts = useTabCounts(teamId, agent)
 
     const sortedRevisions = useMemo(
         () => [...revisions].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
@@ -120,17 +128,83 @@ export function AgentLayout({ children }: { children: React.ReactNode }): React.
                 <div className="shrink-0 border-b border-border">
                     <div className="mx-auto w-full max-w-5xl px-6">
                         <TabsList variant="line">
-                            {TAB_DEFS.map((t) => (
-                                <TabsTrigger key={t.key} value={t.key}>
-                                    {t.label}
-                                </TabsTrigger>
-                            ))}
+                            {TAB_DEFS.map((t) => {
+                                const count = tabCounts[t.key]
+                                return (
+                                    <TabsTrigger key={t.key} value={t.key}>
+                                        <span className="inline-flex items-center gap-1.5">
+                                            {t.label}
+                                            {count != null && count > 0 ? (
+                                                <span
+                                                    className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 font-mono text-[0.625rem] font-medium text-muted-foreground"
+                                                    aria-label={`${count} ${t.label.toLowerCase()}`}
+                                                >
+                                                    {count > 99 ? '99+' : count}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                    </TabsTrigger>
+                                )
+                            })}
                         </TabsList>
                     </div>
                 </div>
                 <div className="min-h-0 flex-1">{children}</div>
             </Tabs>
         </div>
+    )
+}
+
+type TabCounts = Partial<Record<TabKey, number>>
+
+/**
+ * Background-polls the data behind each tab and exposes counts so the
+ * tab strip can render small badges. Returns `null` for any tab whose
+ * data hasn't loaded yet (badge renders nothing rather than 0).
+ *
+ * Approvals counts only `queued` + `approving` — terminal states
+ * (dispatched / rejected / expired) aren't actionable so they'd be
+ * noise on the badge. Sessions/Memory are total counts since both
+ * tabs show their full set.
+ */
+function useTabCounts(teamId: number | null, agent: { id: string; slug: string; name: string }): TabCounts {
+    const sessions = useResource(
+        () => {
+            if (teamId == null) {
+                return Promise.resolve(null)
+            }
+            return listSessionsForAgent(teamId, agent.slug, agent).catch(() => null)
+        },
+        [teamId, agent.slug, agent.id, agent.name],
+        { pollMs: TAB_COUNT_POLL_MS }
+    )
+    const memory = useResource(
+        () => {
+            if (teamId == null) {
+                return Promise.resolve(null)
+            }
+            return listMemoryFiles(teamId, agent.slug).catch(() => null)
+        },
+        [teamId, agent.slug],
+        { pollMs: TAB_COUNT_POLL_MS }
+    )
+    const approvals = useResource(
+        () => {
+            if (teamId == null) {
+                return Promise.resolve(null)
+            }
+            return listAgentApprovals(teamId, agent.slug, { state: ['queued', 'approving'] }).catch(() => null)
+        },
+        [teamId, agent.slug],
+        { pollMs: TAB_COUNT_POLL_MS }
+    )
+    return useMemo(
+        () => ({
+            sessions: sessions.data ? sessions.data.length : undefined,
+            memory: memory.data ? memory.data.count : undefined,
+            approvals: approvals.data ? approvals.data.length : undefined,
+        }),
+        [sessions.data, memory.data, approvals.data]
     )
 }
 

@@ -53,6 +53,25 @@ file (and out of this list) once the design lands.
       product needing the same "PostHog Cloud reaches into customer's
       private network" plumbing.
 
+- [ ] **Stop chat-triggered sessions when no listeners remain.** Chat
+      sessions today happily keep generating turns even after every SSE
+      consumer has hung up — the runner has no signal that the user
+      walked away, so it spends model tokens producing assistant text
+      and tool calls nobody will see. Proposal: the bus tracks listener
+      counts per session (Redis pubsub already exposes this); the
+      runner subscribes and, if the count stays at zero for N seconds
+      AND the active trigger declares it cares (e.g. `chat`,
+      `slack:dm`), wraps the current turn cleanly and parks the session
+      until a listener returns. Default behaviour controlled by a new
+      `triggers[].config.idle_stop_ms` (or platform-wide default) — opt
+      out by setting it to `0`. Open questions: webhook / cron / mcp
+      triggers should default to never-stop (no human listener concept);
+      "listener returned" needs to either auto-resume or surface a
+      one-click resume; how to handle in-flight tool calls (let them
+      finish, drop, or queue). Tracked because it's primarily a cost
+      lever — wasted tokens add up fast on long-running chat agents
+      with idle UIs.
+
 - [ ] **Cron trigger scheduler** (Dylan — picking up after runtime-mcps
       PR 7) — see
       [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
@@ -62,7 +81,7 @@ file (and out of this list) once the design lands.
       coalesce into long-running sessions via `external_key_reuse`.
       Plan was checked off prematurely — the most recent commit on the
       plan file is `078ce5bb89 wip — cron plan, auth refresh, hogli
-    ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
+  ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
       the codebase yet.
 
 - [x] ~~**Streaming deltas + unified reasoning knob**~~ — see
