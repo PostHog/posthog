@@ -22,7 +22,6 @@ import type { runningTimeLogicType } from './runningTimeLogicType'
 
 export interface RunningTimeLogicProps {
     experimentId: Experiment['id']
-    tabId: string
 }
 
 export interface RunningTimeConfig {
@@ -36,11 +35,11 @@ export interface RunningTimeConfig {
 export const runningTimeLogic = kea<runningTimeLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeLogic']),
     props({} as RunningTimeLogicProps),
-    key((props) => `${props.experimentId}-${props.tabId}`),
+    key((props) => `${props.experimentId}`),
 
     connect((props: RunningTimeLogicProps) => ({
         values: [
-            experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
+            experimentLogic({ experimentId: props.experimentId }),
             ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
             modalsLogic,
             ['isRunningTimeConfigModalOpen'],
@@ -48,7 +47,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             ['defaultMinimumDetectableEffect'],
         ],
         actions: [
-            experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
+            experimentLogic({ experimentId: props.experimentId }),
             ['updateExperiment', 'setExperiment'],
             modalsLogic,
             ['closeRunningTimeConfigModal'],
