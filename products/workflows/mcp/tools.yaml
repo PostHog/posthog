@@ -136,6 +136,23 @@ tools:
             Get a single workflow invocation by invocation_id, including invocation_globals — the raw triggering payload
             (event/person/groups) that the run executed against. Use after workflows-list-invocations to inspect exactly
             what input produced a failure.
+    workflows-global-stats:
+        operation: hog_flows_metrics_global_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Workflow stats overview
+        description: >
+            At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window
+            (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which
+            workflows are red, then drill into those with workflows-list-invocations (who it failed for) →
+            workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every
+            workflow one at a time. For a single workflow's time-series, use workflows-stats.
     workflows-list:
         operation: hog_flows_list
         enabled: true
@@ -209,27 +226,10 @@ tools:
             idempotent: true
         title: Get workflow stats
         description: >
-            Execution stats for a single workflow by ID: time-series success/failure counts over a configurable
-            interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability
-            trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in
-            here. Supports breakdown by metric kind (success/failure) or name, and time range filtering.
-    workflows-global-stats:
-        operation: hog_flows_metrics_global_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: Workflow stats overview
-        description: >
-            At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window
-            (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which
-            workflows are red, then drill into those with workflows-list-invocations (who it failed for) →
-            workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning
-            every workflow one at a time. For a single workflow's time-series, use workflows-stats.
+            Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval
+            (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an
+            at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
+            breakdown by metric kind (success/failure) or name, and time range filtering.
     workflows-test-run:
         operation: hog_flows_invocations_create
         enabled: true
