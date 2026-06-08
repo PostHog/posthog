@@ -11,7 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { HandsFreeStatus, handsFreeLogic } from '../handsFreeLogic'
 
 interface HandsFreeSurfaceProps {
-    tabId: string
+    panelId?: string
 }
 
 const STATUS_LABEL: Record<HandsFreeStatus, string> = {
@@ -43,15 +43,15 @@ const STATUS_HINT: Record<HandsFreeStatus, string> = {
 }
 
 function HandsFreeTopline({
-    tabId,
+    panelId,
     status,
     isReconnecting,
 }: {
-    tabId: string
+    panelId?: string
     status: HandsFreeStatus
     isReconnecting: boolean
 }): JSX.Element {
-    const { partialTranscript, error } = useValues(handsFreeLogic({ tabId }))
+    const { partialTranscript, error } = useValues(handsFreeLogic({ panelId }))
     const hint = isReconnecting ? 'Reconnecting your microphone' : STATUS_HINT[status]
     return (
         <div className="hands-free-surface__top">
@@ -65,9 +65,9 @@ function HandsFreeTopline({
     )
 }
 
-export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element | null {
-    const { status, connection, error } = useValues(handsFreeLogic({ tabId }))
-    const { toggleHandsFree } = useActions(handsFreeLogic({ tabId }))
+export function HandsFreeSurface({ panelId }: HandsFreeSurfaceProps): JSX.Element | null {
+    const { status, connection, error } = useValues(handsFreeLogic({ panelId }))
+    const { toggleHandsFree } = useActions(handsFreeLogic({ panelId }))
 
     // Register the v-then-m exit shortcut while the surface is mounted.
     // HandsFreeButton owns the same shortcut for the "enter" path; same-name
@@ -104,7 +104,7 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
             data-status={status}
             data-connection={connection}
         >
-            <HandsFreeTopline tabId={tabId} status={status} isReconnecting={isReconnecting} />
+            <HandsFreeTopline panelId={panelId} status={status} isReconnecting={isReconnecting} />
 
             <button
                 type="button"

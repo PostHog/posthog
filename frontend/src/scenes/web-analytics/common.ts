@@ -377,14 +377,6 @@ export enum ConversionGoalWarning {
     CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
 }
 
-export interface WebAnalyticsStatusCheck {
-    isSendingWebVitals: boolean
-    isSendingPageViews: boolean
-    isSendingPageLeaves: boolean
-    isSendingPageLeavesScroll: boolean
-    hasAuthorizedUrls: boolean
-}
-
 export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {
     [WebStatsBreakdown.InitialChannelType]: SourceTab.REFERRING_DOMAIN,
     [WebStatsBreakdown.InitialReferringDomain]: SourceTab.REFERRING_URL,
