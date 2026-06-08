@@ -27,7 +27,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
 
@@ -57,9 +57,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner.name || 'New scanner' : scanner.name || 'Scanner'
 
-    // Per-step error map for the stepper's warning icon. Only surface errors when kea-forms says
-    // they should be visible — otherwise the warning stays on after `resetScanner` (e.g. switching
-    // scanner type) even though the field-level errors have already been cleared.
     const stepErrors = showScannerErrors
         ? {
               configure: !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
@@ -67,11 +64,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
           }
         : { configure: false, triggers: false }
 
-    const goToStep = (next: 'configure' | 'triggers'): void => {
-        const order: Record<'configure' | 'triggers', number> = { configure: 0, triggers: 1 }
-        if (order[next] > order[step as 'configure' | 'triggers']) {
-            // Forward: run the form's validation; the submit handler routes on success or kea-forms
-            // surfaces field errors on failure.
+    const goToStep = (next: ScannerEditorStep): void => {
+        if (isScannerSubmitting) {
+            return
+        }
+        if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step as ScannerEditorStep]) {
             submitScanner()
             return
         }
@@ -85,11 +82,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     return (
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
-                <div className="w-full max-w-3xl px-4 flex flex-col gap-6">
+                <div className="w-full max-w-4xl px-4 flex flex-col gap-6">
                     <SceneTitleSection name={title} resourceType={{ type: 'replay_vision' }} />
                     <ScannerEditorStepper currentStep={step} onStepClick={goToStep} stepErrors={stepErrors} />
                     <Form logic={replayScannerLogic} props={{ id: scannerId }} formKey="scanner" enableFormOnSubmit>
-                        <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6">
+                        <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                             <div className="flex items-center gap-3">
                                 {step === 'configure' ? (
                                     <DetectiveHog className="h-24 w-auto shrink-0" />
@@ -135,7 +132,7 @@ function ConfigureStep(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-y-4">
+        <div className="flex flex-col gap-4">
             <LemonField name="name" label="Name">
                 <LemonInput placeholder="e.g. Confused checkout flow" />
             </LemonField>
@@ -207,8 +204,8 @@ function ConfigureStep(): JSX.Element {
                         key: 'advanced',
                         header: 'Advanced',
                         content: (
-                            <div className="flex flex-col gap-y-4">
-                                <LemonField name="model" label="Model">
+                            <div className="flex flex-col gap-4">
+                                <LemonField name="model" label="Model" className="items-start">
                                     <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
                                 </LemonField>
                                 <LemonField name="emits_signals">
@@ -240,14 +237,14 @@ function EditorFooter({
     isSubmitting,
     onSubmit,
 }: {
-    step: 'configure' | 'triggers'
+    step: ScannerEditorStep
     scannerId: string
     isNew: boolean
     isSubmitting: boolean
     onSubmit: () => void
 }): JSX.Element {
     return (
-        <div className="flex items-center justify-between pt-4 border-t">
+        <div className="flex items-center justify-between">
             {step === 'configure' ? (
                 <>
                     <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>

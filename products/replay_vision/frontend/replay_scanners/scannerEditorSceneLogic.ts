@@ -9,6 +9,7 @@ import type { scannerEditorSceneLogicType } from './scannerEditorSceneLogicType'
 
 export type ScannerEditorStep = 'configure' | 'triggers'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['configure', 'triggers']
+export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = { configure: 0, triggers: 1 }
 
 export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerEditorSceneLogic']),

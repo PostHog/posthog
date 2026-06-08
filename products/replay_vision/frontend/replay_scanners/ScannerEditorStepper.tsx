@@ -2,22 +2,12 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { ScannerEditorStep } from './scannerEditorSceneLogic'
+import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSceneLogic'
 
-interface Step {
-    key: ScannerEditorStep
-    label: string
-}
-
-const STEPS: Step[] = [
+const STEPS: { key: ScannerEditorStep; label: string }[] = [
     { key: 'configure', label: 'Configure' },
     { key: 'triggers', label: 'Triggers' },
 ]
-
-const STEP_ORDER: Record<ScannerEditorStep, number> = {
-    configure: 0,
-    triggers: 1,
-}
 
 interface ScannerEditorStepperProps {
     currentStep: ScannerEditorStep
@@ -30,12 +20,12 @@ export function ScannerEditorStepper({
     onStepClick,
     stepErrors = {},
 }: ScannerEditorStepperProps): JSX.Element {
-    const currentOrder = STEP_ORDER[currentStep]
+    const currentOrder = SCANNER_EDITOR_STEP_ORDER[currentStep]
 
     return (
         <nav className="flex items-center justify-center" aria-label="Scanner editor progress">
             {STEPS.map((step, index) => {
-                const stepOrder = STEP_ORDER[step.key]
+                const stepOrder = SCANNER_EDITOR_STEP_ORDER[step.key]
                 const isCompleted = currentOrder > stepOrder
                 const isCurrent = currentStep === step.key
                 const hasErrors = !!stepErrors[step.key]
