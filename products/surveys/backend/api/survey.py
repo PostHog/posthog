@@ -1169,13 +1169,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     else:
                         cleaned_translation[field] = translation_data[field]
 
-            # Validate and sanitize link field
-            if "link" in translation_data:
-                if not isinstance(translation_data["link"], str):
+            # Validate and sanitize link field. Mirror the base-question handling (see below):
+            # an empty link is treated as absent rather than rejected, so clearing the link on a
+            # translated link/notification survey still saves.
+            link = translation_data.get("link")
+            if link:
+                if not isinstance(link, str):
                     raise serializers.ValidationError(
                         f"Question {question_num}: Translation '{raw_lang_code}' field 'link' must be a string"
                     )
-                cleaned_translation["link"] = self._validate_and_sanitize_link(translation_data["link"])
+                cleaned_translation["link"] = self._validate_and_sanitize_link(link)
 
             # Validate and sanitize choices array
             if "choices" in translation_data:
