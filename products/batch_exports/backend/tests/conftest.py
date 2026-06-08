@@ -1,6 +1,6 @@
+import random
 import asyncio
 import logging
-import random
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -33,8 +33,7 @@ async def ateam(aorganization):
             sync_to_async(delete_batch_exports)(team_ids=[team.pk]),
             timeout=10.0,
         )
-    except asyncio.TimeoutError:
-        # On timeout the thread may still be running, but team.delete() CASCADE is safe.
+    except TimeoutError:
         logger.warning("Timed out deleting batch exports for team %s during teardown", team.pk)
     except Exception:
         logger.warning("Failed to delete batch exports for team %s during teardown", team.pk, exc_info=True)
