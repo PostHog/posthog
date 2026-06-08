@@ -23,6 +23,7 @@ export const OBJECTS = {
         'IconPresent',
         'IconMagicWand',
         'IconAI',
+        'IconAIGateway',
         'IconMagic',
         'IconHelmet',
         'IconSpotlight',

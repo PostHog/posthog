@@ -65,7 +65,7 @@ export function AIGatewayDetailScene(): JSX.Element {
             <SceneTitleSection
                 name={gateway.slug}
                 description="Monitor this gateway's usage, see how to connect to it, and manage the keys that attribute to it."
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'ai_gateway' }}
             />
 
             <LemonTabs

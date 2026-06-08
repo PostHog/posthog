@@ -108,7 +108,7 @@ export function AIGatewayScene(): JSX.Element {
             <SceneTitleSection
                 name="AI gateway"
                 description="Every major LLM through one endpoint, billed at cost."
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'ai_gateway' }}
                 actions={
                     <LemonButton type="primary" icon={<IconPlus />} onClick={openNewGateway}>
                         New gateway
