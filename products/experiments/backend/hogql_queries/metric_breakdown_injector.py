@@ -17,10 +17,11 @@ from typing import cast
 from posthog.schema import Breakdown, BreakdownAttributionType, ExperimentFunnelMetric, MultipleBreakdownType
 
 from posthog.hogql import ast
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 
 class MetricBreakdownInjector:
@@ -116,14 +117,69 @@ class MetricBreakdownInjector:
             ],
         )
 
+    def _breakdown_limit(self) -> int:
+        """Top-N cap on breakdown values; mirrors insights' default of BREAKDOWN_VALUES_LIMIT."""
+        breakdown_filter = self.metric.breakdownFilter
+        limit = breakdown_filter.breakdown_limit if breakdown_filter else None
+        return limit or BREAKDOWN_VALUES_LIMIT
+
+    def _top_breakdowns_subquery(self, aliases: list[str]) -> ast.SelectQuery:
+        """Top-N breakdown tuples by entity (user) count, pooled across variants.
+
+        Selects from entity_metrics (one row per user) so the ranking measure is the
+        number of experiment units in each breakdown bucket — the funnel analog of
+        insights ranking by frequency.
+        """
+        # Project a scalar for a single breakdown, or a tuple for multiple, so the
+        # membership test on the outer query matches shapes.
+        if len(aliases) == 1:
+            projection: ast.Expr = ast.Field(chain=["entity_metrics", aliases[0]])
+        else:
+            projection = ast.Tuple(exprs=[ast.Field(chain=["entity_metrics", alias]) for alias in aliases])
+        subquery = ast.SelectQuery(
+            select=[projection],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["entity_metrics"])),
+            group_by=[ast.Field(chain=["entity_metrics", alias]) for alias in aliases],
+            order_by=[ast.OrderExpr(expr=ast.Call(name="count", args=[]), order="DESC")],
+            limit=ast.Constant(value=self._breakdown_limit()),
+        )
+        return subquery
+
     def _inject_final_breakdown_columns(self, query: ast.SelectQuery, aliases: list[str]) -> None:
-        """Surface breakdown columns in the outer SELECT (after variant) and GROUP BY."""
+        """Surface breakdown columns in the outer SELECT (after variant) and GROUP BY.
+
+        Applies the top-N + "Other" limit: breakdown tuples beyond the limit (ranked by
+        user count) are relabeled to BREAKDOWN_OTHER_STRING_LABEL before the final GROUP BY,
+        capping output cardinality. The relabel collapses the whole tuple together so all
+        breakdown columns of an "Other" row carry the Other label.
+        """
+        # Membership test against the top-N set. Single breakdown compares the scalar value
+        # directly; multiple breakdowns compare the value tuple element-wise.
+        if len(aliases) == 1:
+            left: ast.Expr = ast.Field(chain=["entity_metrics", aliases[0]])
+        else:
+            left = ast.Tuple(exprs=[ast.Field(chain=["entity_metrics", alias]) for alias in aliases])
+        in_top = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=left,
+            right=self._top_breakdowns_subquery(aliases),
+        )
+
         for i, alias in enumerate(aliases):
-            query.select.insert(1 + i, ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])))
+            limited_expr = parse_expr(
+                "if({in_top}, {value}, {other})",
+                placeholders={
+                    "in_top": in_top,
+                    "value": ast.Field(chain=["entity_metrics", alias]),
+                    "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                },
+            )
+            query.select.insert(1 + i, ast.Alias(alias=alias, expr=limited_expr))
+
         if query.group_by is None:
             query.group_by = []
         for alias in aliases:
-            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+            query.group_by.append(ast.Field(chain=[alias]))
 
     def inject_funnel_breakdown_columns(self, query: ast.SelectQuery) -> None:
         """Legacy 3-CTE path: exposures + metric_events + entity_metrics.

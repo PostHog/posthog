@@ -523,6 +523,81 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertEqual(buckets, expected_buckets)
 
     @freeze_time("2020-01-01T12:00:00Z")
+    def test_funnel_breakdown_limit_collapses_to_other(self):
+        from unittest.mock import patch
+
+        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentFunnelMetric(
+            series=[EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=2),
+        )
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Four browser values with descending user counts: Chrome(4) > Safari(3) > Firefox(2) > Edge(1).
+        # With breakdown_limit=2, only Chrome + Safari survive; Firefox + Edge collapse to "Other".
+        browser_counts = {"Chrome": 4, "Safari": 3, "Firefox": 2, "Edge": 1}
+        user_index = 0
+        for browser, count in browser_counts.items():
+            for _ in range(count):
+                variant = "control" if user_index % 2 == 0 else "test"
+                distinct_id = f"user_{user_index}"
+                user_index += 1
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: variant, "$browser": browser},
+                )
+
+        flush_persons_and_events()
+
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+            result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.breakdown_results is not None
+        buckets = {value for br in result.breakdown_results for value in br.breakdown_value}
+        # Top 2 by frequency survive; the rest collapse into a single "Other" bucket.
+        self.assertEqual(buckets, {"Chrome", "Safari", BREAKDOWN_OTHER_STRING_LABEL})
+
+        # The "Other" bucket is ordered last in the breakdown list.
+        ordered_values = [value for br in result.breakdown_results for value in br.breakdown_value]
+        self.assertEqual(ordered_values[-1], BREAKDOWN_OTHER_STRING_LABEL)
+
+        # The "Other" bucket preserves totals: per-breakdown baseline samples sum to the overall.
+        assert result.baseline is not None
+        per_breakdown_baseline = sum(
+            br.baseline.number_of_samples for br in result.breakdown_results if br.baseline is not None
+        )
+        self.assertEqual(per_breakdown_baseline, result.baseline.number_of_samples)
+
+    @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()

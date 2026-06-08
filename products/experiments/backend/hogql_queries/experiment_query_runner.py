@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.constants import EXPERIMENT_METRIC_EVENT_BREAKDOWNS_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -704,7 +705,14 @@ class ExperimentQueryRunner(QueryRunner):
         self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
     ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
         """Compute per-breakdown statistics and aggregate across breakdowns."""
-        breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None})
+
+        def _sort_key(breakdown_tuple: tuple[str, ...]) -> tuple[int, int, tuple[str, ...]]:
+            # Keep the "Other" bucket (and null) at the bottom of the breakdown list, matching insights.
+            has_other = any(value == BREAKDOWN_OTHER_STRING_LABEL for value in breakdown_tuple)
+            has_null = any(value == BREAKDOWN_NULL_STRING_LABEL for value in breakdown_tuple)
+            return (int(has_other), int(has_null), breakdown_tuple)
+
+        breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None}, key=_sort_key)
 
         breakdown_results = [
             self._compute_breakdown_statistics(breakdown_tuple, variant_results) for breakdown_tuple in breakdown_tuples
