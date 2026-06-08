@@ -188,6 +188,11 @@ FROM unit:1.34.2-python3.13
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+# Unit embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
+# coercion never runs and open() defaults to ASCII under the container's bare locale.
+# Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
+ENV PYTHONUTF8 1
+ENV LANG C.UTF-8
 ARG UNIT_GIT_TAG=1.35.0
 ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
 
