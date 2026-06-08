@@ -30,8 +30,9 @@ LOOKBACK_DAYS = 7
 # All-teams aggregation grouped by team — mirrors the full-scan grouped queries usage_report runs.
 # Uses materialized columns (no property-map lookup) and pre-filters to tracked SDKs to bound
 # cardinality. We only need presence of each lib@version per team, so no counts/timestamps.
-# Scanned one day at a time (see _fetch_team_sdk_keys) so a 7-day lookback never reads the whole
-# window in a single pass.
+# The aggregation state is bounded by the tracked-lib × version × team key space (not event volume),
+# so a single 7-day scan stays cheap — verified against prod via Metabase before collapsing the
+# earlier day-split. Runs on OFFLINE cluster defaults.
 SDK_VERSIONS_BY_TEAM_SQL = """
 SELECT
     team_id,
@@ -48,25 +49,18 @@ GROUP BY team_id, lib, lib_version
 
 
 def _fetch_team_sdk_keys(*, lookback_days: int = LOOKBACK_DAYS) -> dict[int, set[str]]:
-    """Return, per team, the set of `{lib}@{lib_version}` keys seen in the lookback window.
-
-    The lookback is split into single-day scans whose per-team presence is unioned — the result is
-    identical to one wide scan, but each query stays small (mirrors the time-splitting usage_report
-    uses for its heavy event scans). Runs on the OFFLINE cluster's default settings.
-    """
+    """Return, per team, the set of `{lib}@{lib_version}` keys seen in the lookback window."""
     team_keys: defaultdict[int, set[str]] = defaultdict(set)
     now = timezone.now()
+    begin = now - timedelta(days=lookback_days)
     with tags_context(product=Product.SDK_DOCTOR, feature=Feature.USAGE_REPORT):
-        for day in range(lookback_days):
-            end = now - timedelta(days=day)
-            begin = end - timedelta(days=1)
-            rows = sync_execute(
-                SDK_VERSIONS_BY_TEAM_SQL,
-                {"begin": begin, "end": end, "sdk_types": SDK_TYPES},
-                workload=Workload.OFFLINE,
-            )
-            for team_id, lib, lib_version in rows:
-                team_keys[team_id].add(f"{lib}@{lib_version}")
+        rows = sync_execute(
+            SDK_VERSIONS_BY_TEAM_SQL,
+            {"begin": begin, "end": now, "sdk_types": SDK_TYPES},
+            workload=Workload.OFFLINE,
+        )
+    for team_id, lib, lib_version in rows:
+        team_keys[team_id].add(f"{lib}@{lib_version}")
     return team_keys
 
 

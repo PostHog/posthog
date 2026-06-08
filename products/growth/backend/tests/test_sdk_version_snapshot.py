@@ -85,19 +85,20 @@ class TestRollUpToGroups(BaseTest):
 
 class TestFetchTeamSdkKeys(BaseTest):
     @patch(f"{MODULE}.sync_execute")
-    def test_scans_one_day_at_a_time_and_unions_presence(self, mock_sync_execute: MagicMock):
-        mock_sync_execute.side_effect = [
-            [(1, "web", "1.0.0")],
-            [(1, "web", "2.0.0"), (2, "posthog-php", "3.4.0")],
+    def test_single_scan_unions_presence_per_team(self, mock_sync_execute: MagicMock):
+        mock_sync_execute.return_value = [
+            (1, "web", "1.0.0"),
+            (1, "web", "2.0.0"),
+            (2, "posthog-php", "3.4.0"),
         ]
 
-        team_keys = _fetch_team_sdk_keys(lookback_days=2)
+        team_keys = _fetch_team_sdk_keys()
 
-        assert mock_sync_execute.call_count == 2
+        assert mock_sync_execute.call_count == 1
         assert team_keys == {1: {"web@1.0.0", "web@2.0.0"}, 2: {"posthog-php@3.4.0"}}
-        # Every scan runs on the OFFLINE cluster.
-        for call in mock_sync_execute.call_args_list:
-            assert call.kwargs["workload"] == Workload.OFFLINE
+        # Runs on the OFFLINE cluster with its default settings (no explicit ceiling passed).
+        assert mock_sync_execute.call_args.kwargs["workload"] == Workload.OFFLINE
+        assert "settings" not in mock_sync_execute.call_args.kwargs
 
 
 class TestSnapshotSdkVersionsToGroups(BaseTest):
