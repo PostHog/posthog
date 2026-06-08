@@ -174,6 +174,9 @@ export function validateGroup(
         const errorMsg = `${negatedCriteria
             .map((c) => {
                 const behavioralFilterType = criteriaToBehavioralFilterType(c)
+                // Fall back to the raw filter type when the label map has no entry: this surfaces which
+                // BehavioralFilterType is missing from BEHAVIORAL_TYPE_TO_LABEL (e.g. a new enum value that
+                // landed before the map was updated) rather than crashing on an undefined `.label`.
                 return `'${BEHAVIORAL_TYPE_TO_LABEL[behavioralFilterType]?.label ?? behavioralFilterType}'`
             })
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
