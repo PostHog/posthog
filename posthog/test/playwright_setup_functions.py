@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import PersonalAPIKey, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -144,7 +144,11 @@ def create_organization_with_team(
             organization=organization,
             has_completed_onboarding_for={"product_analytics": True},
         )
-        user = User.objects.create_and_join(organization, user_email, user_password)
+        # The user creates the organization, so they own it. Without owner-level access,
+        # admin-only areas (e.g. billing) render a "restricted to organization admins" page.
+        user = User.objects.create_and_join(
+            organization, user_email, user_password, level=OrganizationMembership.Level.OWNER
+        )
     else:
         command = GenerateDemoDataCommand()
 
