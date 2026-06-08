@@ -550,7 +550,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
-        max_queries = FuzzyInt(6, 8)
+        # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
+        # credential joins (decrypt once per credential, not per table/view).
+        max_queries = FuzzyInt(7, 9)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -605,8 +607,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
-        # initialization team query doesn't run
-        with self.assertNumQueries(5):
+        # initialization team query doesn't run; the extra query is the single bulk credential fetch
+        # (credentials are decrypted once each here instead of re-decrypted per table/view row)
+        with self.assertNumQueries(6):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )

@@ -163,6 +163,7 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1043,7 +1044,8 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
-                        .select_related("table", "table__credential", "managed_viewset")
+                        # credential is attached in bulk below (decrypt once per credential, not per table)
+                        .select_related("table", "managed_viewset")
                     )
                     if not is_managed_viewset_enabled:
                         queryset = queryset.filter(managed_viewset__isnull=True)
@@ -1057,7 +1059,8 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
                         .exclude(deleted=True)
-                        .select_related("table", "table__credential")
+                        # credential is attached in bulk below (decrypt once per credential, not per table)
+                        .select_related("table")
                     )
                 except Exception as e:
                     capture_exception(e)
@@ -1078,7 +1081,8 @@ class Database(BaseModel):
                     # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .queryable()
-                    .select_related("credential", "external_data_source")
+                    # credential is attached in bulk below (decrypt once per credential, not per table)
+                    .select_related("external_data_source")
                     # Deterministic tiebreak when two live tables share a name: newest wins, since
                     # name collisions resolve first-come-first-served when added to the table tree.
                     .order_by("-created_at")
@@ -1104,6 +1108,19 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+
+        with timings.measure("attach_credentials", emit_span=True):
+            # Decrypt each distinct credential once and prime the FK cache on every table/view that
+            # references it, rather than re-decrypting via select_related on each of the (potentially
+            # thousands of) rows above.
+            credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
+            credentialed_tables.extend(
+                sq.table for sq in saved_queries if sq.table_id is not None and sq.table is not None
+            )
+            credentialed_tables.extend(
+                sq.table for sq in endpoint_saved_queries if sq.table_id is not None and sq.table is not None
+            )
+            _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
         # warehouse_tables fetch.
@@ -1873,6 +1890,27 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
 
     for warehouse_table in warehouse_tables:
         warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
+
+
+def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
+    """Populate each table's `credential` FK, decrypting every distinct credential exactly once.
+
+    `select_related("credential")` re-hydrates (and re-Fernet-decrypts) the credential for every table
+    row, but a team's thousands of warehouse tables and views share only a handful of credentials. We
+    fetch the distinct credentials in a single query, so decryption is O(credentials) rather than
+    O(tables), and prime the FK cache so `hogql_definition` never triggers a lazy fetch.
+    """
+    credential_ids = {table.credential_id for table in warehouse_tables if table.credential_id is not None}
+    credentials_by_id: dict[Any, DataWarehouseCredential] = {}
+    if credential_ids:
+        credentials_by_id = {
+            credential.pk: credential
+            for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
+        }
+    for table in warehouse_tables:
+        # Assigning the related object (or None for a missing/absent credential) primes the FK cache,
+        # mirroring select_related so the build phase reads `table.credential` without querying.
+        table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
