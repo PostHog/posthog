@@ -2267,7 +2267,7 @@ jobs:
                 handle-snapshots,
                 repo-checks,
             ]
-        name: Backend CI pass
+        name: Django Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
@@ -2555,7 +2555,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
-                  status-job: 'Backend CI pass'
+                  status-job: 'Django Tests Pass'
                   runner: 'depot'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
@@ -2567,7 +2567,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
-                  status-job: 'Backend CI pass'
+                  status-job: 'Django Tests Pass'
                   runner: 'depot'
 
     report-test-timings:

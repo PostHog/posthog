@@ -154,7 +154,7 @@ jobs:
               uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  checkName: Backend CI pass
+                  checkName: Django Tests Pass
                   ref: ${{ github.sha }}
                   # Must outlast the longest backend job (django tests: 45m in
                   # ci-backend.yml) plus its start lag, so a slow-but-green check
@@ -166,7 +166,7 @@ jobs:
               if: github.event_name == 'push'
               env:
                   BACKEND_CONCLUSION: ${{ steps.wait-for-backend.outputs.conclusion }}
-                  BACKEND_CHECK_NAME: Backend CI pass
+                  BACKEND_CHECK_NAME: Django Tests Pass
               run: |
                   conclusion="$BACKEND_CONCLUSION"
                   # `skipped` = the backend suite didn't run for this commit; nothing to gate on.
