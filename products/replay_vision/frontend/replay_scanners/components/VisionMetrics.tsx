@@ -10,6 +10,7 @@ import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/sch
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
+import { projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS, SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../types'
 
@@ -22,7 +23,10 @@ export function VisionMetrics(): JSX.Element {
     const { quota } = useValues(visionQuotaLogic)
 
     const ratio = quota && quota.monthly_quota > 0 ? Math.min(quota.usage_this_month / quota.monthly_quota, 1) : 0
-    const quotaStroke = quota?.exhausted ? 'var(--danger)' : ratio >= 0.8 ? 'var(--warning)' : 'var(--success)'
+    const projection = projectQuota(quota)
+    const { status, capReachDate, capReachInPeriod, projectionConfident, resetsOn } = projection
+    const quotaStroke =
+        status === 'danger' ? 'var(--danger)' : status === 'warning' ? 'var(--warning)' : 'var(--success)'
 
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const chartSource: TrendsQuery = {
@@ -108,9 +112,21 @@ export function VisionMetrics(): JSX.Element {
                             />
                             <div className="text-muted text-sm mt-1">
                                 {quota.exhausted ? (
-                                    <span className="text-danger">Quota reached</span>
+                                    <span className="text-danger">Quota reached.</span>
+                                ) : capReachInPeriod && projectionConfident && capReachDate ? (
+                                    <span className="text-danger">
+                                        {quota.remaining.toLocaleString()} remaining. Cap reached on{' '}
+                                        <strong>{capReachDate.format('MMM D')}</strong> at this rate.
+                                    </span>
+                                ) : status === 'warning' && projectionConfident ? (
+                                    <span className="text-warning">
+                                        {quota.remaining.toLocaleString()} remaining. Approaching cap by{' '}
+                                        {resetsOn ?? 'period end'} at this rate.
+                                    </span>
                                 ) : (
-                                    `${quota.remaining.toLocaleString()} remaining`
+                                    `${quota.remaining.toLocaleString()} remaining${
+                                        resetsOn ? `. Resets ${resetsOn}.` : '.'
+                                    }`
                                 )}
                             </div>
                         </>

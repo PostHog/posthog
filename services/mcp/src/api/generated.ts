@@ -18484,6 +18484,49 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface FolderInstructions {
+      /** Unique identifier for this instructions version. */
+      readonly id: string;
+      /** Markdown instructions describing the contents of the folder. */
+      readonly content: string;
+      /** Monotonically increasing version number, starting at 1. */
+      readonly version: number;
+      /** Whether this is the current (latest) version for the folder. */
+      readonly is_latest: boolean;
+      /** User who published this version. */
+      readonly created_by: UserBasic;
+      /** When this version was published. */
+      readonly created_at: string;
+      /** When this version row was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface FolderInstructionsPublish {
+      /** Full markdown instructions to publish as a new version for the folder. */
+      content: string;
+      /**
+         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+         * @minimum 0
+         */
+      base_version?: number;
+    }
+
+    /**
+     * Version-history entry: metadata only, with the markdown content omitted.
+     */
+    export interface FolderInstructionsVersion {
+      /** Unique identifier for this instructions version. */
+      readonly id: string;
+      /** Monotonically increasing version number, starting at 1. */
+      readonly version: number;
+      /** Whether this is the current (latest) version for the folder. */
+      readonly is_latest: boolean;
+      /** User who published this version. */
+      readonly created_by: UserBasic;
+      /** When this version was published. */
+      readonly created_at: string;
+    }
+
     /**
      * Request body for `forget`.
      */
@@ -24296,6 +24339,15 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
+    export interface PaginatedFolderInstructionsVersionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FolderInstructionsVersion[];
+    }
+
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -25975,6 +26027,8 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
+      /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+      quarantined_count?: number;
     }
 
     /**
@@ -29582,6 +29636,16 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at?: string;
+    }
+
+    export interface PatchedFolderInstructionsPublish {
+      /** Full markdown instructions to publish as a new version for the folder. */
+      content?: string;
+      /**
+         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+         * @minimum 0
+         */
+      base_version?: number;
     }
 
     export interface PatchedGroupType {
@@ -38179,7 +38243,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -38190,7 +38254,7 @@ export namespace Schemas {
     export interface SdkAssessment {
       /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
       lib: string;
-      /** Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
+      /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
       readable_name: string;
       /** Most recent published version of this SDK. */
       latest_version: string;
@@ -38208,7 +38272,7 @@ export namespace Schemas {
       severity: SdkAssessmentSeverityEnum;
       /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
       reason: string;
-      /** Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
+      /** Top-level alert sentences matching the SDK Health UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
       banners: string[];
       /** Per-version assessment for all versions seen in the last 7 days. */
       releases: SdkReleaseAssessment[];
@@ -46308,13 +46372,17 @@ export namespace Schemas {
     export type ActionsListParams = {
     format?: ActionsListFormat;
     /**
-     * Number of results to return per page.
+     * Maximum number of actions to return. Omit to return all.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of actions to skip before returning results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring match on the action name.
+     */
+    search?: string;
     };
 
     export type ActionsListFormat = typeof ActionsListFormat[keyof typeof ActionsListFormat];
@@ -47718,6 +47786,21 @@ export namespace Schemas {
     };
 
     export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemInstructionsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -51319,7 +51402,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SdkDoctorReportRetrieveParams = {
+    export type SdkHealthReportRetrieveParams = {
     /**
      * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
      */
@@ -52274,6 +52357,10 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean;
     /**
      * Number of results to return per page.
      */

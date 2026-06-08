@@ -2396,7 +2396,7 @@ class FileSystemIconType(StrEnum):
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
@@ -4789,6 +4789,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    task_run_id: str = Field(
+        ...,
+        description=(
+            "The `tasks.TaskRun` id the scout span ran inside. Join key into the"
+            " `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id`"
+            " (the `scout_run_id` bridge row is not)."
+        ),
+    )
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 

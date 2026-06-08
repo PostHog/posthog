@@ -32,8 +32,6 @@ export interface DataTableLogicProps {
     context?: QueryContext<DataTableNode>
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
-    // Used to scope per-tab UI state (e.g. expanded rows) so it survives tab switches
-    tabId?: string
 }
 
 export interface DataTableRow {
@@ -88,21 +86,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     listeners(({ props, actions }) => ({
         toggleRowExpanded: ({ rowIndex }) => {
-            if (props.tabId === undefined) {
-                return
-            }
-            actions.toggleExpandedRow(props.tabId, props.vizKey, rowIndex)
+            actions.toggleExpandedRow(undefined, props.vizKey, rowIndex)
         },
     })),
     selectors({
         context: [() => [(_, props) => props.context], (context) => context],
         expandedRows: [
-            (s) => [s.expandedRowsFor, (_, p) => p.tabId, (_, p) => p.vizKey],
-            (
-                expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[],
-                tabId: string | undefined,
-                vizKey: string
-            ): number[] => expandedRowsFor(tabId, vizKey),
+            (s) => [s.expandedRowsFor, (_, p) => p.vizKey],
+            (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], vizKey: string): number[] =>
+                expandedRowsFor(undefined, vizKey),
             { resultEqualityCheck: objectsEqual },
         ],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
