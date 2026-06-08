@@ -257,14 +257,12 @@ function EditorFooter({
         <div className="flex items-center justify-between">
             {step === 'configure' ? (
                 <>
-                    {isNew ? (
+                    {isNew && (
                         <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
                             Back to templates
                         </LemonButton>
-                    ) : (
-                        <span />
                     )}
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance}>
+                    <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance} className="ml-auto">
                         Next: triggers
                     </LemonButton>
                 </>
