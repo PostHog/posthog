@@ -135,7 +135,10 @@ mentioned. Diff against history only after the independent pass is done.
    then write the report (structure below). Because `system.query_log` retention is short, examples are
    resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the old Metabase
    lookup card. Link each example to a shareable self-contained Metabase URL (the `query_link` recipe in
-   `references/query-patterns.md`) so a reader clicks straight through to the query.
+   `references/query-patterns.md`) so a reader clicks straight through to the query. When you draft the
+   recommendations, **ground the researchable ones in code** by spawning background research agents (see
+   "Grounding recommendations in code" below) so a recommendation points at the actual file and change
+   rather than saying "audit X".
 9. **Diff against the previous report (do this last, if there is one).** If the sibling
    `query-performance-analysis` repo is not present, skip this step entirely. Otherwise, only now, after
    the independent pass above, read the most recent dated report in its `analysis/` folder
@@ -155,6 +158,37 @@ mentioned. Diff against history only after the independent pass is done.
    the **slow set only**, not total cluster I/O, so they also move when a heavy background job's runs
    cross or stop crossing the 30s threshold; attribute a big bytes/hours swing to specific categories
    (it is usually one or two background pipelines) rather than reporting it as a cluster-wide change.
+
+## Grounding recommendations in code
+
+A recommendation like "audit pipeline X" or "materialize property Y" is far more useful when it points at
+the actual code. For each recommendation that maps to a concrete place in the PostHog codebase, **spawn a
+background research agent** (the `Agent` tool, `run_in_background: true`, `subagent_type: general-purpose`
+or `Explore`) to read the source and return: how the relevant code works today, the specific file /
+function to change, any constraints, and whether a better mechanism already exists. Spawn **one agent per
+researchable recommendation**, all in a single message so they run in parallel, as soon as the
+recommendations are drafted. Let them run while you do the delta (step 9) and finalize the write-up, then
+fold each finding into its recommendation: replace "audit X" with "X is implemented in `<file>` as
+`<current behavior>`; the change is `<specific>`", and cite the file paths so the human can jump straight
+in. The agents research and report only; they do not change code.
+
+Not every recommendation is researchable this way. Spawn an agent only where source code is the source of
+truth; skip operational / infra items:
+
+| Recommendation shape                     | Researchable? | What the agent reads                                                     |
+| ---------------------------------------- | ------------- | ------------------------------------------------------------------------ |
+| Rewrite a slow insight / query shape     | yes           | the query runner under `posthog/hogql_queries/`, the HogQL it emits      |
+| Materialize property X                   | yes           | the materialized-column registry (`ee/clickhouse/materialized_columns/`) |
+| Make pipeline Y incremental              | yes           | the dagster / temporal job that builds it                                |
+| Cap memory / add a query guard per key   | yes           | where ClickHouse SETTINGS and per-key throttling are applied             |
+| Add a breakdown cardinality guard        | yes           | the trends / breakdown query runner                                      |
+| Investigate an infra incident window     | no            | n/a (deploys, node health, cluster state)                                |
+| Watch / confirm a tenant's intended load | no            | n/a (a judgement call for a human)                                       |
+
+Give each agent a focused prompt: the recommendation, the specific question, and an instruction to return
+file paths + current behavior + the precise change point and to change nothing. The agents read the
+posthog repo (where this skill lives); the report itself is written to the separate
+`query-performance-analysis` repo.
 
 ## Interpreting the results
 
@@ -191,7 +225,8 @@ A report should contain, in order:
    in the slow set, with the teams using each (`references/query-patterns.md` §7). These are the
    materialization candidates.
 7. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
-   make pipeline Y incremental, ...).
+   make pipeline Y incremental, ...). Ground the researchable ones in code (see "Grounding
+   recommendations in code"): cite the file / function and the specific change, not just "audit X".
 8. A **delta vs the previous report** (step 9): what changed since last time, plus a follow-up check on
    each action the previous report recommended (resolved / still open / regressed, with numbers). Omit
    this section when there is no previous report.
