@@ -35,3 +35,8 @@ class TestModalSandboxVmRuntime:
             assert "experimental_options" not in kwargs
         else:
             assert kwargs["experimental_options"] == expected_experimental_options
+
+    def test_vm_template_forces_vm_runtime(self, patched_modal):
+        ModalSandbox.create(SandboxConfig(name="test", template=SandboxTemplate.VM_BASE))
+
+        assert patched_modal.call_args.kwargs["experimental_options"] == {"vm_runtime": True}
