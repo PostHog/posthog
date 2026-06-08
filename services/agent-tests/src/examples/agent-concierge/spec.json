@@ -289,7 +289,7 @@
         {
             "id": "secrets-and-integrations",
             "path": "skills/secrets-and-integrations.md",
-            "description": "Wiring credentials without seeing them — the punch-out flow, integrations vs secrets, what to do when a tool needs auth. Load when the user mentions any API key, OAuth, integration, or auth-related error."
+            "description": "Wiring credentials without seeing them — when to invoke the `set_secret` client tool (the inline form rendered next to your tool call), when to fall back to a deep-link, integrations vs secrets, trigger-required keys (e.g. SLACK_SIGNING_SECRET / SLACK_BOT_TOKEN), what to do when a tool needs auth. ALWAYS load when the user mentions a secret, env key, API key, OAuth, integration, missing credential, Slack setup, or any auth-related error — `set_secret` is the default path in agent-console clients, do not hand out URLs to /connections without loading this skill first."
         },
         {
             "id": "designing-mcp-surfaces",

@@ -14,7 +14,42 @@ export const TriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('slack'),
         config: z.object({
             channel_id: z.string().optional(),
+            /**
+             * When true, only `app_mention` events (the bot was @-mentioned)
+             * are routed into a session. Plain `message` events delivered by
+             * Slack — e.g. because the bot subscribed to `message.channels` —
+             * are dropped at the trigger. Default false to preserve historical
+             * "react to anything in the channel" behaviour for bots that
+             * already shipped without the gate.
+             */
             mention_only: z.boolean().default(false),
+            /**
+             * Relaxes `mention_only` for replies in threads where the bot
+             * already holds an open session — i.e. the user @-mentioned the
+             * bot to start the thread, and is now continuing the conversation
+             * without re-@-mentioning every turn. Implemented as: when
+             * `mention_only` is true, the trigger normally drops non-mention
+             * `message` events; with `auto_resume_threads`, those events ARE
+             * routed when `thread_ts` matches an existing session's
+             * external_key. Sessions seeded this way are flagged as
+             * `mention: false` in the seed message so the model can judge
+             * whether the message is actually addressed to it. No effect when
+             * `mention_only` is false (everything's already accepted). Default
+             * false for back-compat.
+             */
+            auto_resume_threads: z.boolean().default(false),
+            /**
+             * Emoji name (no surrounding colons, e.g. `"eyes"` or
+             * `"thinking_face"`) that the ingress posts as an immediate
+             * `reactions.add` against the inbound message, BEFORE returning
+             * the event ack to Slack. Gives the user feedback within Slack's
+             * 3s window even when the runner takes longer to claim the
+             * session + produce a first turn. Fire-and-forget: failures
+             * (revoked token, channel-not-found, already-reacted) are
+             * silently swallowed — the gate is "session enqueued", not
+             * "reaction landed". When unset, no ack reaction.
+             */
+            ack_reaction: z.string().optional(),
             /**
              * Required. Workspaces (Slack team ids, e.g. "T01ABC") allowed to
              * invoke this agent. Use the literal string `"*"` to opt into an

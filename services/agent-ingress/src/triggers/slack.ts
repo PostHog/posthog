@@ -19,6 +19,7 @@ import {
     IntegrationStore,
     SessionPrincipal,
     SessionQueue,
+    SLACK_BOT_TOKEN_KEY,
     SLACK_SIGNING_SECRET_KEY,
 } from '@posthog/agent-shared'
 
@@ -126,14 +127,84 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
 
             // Workspace trust check. trusted_workspaces is required in the spec:
             // an array gates on membership; `"*"` opens to any workspace.
-            const trusted =
+            const slackConfig =
                 slackTrigger && 'config' in slackTrigger
-                    ? (slackTrigger.config as { trusted_workspaces?: string[] | '*' }).trusted_workspaces
-                    : undefined
+                    ? (slackTrigger.config as {
+                          trusted_workspaces?: string[] | '*'
+                          mention_only?: boolean
+                          auto_resume_threads?: boolean
+                      })
+                    : ({} as {
+                          trusted_workspaces?: string[] | '*'
+                          mention_only?: boolean
+                          auto_resume_threads?: boolean
+                      })
+            const trusted = slackConfig.trusted_workspaces
             const workspaceId = event.team ?? 'unknown'
             if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
                 res.status(403).json({ error: 'workspace_not_trusted', workspace: workspaceId })
                 return
+            }
+
+            // mention_only / auto_resume_threads gate. Run BEFORE identity
+            // resolution + the slack→posthog bridge so we don't pay an
+            // identity-store write per dropped event when the bot is in a
+            // busy channel.
+            //
+            // Semantics:
+            //   - app_mention → always accepted (explicit @ to the bot).
+            //   - message + mention_only=false → accepted (back-compat with
+            //     bots that watch whole channels by design).
+            //   - message + mention_only=true + auto_resume_threads=false →
+            //     dropped. Plain channel chatter is noise.
+            //   - message + mention_only=true + auto_resume_threads=true →
+            //     accepted ONLY when thread_ts matches an existing session's
+            //     external_key (so the conversation continues without
+            //     re-@-mentioning every turn). Anything else dropped.
+            //
+            // The findByExternalKey lookup is a single indexed PG read against
+            // `agent_session` — same cost as the existing /send resume path.
+            const isAppMention = event.type === 'app_mention'
+            const mentionOnly = slackConfig.mention_only ?? false
+            const autoResumeThreads = slackConfig.auto_resume_threads ?? false
+            const ackReaction = (slackConfig as { ack_reaction?: string }).ack_reaction
+            // We need `externalKey` for both the gate and the enqueue below;
+            // compute it once.
+            const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
+            // For non-mention events: track whether we're accepting because
+            // the message is a reply in a thread the bot already owns. The
+            // seed message surfaces this so the model can judge whether the
+            // user is actually talking to it.
+            let resumedOwnedThread = false
+            if (!isAppMention && mentionOnly) {
+                if (!autoResumeThreads || !event.thread_ts) {
+                    res.json({ ok: true, dropped: 'mention_only' })
+                    return
+                }
+                const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey)
+                if (!existing) {
+                    res.json({ ok: true, dropped: 'mention_only_no_owned_thread' })
+                    return
+                }
+                resumedOwnedThread = true
+            }
+
+            // Fire-and-forget ack reaction. Posted to Slack right now — before
+            // identity resolution + enqueue — so the user sees the emoji land
+            // within Slack's 3s ack window even when the runner takes a
+            // moment to claim the session. Fails open: a revoked / missing
+            // bot token, a slack.com 5xx, a previously-reacted message
+            // (`already_reacted`), or a missing channel must NOT break the
+            // event handler. The `.catch` collapses every error path to a
+            // silent no-op; the session still enqueues. We `void` rather
+            // than `await` so reactions.add latency can't blow the ack
+            // window.
+            if (ackReaction) {
+                void postAckReaction(deps, resolved.application, {
+                    channel: event.channel,
+                    ts: event.ts,
+                    name: ackReaction,
+                }).catch(() => undefined)
             }
 
             // Identity resolution: same (workspace, user) tuple resolves to the
@@ -163,7 +234,6 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 }
             }
 
-            const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
             const slackPrincipal: SessionPrincipal = {
                 kind: 'slack',
                 workspace_id: workspaceId,
@@ -176,6 +246,13 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             // route replies back to the originating channel/thread. The header
             // is parseable + greppable; agent.md tells the model to use the
             // values verbatim for any reactions.add / chat.postMessage call.
+            //
+            // `mention: true|false` tells the model whether THIS turn was an
+            // explicit @-mention. Only emitted as `false` when the trigger
+            // accepted a non-mention message via `auto_resume_threads` — the
+            // user might be replying to the bot OR continuing a sidebar with
+            // another human in the thread; the model has to judge intent
+            // from the text + thread history before responding.
             const slackContext = [
                 `[slack]`,
                 `channel: ${event.channel}`,
@@ -183,6 +260,8 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 `thread_ts: ${event.thread_ts ?? event.ts}`,
                 `workspace: ${workspaceId}`,
                 `user: ${event.user}`,
+                `mention: ${isAppMention ? 'true' : 'false'}`,
+                ...(resumedOwnedThread ? ['resumed_owned_thread: true'] : []),
                 ``,
                 event.text ?? '',
             ].join('\n')
@@ -383,6 +462,51 @@ interface SlackInteractivityPayload {
     team?: { id?: string }
     user?: { id?: string; team_id?: string }
     actions?: Array<{ action_id?: string; value?: string }>
+}
+
+/**
+ * Fire-and-forget `reactions.add` for the immediate-ack flow. Called from
+ * the events handler when `slack.config.ack_reaction` is set; the surrounding
+ * `void ... .catch(...)` collapses every error path to a silent no-op so
+ * the session enqueue is never blocked. Resolves the bot token through the
+ * same per-app encrypted_env resolver that handles the signing secret; if
+ * the token is missing, drop the reaction silently (the agent might be
+ * partway through punch-out, the gate is `mention_only`/auth — not this
+ * cosmetic ack).
+ */
+async function postAckReaction(
+    deps: SlackTriggerDeps,
+    application: AgentApplication,
+    opts: { channel: string; ts: string; name: string }
+): Promise<void> {
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+    if (!token) {
+        return
+    }
+    // Skip if no HttpFetcher is wired. Production always passes one via
+    // buildApp → triggerDeps.http; the harness opts into wiring per test so
+    // an unsuspecting case doesn't accidentally hit real slack.com. The
+    // outer `.catch` already guards against errors; this guard makes the
+    // success path of the unconfigured case explicit (no-op).
+    if (!deps.http) {
+        return
+    }
+    const res = await deps.http.fetch('https://slack.com/api/reactions.add', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({ channel: opts.channel, timestamp: opts.ts, name: opts.name }),
+    })
+    // `already_reacted` is a normal outcome on retries — Slack delivers the
+    // event up to 3 times if it doesn't see a 200 fast enough, and the
+    // idempotency key downstream dedupes the enqueue but doesn't dedupe
+    // this fire-and-forget call. Swallow it (and everything else) — the
+    // outer `.catch` already does, but the explicit no-throw here means
+    // the success path doesn't accidentally throw inside an async closure
+    // we don't await.
+    void res
 }
 
 /**

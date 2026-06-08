@@ -393,6 +393,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         authProvider: opts.authProvider,
         identities,
         credentialBroker,
+        // Same `http` the worker uses, so tests asserting on outbound
+        // slack.com calls from the ingress (ack_reaction, identity bridge)
+        // can route them through a single recorder.
+        http: opts.http,
     })
 
     const janitor = buildJanitorApp({

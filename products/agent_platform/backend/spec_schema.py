@@ -55,6 +55,8 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                 "properties": {
                                     "channel_id": {"type": "string"},
                                     "mention_only": {"default": False, "type": "boolean"},
+                                    "auto_resume_threads": {"default": False, "type": "boolean"},
+                                    "ack_reaction": {"type": "string"},
                                     "trusted_workspaces": {
                                         "anyOf": [
                                             {"minItems": 1, "type": "array", "items": {"type": "string"}},
@@ -62,7 +64,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                         ]
                                     },
                                 },
-                                "required": ["mention_only", "trusted_workspaces"],
+                                "required": ["mention_only", "auto_resume_threads", "trusted_workspaces"],
                                 "additionalProperties": False,
                             },
                         },
