@@ -19,6 +19,7 @@ import type {
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
+    EnvironmentsEvaluationContextSuggestionsDestroyParams,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
@@ -123,8 +124,24 @@ export const environmentsEvaluationContextSuggestionsCreate = async (
     )
 }
 
-export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
+export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
+    projectId: string,
+    id: number,
+    params: EnvironmentsEvaluationContextSuggestionsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
 }
 
 /**
@@ -136,10 +153,11 @@ using it are never modified — this only controls what gets suggested.
 export const environmentsEvaluationContextSuggestionsDestroy = async (
     projectId: string,
     id: number,
+    params: EnvironmentsEvaluationContextSuggestionsDestroyParams,
     options?: RequestInit
 ): Promise<EvaluationContextSuggestionResponseApi> => {
     return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsDestroyUrl(projectId, id),
+        getEnvironmentsEvaluationContextSuggestionsDestroyUrl(projectId, id, params),
         {
             ...options,
             method: 'DELETE',

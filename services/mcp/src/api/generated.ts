@@ -48087,6 +48087,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
+    };
+
     export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
