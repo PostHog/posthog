@@ -59,9 +59,9 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
     def test_signal_scout_config_defaults(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
-        # Auto-created scouts run on an hourly cadence but stay in dry-run until emit is flipped.
+        # Auto-created scouts run on an hourly cadence and emit on by default (live from the first tick).
         assert loaded.enabled is True
-        assert loaded.emit is False
+        assert loaded.emit is True
         assert loaded.run_interval_minutes == 60
         assert loaded.last_run_at is None
 
