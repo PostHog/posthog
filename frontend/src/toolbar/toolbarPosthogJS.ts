@@ -20,6 +20,10 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
+        // Don't install global window error/unhandledrejection handlers — otherwise this
+        // internal instance scoops up the *host site's* own unhandled errors and reports them
+        // as PostHog errors. Exceptions are reported explicitly via captureToolbarException.
+        capture_exceptions: false,
         capture_pageview: false,
         capture_pageleave: false,
         disable_surveys: true,
