@@ -5171,6 +5171,35 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         self.assertEqual(billable_result_final[0][1], baseline_count + 1)
 
+    def test_conversations_events_excluded_from_billable_count(self) -> None:
+        """Test that Conversations widget events are excluded from billable event counts."""
+        from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
+
+        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        baseline_count = billable_result_before[0][1] if billable_result_before else 0
+
+        for event_name in (
+            "$conversations_loaded",
+            "$conversations_widget_loaded",
+            "$conversations_message_sent",
+            "$conversations_user_identified",
+            "$conversations_restore_link_requested",
+            "$conversations_widget_state_changed",
+            "$conversations_back_to_tickets",
+        ):
+            _create_event(
+                event=event_name,
+                team=self.team,
+                distinct_id="widget_user",
+                timestamp=self.begin + relativedelta(hours=6),
+                properties={"$lib": "web"},
+            )
+
+        flush_persons_and_events()
+
+        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
+        self.assertEqual(billable_result_after[0][1], baseline_count)
+
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""
         period_start, period_end = get_previous_day(at=self.end)
