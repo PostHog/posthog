@@ -522,43 +522,51 @@ function PlaygroundDock({
  * down cleanly when the slug or team changes — same trick the
  * top-level `Dock` uses for mode/agent swaps.
  */
+type ConciergeResolution =
+    | { kind: 'pending' }
+    | { kind: 'resolved'; agent: AgentApplicationRef }
+    | { kind: 'not_deployed' }
+
 function ConciergeDock(): React.ReactElement {
     const { conciergeAgent } = useDockStore()
     const { info } = useSession()
     const teamId = info?.teamId ?? null
     const slug = conciergeAgent?.slug ?? null
-    const [resolved, setResolved] = useState<AgentApplicationRef | null>(null)
-    const [resolveError, setResolveError] = useState<boolean>(false)
+    const [resolution, setResolution] = useState<ConciergeResolution>({ kind: 'pending' })
 
     useEffect(() => {
         if (!slug || teamId == null) {
-            setResolved(null)
-            setResolveError(false)
+            setResolution({ kind: 'pending' })
             return
         }
         let cancelled = false
-        setResolveError(false)
+        setResolution({ kind: 'pending' })
         getAgent(teamId, slug).then(
             (agent) => {
                 if (!cancelled) {
-                    setResolved({ id: agent.id, slug: agent.slug, name: agent.name })
+                    setResolution({
+                        kind: 'resolved',
+                        agent: { id: agent.id, slug: agent.slug, name: agent.name },
+                    })
                 }
             },
             (err) => {
                 if (cancelled) {
                     return
                 }
-                // 404 means the slug isn't deployed in this project —
-                // expected for areas whose concierge isn't shipped yet
-                // (e.g. `/billing` referencing `billing-bot`). Fall back
-                // to the fixture runner silently.
+                // 404 is intentional ("billing-bot" not shipped yet, etc.)
+                // — fall through to the fixture dock. Any other error
+                // (network, 5xx, auth) keeps the dock in `pending` so the
+                // user doesn't get the mock fallback masquerading as a
+                // real reply; the next mount or auth refresh retries.
                 const is404 = err instanceof ApiError && err.status === 404
-                if (!is404) {
-                    // eslint-disable-next-line no-console
-                    console.warn('[concierge] failed to resolve agent', slug, err)
+                if (is404) {
+                    setResolution({ kind: 'not_deployed' })
+                    return
                 }
-                setResolved(null)
-                setResolveError(true)
+                // eslint-disable-next-line no-console
+                console.warn('[concierge] failed to resolve agent', slug, err)
+                setResolution({ kind: 'pending' })
             }
         )
         return () => {
@@ -566,14 +574,28 @@ function ConciergeDock(): React.ReactElement {
         }
     }, [slug, teamId])
 
-    if (resolved && teamId != null) {
-        return <RealConciergeDock key={`${teamId}:${resolved.slug}`} agentRef={resolved} teamId={teamId} />
+    if (resolution.kind === 'resolved' && teamId != null) {
+        return (
+            <RealConciergeDock key={`${teamId}:${resolution.agent.slug}`} agentRef={resolution.agent} teamId={teamId} />
+        )
     }
-    // While resolving (resolved == null AND no error), or when the
-    // slug genuinely doesn't exist in this project (resolveError), we
-    // show the fixture dock so the surface always has something useful.
-    void resolveError
-    return <FixtureConciergeDock />
+    if (resolution.kind === 'not_deployed') {
+        return <FixtureConciergeDock />
+    }
+    return <ConciergeResolvingDock />
+}
+
+/**
+ * Placeholder shown while the concierge agent is being resolved. Keeps the
+ * dock visible (so layout doesn't jump) but disables sending — the user can't
+ * type into a mock by accident before the real runner is wired.
+ */
+function ConciergeResolvingDock(): React.ReactElement {
+    return (
+        <div className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground">
+            Loading concierge…
+        </div>
+    )
 }
 
 /**
