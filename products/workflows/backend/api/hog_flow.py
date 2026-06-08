@@ -688,8 +688,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "logs",
         "metrics",
         "metrics_totals",
-        "invocation_results",
-        "invocation_result",
         "user_blast_radius",
     ]
     scope_object_write_actions = [
@@ -719,6 +717,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
+            return ["hog_flow:read", "person:read"]
+        # Invocation inspection returns distinct_id / person_id and the raw triggering payload
+        # (invocation_globals: event/person/groups), so it's person-data access — require person:read
+        # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
+        # able to enumerate who a workflow ran for.
+        if self.action in ("invocation_results", "invocation_result"):
             return ["hog_flow:read", "person:read"]
         return None
 

@@ -8,6 +8,8 @@ from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.hog_invocation_results.sql import INSERT_HOG_INVOCATION_RESULT_SQL
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -141,6 +143,20 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         results = self._list({"distinct_id": "user-a"}).json()
         assert {r["invocation_id"] for r in results} == {"inv-1"}
 
+    @parameterized.expand(
+        [
+            ({"after": "2024-01-05T00:00:00"}, {"inv-mid", "inv-late"}),
+            ({"before": "2024-01-15T00:00:00"}, {"inv-early", "inv-mid"}),
+            ({"after": "2024-01-05T00:00:00", "before": "2024-01-15T00:00:00"}, {"inv-mid"}),
+        ]
+    )
+    def test_filters_by_time_range(self, params: dict, expected_ids: set):
+        self._seed("inv-early", scheduled_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC))
+        self._seed("inv-mid", scheduled_at=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC))
+        self._seed("inv-late", scheduled_at=datetime(2024, 1, 20, 12, 0, 0, tzinfo=UTC))
+        results = self._list(params).json()
+        assert {r["invocation_id"] for r in results} == expected_ids
+
     def test_isolated_from_other_flow_and_function_kind(self):
         self._seed("inv-mine", invocation_status="success")
         # Same team, but a hog_function invocation and a different flow id must not leak in.
@@ -171,3 +187,45 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
 
     def test_detail_404_for_unknown_invocation(self):
         assert self._detail("nope").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_personal_api_key_requires_person_read_scope(self):
+        # Invocation inspection exposes distinct_id / person_id and the triggering payload, so a
+        # hog_flow:read-only token must not be able to enumerate who a workflow ran for — person:read
+        # is also required.
+        self._seed("inv-1")
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        headers = {"authorization": f"Bearer {key}"}
+        list_res = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/", headers=headers
+        )
+        assert list_res.status_code == 403, list_res.json()
+        assert "person:read" in list_res.json().get("detail", "")
+        detail_res = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/inv-1/", headers=headers
+        )
+        assert detail_res.status_code == 403, detail_res.json()
+        assert "person:read" in detail_res.json().get("detail", "")
+
+    def test_personal_api_key_with_person_read_scope_allowed(self):
+        self._seed("inv-1", invocation_globals='{"event": {"event": "$pageview"}}')
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow + person",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["hog_flow:read", "person:read"],
+        )
+        headers = {"authorization": f"Bearer {key}"}
+        list_res = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/", headers=headers
+        )
+        assert list_res.status_code == 200, list_res.json()
+        assert {r["invocation_id"] for r in list_res.json()} == {"inv-1"}
+        detail_res = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/inv-1/", headers=headers
+        )
+        assert detail_res.status_code == 200, detail_res.json()
+        assert detail_res.json()["invocation_id"] == "inv-1"
