@@ -23,7 +23,10 @@ describe('Workflows', { concurrent: false }, () => {
     const createTool = GENERATED_TOOLS['workflows-create']!()
     const updateTool = GENERATED_TOOLS['workflows-update']!()
     const logsTool = GENERATED_TOOLS['workflows-logs']!()
-    const metricsTool = GENERATED_TOOLS['workflows-metrics']!()
+    const statsTool = GENERATED_TOOLS['workflows-stats']!()
+    const globalStatsTool = GENERATED_TOOLS['workflows-global-stats']!()
+    const listInvocationsTool = GENERATED_TOOLS['workflows-list-invocations']!()
+    const getInvocationTool = GENERATED_TOOLS['workflows-get-invocation']!()
     const enableTool = workflowsEnable()
     const disableTool = workflowsDisable()
     const archiveTool = workflowsArchive()
@@ -216,8 +219,8 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    describe('workflows-metrics tool', () => {
-        it('should return metrics for a workflow', async () => {
+    describe('workflows-stats tool', () => {
+        it('should return stats for a workflow', async () => {
             const listResult = await listTool.handler(context, {})
             const { results: workflows } = parseToolResponse(listResult)
 
@@ -225,7 +228,7 @@ describe('Workflows', { concurrent: false }, () => {
                 return
             }
 
-            const result = await metricsTool.handler(context, { id: workflows[0].id })
+            const result = await statsTool.handler(context, { id: workflows[0].id })
             const data = parseToolResponse(result)
 
             expect(Array.isArray(data.labels)).toBe(true)
@@ -240,7 +243,7 @@ describe('Workflows', { concurrent: false }, () => {
                 return
             }
 
-            const result = await metricsTool.handler(context, {
+            const result = await statsTool.handler(context, {
                 id: workflows[0].id,
                 interval: 'day',
             })
@@ -252,7 +255,51 @@ describe('Workflows', { concurrent: false }, () => {
 
         it('should throw for a non-existent UUID', async () => {
             const absentId = crypto.randomUUID()
-            await expect(metricsTool.handler(context, { id: absentId })).rejects.toThrow()
+            await expect(statsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-global-stats tool', () => {
+        it('should return per-workflow stats for the project', async () => {
+            // Bare-array response enriched via withPostHogUrl — an object with _posthogUrl, not a raw array.
+            const data = parseToolResponse(await globalStatsTool.handler(context, {}))
+            expect(data).toBeTypeOf('object')
+            expect(data).toHaveProperty('_posthogUrl')
+        })
+    })
+
+    describe('workflows-list-invocations tool', () => {
+        it('should return invocations for a workflow', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            const data = parseToolResponse(await listInvocationsTool.handler(context, { id: workflows[0].id }))
+            expect(data).toBeTypeOf('object')
+            expect(data).toHaveProperty('_posthogUrl')
+        })
+
+        it('should throw for a non-existent UUID', async () => {
+            const absentId = crypto.randomUUID()
+            await expect(listInvocationsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-get-invocation tool', () => {
+        it('should throw for a non-existent invocation', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            await expect(
+                getInvocationTool.handler(context, { id: workflows[0].id, invocation_id: crypto.randomUUID() })
+            ).rejects.toThrow()
         })
     })
 
