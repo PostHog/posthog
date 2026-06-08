@@ -74,9 +74,7 @@ function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): 
 
     const ttRaw = searchParams['target_type']
     const targetTypeFilter: SubscriptionsListTargetType | null =
-        ttRaw === TargetTypeEnumApi.Email || ttRaw === TargetTypeEnumApi.Slack || ttRaw === TargetTypeEnumApi.Webhook
-            ? ttRaw
-            : null
+        ttRaw === TargetTypeEnumApi.Email || ttRaw === TargetTypeEnumApi.Slack ? ttRaw : null
 
     let page = 1
     const pageRaw = searchParams['page']

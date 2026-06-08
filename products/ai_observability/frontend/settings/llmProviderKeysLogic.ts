@@ -114,7 +114,7 @@ export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
 
 export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
     return sortProviderKeys(keys)
-        .filter((key) => key.state !== 'invalid')
+        .filter((key) => key.state === 'ok')
         .map((key) => key.id)
 }
 
@@ -127,9 +127,7 @@ export function firstUsableProviderKeyIdForProvider(
         return null
     }
 
-    return (
-        sortProviderKeys(keys).find((key) => key.state !== 'invalid' && key.provider === normalizedProvider)?.id ?? null
-    )
+    return sortProviderKeys(keys).find((key) => key.state === 'ok' && key.provider === normalizedProvider)?.id ?? null
 }
 
 export interface EvaluationConfig {
