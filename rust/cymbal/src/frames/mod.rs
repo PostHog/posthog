@@ -20,6 +20,7 @@ use crate::{
         php::RawPHPFrame,
         python::RawPythonFrame,
         ruby::RawRubyFrame,
+        rust::RawRustFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_source_line,
@@ -74,6 +75,8 @@ pub enum RawFrame {
     Dart(RawDartFrame),
     #[serde(rename = "apple")]
     Apple(RawAppleFrame),
+    #[serde(rename = "rust")]
+    Rust(RawRustFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
@@ -109,6 +112,7 @@ impl RawFrame {
             RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
+            RawFrame::Rust(frame) => (to_vec(Ok(frame.into())), "rust"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
             RawFrame::Go(frame) => (to_vec(Ok(frame.into())), "go"),
             RawFrame::Hermes(frame) => (to_vec(frame.resolve(team_id, catalog).await), "hermes"),
@@ -161,6 +165,7 @@ impl RawFrame {
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
             | RawFrame::Apple(_)
+            | RawFrame::Rust(_)
             | RawFrame::Custom(_) => None,
         }
     }
@@ -173,6 +178,7 @@ impl RawFrame {
             RawFrame::Python(raw) => raw.frame_id(),
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
+            RawFrame::Rust(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
@@ -445,7 +451,7 @@ fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
 
 #[cfg(test)]
 mod test {
-    use crate::frames::RawFrame;
+    use crate::frames::{Frame, RawFrame};
 
     #[test]
     fn ensure_custom_frames_work() {
@@ -466,6 +472,38 @@ mod test {
         match frame {
             RawFrame::Custom(_) => {}
             _ => panic!("Expected a custom frame"),
+        }
+    }
+
+    #[test]
+    fn ensure_rust_frames_work() {
+        let data = r#"
+            {
+            "function": "checkout::payment::charge",
+            "module": "checkout::payment",
+            "filename": "src/main.rs",
+            "resolved": true,
+            "in_app": true,
+            "lineno": 42,
+            "platform": "rust"
+            }
+            "#;
+
+        let frame: RawFrame = serde_json::from_str(data).unwrap();
+        match frame {
+            RawFrame::Rust(frame) => {
+                let resolved: Frame = (&frame).into();
+                assert_eq!(resolved.lang, "rust");
+                assert_eq!(resolved.mangled_name, "checkout::payment::charge");
+                assert_eq!(
+                    resolved.resolved_name.as_deref(),
+                    Some("checkout::payment::charge")
+                );
+                assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
+                assert_eq!(resolved.module.as_deref(), Some("checkout::payment"));
+                assert_eq!(resolved.line, Some(42));
+            }
+            _ => panic!("Expected a rust frame"),
         }
     }
 }
