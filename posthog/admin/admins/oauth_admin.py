@@ -6,6 +6,8 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import admin
+from django.contrib.admin import helpers
+from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -94,10 +96,22 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
     def revoke_all_sessions(self, request, queryset):
-        count = queryset.count()
-        for application in queryset:
-            revoke_application_sessions(application)
-        self.message_user(request, f"Revoked all sessions for {count} application(s).")
+        # Irreversible and app-wide (signs out every user/connection), so gate it behind an
+        # interstitial confirmation instead of firing on the first click.
+        if request.POST.get("confirm"):
+            count = queryset.count()
+            for application in queryset:
+                revoke_application_sessions(application)
+            self.message_user(request, f"Revoked all sessions for {count} application(s).")
+            return None
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Revoke all sessions",
+            "queryset": queryset,
+            "opts": self.model._meta,
+            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+        }
+        return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"

@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
+from django.test import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -62,12 +63,38 @@ class TestOAuthApplicationAdmin(BaseTest):
             application=app, user=self.user, token="rt_revoke_action", access_token=access_token
         )
 
+        request = RequestFactory().post("/", {"confirm": "yes"})
         with patch.object(self.admin, "message_user") as message_user:
-            self.admin.revoke_all_sessions(request=None, queryset=OAuthApplication.objects.filter(id=app.id))
+            self.admin.revoke_all_sessions(request=request, queryset=OAuthApplication.objects.filter(id=app.id))
 
         self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
         self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
         message_user.assert_called_once()
+
+    def test_revoke_all_sessions_without_confirm_renders_page_and_keeps_tokens(self):
+        app = OAuthApplication.objects.create(
+            name="Revoke Confirm App",
+            client_id="revoke_confirm_client_id",
+            client_secret="revoke_confirm_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="at_revoke_confirm", expires=timezone.now() + timedelta(minutes=5)
+        )
+
+        self.user.is_staff = True
+        request = RequestFactory().post("/")
+        request.user = self.user
+        response = self.admin.revoke_all_sessions(request=request, queryset=OAuthApplication.objects.filter(id=app.id))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("revoke_all_sessions_confirm.html", response.template_name)
+        # Nothing revoked until the operator confirms.
+        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 1)
 
     @parameterized.expand(
         [
