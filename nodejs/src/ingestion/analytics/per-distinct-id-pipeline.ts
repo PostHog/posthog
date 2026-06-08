@@ -125,6 +125,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                         })
                     )
             ),
-        { tries: 3, sleepMs: 100, name: 'per_distinct_id' }
+        { tries: 5, sleepMs: 100, name: 'per_distinct_id' }
     )
 }
