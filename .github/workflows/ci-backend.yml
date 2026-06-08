@@ -78,7 +78,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
-            persons-SQL: ${{ steps.filter.outputs['persons-SQL'] || 'true' }}
+            persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
@@ -226,7 +226,7 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
-                      persons-SQL:
+                      persons_sql:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
                       timing_scripts:
@@ -757,7 +757,7 @@ jobs:
     # in check-openapi-types below.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs['persons-SQL'] == 'true'
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
         timeout-minutes: 20
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
