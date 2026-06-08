@@ -569,6 +569,12 @@ def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseC
     assert old.status == RequestStatus.QUEUED
 
 
+def test_verify_queued_job_registered_in_clickhouse_location():
+    from posthog.dags.locations.clickhouse import defs
+
+    assert defs.get_job_def("verify_queued_deletion_requests_job") is not None
+
+
 # ---------------------------------------------------------------------------
 # Property removal tests
 # ---------------------------------------------------------------------------
