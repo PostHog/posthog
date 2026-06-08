@@ -7,6 +7,8 @@ on:
             - master
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     OBJECT_STORAGE_ENABLED: true
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -35,7 +37,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
@@ -64,25 +66,17 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality (${{ matrix.runner }})
+        name: Node.js Code quality (depot-ubuntu-latest)
         needs: changes
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -92,6 +86,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -110,25 +105,17 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build (${{ matrix.runner }})
+        name: Node.js Build (depot-ubuntu-latest)
         needs: changes
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -138,6 +125,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -164,17 +152,14 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (${{ matrix.runner }})
+        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-latest-4)
         needs: changes
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30 # We know tests don't take this long
-
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":1,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":2,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":3,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
-
+                shard: [1, 2, 3]
         env:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
@@ -183,7 +168,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -191,6 +176,13 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
               env:
@@ -214,19 +206,19 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  # Avoid cross-runner pollution: shadow restores but never saves
-                  save-cache: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
@@ -235,12 +227,11 @@ jobs:
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
-                  # Avoid cross-runner pollution: shadow restores but never saves
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               working-directory: rust
-              run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
+              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -253,10 +244,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -266,6 +254,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ github.token }}
 
             - name: Download MaxMind Database
               run: |

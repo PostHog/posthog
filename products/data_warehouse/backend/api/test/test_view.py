@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 class TestView(APIBaseTest):
@@ -84,14 +84,14 @@ class TestView(APIBaseTest):
         ]
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
+        "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
         return_value={"id": "String", "a_column": "String"},
     )
     @patch("posthog.tasks.warehouse.get_client")

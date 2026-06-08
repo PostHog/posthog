@@ -13,6 +13,7 @@ import {
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsFinalizeCreate,
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
@@ -41,23 +42,30 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
-        approveChanges: true,
-        approveChangesSuccess: true,
-        approveChangesFailure: true,
+        finalizeRun: true,
+        finalizeRunSuccess: true,
+        finalizeRunFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         approveSnapshotSuccess: true,
         approveSnapshotFailure: true,
         markAsTolerated: (snapshot: SnapshotApi) => ({ snapshot }),
-        quarantineSnapshot: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+        quarantineSnapshot: (
+            reason: string,
+            identifiers: string[],
+            expiresAt: string | null,
+            sourceRunId: string | null = null
+        ) => ({
             reason,
             identifiers,
             expiresAt,
+            sourceRunId,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
         markThumbnailFailed: (identifier: string) => ({ identifier }),
+        toggleQuarantinedThumbnails: true,
     }),
     reducers({
         selectedSnapshotId: [
@@ -66,12 +74,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
             },
         ],
-        isApproving: [
+        isFinalizing: [
             false,
             {
-                approveChanges: () => true,
-                approveChangesSuccess: () => false,
-                approveChangesFailure: () => false,
+                finalizeRun: () => true,
+                finalizeRunSuccess: () => false,
+                finalizeRunFailure: () => false,
             },
         ],
         isApprovingSnapshot: [
@@ -100,6 +108,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        showQuarantinedThumbnails: [
+            false,
+            {
+                toggleQuarantinedThumbnails: (state) => !state,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         run: [
@@ -116,6 +130,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 loadSnapshots: async () => {
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         limit: 10000,
+                        include_quarantined: true,
                     })
                     return response.results
                 },
@@ -166,12 +181,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     selectors({
         selectedSnapshot: [
-            (s) => [s.snapshots, s.selectedSnapshotId],
-            (snapshots, selectedSnapshotId): SnapshotApi | null => {
-                if (!selectedSnapshotId) {
-                    return snapshots.find((s) => s.result !== 'unchanged') || snapshots[0] || null
+            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet],
+            (snapshots, selectedSnapshotId, quarantinedIdentifierSet): SnapshotApi | null => {
+                if (selectedSnapshotId) {
+                    return snapshots.find((s) => s.id === selectedSnapshotId) || null
                 }
-                return snapshots.find((s) => s.id === selectedSnapshotId) || null
+                const changed = snapshots.filter((s) => s.result !== 'unchanged')
+                const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
+                return changedNotQuarantined[0] || changed[0] || snapshots[0] || null
             },
         ],
         changedSnapshots: [
@@ -200,10 +217,26 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     groups.set(base, group)
                 }
 
-                // Sort groups by max diff% descending
+                // Severity score for ordering. Pixel-tier rows have a real
+                // diff_percentage; structural-tier rows had it nulled by the
+                // split-diff-metrics migration (legacy diff_percentage was
+                // SSIM-as-percentage and would mislead now). Fall back to
+                // SSIM dissimilarity scaled to a comparable percent so
+                // structural shifts surface alongside pixel diffs instead
+                // of sinking to the bottom as 0.
+                const severity = (s: SnapshotApi): number => {
+                    if (s.diff_percentage != null) {
+                        return s.diff_percentage
+                    }
+                    if (s.ssim_score != null) {
+                        return (1 - s.ssim_score) * 100
+                    }
+                    return 0
+                }
+
                 const sortedGroups = [...groups.values()].sort((a, b) => {
-                    const maxA = Math.max(...a.map((s) => s.diff_percentage ?? 0))
-                    const maxB = Math.max(...b.map((s) => s.diff_percentage ?? 0))
+                    const maxA = Math.max(...a.map(severity))
+                    const maxB = Math.max(...b.map(severity))
                     return maxB - maxA
                 })
 
@@ -272,32 +305,36 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
-        approveChanges: async () => {
+        finalizeRun: async () => {
             const { run } = values
             if (!run) {
                 return
             }
 
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
+                // approve_all approves any still-pending changes (tolerated ones are left alone),
+                // commits the approved baseline, and greens the gate.
+                await visualReviewRunsFinalizeCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
                 })
-                actions.approveChangesSuccess()
-                lemonToast.success('Changes approved successfully')
+                actions.finalizeRunSuccess()
+                lemonToast.success('Run finalized — baseline committed')
                 actions.loadRun()
-                // Patch in place — refetching all snapshots after a bulk approve made the whole
-                // grid flash and lost the user's selection. Server is the source of truth on
-                // next mount; we only need the UI to reflect the change immediately.
+                // Patch in place — refetching all snapshots after finalize made the whole grid
+                // flash and lost the user's selection. Server is the source of truth on next mount;
+                // we only need the UI to reflect the change immediately.
                 actions.loadSnapshotsSuccess(
                     values.snapshots.map((s) =>
-                        s.review_state === 'pending' && s.result !== 'unchanged'
+                        s.review_state === 'pending' &&
+                        s.result !== 'unchanged' &&
+                        !values.quarantinedIdentifierSet.has(s.identifier)
                             ? { ...s, review_state: 'approved' }
                             : s
                     )
                 )
             } catch (e: any) {
-                actions.approveChangesFailure()
-                lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
+                actions.finalizeRunFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to finalize run')
             }
         },
         approveSnapshot: async ({ snapshot }) => {
@@ -353,11 +390,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
             const { run } = values
             if (!run) {
                 return
             }
+            // Default to the current run when the caller didn't supply a source
+            // (the diff viewer doesn't have one for new quarantines). Extending
+            // an existing quarantine passes through the prior source so the
+            // "what was wrong" link survives across renewals.
+            const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
                     identifiers.map((identifier) =>
@@ -365,6 +407,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                             identifier,
                             reason,
                             expires_at: expiresAt,
+                            source_run_id: effectiveSourceRunId,
                         })
                     )
                 )

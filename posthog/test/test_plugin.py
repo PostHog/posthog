@@ -6,7 +6,6 @@ from unittest.mock import patch
 from django.core import exceptions
 
 from posthog.cdp.templates.helpers import mock_transpile
-from posthog.models import Plugin, PluginSourceFile
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,
@@ -23,6 +22,8 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_RAW_WITHOUT_PLUGIN_JS,
     HELLO_WORLD_PLUGIN_SITE_TS,
 )
+
+from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
 
 
 class TestPlugin(BaseTest):
@@ -180,7 +181,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert frontend_tsx_file.source == HELLO_WORLD_PLUGIN_FRONTEND_TSX
         assert not self.team.inject_web_apps
 
-    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.models.plugin.transpile", side_effect=mock_transpile)
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works(self, mock_transpile_fn):
         assert not self.team.inject_web_apps
@@ -219,7 +220,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
 
         assert cm.exception.message == f"Could not find main file index.js or index.ts in plugin Contoso"
 
-    @patch("posthog.models.plugin.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.models.plugin.transpile", side_effect=mock_transpile)
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_twice_from_zip_with_index_ts_replaced_by_frontend_tsx_works(
         self, mock_transpile_fn

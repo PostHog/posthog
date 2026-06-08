@@ -7,6 +7,9 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -16,7 +19,7 @@ from django.db import (
     models as db_models,
     transaction,
 )
-from django.db.models import Count, F, Q
+from django.db.models import Avg, Count, F, Q
 from django.utils import timezone
 
 import structlog
@@ -28,7 +31,16 @@ from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .diff_metadata import DiffMetadata
+from .facade.enums import (
+    ChangeKind,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+    ToleratedReason,
+)
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -74,6 +86,18 @@ class HashIntegrityError(Exception):
 
 class StaleRunError(Exception):
     """Approval blocked because a newer run exists for this PR."""
+
+    pass
+
+
+class RunNotFullyResolvedError(Exception):
+    """Finalize blocked because some changed/new snapshots are still unreviewed.
+
+    Visual review is all-or-nothing: the baseline is only committed once every
+    changed/new snapshot is approved or tolerated. Committing a subset is pointless
+    (CI re-detects the rest on the next run) and would green the gate over unreviewed
+    changes.
+    """
 
     pass
 
@@ -239,15 +263,32 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
-def list_runs_for_team(team_id: int, review_state: str | None = None) -> db_models.QuerySet[Run]:
+def list_runs_for_team(
+    team_id: int,
+    review_state: str | None = None,
+    repo_id: UUID | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    branch: str | None = None,
+) -> db_models.QuerySet[Run]:
     qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
+    if repo_id is not None:
+        qs = qs.filter(repo_id=repo_id)
     if review_state and review_state in REVIEW_STATE_FILTERS:
         qs = qs.filter(REVIEW_STATE_FILTERS[review_state])
+    if pr_number is not None:
+        qs = qs.filter(pr_number=pr_number)
+    if commit_sha:
+        qs = qs.filter(commit_sha=commit_sha)
+    if branch:
+        qs = qs.filter(branch=branch)
     return qs
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
     qs = Run.objects.filter(team_id=team_id)
+    if repo_id is not None:
+        qs = qs.filter(repo_id=repo_id)
     return qs.aggregate(
         needs_review=Count("id", filter=REVIEW_STATE_FILTERS["needs_review"]),
         clean=Count("id", filter=REVIEW_STATE_FILTERS["clean"]),
@@ -441,7 +482,9 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     return _resolve_baselines_at_ref(repo, github, run_type, branch)
 
 
-def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+def _resolve_baselines_with_merge_base(
+    repo: Repo, run_type: str, branch: str, commit_sha: str | None = None
+) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
     The branch baseline tracks approvals. The merge-base baseline
@@ -452,6 +495,12 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     Identifiers previously approved as REMOVED on this branch are
     tombstoned — healing would otherwise resurrect them from master
     and re-flag them as removed on every subsequent run.
+
+    When *commit_sha* is provided and the run is on the default branch,
+    the baseline is fetched at that exact commit instead of the branch
+    tip.  This prevents a race where a newer commit updates the
+    baseline file before an older commit's VR run completes.
+
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -462,9 +511,13 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
 
-    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, branch)
-
     default_branch = _get_default_branch(github, repo.repo_full_name)
+
+    # On the default branch, pin the baseline to the exact commit so
+    # that back-to-back pushes don't race against each other.
+    baseline_ref = commit_sha if (commit_sha and branch == default_branch) else branch
+    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, baseline_ref)
+
     if branch == default_branch:
         return branch_baseline, 0
 
@@ -783,8 +836,12 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
+    # Pass commit_sha so default-branch runs fetch the baseline at the
+    # exact commit being tested, avoiding races with concurrent pushes.
     try:
-        baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+        baseline, healed_count = _resolve_baselines_with_merge_base(
+            repo, run.run_type, run.branch, commit_sha=run.commit_sha
+        )
     except GitHubRateLimitError:
         # Roll back to PENDING so the caller can retry after the limit resets
         Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
@@ -837,7 +894,7 @@ def complete_run(run_id: UUID) -> Run:
     mark_run_processing(run_id)
     from .tasks.tasks import process_run_diffs
 
-    process_run_diffs.delay(str(run_id))
+    process_run_diffs.delay(run.team_id, str(run_id))
     return get_run(run_id)
 
 
@@ -996,6 +1053,21 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
+def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
+    """The committed-baseline update set: approved changed/new snapshots, by approved hash.
+
+    Derived from DB state so the commit always reflects every approval regardless of how
+    many calls it took. Tolerated snapshots are excluded — toleration never updates the baseline.
+    """
+    return [
+        {"identifier": s.identifier, "new_hash": s.approved_hash}
+        for s in snapshots
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+        and not s.is_quarantined
+        and s.review_state == ReviewState.APPROVED
+    ]
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1029,6 +1101,11 @@ def _update_counts_and_post_status(run: Run) -> int:
 
     unresolved = sum(1 for s in snapshots if _is_unresolved(s))
 
+    # Approved-but-uncommitted changes still block the gate: the baseline on the PR branch
+    # doesn't reflect them yet, so re-running CI would re-detect them. Only finalize commits
+    # the baseline (and posts success directly), so until then the gate must stay red.
+    pending_commit = 0 if run.approved else len(_approved_baseline_updates(snapshots))
+
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
@@ -1042,6 +1119,13 @@ def _update_counts_and_post_status(run: Run) -> int:
             parts.append(f"{run.removed_count} removed")
         _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
+    elif pending_commit > 0:
+        _post_commit_status(
+            run,
+            repo,
+            "failure",
+            f"{pending_commit} approved change(s) awaiting commit — finalize the run to update the baseline",
+        )
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
@@ -1088,7 +1172,8 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     if not check_run_id:
         ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
     else:
-        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, check_run_id)
+        # Stored as a string, but coerce defensively — `_rerun_github_job` calls `.isdigit()`.
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, str(check_run_id))
 
     return {
         "counts_changed": counts_changed,
@@ -1099,13 +1184,67 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
 
 
 def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
-    """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
+    """Rerun the visual-review CI job by its numeric ID. Returns (success, error_message).
+
+    The job ID and workflow run ID both come from client-supplied run metadata
+    (the CI runner has no server-verified channel today), so before calling
+    GitHub we bind the rerun two ways: the job must run on this run's commit
+    (``head_sha``) and must belong to the workflow run recorded at creation
+    (``github_run_id``). That pins recompute to the workflow run that produced
+    this visual-review run instead of letting it re-trigger any job on the
+    commit. It is defense-in-depth, not an identity proof — a caller who forges
+    a self-consistent metadata set can still reach sibling jobs of that run.
+    """
     if not check_run_id.isdigit():
         return False, "Invalid check run ID"
 
     repo = run.repo
     if not repo.repo_full_name:
         return False, "Repo has no GitHub full name configured"
+
+    expected_run_id = (run.metadata or {}).get("github_run_id")
+    if not expected_run_id:
+        return False, "Workflow run ID not recorded for this run"
+
+    # `${{ job.check_run_id }}` doubles as the Actions job ID, so the jobs API
+    # gives us head_sha and the owning workflow run (run_id) in one call.
+    try:
+        job_response = _github_api_request(
+            "GET",
+            repo,
+            f"actions/jobs/{check_run_id}",
+            timeout=10,
+        )
+    except Exception:
+        return False, "Failed to verify CI job ownership"
+
+    if job_response.status_code != 200:
+        return False, f"Could not fetch CI job details (status {job_response.status_code})"
+
+    try:
+        job_data = job_response.json()
+    except Exception:
+        return False, "Failed to parse CI job response"
+
+    if job_data.get("head_sha") != run.commit_sha:
+        logger.warning(
+            "visual_review.ci_rerun_sha_mismatch",
+            run_id=str(run.id),
+            check_run_id=check_run_id,
+            expected_sha=run.commit_sha,
+            actual_sha=job_data.get("head_sha"),
+        )
+        return False, "Check run does not belong to this commit"
+
+    if str(job_data.get("run_id")) != str(expected_run_id):
+        logger.warning(
+            "visual_review.ci_rerun_workflow_mismatch",
+            run_id=str(run.id),
+            check_run_id=check_run_id,
+            expected_workflow_run=str(expected_run_id),
+            actual_workflow_run=str(job_data.get("run_id")),
+        )
+        return False, "CI job does not belong to this run's workflow"
 
     try:
         response = _github_api_request(
@@ -1382,7 +1521,25 @@ def _post_commit_status(
         logger.warning("visual_review.status_check_error", run_id=str(run.id), exc_info=True)
 
 
-def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[dict]) -> dict:
+def _get_coauthor_trailer(user_id: int, installation_id: str) -> str | None:
+    """Return a `Co-authored-by` trailer for the approver, if they have a personal
+    GitHub integration for the same installation. Returns None when no match exists.
+    """
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    user_integration = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation_id,
+    ).first()
+    if user_integration is None:
+        return None
+    return UserGitHubIntegration(user_integration).coauthor_trailer
+
+
+def _commit_baseline_to_github(
+    run: Run, repo: Repo, approved_snapshots: list[dict], approver_user_id: int | None = None
+) -> dict:
     """
     Commit updated baseline file to GitHub.
 
@@ -1435,6 +1592,12 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
         parts.append(f"{removed_count} removed")
     summary = ", ".join(parts)
     commit_message = f"chore(visual): update {run.run_type} baselines\n\n{summary}\nRun: {run.id}"
+
+    installation_id = github.integration.integration_id
+    if approver_user_id is not None and isinstance(installation_id, str) and installation_id:
+        trailer = _get_coauthor_trailer(approver_user_id, installation_id)
+        if trailer:
+            commit_message = f"{commit_message}\n\n{trailer}"
 
     result = github.update_file(
         repository=repo_name,
@@ -1546,167 +1709,277 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
+_MARKDOWN_ESCAPE_CHARS = r"\`*_{}[]()#+-.!|<>~"
+
+
+def _escape_markdown(value: str) -> str:
+    """Escape GitHub-flavored markdown control characters in user-supplied text."""
+    return "".join(f"\\{c}" if c in _MARKDOWN_ESCAPE_CHARS else c for c in value)
+
+
+@dataclass(frozen=True)
+class _Approver:
+    label: str
+    is_github_login: bool
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
+    """Build the markdown body of the post-approval PR comment.
+
+    A short textual summary of what changed — reviewers go to PostHog to see
+    the actual snapshots.
+    """
+    from django.conf import settings
+
+    counts = Counter(
+        run.snapshots.filter(
+            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+        ).values_list("result", flat=True)
+    )
+
+    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    if approver is None:
+        approver_text = "a reviewer"
+    elif approver.is_github_login:
+        approver_text = f"@{approver.label}"
+    else:
+        approver_text = _escape_markdown(approver.label)
+    baseline_sha = run.metadata.get("baseline_commit_sha")
+    sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
+
+    header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
+
+    parts = []
+    for result, label in (
+        (SnapshotResult.CHANGED, "changed"),
+        (SnapshotResult.NEW, "new"),
+        (SnapshotResult.REMOVED, "removed"),
+    ):
+        if counts.get(result):
+            parts.append(f"{counts[result]} {label}")
+
+    if not parts:
+        return header
+
+    return header + f"\n{', '.join(parts)}.\n"
+
+
+def _resolve_approver(user_id: int | None) -> _Approver | None:
+    """Resolve the approver's identity for the PR comment.
+
+    Prefers a verified GitHub login (safe to mention with `@`); otherwise
+    falls back to email local-part or first name, which the caller must
+    treat as untrusted markdown.
+    """
+    if user_id is None:
+        return None
+
+    from posthog.models.user import User
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    gh = (
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB)
+        .order_by("-created_at")
+        .first()
+    )
+    if gh is not None:
+        github_login = UserGitHubIntegration(gh).github_login
+        if github_login:
+            return _Approver(label=github_login, is_github_login=True)
+
+    user = User.objects.filter(id=user_id).only("email", "first_name").first()
+    if user is None:
+        return None
+    if user.email and "@" in user.email:
+        return _Approver(label=user.email.split("@", 1)[0], is_github_login=False)
+    if user.first_name:
+        return _Approver(label=user.first_name, is_github_login=False)
+    return None
+
+
+def _post_approval_comment(run: Run, repo: Repo) -> None:
+    """Update the existing PR comment in place with the approved-changes summary.
+
+    Best-effort and never raises. Skips silently when the original review-prompt
+    comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
+    when the review wasn't initiated by a human.
+    """
+    if not repo.enable_pr_comments:
+        return
+
+    if not repo.repo_full_name or run.pr_number is None:
+        return
+
+    if run.review_decision != ReviewDecision.HUMAN_APPROVED:
+        return
+
+    comment_id = run.metadata.get("github_comment_id")
+    if not comment_id:
+        return
+    if isinstance(comment_id, str) and comment_id.isdigit():
+        comment_id = int(comment_id)
+    if not isinstance(comment_id, int):
+        return
+
+    approver = _resolve_approver(run.approved_by_id)
+    body = _build_approval_comment_body(run, repo, approver)
+
+    try:
+        response = _github_api_request(
+            method="PATCH",
+            repo=repo,
+            path=f"issues/comments/{comment_id}",
+            json={"body": body},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return
+
+        # Comment was deleted or inaccessible — fall back to creating a new one
+        if response.status_code == 404:
+            create_response = _github_api_request(
+                method="POST",
+                repo=repo,
+                path=f"issues/{run.pr_number}/comments",
+                json={"body": body},
+                timeout=15,
+            )
+            if create_response.status_code == 201:
+                new_comment_id = create_response.json().get("id")
+                if isinstance(new_comment_id, int):
+                    run.metadata["github_comment_id"] = new_comment_id
+                    run.save(update_fields=["metadata"], using=WRITER_DB)
+                return
+            logger.warning(
+                "visual_review.approval_comment_create_failed",
+                run_id=str(run.id),
+                pr_number=run.pr_number,
+                status_code=create_response.status_code,
+                response=create_response.text[:200],
+            )
+            return
+
+        logger.warning(
+            "visual_review.approval_comment_update_failed",
+            run_id=str(run.id),
+            comment_id=comment_id,
+            status_code=response.status_code,
+            response=response.text[:200],
+        )
+    except GitHubRateLimitError:
+        # Bubble up so the Celery task can retry with the suggested countdown.
+        raise
+    except Exception:
+        logger.warning(
+            "visual_review.approval_comment_error",
+            run_id=str(run.id),
+            pr_number=run.pr_number,
+            exc_info=True,
+        )
+
+
+def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> None:
+    """Public entrypoint for the Celery task to update a PR comment after approval."""
+    run = (
+        Run.objects.select_related("repo")
+        .using(READER_DB)
+        .filter(id=run_id, **({"team_id": team_id} if team_id is not None else {}))
+        .first()
+    )
+    if run is None:
+        return
+    _post_approval_comment(run, run.repo)
+
+
 @transaction.atomic(using=WRITER_DB)
-def approve_all(
+def finalize_run(
     run_id: UUID,
     user_id: int,
     team_id: int | None = None,
+    approve_all: bool = False,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
-) -> tuple[Run, str]:
-    """Approve all actionable snapshots and return signed baseline YAML.
+) -> Run:
+    """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
-    Collects all CHANGED + NEW snapshots, approves them via approve_run,
-    and builds a signed baseline YAML. REMOVED snapshots are handled by
-    approve_run (marked as approved + pruned from baseline).
+    All-or-nothing by design — a run finalizes only once every changed/new snapshot is
+    resolved (approved, tolerated, quarantined, or removed). The committed baseline is
+    derived from DB state — exactly the snapshots with ``review_state == APPROVED``, by
+    their approved hash — so a tolerated snapshot keeps its existing baseline and is
+    never silently overwritten, and the commit always contains the full approved set
+    regardless of how many calls it took to review them.
 
-    The caller controls review_decision:
-    - HUMAN_APPROVED: UI "Approve all changes" button
-    - AUTO_APPROVED: CLI --auto-approve during CI
+    With ``approve_all=True`` every still-pending changed/new snapshot is approved first
+    (tolerated ones are left untouched) — the "approve everything and ship" path. Without
+    it, the run must already be fully resolved or this raises RunNotFullyResolvedError.
 
-    Set commit_to_github=False for CLI (writes baseline locally).
+    Set ``commit_to_github=False`` for CLI auto-approve, which writes the baseline locally
+    instead of pushing it to the PR branch.
     """
     run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
+
+    # Idempotent: a finalized run already committed and posted status — don't redo the work
+    # (a second commit, status, and approval comment) on a repeat call.
+    if run.approved:
+        return run
 
     if run.status != RunStatus.COMPLETED:
         raise ValueError(f"Run must be completed before approval (current status: {run.status})")
 
     if is_run_stale(run):
-        raise StaleRunError("This run has been superseded by a newer run.")
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
-    # Collect all actionable snapshots (changed + new have hashes to approve)
-    needs_approval = [
-        {"identifier": s.identifier, "new_hash": s.current_hash}
-        for s in run.snapshots.all()
-        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+    # Re-evaluate quarantine so resolution accounting reflects the current policy.
+    _stamp_quarantine(run)
+    now = timezone.now()
+
+    actionable = [
+        s
+        for s in run.snapshots.using(WRITER_DB).all()
+        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW) and not s.is_quarantined
     ]
 
-    if not run.approved:
-        approve_run(
-            run_id=run_id,
-            user_id=user_id,
-            team_id=team_id,
-            approved_snapshots=needs_approval,
-            review_decision=review_decision,
-            commit_to_github=commit_to_github,
+    if approve_all:
+        pending = [s for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)]
+        _validate_approval(run, {s.identifier: s.current_hash for s in pending})
+        for snapshot in pending:
+            snapshot.review_state = ReviewState.APPROVED
+            snapshot.reviewed_at = now
+            snapshot.reviewed_by_id = user_id
+            snapshot.approved_hash = snapshot.current_hash
+            snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    # All-or-nothing: refuse to commit while any actionable snapshot is still unreviewed.
+    unresolved = [
+        s.identifier for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)
+    ]
+    if unresolved:
+        raise RunNotFullyResolvedError(
+            f"Cannot finalize: {len(unresolved)} snapshot(s) still need review — approve or tolerate them first: "
+            f"{', '.join(sorted(unresolved)[:10])}"
         )
-        run = get_run_with_snapshots(run_id)
 
-    snapshots = list(run.snapshots.all().order_by("identifier"))
+    # Commit set is derived from DB state, not a caller-supplied list, so it always reflects
+    # the full approved set however many calls reviewed it.
+    approved_updates = _approved_baseline_updates(actionable)
+    has_removed = run.snapshots.using(WRITER_DB).filter(result=SnapshotResult.REMOVED).exists()
 
-    # Fetch current baseline from GitHub — the authoritative source.
-    # This ensures unchanged entries are preserved even in delta mode
-    # where unchanged snapshots have no RunSnapshot rows.
-    baseline_paths = repo.baseline_file_paths or {}
-    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
-    current_baselines: dict[str, dict] = {}
+    # Commit first — before DB writes — so a GitHub failure aborts cleanly. Removed snapshots
+    # also need a commit, to prune them from the baseline, even when nothing was approved.
+    if commit_to_github and (approved_updates or has_removed) and run.pr_number and repo.repo_full_name:
+        _commit_baseline_to_github(run, repo, approved_updates, approver_user_id=user_id)
 
-    github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
-    current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
-
-    # Remove entries that are now REMOVED — they should not persist in the baseline
-    removed_identifiers = {s.identifier for s in snapshots if s.result == SnapshotResult.REMOVED}
-    for identifier in removed_identifiers:
-        current_baselines.pop(identifier, None)
-
-    # Apply changes from this run on top of the baseline
-    updates = [
-        {"identifier": s.identifier, "new_hash": s.current_hash}
-        for s in snapshots
-        if s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
-    ]
-
-    baseline_content = _build_snapshots_yaml(repo, current_baselines=current_baselines, updates=updates)
-    return run, baseline_content
-
-
-@transaction.atomic(using=WRITER_DB)
-def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
-    """Approve specific snapshots within a run (DB only, no GitHub commit).
-
-    Used for per-snapshot "Accept change" in the UI. Does not finalize
-    the run — that happens via approve_run.
-    """
-    run = _get_run_for_update(run_id, team_id=team_id)
-
-    if run.purpose == RunPurpose.OBSERVE:
-        raise ValueError("Observational runs cannot be approved")
-
-    if is_run_stale(run):
-        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
-
-    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
-    _validate_approval(run, approvals)
-
-    now = timezone.now()
-    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
-        new_hash = approvals[snapshot.identifier]
-        snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = now
-        snapshot.reviewed_by_id = user_id
-        snapshot.approved_hash = new_hash
-        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
-
-    return run
-
-
-@transaction.atomic(using=WRITER_DB)
-def approve_run(
-    run_id: UUID,
-    user_id: int,
-    approved_snapshots: list[dict],
-    team_id: int | None = None,
-    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
-    commit_to_github: bool = True,
-) -> Run:
-    """Approve snapshots and finalize the run — commit baseline, post status.
-
-    This is the full approval path: validate, commit to GitHub, mark
-    snapshots approved, mark removed as approved, mark run approved,
-    and post a success commit status.
-
-    Set commit_to_github=False only for CLI auto-approve (writes locally).
-    """
-    run = _get_run_for_update(run_id, team_id=team_id)
-    repo = run.repo
-
-    if run.purpose == RunPurpose.OBSERVE:
-        raise ValueError("Observational runs cannot be approved")
-
-    if is_run_stale(run):
-        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
-
-    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
-    _validate_approval(run, approvals)
-
-    # Commit to GitHub first — do this before DB changes so we can fail cleanly
-    if commit_to_github and run.pr_number and repo.repo_full_name:
-        _commit_baseline_to_github(run, repo, approved_snapshots)
-
-    # Mark approved snapshots
-    now = timezone.now()
-    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
-        new_hash = approvals[snapshot.identifier]
-        snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = now
-        snapshot.reviewed_by_id = user_id
-        snapshot.approved_hash = new_hash
-        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
-
-    # Mark removed snapshots as approved (cleanup, not actionable)
+    # Removed snapshots are pruned from the baseline on commit; mark them approved for cleanup.
     run.snapshots.filter(result=SnapshotResult.REMOVED).update(
         review_state=ReviewState.APPROVED,
         reviewed_at=now,
         reviewed_by_id=user_id,
     )
 
-    # Re-evaluate quarantine at approval time
-    _stamp_quarantine(run)
-
-    # Finalize run
     run.approved = True
     run.review_decision = review_decision
     run.approved_at = now
@@ -1715,6 +1988,74 @@ def approve_run(
 
     if commit_to_github:
         _post_commit_status(run, repo, "success", "Visual changes approved")
+
+    if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
+        from .tasks.tasks import post_approval_comment
+
+        run_id_str = str(run.id)
+        run_team_id = run.team_id
+        transaction.on_commit(
+            lambda: post_approval_comment.delay(run_team_id, run_id_str),
+            using=WRITER_DB,
+        )
+
+    return run
+
+
+def build_signed_baseline(run_id: UUID, team_id: int | None = None) -> str:
+    """Build the signed baseline YAML for a finalized run, without committing it.
+
+    For callers that commit the baseline themselves (the CLI's auto-approve, which writes
+    the file and commits via git rather than the GitHub App). Mirrors the committed set:
+    the current baseline merged with the approved changed/new hashes, removed entries pruned.
+    """
+    run = get_run_with_snapshots(run_id, team_id=team_id)
+    repo = run.repo
+
+    baseline_paths = repo.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
+
+    github = get_github_integration_for_repo(repo)
+    if github.access_token_expired():
+        github.refresh_access_token()
+    current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
+
+    snapshots = list(run.snapshots.all())
+    for s in snapshots:
+        if s.result == SnapshotResult.REMOVED:
+            current_baselines.pop(s.identifier, None)
+
+    return _build_snapshots_yaml(
+        repo, current_baselines=current_baselines, updates=_approved_baseline_updates(snapshots)
+    )
+
+
+@transaction.atomic(using=WRITER_DB)
+def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict], team_id: int | None = None) -> Run:
+    """Approve specific snapshots within a run (DB only, no GitHub commit).
+
+    Used for per-snapshot "Accept change" in the UI. Does not finalize
+    the run — that happens via finalize_run.
+    """
+    run = _get_run_for_update(run_id, team_id=team_id)
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
+
+    if is_run_stale(run):
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
+
+    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+    _validate_approval(run, approvals)
+
+    now = timezone.now()
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        new_hash = approvals[snapshot.identifier]
+        snapshot.review_state = ReviewState.APPROVED
+        snapshot.reviewed_at = now
+        snapshot.reviewed_by_id = user_id
+        snapshot.approved_hash = new_hash
+        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
     return run
 
@@ -1799,8 +2140,8 @@ _DEFAULT_BRANCHES = ("master", "main")
 _SNAPSHOT_HISTORY_DEDUP_SQL = """
 WITH ordered AS (
     SELECT rs.id,
-           rs.current_artifact_id,
-           LAG(rs.current_artifact_id) OVER (ORDER BY r.created_at DESC) AS prev_artifact_id,
+           rs.baseline_artifact_id,
+           LAG(rs.baseline_artifact_id) OVER (ORDER BY r.created_at) AS prev_baseline_id,
            r.created_at
     FROM visual_review_runsnapshot rs
     JOIN visual_review_run r ON r.id = rs.run_id
@@ -1809,11 +2150,10 @@ WITH ordered AS (
       AND r.branch = ANY(%s)
       AND r.status = 'completed'
       AND rs.identifier = %s
-      AND rs.result <> 'new'
 )
 SELECT id
 FROM ordered
-WHERE prev_artifact_id IS DISTINCT FROM current_artifact_id
+WHERE prev_baseline_id IS DISTINCT FROM baseline_artifact_id
 ORDER BY created_at DESC
 """
 
@@ -1821,21 +2161,30 @@ ORDER BY created_at DESC
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[RunSnapshot]:
     """Baseline timeline for a snapshot identifier on the default branch.
 
-    Returns one entry per *baseline event* — i.e. each time the committed content
-    actually changed. Dedup happens server-side via a `LAG` window function over
-    runs ordered by `created_at DESC`: a row is kept only when its
-    `current_artifact_id` differs from its predecessor's. Plan stays the same as
-    the un-deduped query (verified on prod) — the WindowAgg piggybacks on the
-    sort already needed for ORDER BY, so the dedup is essentially free and we
-    avoid shipping the full raw history (often 100×–1000× larger) to Python.
+    Returns one entry per *baseline transition* — every time the committed
+    `.snapshots.yml` baseline actually moved. LAG-on-`baseline_artifact_id`
+    (over ASC ordering) keeps the FIRST run of each baseline period, so the
+    user sees the inception event plus every change since.
 
-    Filters applied at the DB level:
-      - branch ∈ master/main, run_type, repo: scope to default-branch runs of this kind
-      - status=completed: drop pre-classification rows. `result` defaults to NEW
-        on upload and is only finalised when the run completes; runs stuck in
-        pending/processing leave noise behind that isn't a real history event.
-      - result != NEW: belt+braces; NEW shouldn't survive on a completed run, but
-        cheap to filter and protects us if classification ever leaves stragglers.
+    Why LAG on `baseline_artifact_id` and not `current_artifact_id`:
+      - `current_artifact_id` is the bytes captured by THIS run. Pixel jitter
+        and tolerated drift produce different content_hash → different Artifact
+        rows even though the *baseline* didn't move. Keying on current_ caused
+        a prod regression (252 fake history events on a single tolerated-drift
+        story) because the artifact alternated between near-identical hashes
+        the matcher kept absorbing. LAG-on-current-with-result-filter (the
+        prior fix) hid those false events but also hid genuine first-appearance
+        rows whose `result=unchanged` against an existing YAML baseline.
+      - `baseline_artifact_id` reflects the YAML state at run time. It only
+        changes when a baseline-update PR merges. Pixel jitter and tolerated
+        drift leave it untouched, so LAG dedup naturally collapses noise while
+        catching every real baseline flip — without needing a `result` filter.
+
+    DB-level filters:
+      - branch ∈ master/main, run_type, repo: scope to default-branch runs of
+        this kind
+      - status=completed: drop pre-classification rows where the baseline FK
+        hasn't been hydrated yet (pending/processing leave NULL baseline_artifact)
     """
     with connections[READER_DB].cursor() as cursor:
         cursor.execute(
@@ -1854,6 +2203,344 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
         row.id: row for row in RunSnapshot.objects.filter(id__in=ordered_ids).select_related("run", "current_artifact")
     }
     return [rows_by_id[rid] for rid in ordered_ids if rid in rows_by_id]
+
+
+def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    The "current baseline" universe is anchored on the latest non-superseded run
+    on the default branch (master/main) for each `run_type`. One row per
+    `(run_type, identifier)` — the closest thing to "what we'd compare a new
+    capture against right now".
+
+    Performance shape:
+      - 1 query for the universe runs (one row per run_type, indexed)
+      - 1 query for the universe rows (with thumbnail + artifact prefetch)
+      - 2 grouped queries for tolerate counts (30d + 90d)
+      - 1 grouped query for active quarantines
+      - 1 grouped query for lifetime baseline-flip count
+      - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
+      - 3 cheap aggregate queries for totals
+    """
+    from datetime import timedelta
+
+    from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
+
+    now = timezone.now()
+
+    # 1. Find the latest *completed* run on the default branch per (repo,
+    # branch, run_type). Filtering on `superseded_by IS NULL` looks tempting
+    # but is wrong here: a freshly started PENDING/PROCESSING master run is
+    # un-superseded yet has zero (or sparse) RunSnapshots ingested, and would
+    # collapse the universe to whatever it has loaded so far. `status=completed`
+    # makes the universe fall through to the most recent fully-ingested run.
+    universe_runs = list(
+        Run.objects.filter(
+            repo_id=repo_id,
+            branch__in=_DEFAULT_BRANCHES,
+            status=RunStatus.COMPLETED,
+        )
+        .order_by("repo_id", "branch", "run_type", "-created_at")
+        .distinct("repo_id", "branch", "run_type")
+        .only("id", "run_type", "completed_at", "created_at")
+    )
+    universe_run_ids = [r.id for r in universe_runs]
+    if not universe_run_ids:
+        return _BaselineOverviewRaw(
+            entries=[],
+            tolerate_30d_by_id={},
+            tolerate_90d_by_id={},
+            active_quarantines_by_key={},
+            change_count_by_key={},
+            recent_drift_by_key={},
+            totals_all=0,
+            totals_recent=0,
+            totals_frequent=0,
+            totals_quarantined=0,
+            by_run_type={},
+            truncated=False,
+            generated_at=now,
+        )
+
+    # 2. Pull the universe rows. select_related the chain we need for thumbnails.
+    universe_qs = (
+        RunSnapshot.objects.filter(run_id__in=universe_run_ids)
+        .select_related("run", "current_artifact__thumbnail")
+        .only(
+            "identifier",
+            "metadata",
+            "run__id",
+            "run__run_type",
+            "run__completed_at",
+            "run__created_at",
+            "current_artifact__width",
+            "current_artifact__height",
+            "current_artifact__thumbnail__content_hash",
+        )
+        # Stable ordering so truncation is deterministic; newest baselines first.
+        .order_by("-run__completed_at", "identifier")
+    )
+    total_universe = universe_qs.count()
+    truncated = total_universe > BASELINE_OVERVIEW_MAX_ENTRIES
+    universe = list(universe_qs[:BASELINE_OVERVIEW_MAX_ENTRIES]) if truncated else list(universe_qs)
+    # Per-entry aggregates (tolerate counts, sparklines) only need to cover the
+    # entries we'll return. Totals must scope across the *full* universe,
+    # otherwise truncation makes them undercount in misleading ways (a 6000-id
+    # repo would show 0 frequently-tolerated if all of them sat past the slice).
+    universe_identifiers = list({s.identifier for s in universe})
+    if truncated:
+        full_universe_identifiers = list(universe_qs.values_list("identifier", flat=True).distinct())
+    else:
+        full_universe_identifiers = universe_identifiers
+
+    # 3a. Tolerate counts in 30d / 90d windows. Single grouped query each.
+    # Scope to HUMAN/AGENT reasons only — AUTO_THRESHOLD rows are auto-minted
+    # by the diff pipeline as a tolerated-hash cache for sub-threshold pixel
+    # jitter and don't represent a deliberate "we accept this drift" decision.
+    # Including them inflated the "Tolerated drift" tile with rendering noise.
+    intentional_tolerate_reasons = (ToleratedReason.HUMAN, ToleratedReason.AGENT)
+    tolerate_30d_by_id: dict[str, int] = {}
+    tolerate_90d_by_id: dict[str, int] = {}
+    if universe_identifiers:
+        tol_30d_cutoff = now - timedelta(days=30)
+        tol_90d_cutoff = now - timedelta(days=90)
+        for identifier, count in (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=tol_30d_cutoff,
+            )
+            .values_list("identifier")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "c")
+        ):
+            tolerate_30d_by_id[identifier] = count
+        for identifier, count in (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=tol_90d_cutoff,
+            )
+            .values_list("identifier")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "c")
+        ):
+            tolerate_90d_by_id[identifier] = count
+
+    # 3b. Active quarantines for this repo, scoped to the universe identifiers
+    # AND the run_types they live on (quarantine is per (repo, run_type, id)).
+    # We hydrate the full row (not just identity) so the overview can render
+    # reason / expiry / who / source-run inline without a per-card fetch.
+    # `select_related("source_run")` is a single JOIN, capped by
+    # `BASELINE_OVERVIEW_MAX_ENTRIES`. `Run.metadata` (JSONField) and
+    # `Run.error_message` (TextField) can be large and aren't needed by the
+    # summary — defer them to keep the response light.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier] = {}
+    if universe_identifiers:
+        for q in (
+            QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .select_related("source_run")
+            .defer("source_run__metadata", "source_run__error_message")
+            .order_by("-created_at")
+        ):
+            key = (q.run_type, q.identifier)
+            # Multiple active rows for the same key shouldn't happen — create
+            # auto-supersedes prior — but if it does, keep the latest (sorted
+            # above) and ignore the rest.
+            if key not in active_quarantines_by_key:
+                active_quarantines_by_key[key] = q
+
+    # 3c. Per-baseline stability signals: a lifetime baseline-flip count and a
+    # smoothed recent-drift average. Replaces a daily-bucket sparkline that
+    # had to scan millions of RunSnapshot rows on every request (~7s, OOMed on
+    # the web pod for repos with thousands of identifiers — see git history).
+    # Both queries here are scoped tightly enough to finish in tens of ms:
+    #
+    #   change_count_by_key: COUNT(*) WHERE result IN ('changed','removed')
+    #     across all completed master/main runs ever. Real baseline flips on
+    #     master leave a CHANGED/REMOVED row in the run that introduced them
+    #     (subsequent runs see UNCHANGED against the new YAML baseline), so
+    #     this count IS the number of times the YAML moved. Postgres uses
+    #     the `snapshot_run_result` index on (run_id, result) to bitmap-scan
+    #     straight to the rare event rows (~1k of millions). No window
+    #     function, no per-row LAG comparison.
+    #
+    #   recent_drift_by_key: AVG(diff_percentage) over the last 10 master/
+    #     main completed runs per (run_type). Bounded by run count, not by
+    #     time window — caps the scanned set regardless of CI cadence. We
+    #     resolve the run IDs first (sub-ms) and aggregate via PK-indexed
+    #     run_id__in, otherwise the planner inlines a CTE that produces a
+    #     ROW_NUMBER plan over the full RunSnapshot table.
+    change_count_by_key: dict[tuple[str, str], int] = {}
+    recent_drift_by_key: dict[tuple[str, str], float] = {}
+    if universe_identifiers:
+        for identifier, run_type, c in (
+            RunSnapshot.objects.filter(
+                run__repo_id=repo_id,
+                run__branch__in=_DEFAULT_BRANCHES,
+                run__status=RunStatus.COMPLETED,
+                result__in=(SnapshotResult.CHANGED, SnapshotResult.REMOVED),
+            )
+            .values("identifier", "run__run_type")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "run__run_type", "c")
+        ):
+            change_count_by_key[(run_type, identifier)] = c
+
+        # Top-N per run_type via window function. There's no pure-ORM
+        # equivalent: Postgres doesn't allow filtering on a window result,
+        # and a per-run_type loop balloons to thousands of queries on repos
+        # where each Storybook story registers as its own run_type
+        # (benchmarked: 4ms raw vs 5.6s loop on a 30k-run repo with 2154
+        # run_types). The query is parameterized — every dynamic value
+        # passes through %s binding, no string concatenation, table name
+        # comes from the model. nosemgrep is required because the rule
+        # blanket-flags any .raw() use.
+        recent_run_sql = f"""
+            SELECT id, run_type FROM (
+                SELECT id, run_type,
+                       ROW_NUMBER() OVER (PARTITION BY run_type ORDER BY created_at DESC) AS rn
+                FROM {Run._meta.db_table}
+                WHERE repo_id = %s AND branch = ANY(%s) AND status = %s
+            ) ranked WHERE rn <= %s
+        """  # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+        recent_run_ids = list(
+            Run.objects.raw(  # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+                recent_run_sql,
+                [str(repo_id), list(_DEFAULT_BRANCHES), RunStatus.COMPLETED, BASELINE_DRIFT_RECENT_RUN_COUNT],
+            )
+        )
+        if recent_run_ids:
+            for identifier, run_type, drift_avg in (
+                RunSnapshot.objects.filter(run_id__in=[r.id for r in recent_run_ids])
+                .values("identifier", "run__run_type")
+                .annotate(drift_avg=Avg("diff_percentage", filter=Q(diff_percentage__gt=0)))
+                .values_list("identifier", "run__run_type", "drift_avg")
+            ):
+                if drift_avg is not None:
+                    recent_drift_by_key[(run_type, identifier)] = drift_avg
+
+    # 4. Totals computed across the *full* universe (not the truncated slice)
+    # so the stat row stays correct when the entries are clipped.
+    if truncated:
+        # Re-issue a small COUNT-only query for accurate totals across the
+        # universe; we already have the truncated list in memory.
+        totals_all = total_universe
+    else:
+        totals_all = len(universe)
+
+    # Recently / frequently tolerated — counts of distinct identifiers with
+    # ≥1 (or ≥3) intentional tolerations in the rolling window. Scope across
+    # the *full* universe so the stat row stays correct under truncation, and
+    # match the per-entry counts above by excluding AUTO_THRESHOLD.
+    recent_cutoff = now - timedelta(days=30)
+    frequent_cutoff = now - timedelta(days=90)
+    recent_ids: set[str] = set()
+    frequent_ids: set[str] = set()
+    if full_universe_identifiers:
+        recent_ids = set(
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=recent_cutoff,
+            )
+            .values_list("identifier", flat=True)
+            .distinct()
+        )
+        frequent_grouped = (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
+                created_at__gte=frequent_cutoff,
+            )
+            .values("identifier")
+            .annotate(c=Count("id"))
+            .filter(c__gte=3)
+            .values_list("identifier", flat=True)
+        )
+        frequent_ids = set(frequent_grouped)
+
+    # `active_quarantines_by_key` was built from the truncated set above (per-entry
+    # attached). Re-query for the totals so they cover the full universe.
+    if truncated and full_universe_identifiers:
+        quarantined_id_count = (
+            QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values("identifier")
+            .distinct()
+            .count()
+        )
+    else:
+        quarantined_id_count = len({identifier for _, identifier in active_quarantines_by_key})
+
+    # by_run_type counts every entry in the universe. Aggregate query under
+    # truncation so it doesn't undercount; in-memory Counter when not truncated
+    # (we already paid for the row hydration).
+    if truncated:
+        by_run_type = dict(
+            universe_qs.values_list("run__run_type")
+            .order_by()
+            .annotate(c=Count("id"))
+            .values_list("run__run_type", "c")
+        )
+    else:
+        by_run_type = dict(Counter(s.run.run_type for s in universe))
+
+    return _BaselineOverviewRaw(
+        entries=universe,
+        tolerate_30d_by_id=tolerate_30d_by_id,
+        tolerate_90d_by_id=tolerate_90d_by_id,
+        active_quarantines_by_key=active_quarantines_by_key,
+        change_count_by_key=change_count_by_key,
+        recent_drift_by_key=recent_drift_by_key,
+        totals_all=totals_all,
+        totals_recent=len(recent_ids),
+        totals_frequent=len(frequent_ids),
+        totals_quarantined=quarantined_id_count,
+        by_run_type=by_run_type,
+        truncated=truncated,
+        generated_at=now,
+    )
+
+
+@dataclass
+class _BaselineOverviewRaw:
+    """Internal raw shape — the facade layer reshapes this into the public DTOs.
+
+    Kept private to logic.py so that contract changes don't ripple through here.
+    """
+
+    entries: list[RunSnapshot]
+    tolerate_30d_by_id: dict[str, int]
+    tolerate_90d_by_id: dict[str, int]
+    # Latest active QuarantinedIdentifier (with `source_run` preloaded) for each
+    # `(run_type, identifier)` in the universe — lets the facade build the rich
+    # quarantine summary embedded on each BaselineEntry. Membership doubles as
+    # the "is_quarantined" signal — no separate set needed.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier]
+    # Stability signals keyed by `(run_type, identifier)` because the same
+    # identifier in different run types is a different baseline; merging would
+    # bleed storybook stability into playwright stability.
+    change_count_by_key: dict[tuple[str, str], int]
+    recent_drift_by_key: dict[tuple[str, str], float]
+    totals_all: int
+    totals_recent: int
+    totals_frequent: int
+    totals_quarantined: int
+    by_run_type: dict[str, int]
+    truncated: bool
+    generated_at: datetime
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -1875,13 +2562,16 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     if not snapshot.current_hash:
         raise ValueError("Snapshot has no current hash")
 
+    # Explicit team_id in the lookup (not just defaults) so the IDOR audit
+    # rule sees the scope; ProductTeamManager also auto-filters by canonical
+    # team — both belt and suspenders.
     tolerated, _ = ToleratedHash.objects.get_or_create(
+        team_id=team_id,
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
         alternate_hash=snapshot.current_hash,
         defaults={
-            "team_id": team_id,
             "reason": ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
@@ -1919,7 +2609,16 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 def list_quarantined_identifiers(
     repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
 ) -> list[QuarantinedIdentifier]:
-    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    qs = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=repo_id, team_id=team_id)
+        # Preload `source_run` so the facade can render the "what was wrong"
+        # link without an extra fetch per row. `Run.metadata` (JSONField) and
+        # `Run.error_message` (TextField) can be large and aren't needed for
+        # the summary — defer to keep response payloads tight.
+        .select_related("source_run")
+        .defer("source_run__metadata", "source_run__error_message")
+    )
     if run_type:
         qs = qs.filter(run_type=run_type)
     if identifier:
@@ -1939,9 +2638,18 @@ def quarantine_identifier(
     user_id: int,
     team_id: int,
     expires_at: datetime | None = None,
+    source_run_id: UUID | None = None,
 ) -> QuarantinedIdentifier:
     get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    # Resolve the source run inside the team scope so a malicious caller can't
+    # attach a quarantine to an unrelated run. Silently drop on mismatch — the
+    # quarantine itself still wins; we just lose the "what was wrong" pointer.
+    # We fetch (not just .exists()) so the facade can serialize source_run
+    # without a lazy-load on the freshly-created row.
+    source_run: Run | None = None
+    if source_run_id is not None:
+        source_run = Run.objects.using(WRITER_DB).filter(id=source_run_id, repo_id=repo_id, team_id=team_id).first()
     QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
         repo_id=repo_id,
         identifier=identifier,
@@ -1956,6 +2664,7 @@ def quarantine_identifier(
         reason=reason,
         expires_at=expires_at,
         created_by_id=user_id,
+        source_run=source_run,
     )
 
 
@@ -1991,6 +2700,9 @@ def update_snapshot_diff(
     diff_artifact: Artifact,
     diff_percentage: float,
     diff_pixel_count: int,
+    ssim_score: float,
+    change_kind: ChangeKind,
+    diff_metadata: DiffMetadata,
     team_id: int | None = None,
 ) -> RunSnapshot:
     qs = RunSnapshot.objects.select_related("run")
@@ -2007,7 +2719,22 @@ def update_snapshot_diff(
     snapshot.diff_artifact = diff_artifact
     snapshot.diff_percentage = diff_percentage
     snapshot.diff_pixel_count = diff_pixel_count
-    snapshot.save(update_fields=["diff_artifact", "diff_percentage", "diff_pixel_count"])
+    snapshot.ssim_score = ssim_score
+    snapshot.change_kind = change_kind.value
+    # The Pydantic dump is the only legal write path into this column; reads
+    # go through DiffMetadata.model_validate. Storage is JSONB; the schema
+    # lives in diff_metadata.py.
+    snapshot.diff_metadata = diff_metadata.model_dump(mode="json")
+    snapshot.save(
+        update_fields=[
+            "diff_artifact",
+            "diff_percentage",
+            "diff_pixel_count",
+            "ssim_score",
+            "change_kind",
+            "diff_metadata",
+        ]
+    )
     return snapshot
 
 

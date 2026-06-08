@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +18,9 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    sanitize_display_name,
+    sanitize_email_string,
+    sanitize_message_body,
     validate_display_name,
     validate_message_body,
 )
@@ -323,6 +326,14 @@ class TestValidateDisplayName(SimpleTestCase):
             ("trims", "   Marius   ", "Marius"),
             ("empty", "", ""),
             ("whitespace_only", "   ", ""),
+            # Bare domains are allowed — users legitimately set org names like
+            # `google.com`. Render-time defang in `sanitize_email_string` neutralizes
+            # mail-client auto-linking.
+            ("bare_domain_org", "google.com", "google.com"),
+            ("bare_domain_titlecase", "Acme.com", "Acme.com"),
+            ("bare_domain_io", "mycompany.io", "mycompany.io"),
+            ("bare_domain_subdomain", "sub.example.com", "sub.example.com"),
+            ("bare_domain_embedded", "join evil.com now", "join evil.com now"),
         ]
     )
     def test_accepts(self, _name: str, value: str, expected: str) -> None:
@@ -349,8 +360,6 @@ class TestValidateDisplayName(SimpleTestCase):
             ("paragraph_separator", "foo\u2029bar", "invalid_control_char"),
             ("next_line", "foo\u0085bar", "invalid_control_char"),
             ("www_embedded", "myname www.scam.io", "invalid_url"),
-            ("bare_domain", "join evil.com now", "invalid_url"),
-            ("bare_domain_at_start", "Acme.com", "invalid_url"),
             ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
             ("data_scheme", "see data:text/html,x", "invalid_url"),
             ("vbscript_scheme", "run vbscript:msgbox", "invalid_url"),
@@ -414,3 +423,142 @@ class TestValidateMessageBody(SimpleTestCase):
         assert validate_message_body("") == ""
         assert validate_message_body("   ") == "   "
         assert validate_message_body("   \n\t  ") == "   \n\t  "
+
+
+class TestSanitizeDisplayName(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain", "Acme Inc", "Acme Inc"),
+            ("strips_whitespace", "  Acme Inc  ", "Acme Inc"),
+            ("unicode_name", "\u00c9mile", "\u00c9mile"),
+            # Bare-domain org names round-trip; the defang happens later in
+            # `sanitize_email_properties` at render time.
+            ("bare_domain", "acme.com", "acme.com"),
+        ]
+    )
+    def test_returns_validated_value(self, _name: str, value: str, expected: str) -> None:
+        self.assertEqual(sanitize_display_name(value, fallback="fallback"), expected)
+
+    @parameterized.expand(
+        [
+            ("url", "https://acme.example.com"),
+            ("www", "www.scam.io"),
+            ("javascript_scheme", "javascript:alert(1)"),
+            ("bracket", "<acme>"),
+            ("zero_width", "foo\u200bbar"),
+            ("newline", "line1\nline2"),
+        ]
+    )
+    def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
+        self.assertEqual(
+            sanitize_display_name(value, fallback="their organization"),
+            "their organization",
+        )
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty", ""),
+            ("whitespace_only", "   "),
+        ]
+    )
+    def test_returns_fallback_when_blank(self, _name: str, value: Optional[str]) -> None:
+        self.assertEqual(sanitize_display_name(value, fallback="Someone"), "Someone")
+
+    def test_context_is_logged_but_does_not_raise(self) -> None:
+        # The context kwarg is purely diagnostic — it should never affect the return value.
+        result = sanitize_display_name(
+            "https://evil.example.com",
+            fallback="their organization",
+            context={"task": "unit_test", "organization_id": "abc"},
+        )
+        self.assertEqual(result, "their organization")
+
+
+class TestSanitizeMessageBody(SimpleTestCase):
+    def test_returns_validated_value(self) -> None:
+        value = "Hey!\nWelcome aboard."
+        self.assertEqual(sanitize_message_body(value), value)
+
+    @parameterized.expand(
+        [
+            ("url", "Check https://evil.com"),
+            ("www", "Visit www.scam.io"),
+            ("bracket", "hello <there>"),
+            ("non_newline_control", "foo\x01bar"),
+        ]
+    )
+    def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
+        self.assertEqual(sanitize_message_body(value), "")
+        self.assertEqual(sanitize_message_body(value, fallback="--"), "--")
+
+    def test_passes_through_none_and_blank_via_fallback(self) -> None:
+        # None / empty pass through validate_message_body but the helper still returns the
+        # fallback so callers can rely on getting a non-None string back.
+        self.assertEqual(sanitize_message_body(None), "")
+        self.assertEqual(sanitize_message_body(""), "")
+
+
+class TestSanitizeEmailString(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Plain text passes through (with html.escape only).
+            ("plain", "Marius", "Marius"),
+            ("apostrophe", "O'Brien", "O&#x27;Brien"),
+            ("emoji", "Marius 🦔", "Marius 🦔"),
+            ("hello_world", "Hello, world.", "Hello, world."),
+            # Numeric / punctuation strings without a TLD aren't defanged.
+            ("ip_v4", "192.168.1.1", "192.168.1.1"),
+            ("time", "12:34", "12:34"),
+            ("version", "v1.2.3", "v1.2.3"),
+            # HTML is escaped — preserves existing sanitize_email_properties behavior.
+            ("script_tag", "<script>x</script>", "&lt;script&gt;x&lt;/script&gt;"),
+            ("ampersand", "Ben & Jerry's", "Ben &amp; Jerry&#x27;s"),
+            # URL-shaped substrings are defanged so mail clients don't auto-link.
+            # `​` is a zero-width space — invisible to the recipient but breaks the
+            # `\w+\.\w+` / `[a-z]+://` patterns auto-linkers scan for. Chosen over HTML
+            # entities because Customer.io's TinyMCE-backed template engine decodes
+            # entities on output, defeating an entity-based defang.
+            ("https_url", "Visit https://evil.com today", "Visit https:​//evil.​com today"),
+            ("http_url", "see http://phish.me/", "see http:​//phish.​me/"),
+            ("www_only", "go www.scam.io", "go www.​scam.​io"),
+            ("bare_domain", "join evil.com now", "join evil.​com now"),
+            ("subdomain_domain", "join sub.evil.com today", "join sub.​evil.​com today"),
+            ("deep_subdomain", "see a.b.c.example.io", "see a.​b.​c.​example.​io"),
+            ("tld_only_legit_org", "Acme.com", "Acme.​com"),
+            ("javascript_scheme", "click javascript:alert(1)", "click javascript:​alert(1)"),
+            ("data_scheme", "see data:text/html,x", "see data:​text/html,x"),
+            ("ftp_scheme", "grab ftp://x.io", "grab ftp:​//x.​io"),
+            # Fullwidth / compatibility characters are NFKC-folded then defanged so
+            # `ｈｔｔｐ：／／evil.com` cannot bypass the URL regex.
+            (
+                "fullwidth_url",
+                "go ｈｔｔｐ：／／evil.com",
+                "go http:​//evil.​com",
+            ),
+            # Attacker-supplied zero-width / direction-override characters are stripped
+            # before defang runs, so they can't hide URL structure (`evil​.com` ->
+            # `evil.com` -> defanged). Our defang then re-inserts ZWSPs.
+            ("zero_width_in_domain", "evil​.com", "evil.​com"),
+            ("rtl_override", "foo‮bar", "foobar"),
+            # Combined: HTML-escape an injected attribute that smuggles a URL scheme,
+            # the scheme is then defanged (regression for the existing
+            # `javascript:alert(1)` test in test_sanitize_email_properties).
+            (
+                "escaped_then_defanged",
+                '<img src="x" onerror="javascript:alert(1)">',
+                "&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
+            ),
+        ]
+    )
+    def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
+        self.assertEqual(sanitize_email_string(value), expected)
+
+    def test_empty_string(self) -> None:
+        self.assertEqual(sanitize_email_string(""), "")
+
+    def test_does_not_double_encode_already_escaped(self) -> None:
+        # `&amp;` survives a second pass — html.escape would re-encode the `&` in
+        # the entity, which is the existing trade-off of running sanitize_email_string
+        # over already-sanitized data. Documented as a guardrail.
+        self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")

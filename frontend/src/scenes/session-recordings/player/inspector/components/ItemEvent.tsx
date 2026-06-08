@@ -15,20 +15,23 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
-import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
-import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { PinPrimaryPropertyButton } from './PinPrimaryPropertyButton'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -84,24 +87,24 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
 }
 
 export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): JSX.Element {
-    const { promotedProperties } = useValues(promotedEventPropertiesModel)
-    const { ensureLoadedForEvents } = useActions(promotedEventPropertiesModel)
+    const { primaryProperties } = useValues(primaryEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(primaryEventPropertiesModel)
     useEffect(() => {
         ensureLoadedForEvents([item.data.event])
     }, [item.data.event, ensureLoadedForEvents])
 
-    const promotedPropertyKey = getPromotedPropertyForEvent(item.data.event, promotedProperties)
-    // When events are grouped at the top level, only surface the promoted-property value if every
+    const primaryPropertyKey = getPrimaryPropertyForEvent(item.data.event, primaryProperties)
+    // When events are grouped at the top level, only surface the primary-property value if every
     // grouped child has the same value for it — otherwise it would be misleading to label the
     // group with the first child's value (e.g. five `$pageview`s on different pathnames).
     const isGrouped = groupedItems && groupedItems.length > 1
     const groupedValuesAgree =
         !isGrouped ||
-        !promotedPropertyKey ||
+        !primaryPropertyKey ||
         groupedItems.every(
-            (g) => g.data.properties?.[promotedPropertyKey] === item.data.properties?.[promotedPropertyKey]
+            (g) => g.data.properties?.[primaryPropertyKey] === item.data.properties?.[primaryPropertyKey]
         )
-    const promotedValue = promotedPropertyKey && groupedValuesAgree ? item.data.properties?.[promotedPropertyKey] : null
+    const primaryValue = primaryPropertyKey && groupedValuesAgree ? item.data.properties?.[primaryPropertyKey] : null
 
     const subValue =
         item.data.event === '$web_vitals' ? (
@@ -114,8 +117,8 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
             <AIEventSummary event={item.data} />
         ) : item.data.event === '$exception' ? (
             <ExceptionTitlePill event={item.data} />
-        ) : promotedValue != null && promotedValue !== '' ? (
-            String(promotedValue)
+        ) : primaryValue != null && primaryValue !== '' ? (
+            String(primaryValue)
         ) : null
 
     return (
@@ -137,7 +140,7 @@ export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): J
                         <div
                             className={clsx(
                                 'text-secondary',
-                                // Only string sub-values (e.g. a promoted property's value) need to truncate; the
+                                // Only string sub-values (e.g. a primary property's value) need to truncate; the
                                 // component sub-values like SummarizeWebVitals or ExceptionTitlePill manage their
                                 // own layout and must not be clipped or wrapped.
                                 isString(subValue) && 'truncate max-w-[40ch] min-w-0'
@@ -168,7 +171,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
     // Get trace ID for linking to LLM trace view
     const traceId = item.data.properties.$ai_trace_id
     const traceParams = item.data.id && item.data.event !== '$ai_trace' ? { event: item.data.id } : {}
-    const traceUrl = traceId ? urls.llmAnalyticsTrace(traceId, traceParams) : null
+    const traceUrl = traceId ? urls.aiObservabilityTrace(traceId, traceParams) : null
 
     return (
         <LemonMenu
@@ -215,6 +218,18 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
 }
 
 function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canPinPrimaryProperty = !!featureFlags[FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT]
+    const eventName = item.data.event
+
+    const primaryPropertyActions =
+        canPinPrimaryProperty && isString(eventName)
+            ? (key: string, isRowHovered: boolean): JSX.Element | null =>
+                  key in item.data.properties ? (
+                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
+                  ) : null
+            : undefined
+
     return item.data.fullyLoaded ? (
         <EventPropertyTabs
             size="small"
@@ -265,6 +280,14 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                         )
                     case 'error_display':
                         return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                    case 'properties':
+                        return (
+                            <SimpleKeyValueList
+                                item={properties}
+                                promotedKeys={promotedKeys}
+                                rowActions={primaryPropertyActions}
+                            />
+                        )
                     default:
                         return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                 }
@@ -280,13 +303,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
 
 function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; index: number }): JSX.Element {
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
-    const { promotedProperties } = useValues(promotedEventPropertiesModel)
+    const { primaryProperties } = useValues(primaryEventPropertiesModel)
     const [expanded, setExpanded] = useState(false)
 
     const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(event.timeInRecording) - 1000)
 
-    const promotedPropertyKey = getPromotedPropertyForEvent(event.data.event, promotedProperties)
-    const promotedValue = promotedPropertyKey ? event.data.properties?.[promotedPropertyKey] : null
+    const primaryPropertyKey = getPrimaryPropertyForEvent(event.data.event, primaryProperties)
+    const primaryValue = primaryPropertyKey ? event.data.properties?.[primaryPropertyKey] : null
 
     return (
         <div className={index > 0 ? 'border-t' : ''}>
@@ -308,12 +331,12 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
-                    {promotedValue != null && promotedValue !== '' ? (
+                    {primaryValue != null && primaryValue !== '' ? (
                         <span
                             className="text-secondary truncate shrink-0 max-w-[40ch] pl-2 pr-2"
-                            title={isString(promotedValue) ? promotedValue : undefined}
+                            title={isString(primaryValue) ? primaryValue : undefined}
                         >
-                            {String(promotedValue)}
+                            {String(primaryValue)}
                         </span>
                     ) : null}
                 </div>

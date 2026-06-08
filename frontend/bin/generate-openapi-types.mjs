@@ -13,6 +13,10 @@ const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
 
+const productAliases = {
+    llm_analytics: 'ai_observability',
+}
+
 // Default to temp location (gitignored ephemeral artifact)
 const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.json')
 
@@ -129,6 +133,11 @@ function findPythonFiles(dir) {
  */
 function matchUrlToProduct(urlPath, productFolders) {
     const urlLower = urlPath.toLowerCase().replace(/-/g, '_')
+    for (const [legacyProduct, product] of Object.entries(productAliases)) {
+        if (productFolders.has(product) && urlLower.includes(`/${legacyProduct}/`)) {
+            return product
+        }
+    }
     for (const product of productFolders) {
         if (urlLower.includes(`/${product}/`)) {
             return product
@@ -146,6 +155,11 @@ function matchUrlToProduct(urlPath, productFolders) {
 function resolveTagToProduct(tag, mappings) {
     const { productFoldersOnDisk } = mappings
     const normalizedTag = tag.replace(/-/g, '_')
+    const aliasedProduct = productAliases[normalizedTag]
+
+    if (aliasedProduct && productFoldersOnDisk.has(aliasedProduct)) {
+        return aliasedProduct
+    }
 
     // Tag must match a product folder on disk
     if (productFoldersOnDisk.has(normalizedTag)) {
@@ -185,15 +199,16 @@ function createTempDir() {
  *
  * Routing priority:
  * 1. Tag matches product folder (includes auto-tags from backend) -> product
- * 2. URL path contains product folder name (fallback) -> product
- * 3. @validated_request decorator in posthog/api/ or ee/ -> core
- * 4. Explicit "core" tag -> core
+ * 2. Explicit "core" tag -> core (authoritative — wins over URL fallback)
+ * 3. URL path contains product folder name (fallback) -> product
+ * 4. @validated_request decorator in posthog/api/ or ee/ -> core
  * 5. Otherwise -> skipped
  */
 function buildGroupedSchemasByOutput(schema, mappings) {
     const grouped = new Map()
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
+    const allParameters = schema.components?.parameters ?? {}
     const skippedTags = new Map()
     let skippedNoTags = 0
     let routedByTag = 0
@@ -211,20 +226,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
 
             const operationId = operation.operationId || ''
-            const explicitTags = operation['x-explicit-tags']
-            const tags = Array.isArray(explicitTags) && explicitTags.length ? explicitTags : []
+            const productTags = operation['x-product']
+            const tags = Array.isArray(productTags) && productTags.length ? productTags : []
 
             let outputDir = null
             let routingMethod = null
 
             // Priority 1: Tag matches product folder (includes auto-tags from backend)
-            const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
-            if (productTag) {
-                outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
+            const product = tags.map((tag) => resolveTagToProduct(tag, mappings)).find((product) => product !== null)
+            if (product) {
+                outputDir = resolveProductToOutputDir(product, mappings.productFoldersOnDisk)
                 routingMethod = 'tag'
             }
 
-            // Priority 2: URL path contains product folder name (fallback)
+            // Priority 2: Explicit "core" tag is authoritative — devs use it to override URL fallback
+            if (!outputDir && tags.includes('core')) {
+                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
+                routingMethod = 'tag'
+            }
+
+            // Priority 3: URL path contains product folder name (fallback)
             if (!outputDir) {
                 const urlProduct = matchUrlToProduct(pathKey, mappings.productFoldersOnDisk)
                 if (urlProduct) {
@@ -233,7 +254,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 }
             }
 
-            // Priority 3: @validated_request decorator in core -> core
+            // Priority 4: @validated_request decorator in core -> core
             if (!outputDir) {
                 for (const snakeCase of mappings.validatedRequestViewSets) {
                     if (operationId === snakeCase || operationId.startsWith(snakeCase + '_')) {
@@ -242,12 +263,6 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                         break
                     }
                 }
-            }
-
-            // Priority 4: Explicit "core" tag
-            if (!outputDir && tags.includes('core')) {
-                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
-                routingMethod = 'tag'
             }
 
             // No match - skip
@@ -307,6 +322,19 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
     // Build final schemas with only referenced components
     for (const [outputDir, entry] of grouped.entries()) {
+        const filteredParameters = {}
+        for (const ref of entry._refs) {
+            if (!ref.startsWith('#/components/parameters/')) {
+                continue
+            }
+            const paramName = ref.replace('#/components/parameters/', '')
+            const paramDef = allParameters[paramName]
+            if (paramDef) {
+                filteredParameters[paramName] = paramDef
+                collectSchemaRefs(paramDef, entry._refs)
+            }
+        }
+
         const allRefs = resolveNestedRefs(allSchemas, entry._refs)
         const filteredSchemas = {}
 
@@ -317,11 +345,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
         }
 
+        // Inline non-schema component buckets (securitySchemes, responses,
+        // headers, etc.) verbatim — per-product paths reference shared
+        // objects like `#/components/parameters/ProjectIdPath`, and without
+        // them orval validation fails with INVALID_REFERENCE and silently
+        // writes nothing. Parameters specifically are slicing-friendly and
+        // tracked via `_refs`, so we override with the filtered subset.
+        const sharedComponents = { ...schema.components }
+        delete sharedComponents.schemas
+        delete sharedComponents.parameters
+
+        const components = { ...sharedComponents, schemas: filteredSchemas }
+        if (Object.keys(filteredParameters).length > 0) {
+            components.parameters = filteredParameters
+        }
+
         grouped.set(outputDir, {
             openapi: entry.openapi,
             info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: { schemas: filteredSchemas },
+            components,
         })
     }
 
@@ -533,20 +576,95 @@ function opaqueDeepSchemas(schema) {
         return size
     }
 
-    // Compute expanded sizes and collect schemas that exceed the limit
-    const opaqued = new Set()
-    for (const name of Object.keys(allSchemas)) {
-        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
-            opaqued.add(name)
+    // Direct $refs out of a single schema's definition, ignoring traversal order
+    // (used to detect cycles via the ref graph, not via the size walk which
+    // pessimistically returns Infinity to any caller that *transitively* sees a
+    // cycle).
+    function directRefs(name) {
+        const refs = new Set()
+        const defn = allSchemas[name]
+        if (!defn) {
+            return refs
         }
+        function walk(obj) {
+            if (!obj || typeof obj !== 'object') {
+                return
+            }
+            if (Array.isArray(obj)) {
+                obj.forEach(walk)
+                return
+            }
+            if (obj.$ref) {
+                refs.add(obj.$ref.replace('#/components/schemas/', ''))
+                return
+            }
+            for (const v of Object.values(obj)) {
+                walk(v)
+            }
+        }
+        walk(defn)
+        return refs
     }
 
-    // Replace with opaque object type
-    for (const name of opaqued) {
+    // A schema is a cycle member iff it's reachable from itself via the ref
+    // graph. Schemas that merely *reference* a cycle are NOT members — they
+    // expand to a finite tree once the cycle members are opaqued, so we must
+    // not opaque them just because they touch a recursive component.
+    function isCycleMember(start) {
+        const stack = [...directRefs(start)]
+        const visited = new Set()
+        while (stack.length > 0) {
+            const name = stack.pop()
+            if (name === start) {
+                return true
+            }
+            if (visited.has(name)) {
+                continue
+            }
+            visited.add(name)
+            for (const r of directRefs(name)) {
+                stack.push(r)
+            }
+        }
+        return false
+    }
+
+    const opaqued = new Set()
+    const opaqueSchema = (name) => {
+        opaqued.add(name)
         allSchemas[name] = {
             type: 'object',
             description: `Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)`,
             additionalProperties: true,
+        }
+    }
+
+    // Pass 1: opaque only true cycle members.
+    //
+    // Collect *all* cycle members first, then opaque in a second loop —
+    // `isCycleMember` reads from the live `allSchemas`, and opaquing a schema
+    // erases its $refs. In a mutual cycle A↔B with iteration order [A, B],
+    // opaquing A as we go would make `isCycleMember("B")` walk B → A → ∅ and
+    // return false, misclassifying B as a non-member.
+    const cycleMembers = new Set()
+    for (const name of Object.keys(allSchemas)) {
+        if (isCycleMember(name)) {
+            cycleMembers.add(name)
+        }
+    }
+    for (const name of cycleMembers) {
+        opaqueSchema(name)
+    }
+
+    // Pass 2: with cycle members now opaque, recompute sizes; opaque anything
+    // still over the limit (deeply nested unions, large response envelopes).
+    cache.clear()
+    for (const name of Object.keys(allSchemas)) {
+        if (opaqued.has(name)) {
+            continue
+        }
+        if (expandedSize(name, new Set()) > ZOD_EXPANDED_NODE_LIMIT) {
+            opaqueSchema(name)
         }
     }
 
@@ -620,8 +738,44 @@ if (zodJobs.length > 0) {
 }
 console.log('')
 
+// Snapshot expected output mtimes so we can detect "fulfilled but didn't
+// write" — orval prints "🛑 Validation failed" then resolves cleanly, so a
+// silent no-op looks identical to success without this check. Any job whose
+// output file isn't newer after the run is reclassified as a failure.
+const expectedOutputs = allJobs.map((job) => {
+    const outputPath = job.kind === 'zod' ? path.join(job.outputDir, 'api.zod.ts') : path.join(job.outputDir, 'api.ts')
+    return {
+        path: outputPath,
+        preMtime: fs.existsSync(outputPath) ? fs.statSync(outputPath).mtimeMs : 0,
+    }
+})
+
 // Run all orval generations in parallel (in-process, no subprocess overhead)
 const results = await runOrvalParallel(allJobs.map((j) => ({ config: j.config, label: `${j.label}:${j.kind}` })))
+
+// Reclassify silent-no-op fulfilments as failures. CI's `git diff --exit-code`
+// gate in ci-backend.yml can't catch this on its own — when orval skips a
+// write, the disk matches HEAD and the diff comes back clean for the wrong
+// reason. Catching it here makes `hogli build:openapi` itself exit non-zero
+// before we ever reach the diff check.
+for (let i = 0; i < results.length; i++) {
+    if (results[i].status !== 'fulfilled') {
+        continue
+    }
+    const expected = expectedOutputs[i]
+    const exists = fs.existsSync(expected.path)
+    const mtime = exists ? fs.statSync(expected.path).mtimeMs : 0
+    if (!exists || mtime <= expected.preMtime) {
+        results[i] = {
+            status: 'rejected',
+            label: results[i].label,
+            reason: new Error(
+                `orval reported success but did not write ${path.relative(repoRoot, expected.path)} ` +
+                    `— check stderr above for "🛑 Validation failed" or other orval errors`
+            ),
+        }
+    }
+}
 
 // Report results and collect output dirs for formatting
 const outputDirs = []
@@ -680,4 +834,11 @@ if (generateAll) {
     console.log('')
     console.log('💡 Now run: node frontend/bin/find-type-overlaps.mjs')
     console.log('   to see which manual types overlap with generated types.')
+}
+
+// Exit non-zero on any failure so the wrapping `hogli build:openapi` gates
+// fail loudly. Without this, `git diff --exit-code` is the only signal
+// downstream — and it can't see silent no-op writes (see above).
+if (failed > 0) {
+    process.exit(1)
 }

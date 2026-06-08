@@ -7,19 +7,25 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
+    buildDeleteIndexMap,
+    buildReorderIndexMap,
     canQuestionHaveResponseBasedBranching,
     createBranchingConfig,
     getDefaultBranchingType,
+    remapBranchingIndices,
 } from 'scenes/surveys/components/question-branching/utils'
 import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,6 +53,7 @@ import {
     ChoiceQuestionProcessedResponses,
     ChoiceQuestionResponseData,
     ConsolidatedSurveyResults,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     HogFunctionType,
@@ -105,6 +112,7 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
+    isThumbQuestion,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
@@ -154,6 +162,32 @@ type TranslationFieldCheck<T extends string> = {
 
 const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
 const DRAFT_TRANSLATION_QUESTION_ID_PREFIX = '__draft_question_'
+const SURVEY_NOTIFICATION_LIST_LIMIT = 100
+
+function getSurveyIdsFromNotificationFilters(filters?: CyclotronJobFiltersType | null): Set<string> {
+    const surveyIds = new Set<string>()
+
+    for (const event of filters?.events ?? []) {
+        for (const property of event.properties ?? []) {
+            if (property.key !== SurveyEventProperties.SURVEY_ID) {
+                continue
+            }
+
+            const value = property.value
+            if (Array.isArray(value)) {
+                value.forEach((surveyId) => {
+                    if (typeof surveyId === 'string') {
+                        surveyIds.add(surveyId)
+                    }
+                })
+            } else if (typeof value === 'string') {
+                surveyIds.add(value)
+            }
+        }
+    }
+
+    return surveyIds
+}
 
 function getTranslationDraftQuestionId(question: SurveyQuestion, index: number): string {
     return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
@@ -241,6 +275,13 @@ const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: Prop
 }
 
 export type SurveyDemoData = ReturnType<typeof getDemoDataForSurvey>
+
+export enum SurveyTab {
+    SUMMARY = 'summary',
+    RESPONSES = 'responses',
+    NOTIFICATIONS = 'notifications',
+    HISTORY = 'history',
+}
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -509,6 +550,7 @@ export function processOpenEndedResults(
     const numCols = Object.keys(columnMap).length
     const distinctIdIdx = numCols
     const timestampIdx = numCols + 1
+    const sessionIdIdx = numCols + 2
     const result: ResponsesByQuestion = {}
 
     for (const [questionId, { columnIndex, type }] of Object.entries(columnMap)) {
@@ -523,6 +565,7 @@ export function processOpenEndedResults(
                     distinctId: row[distinctIdIdx] as string,
                     response: value,
                     timestamp: row[timestampIdx] as string,
+                    sessionId: (row[sessionIdIdx] as string) || undefined,
                 })
             }
             result[questionId] = { type: SurveyQuestionType.Open, data, totalResponses: data.length }
@@ -596,6 +639,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setActiveTab: (tab: SurveyTab) => ({ tab }),
         setEditingLanguage: (language: string | null) => ({ language }),
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -629,6 +673,8 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
+        moveQuestion: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        removeQuestion: (questionIndex: number) => ({ questionIndex }),
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
@@ -650,6 +696,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
+        setResponseExpanded: (uuid: string, expanded: boolean) => ({ uuid, expanded }),
+        toggleResponseExpansion: (uuid: string) => ({ uuid }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setShowArchivedResponses: (show: boolean) => ({ show }),
@@ -661,6 +709,7 @@ export const surveyLogic = kea<surveyLogicType>([
             notificationId,
             enabled,
         }),
+        deleteSurveyNotification: (notification: HogFunctionType) => ({ notification }),
         setPersonNames: (personNames: Record<string, string>) => ({ personNames }),
         generateTranslationDrafts: (language: string, overwrite: boolean = true) => ({ language, overwrite }),
         setGeneratingTranslationDrafts: (generating: boolean) => ({ generating }),
@@ -1036,6 +1085,36 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
+        reusableSurveyNotifications: [
+            [] as HogFunctionType[],
+            {
+                loadReusableSurveyNotifications: async (): Promise<HogFunctionType[]> => {
+                    if (props.id === NEW_SURVEY.id) {
+                        return []
+                    }
+
+                    const response = await api.hogFunctions.list({
+                        filter_groups: [
+                            {
+                                events: [{ id: SurveyEventName.SENT, type: 'events' }],
+                            },
+                        ],
+                        types: ['destination'],
+                        limit: SURVEY_NOTIFICATION_LIST_LIMIT,
+                        full: true,
+                    })
+
+                    return response.results.filter((notification) => {
+                        if (notification.deleted) {
+                            return false
+                        }
+
+                        const surveyIds = getSurveyIdsFromNotificationFilters(notification.filters)
+                        return !surveyIds.has(props.id)
+                    })
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, cache, props }) => {
         const maybeCompleteResultsRequery = (): void => {
@@ -1076,6 +1155,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
+                const surveyType = survey.type ? `${survey.type} ` : ''
+                tryShowMCPHint('surveys.create', {
+                    derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
+                })
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
@@ -1421,6 +1504,28 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
                 }
             },
+            deleteSurveyNotification: async ({ notification }) => {
+                const previous = values.surveyNotifications
+                // Optimistically remove the row; restore on undo or on a swallowed API error.
+                actions.loadSurveyNotificationsSuccess(previous.filter((n) => n.id !== notification.id))
+
+                let callbackFired = false
+                await deleteWithUndo({
+                    endpoint: `projects/${projectLogic.values.currentProjectId}/hog_functions`,
+                    object: { id: notification.id, name: notification.name },
+                    callback: (undo) => {
+                        callbackFired = true
+                        if (undo) {
+                            actions.loadSurveyNotifications()
+                        }
+                    },
+                })
+
+                if (!callbackFired) {
+                    // deleteWithUndo swallows API errors and only fires the callback on success.
+                    actions.loadSurveyNotificationsSuccess(previous)
+                }
+            },
         }
     }),
     events(({ cache }) => ({
@@ -1437,10 +1542,42 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     reducers({
+        activeTab: [
+            SurveyTab.SUMMARY as SurveyTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         personNames: [
             {} as Record<string, string>,
             {
                 setPersonNames: (state, { personNames }) => ({ ...state, ...personNames }),
+            },
+        ],
+        expandedResponseUuids: [
+            new Set<string>(),
+            {
+                setResponseExpanded: (state, { uuid, expanded }) => {
+                    if (expanded === state.has(uuid)) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    if (expanded) {
+                        next.add(uuid)
+                    } else {
+                        next.delete(uuid)
+                    }
+                    return next
+                },
+                toggleResponseExpansion: (state, { uuid }) => {
+                    const next = new Set(state)
+                    if (next.has(uuid)) {
+                        next.delete(uuid)
+                    } else {
+                        next.add(uuid)
+                    }
+                    return next
+                },
             },
         ],
         editingLanguage: [
@@ -1710,6 +1847,27 @@ export const surveyLogic = kea<surveyLogicType>([
                     return {
                         ...state,
                         questions: newQuestions,
+                    }
+                },
+                moveQuestion: (state, { oldIndex, newIndex }) => {
+                    if (oldIndex === newIndex) {
+                        return state
+                    }
+                    const reordered = [...state.questions]
+                    const [moved] = reordered.splice(oldIndex, 1)
+                    reordered.splice(newIndex, 0, moved)
+                    const indexMap = buildReorderIndexMap(state.questions.length, oldIndex, newIndex)
+                    return {
+                        ...state,
+                        questions: remapBranchingIndices(reordered, indexMap),
+                    }
+                },
+                removeQuestion: (state, { questionIndex }) => {
+                    const filtered = state.questions.filter((_, i) => i !== questionIndex)
+                    const indexMap = buildDeleteIndexMap(state.questions.length, questionIndex)
+                    return {
+                        ...state,
+                        questions: remapBranchingIndices(filtered, indexMap),
                     }
                 },
             },
@@ -2094,9 +2252,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     }),
                     'timestamp',
                     'person',
-                    `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                    `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                    `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                 ]
 
                 return {
@@ -2122,7 +2277,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
-                    showRecordingColumn: true,
+                    showRecordingColumn: false,
                     showEventFilter: false,
                     showPropertyFilter: false,
                     showTimings: false,
@@ -2140,7 +2295,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         groups: survey.targeting_flag_filters.groups,
                         multivariate: null,
                         payloads: {},
-                        super_groups: undefined,
+                        feature_enrollment: undefined,
                     }
                 }
                 return survey.targeting_flag?.filters || undefined
@@ -2894,12 +3049,21 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
 
                         if (question.type === SurveyQuestionType.Rating) {
+                            // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
+                            // so requiring them here would silently block save with no visible error.
+                            const requiresBoundLabels = !isThumbQuestion(question)
                             return {
                                 ...questionErrors,
                                 display: !question.display && 'Please choose a display type.',
                                 scale: !question.scale && 'Please choose a scale.',
-                                lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
-                                upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                                lowerBoundLabel:
+                                    requiresBoundLabels &&
+                                    !question.lowerBoundLabel &&
+                                    'Please enter a lower bound label.',
+                                upperBoundLabel:
+                                    requiresBoundLabels &&
+                                    !question.upperBoundLabel &&
+                                    'Please enter an upper bound label.',
                             }
                         } else if (
                             question.type === SurveyQuestionType.SingleChoice ||
@@ -2956,6 +3120,16 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     urlToAction(({ actions, props, values }) => ({
         [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate }, { method }) => {
+            // Sync active tab from URL
+            const tabFromUrl = searchParams.tab
+            if (tabFromUrl && Object.values(SurveyTab).includes(tabFromUrl) && tabFromUrl !== values.activeTab) {
+                actions.setActiveTab(tabFromUrl as SurveyTab)
+            } else if (searchParams.activity && values.activeTab !== SurveyTab.HISTORY) {
+                actions.setActiveTab(SurveyTab.HISTORY)
+            } else if (!tabFromUrl && !searchParams.activity && values.activeTab !== SurveyTab.SUMMARY) {
+                actions.setActiveTab(SurveyTab.SUMMARY)
+            }
+
             // Preserve unsaved edits whenever we re-enter the same survey URL — covers
             // both explicit opt-in navigations (e.g. guided↔full editor switch) and
             // implicit re-entries like tab switching, which also dispatch a PUSH.
@@ -3033,6 +3207,16 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     actionToUrl(({ values }) => ({
+        setActiveTab: ({ tab }) => {
+            const searchParams = { ...router.values.searchParams }
+            if (tab === SurveyTab.SUMMARY) {
+                delete searchParams['tab']
+            } else {
+                searchParams['tab'] = tab
+            }
+            delete searchParams['activity']
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
         editingSurvey: ({ editing }) => {
             const searchParams = router.values.searchParams
             if (editing) {
@@ -3063,12 +3247,15 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     afterMount(({ props, actions, values }) => {
-        const shouldPreserveLocalChanges =
-            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+        // Preserve any in-memory edits when re-mounting on the same survey id (e.g.
+        // navigating between the guided wizard and the full editor). No URL flag —
+        // surveyChanged is in-memory only, so a fresh session can never trigger this.
+        const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === props.id
 
         if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()
             actions.loadSurveyNotifications()
+            actions.loadReusableSurveyNotifications()
         }
         if (props.id === 'new' && !shouldPreserveLocalChanges) {
             actions.resetSurvey()

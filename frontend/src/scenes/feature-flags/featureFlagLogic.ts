@@ -21,6 +21,7 @@ import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -173,6 +174,34 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     // as a browser-local Dayjs so the calendar renders the same values the user picked.
     // Sub-second precision is preserved so end-of-day sentinels (.999 ms) round-trip unchanged.
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
+}
+
+// Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
+// next occurrence for recurring changes too, so it is a uniform sort key across all change types.
+// Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
+export function byScheduledAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.scheduled_at) {
+            return Number.POSITIVE_INFINITY
+        }
+        const ms = dayjs(sc.scheduled_at).valueOf()
+        return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms
+    }
+    return epoch(a) - epoch(b) || a.id - b.id
+}
+
+// Order executed changes by `executed_at`, most recently executed first, so the history reads as a
+// real execution timeline even when execution is delayed. Unparseable/missing dates sort last; ties
+// break by `id` (creation order) for a stable order.
+export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.executed_at) {
+            return Number.NEGATIVE_INFINITY
+        }
+        const ms = dayjs(sc.executed_at).valueOf()
+        return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
+    }
+    return epoch(b) - epoch(a) || b.id - a.id
 }
 
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
@@ -509,8 +538,6 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
-// This helper function removes the created_at, id, and created_by fields from a flag
-// and cleans the groups and super_groups by removing the sort_key field.
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
     return {
@@ -518,7 +545,6 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
         filters: {
             ...cleanedFlag.filters,
             groups: cleanFilterGroups(cleanedFlag.filters?.groups) || [],
-            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups),
         },
     }
 }
@@ -628,6 +654,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             isBeingDisabled?: boolean
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
+        saveTagsInline: (tags: string[]) => ({ tags }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -879,7 +906,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return {
                         ...state,
-                        features: [...(state.features || []), newEarlyAccessFeature],
+                        features: [
+                            ...(state.features || []),
+                            {
+                                id: newEarlyAccessFeature.id,
+                                name: newEarlyAccessFeature.name,
+                                description: newEarlyAccessFeature.description,
+                                stage: newEarlyAccessFeature.stage,
+                                documentationUrl: newEarlyAccessFeature.documentation_url,
+                                flagKey: newEarlyAccessFeature.feature_flag?.key ?? null,
+                                payload: newEarlyAccessFeature.payload,
+                            },
+                        ],
                     }
                 },
                 createSurveySuccess: (state, { newSurvey }) => {
@@ -1789,7 +1827,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            scrollToFormError()
+            // Collapsed LemonCollapse panels don't render their children, so any inline error
+            // and its `.Field--error` scroll target won't exist in the DOM until the panel is open.
+            const formErrors = values.featureFlagErrors as DeepPartialMap<FeatureFlagType, ValidationErrorType>
+            const filtersErrors = formErrors?.filters as any
+            const variantErrorsList = filtersErrors?.multivariate?.variants as
+                | Array<{ key?: string } | undefined>
+                | undefined
+            const variantKeysWithErrors =
+                variantErrorsList
+                    ?.map((err, index) => (err?.key ? `variant-${index}` : null))
+                    .filter((key): key is string => key !== null) ?? []
+            if (variantKeysWithErrors.length) {
+                actions.setOpenVariants(Array.from(new Set([...values.openVariants, ...variantKeysWithErrors])))
+            }
+            if (filtersErrors?.payloads?.true && !values.payloadExpanded) {
+                actions.setPayloadExpanded(true)
+            }
+            // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
+            // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
+            // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
+            // fires instead of scrolling to the error.
+            await Promise.resolve()
+            scrollToFormError({
+                fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
+            })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
@@ -1804,6 +1866,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+
+            const isCreate = props.id === 'new'
+            const rolloutPercent = featureFlag.filters?.groups?.[0]?.rollout_percentage ?? null
+            const flagKey = featureFlag.key || featureFlag.name || 'this-flag'
+            const derivedPrompt = isCreate
+                ? rolloutPercent != null
+                    ? `Create a feature flag called ${flagKey} rolled out to ${rolloutPercent}% of users`
+                    : `Create a feature flag called ${flagKey}`
+                : rolloutPercent != null
+                  ? `Bump rollout for ${flagKey} to ${rolloutPercent}%`
+                  : `Update the ${flagKey} flag`
+            tryShowMCPHint(isCreate ? 'feature_flags.create' : 'feature_flags.update', { derivedPrompt })
 
             // Collect all completed setup tasks
             const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]
@@ -1920,6 +1994,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const templateGroups = templateValues.filters?.groups ?? []
             const mergedGroups = defaultGroups.length > 0 ? [...defaultGroups, ...templateGroups] : templateGroups
 
+            const leavingRemoteConfigEncrypted =
+                values.featureFlag.is_remote_configuration === true &&
+                templateValues.is_remote_configuration === false &&
+                values.featureFlag.has_encrypted_payloads === true
+
             actions.setFeatureFlag({
                 ...values.featureFlag,
                 ...templateValues,
@@ -1929,6 +2008,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     groups: mergedGroups,
                 },
             } as FeatureFlagType)
+
+            if (leavingRemoteConfigEncrypted) {
+                // Leaving remote config: the backend invariant requires
+                // has_encrypted_payloads=true only on remote config flags,
+                // and the prior ciphertext is no longer valid.
+                actions.resetEncryptedPayload()
+            }
 
             actions.setTemplateExpanded(false)
             actions.applyUrlTemplate(templateId)
@@ -2080,6 +2166,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                     {}
                 )
+            } else if (values.featureFlag.has_encrypted_payloads) {
+                // Leaving remote config: the backend invariant requires
+                // has_encrypted_payloads=true only on remote config flags,
+                // and the prior ciphertext is no longer valid.
+                actions.resetEncryptedPayload()
             }
         },
         saveDescriptionInline: async ({ name }) => {
@@ -2096,6 +2187,52 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Description saved')
             } catch {
                 lemonToast.error('Failed to save description')
+            }
+        },
+        saveTagsInline: async ({ tags }, breakpoint) => {
+            const flag = values.featureFlag
+            if (!flag.id) {
+                return
+            }
+            // Optimistic update applies immediately on every call so the chips reflect the
+            // user's intent without waiting for the API.
+            const previousTags = flag.tags
+            actions.setFeatureFlag({ ...flag, tags })
+            actions.updateFlag({ ...flag, tags })
+
+            // Debounce — rapid changes (e.g. quickly removing several chips) collapse into a
+            // single API call with the final tag set. Without this, overlapping requests
+            // can land out-of-order and stomp the latest local state when their responses
+            // resolve.
+            await breakpoint(250)
+
+            try {
+                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                    tags,
+                })
+                // If the listener has been invoked again since this await started, bail out
+                // — the newer call owns reconciliation.
+                breakpoint()
+
+                // Reconcile with server only if the *set* of tags differs (e.g. server-side
+                // normalization added/removed a tag). Avoid blindly overwriting — the
+                // server may return tags in a different order which would re-shuffle chips.
+                const localSet = new Set(tags)
+                const serverTags = savedFlag.tags ?? []
+                const serverSet = new Set(serverTags)
+                const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
+                if (!setsEqual) {
+                    actions.setFeatureFlag({ ...flag, tags: serverTags })
+                    actions.updateFlag({ ...flag, tags: serverTags })
+                }
+            } catch (error: any) {
+                // Re-throw breakpoint cancellation so kea swallows it silently.
+                if (error?.isBreakpoint) {
+                    throw error
+                }
+                actions.setFeatureFlag({ ...flag, tags: previousTags })
+                actions.updateFlag({ ...flag, tags: previousTags })
+                lemonToast.error('Failed to save tags')
             }
         },
         editFeatureFlag: async ({ editing }) => {
@@ -2184,6 +2321,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
                 return !objectsEqual(currentCleaned, originalFeatureFlag)
             },
+        ],
+        isFormDirty: [
+            (s) => [s.originalFeatureFlag, s.hasUnsavedChanges, s.featureFlagChanged],
+            (originalFeatureFlag, hasUnsavedChanges, featureFlagChanged): boolean =>
+                // Existing flags compare against server state; new flags fall back to the
+                // form-defaults check from kea-forms (NEW_FLAG would otherwise always read dirty).
+                originalFeatureFlag ? hasUnsavedChanges : featureFlagChanged,
         ],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         flagType: [
@@ -2399,15 +2543,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         completedSchedules: [
             (s) => [s.scheduledChanges],
-            (scheduledChanges: ScheduledChangeType[]) => scheduledChanges.filter((sc) => !!sc.executed_at),
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter((sc) => !!sc.executed_at).sort(byExecutedAt),
         ],
         activeSchedules: [
             (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
-            (activeRecurring, pausedRecurring, upcomingOneTime) => [
-                ...activeRecurring,
-                ...pausedRecurring,
-                ...upcomingOneTime,
-            ],
+            // Interleave all schedule types so the upcoming list reads soonest first.
+            (activeRecurring, pausedRecurring, upcomingOneTime) =>
+                [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
         ],
         emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
         templates: [
@@ -2517,6 +2660,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method, initial }) => {
+            // Don't disturb in-progress edits when a same-pathname PUSH slips through
+            // (e.g. the beforeUnload prompt was shown and cancelled, but the route still
+            // reaches this handler). This must run before `editFeatureFlag` is dispatched,
+            // because its listener calls `loadFeatureFlag()` whenever `editing === true` —
+            // which would wipe the form on any re-push carrying `?edit=true`.
+            // The `initial` mount must still run so first-load setup happens.
+            if (method === 'PUSH' && values.isFormDirty) {
+                return
+            }
+
             // Set editing state on initial mount or PUSH navigation
             if (method === 'PUSH' || initial) {
                 actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
@@ -2563,16 +2716,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
 
+    // TODO(#58936): this block is missing the scene-tab-cache guard that
+    // `actionEditLogic.tsx` (L305-332) uses, so the prompt can fire twice on tab
+    // switches. Fix requires making this scene tab-aware (`/making-scenes-tab-aware`).
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            // For existing flags, compare against server state to avoid false positives.
-            // featureFlagChanged (from kea-forms) compares against form defaults (NEW_FLAG),
-            // which is always true for loaded flags.
-            const isDirty = logic.values.originalFeatureFlag
-                ? logic.values.hasUnsavedChanges
-                : logic.values.featureFlagChanged
-
-            if (!isDirty) {
+            if (!logic.values.isFormDirty) {
                 return false
             }
 

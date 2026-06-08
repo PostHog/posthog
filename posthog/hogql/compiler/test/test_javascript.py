@@ -113,6 +113,13 @@ class TestJavaScript(BaseTest):
         stl_code = compiler.get_stl_code()
         assert "function concat" in stl_code
 
+    def test_random_float_stl_inlined(self):
+        compiler = JavaScriptCompiler()
+        compiler.stl_functions.add("randomFloat")
+        stl_code = compiler.get_stl_code()
+        self.assertIn("function randomFloat", stl_code)
+        self.assertIn("Math.random()", stl_code)
+
     def test_sanitize_keywords(self):
         assert _sanitize_identifier("for") == "__x_for"
         assert _sanitize_identifier("await") == "__x_await"

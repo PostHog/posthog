@@ -34,7 +34,7 @@ export function SurveyNotificationsCallout({ surveyId }: { surveyId: string }): 
                         survey-specific message without leaving this page.
                     </div>
                 </div>
-                <LemonButton type="primary" size="small" icon={<IconBell />} onClick={openDialog}>
+                <LemonButton type="primary" size="small" icon={<IconBell />} onClick={() => openDialog()}>
                     Set up notifications
                 </LemonButton>
             </div>

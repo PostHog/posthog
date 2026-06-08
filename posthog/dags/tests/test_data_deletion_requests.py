@@ -4,7 +4,9 @@ from functools import partial
 from uuid import uuid4
 
 import pytest
+from unittest.mock import patch
 
+import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
@@ -13,14 +15,22 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
+    PersonRemovalContext,
     data_deletion_request_event_removal,
+    data_deletion_request_person_removal,
+    data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
+    delete_person_events_op,
+    delete_person_profiles_op,
+    delete_person_recordings_op,
     execute_event_deletion,
     finalize_deletion_request,
     load_deletion_request,
+    load_person_removal_request,
     load_property_removal_request,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.person import Person
 
 TEAM_ID = 99999
 
@@ -46,6 +56,25 @@ def _count_events_by_name(team_id: int, event_name: str, client: Client) -> int:
         {"team_id": team_id, "event": event_name},
     )
     return result[0][0]
+
+
+def _insert_events_with_person(events: list[tuple], client: Client) -> None:
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, person_id) VALUES",
+        events,
+    )
+
+
+def _count_events_for_person(team_id: int, person_uuid: str, client: Client) -> int:
+    result = client.execute(
+        "SELECT count() FROM writable_events WHERE team_id = %(team_id)s AND person_id = %(p)s",
+        {"team_id": team_id, "p": person_uuid},
+    )
+    return result[0][0]
+
+
+def _truncate_writable_events(client: Client) -> None:
+    client.execute("TRUNCATE TABLE IF EXISTS sharded_events")
 
 
 def _truncate_adhoc_events_deletion(client: Client) -> None:
@@ -80,6 +109,39 @@ def test_load_deletion_request_transitions_to_in_progress():
 
     request.refresh_from_db()
     assert request.status == RequestStatus.IN_PROGRESS
+    assert request.attempt_count == 1
+    assert request.first_executed_at is not None
+    assert request.last_executed_at == request.first_executed_at
+
+
+@pytest.mark.django_db
+def test_load_deletion_request_increments_attempt_on_retry():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+
+    load_deletion_request(build_op_context(), config)
+    request.refresh_from_db()
+    first_attempt_at = request.first_executed_at
+    first_last_at = request.last_executed_at
+    assert first_attempt_at is not None
+    assert first_last_at is not None
+
+    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
+
+    load_deletion_request(build_op_context(), config)
+    request.refresh_from_db()
+
+    assert request.attempt_count == 2
+    assert request.first_executed_at == first_attempt_at
+    assert request.last_executed_at is not None
+    assert request.last_executed_at >= first_last_at
 
 
 @pytest.mark.django_db
@@ -536,8 +598,389 @@ def test_load_property_removal_request_rejects_empty_properties():
     config = DataDeletionRequestConfig(request_id=str(request.pk))
     context = build_op_context()
 
-    with pytest.raises(Exception, match="no properties specified"):
+    with pytest.raises(Exception, match="no properties or person_properties specified"):
         load_property_removal_request(context, config)
+
+
+def _insert_events_with_person_properties(events: list[tuple], client: Client) -> None:
+    """Insert events with (team_id, event, uuid, timestamp, person_properties_json)."""
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, person_properties) VALUES",
+        events,
+    )
+
+
+def _get_person_properties(team_id: int, event_name: str, client: Client) -> list[dict]:
+    result = client.execute(
+        "SELECT person_properties FROM events WHERE team_id = %(team_id)s AND event = %(event)s",
+        {"team_id": team_id, "event": event_name},
+    )
+    return [json.loads(row[0]) if row[0] else {} for row in result]
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal(cluster: ClickhouseCluster):
+    """Keys in person_properties are removed; the event itself is preserved."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_to_drop = json.dumps({"email": "user@example.com", "keep": "yes"})
+    no_target_person_props = json.dumps({"keep": "yes", "other": "value"})
+
+    target_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_to_drop) for i in range(10)
+    ]
+    events_without_target = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), no_target_person_props) for i in range(5)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, target_events + events_without_target)).result()
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 15
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Events still exist (properties removed, not deleted)
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 15
+
+    # Target key removed from person_properties
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pprops in all_person_props:
+        assert "email" not in pprops, f"email should be removed, got {pprops}"
+    # Non-target key preserved on the events that had it
+    events_with_keep = [p for p in all_person_props if "keep" in p]
+    assert len(events_with_keep) == 15, "keep key should survive on all events"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_both_properties_and_person_properties(cluster: ClickhouseCluster):
+    """When both properties and person_properties are specified, both columns are cleaned."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    props = json.dumps({"$ip": "1.2.3.4", "keep": "yes"})
+    person_props = json.dumps({"email": "user@example.com", "keep_person": "yes"})
+
+    events: list[tuple] = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), props, person_props) for i in range(8)
+    ]
+
+    cluster.any_host(
+        lambda client: client.execute(
+            "INSERT INTO writable_events (team_id, event, uuid, timestamp, properties, person_properties) VALUES",
+            events,
+        )
+    ).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["$ip"],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Events preserved
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 8
+
+    # $ip removed from properties
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    for p in all_props:
+        assert "$ip" not in p, f"$ip should be removed, got {p}"
+        assert "keep" in p, f"keep should survive, got {p}"
+
+    # email removed from person_properties
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pp in all_person_props:
+        assert "email" not in pp, f"email should be removed, got {pp}"
+        assert "keep_person" in pp, f"keep_person should survive, got {pp}"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_load_property_removal_request_loads_person_properties_only():
+    """load_property_removal_request succeeds when properties=[] and person_properties is non-empty."""
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email", "phone"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    result = load_property_removal_request(build_op_context(), config)
+
+    assert result.properties == []
+    assert result.person_properties == ["email", "phone"]
+    assert result.team_id == PROP_TEAM_ID
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal_ignores_out_of_range_events(cluster: ClickhouseCluster):
+    """Events outside the request time range must not have their person_properties modified."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_with_key = json.dumps({"email": "user@example.com", "keep": "yes"})
+
+    in_range = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_with_key) for i in range(5)]
+    out_of_range = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(days=30), person_props_with_key) for _ in range(3)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, in_range + out_of_range)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+
+    emails_present = [p for p in all_person_props if "email" in p]
+    emails_absent = [p for p in all_person_props if "email" not in p]
+    # The 3 out-of-range events still have the email key
+    assert len(emails_present) == 3, f"expected 3 out-of-range events to still have email, got {len(emails_present)}"
+    # The 5 in-range events have had email removed
+    assert len(emails_absent) == 5, f"expected 5 in-range events with email removed, got {len(emails_absent)}"
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal_ignores_other_event_names(cluster: ClickhouseCluster):
+    """Events with a different event name than requested must not have their person_properties modified."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_with_key = json.dumps({"email": "user@example.com", "keep": "yes"})
+
+    pageview_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_with_key) for i in range(5)
+    ]
+    identify_events = [
+        (PROP_TEAM_ID, "$identify", uuid4(), now - timedelta(hours=i), person_props_with_key) for i in range(4)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, pageview_events + identify_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    pageview_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pprops in pageview_props:
+        assert "email" not in pprops, f"$pageview should have email removed: {pprops}"
+
+    identify_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$identify")).result()
+    for pprops in identify_props:
+        assert "email" in pprops, f"$identify email should be untouched: {pprops}"
+
+
+def _add_person_property_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
+    """Add materialized columns sourced from person_properties for testing.
+
+    Comment uses ``column_materializer::person_properties::<prop_name>`` so
+    ``_get_affected_mat_columns(..., table_column="person_properties")`` picks them up.
+    """
+    from django.conf import settings
+
+    db = settings.CLICKHOUSE_DATABASE
+    for col_name, prop_name, col_type in col_defs:
+        comment = f"column_materializer::person_properties::{prop_name}"
+        client.execute(
+            f"ALTER TABLE {db}.sharded_events "
+            f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+            f"DEFAULT JSONExtractRaw(person_properties, '{prop_name}')"
+        )
+        client.execute(f"ALTER TABLE {db}.events ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} COMMENT '{comment}'")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "col_defs, person_properties_to_delete, expected_empty_cols",
+    [
+        pytest.param(
+            [("mat_pp_email", "email", "String")],
+            ["email"],
+            ["mat_pp_email"],
+            id="single_person_property",
+        ),
+        pytest.param(
+            [
+                ("mat_pp_phone", "phone", "String"),
+                ("mat_pp_city", "city", "Nullable(String)"),
+            ],
+            ["phone", "city"],
+            ["mat_pp_phone", "mat_pp_city"],
+            id="multiple_person_properties_mixed_nullable",
+        ),
+    ],
+)
+def test_full_job_person_property_removal_clears_mat_columns(
+    cluster: ClickhouseCluster,
+    col_defs: list[tuple[str, str, str]],
+    person_properties_to_delete: list[str],
+    expected_empty_cols: list[str],
+):
+    """Materialized columns sourced from person_properties are zeroed when those keys are deleted."""
+    cluster.any_host(partial(_add_person_property_mat_columns, col_defs)).result()
+
+    try:
+        now = datetime.now()
+        start_time = now - timedelta(days=7)
+        end_time = now + timedelta(minutes=1)
+
+        target_person_props = {prop: "secret" for _, prop, _ in col_defs}
+        target_person_props["keep"] = "yes"
+        pp_with_target = json.dumps(target_person_props)
+        pp_without_target = json.dumps({"keep": "yes", "other": "value"})
+
+        target_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), pp_with_target) for i in range(20)
+        ]
+        control_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), pp_without_target) for i in range(10)
+        ]
+
+        cluster.any_host(partial(_insert_events_with_person_properties, target_events + control_events)).result()
+
+        # Precondition: mat columns have values populated from person_properties
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            assert any(v and "secret" in v for v in mat_values), (
+                f"expected 'secret' in {col_name} before deletion, got {set(mat_values)}"
+            )
+
+        request = DataDeletionRequest.objects.create(
+            team_id=PROP_TEAM_ID,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=[],
+            person_properties=person_properties_to_delete,
+            start_time=start_time,
+            end_time=end_time,
+            status=RequestStatus.APPROVED,
+        )
+
+        result = data_deletion_request_property_removal.execute_in_process(
+            run_config={
+                "ops": {
+                    "load_property_removal_request": {
+                        "config": {"request_id": str(request.pk)},
+                    },
+                },
+            },
+            resources={"cluster": cluster},
+        )
+        assert result.success
+
+        # Events still exist — only person_properties mutated
+        assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 30
+
+        # Target keys removed from person_properties JSON
+        all_pp = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+        for pp in all_pp:
+            for prop in person_properties_to_delete:
+                assert prop not in pp, f"{prop} should be removed from person_properties, got {pp}"
+            assert "keep" in pp, f"keep should be preserved, got {pp}"
+
+        # Materialized columns zeroed out
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            non_empty = [v for v in mat_values if v and v not in ("", None)]
+            assert not non_empty, f"{col_name} should be empty after deletion, got non-empty: {set(non_empty)}"
+
+        request.refresh_from_db()
+        assert request.status == RequestStatus.COMPLETED
+    finally:
+        cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
 
 
 @pytest.mark.django_db
@@ -659,6 +1102,61 @@ def test_full_job_property_removal_single_property(cluster: ClickhouseCluster):
     assert request.status == RequestStatus.COMPLETED
 
 
+@pytest.mark.django_db
+def test_full_job_property_removal_applies_hogql_predicate(cluster: ClickhouseCluster):
+    """A property removal scoped by hogql_predicate must clean only matching events."""
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-prop-hogql")
+    team = Team.objects.create(organization=org, name="test-team-prop-hogql")
+
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    chrome_props = json.dumps({"secret": "value", "$browser": "Chrome"})
+    firefox_props = json.dumps({"secret": "value", "$browser": "Firefox"})
+    chrome_events = [(team.id, "$pageview", uuid4(), now - timedelta(hours=i), chrome_props) for i in range(10)]
+    firefox_events = [(team.id, "$pageview", uuid4(), now - timedelta(hours=i), firefox_props) for i in range(5)]
+
+    cluster.any_host(partial(_insert_events_with_properties, chrome_events + firefox_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["secret"],
+        start_time=start_time,
+        end_time=end_time,
+        hogql_predicate="properties.$browser = 'Chrome'",
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Chrome events: secret cleaned, $browser preserved
+    all_props = cluster.any_host(partial(_get_properties, team.id, "$pageview")).result()
+    chrome = [p for p in all_props if p.get("$browser") == "Chrome"]
+    firefox = [p for p in all_props if p.get("$browser") == "Firefox"]
+    assert len(chrome) == 10, f"expected 10 Chrome rows, got {len(chrome)}"
+    assert len(firefox) == 5, f"expected 5 Firefox rows untouched, got {len(firefox)}"
+    for props in chrome:
+        assert "secret" not in props, f"Chrome event still has secret: {props}"
+    for props in firefox:
+        assert props.get("secret") == "value", f"Firefox event must keep secret: {props}"
+
+
 def _assert_subfield_removed(props: dict, path: str) -> None:
     """Assert a dotted subfield path was removed from props."""
     parts = path.split(".")
@@ -760,7 +1258,12 @@ def test_full_job_property_removal_subfield_only(
 
 
 def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
-    """Add DEFAULT materialized columns to events tables for testing.
+    """Add materialized columns to events tables for testing.
+
+    Mirrors production: ``sharded_events`` gets the column with the ``DEFAULT``
+    expression but no comment, ``events`` (distributed) gets just the type plus
+    the ``column_materializer::`` comment. See ``materialize()`` in
+    ee/clickhouse/materialized_columns/columns.py.
 
     Each entry is (col_name, prop_name, col_type).
     """
@@ -769,14 +1272,12 @@ def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Clien
     db = settings.CLICKHOUSE_DATABASE
     for col_name, prop_name, col_type in col_defs:
         comment = f"column_materializer::properties::{prop_name}"
-        for table in ("sharded_events", "events"):
-            kw = f"COMMENT '{comment}'" if table == "events" else ""
-            client.execute(
-                f"ALTER TABLE {db}.{table} "
-                f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
-                f"DEFAULT JSONExtractRaw(properties, '{prop_name}') "
-                f"{kw}"
-            )
+        client.execute(
+            f"ALTER TABLE {db}.sharded_events "
+            f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+            f"DEFAULT JSONExtractRaw(properties, '{prop_name}')"
+        )
+        client.execute(f"ALTER TABLE {db}.events ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} COMMENT '{comment}'")
 
 
 def _drop_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
@@ -881,3 +1382,325 @@ def test_full_job_property_removal_clears_materialized_columns(
         assert request.status == RequestStatus.COMPLETED
     finally:
         cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
+
+
+@pytest.mark.django_db
+def test_load_person_removal_request_transitions_to_in_progress():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        person_drop_events=True,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    ctx = build_op_context()
+
+    result = load_person_removal_request(ctx, config)
+
+    assert result.team_id == TEAM_ID
+    assert result.drop_profiles is True
+    assert result.drop_events is True
+    assert result.drop_recordings is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_load_person_removal_rejects_both_selectors():
+    # Belt-and-suspenders: model.clean() enforces mutual exclusion at the API boundary, but if
+    # a row is created bypassing clean() (e.g. raw SQL or .objects.create), the dagster job must
+    # still refuse to run because resolve_persons_for_deletion's elif would silently drop one set.
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=["did-1"],
+        person_drop_profiles=True,
+        person_drop_events=False,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    with pytest.raises(Exception, match="mutually exclusive"):
+        load_person_removal_request(build_op_context(), config)
+
+
+@pytest.mark.django_db
+def test_load_person_removal_rejects_wrong_type():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    with pytest.raises(Exception, match="not an approved person_removal request"):
+        load_person_removal_request(build_op_context(), config)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: ClickhouseCluster):
+    person_uuid = str(uuid4())
+    other_uuid = str(uuid4())
+    now = datetime.now()
+
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_person,
+            [
+                (TEAM_ID, "$pageview", str(uuid4()), now, person_uuid),
+                (TEAM_ID, "$pageview", str(uuid4()), now, other_uuid),
+            ],
+        )
+    ).result()
+
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, person_uuid)).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, other_uuid)).result() == 1
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: ClickhouseCluster):
+    # When the request was submitted by distinct_id, the events op must resolve to UUIDs
+    # because the CH events table is keyed by person_id (UUID).
+    p = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
+    bystander_uuid = str(uuid4())
+    now = datetime.now()
+
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(
+            _insert_events_with_person,
+            [
+                (TEAM_ID, "$pageview", str(uuid4()), now, str(p.uuid)),
+                (TEAM_ID, "$pageview", str(uuid4()), now, bystander_uuid),
+            ],
+        )
+    ).result()
+
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[],
+        person_distinct_ids=["distinct-only"],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p.uuid))).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, bystander_uuid)).result() == 1
+
+
+@pytest.mark.django_db
+def test_delete_person_recordings_op_calls_helper_when_enabled():
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=True,
+    )
+    with patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion") as queue:
+        delete_person_recordings_op(build_op_context(), ctx)
+        queue.assert_called_once()
+        kwargs = queue.call_args.kwargs
+        assert kwargs["actor"] is None  # no DRF user in Dagster
+
+
+@pytest.mark.django_db
+def test_delete_person_recordings_op_noop_when_disabled():
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion") as queue:
+        delete_person_recordings_op(build_op_context(), ctx)
+        queue.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_calls_helper_when_enabled():
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        delete_person_profiles_op(build_op_context(), ctx)
+        deleter.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_noop_when_disabled():
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        delete_person_profiles_op(build_op_context(), ctx)
+        deleter.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
+    # Best-effort semantics: per-person failures are recorded in op metadata and surfaced via
+    # logs, but the op returns normally so the request can finalize to COMPLETED and the
+    # operator can issue a follow-up request for the failed UUIDs.
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    op_context = build_op_context()
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
+        with patch.object(op_context.log, "warning") as warn:
+            result = delete_person_profiles_op(op_context, ctx)
+
+    # No raise — best-effort, returns the context.
+    assert result is ctx
+    # The op surfaced the failure via a warning log so operators can find the failed UUIDs.
+    assert warn.called
+    warn_message = warn.call_args.args[0] if warn.call_args.args else ""
+    assert "1 per-person failures" in warn_message
+
+
+@pytest.mark.django_db
+def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
+    p_uuid = str(uuid4())
+    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[p_uuid],
+        person_drop_profiles=True,
+        person_drop_events=True,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+
+    with (
+        patch("posthog.dags.data_deletion_requests.delete_persons_profile") as profile,
+        patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion"),
+    ):
+        profile.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        result = data_deletion_request_person_removal.execute_in_process(
+            run_config={
+                "ops": {
+                    "load_person_removal_request": {"config": {"request_id": str(request.pk)}},
+                },
+            },
+            resources={"cluster": cluster},
+        )
+
+    assert result.success
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_routes_person_removal_request():
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+    ctx = dagster.build_sensor_context(instance=instance)
+    result = data_deletion_request_pickup_sensor(ctx)
+    assert isinstance(result, dagster.RunRequest)
+    assert result.job_name == "data_deletion_request_person_removal"
+    assert "load_person_removal_request" in result.run_config["ops"]
+    assert result.run_key == f"{request.pk}:{request.attempt_count}"
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_run_key_changes_across_attempts():
+    # A re-approved/retried request keeps its pk but has a higher attempt_count, so
+    # the run_key must differ — otherwise Dagster dedupes and silently never relaunches.
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+        attempt_count=0,
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+
+    first = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+    assert isinstance(first, dagster.RunRequest)
+    assert first.run_key == f"{request.pk}:0"
+
+    # Simulate the load op having run once, then a retry re-approving the same request.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(attempt_count=1)
+    second = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+    assert isinstance(second, dagster.RunRequest)
+    assert second.run_key == f"{request.pk}:1"
+    assert second.run_key != first.run_key

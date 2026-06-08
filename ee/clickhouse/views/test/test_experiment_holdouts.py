@@ -1,8 +1,7 @@
 from rest_framework import status
 
-from posthog.models.feature_flag import FeatureFlag
-
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
 

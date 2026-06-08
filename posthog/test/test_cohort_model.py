@@ -442,13 +442,19 @@ class TestCohort(BaseTest):
         assert isinstance(size, int), f"Expected int, got {type(size)}: {size}"
         assert size == 3, f"Expected 3 persons in cohort, got {size}"
 
-        # Test with team leakage - person from another team should not be counted
+        # Cross-team CohortPeople rows are counted: get_static_cohort_size scopes by
+        # cohort_id (gated by an upfront `Cohort.team_id == team_id` ownership check
+        # in count_cohort_members), not by person.team_id. The previous join through
+        # posthog_person was a hot per-PK lookup on the write replica that we
+        # dropped for IOPS reasons — production cannot reach this state via the
+        # supported APIs, and a raw M2M add() like the one below is what would have
+        # had to break for a count discrepancy to surface in real traffic.
         team2 = Team.objects.create(organization=self.organization)
         person4 = Person.objects.create(team=team2, distinct_ids=["person4"])
         cohort.people.add(person4)
 
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
-        assert size == 3, f"Expected 3 persons from team {self.team.id}, got {size}"
+        assert size == 4, f"Expected 4 cohort rows after cross-team add, got {size}"
 
     @pytest.mark.ee
     def test_calculate_people_ch_clears_realtime_type_when_exceeding_threshold(self):

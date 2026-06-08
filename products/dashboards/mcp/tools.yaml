@@ -75,6 +75,26 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+    dashboard-create-text-tile:
+        operation: dashboards_create_text_tile_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Create dashboard text tile
+        description: >
+            Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings,
+            dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns
+            wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If
+            `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards
+            if you need precise placement.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -87,7 +107,31 @@ tools:
         title: Delete dashboard
         description: |
             Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.
+        param_overrides:
+            id:
+                cast: string-int
         soft_delete: true
+    dashboard-delete-tile:
+        operation: dashboards_delete_tile
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Delete dashboard tile
+        description: >
+            Soft-delete a single tile (text, insight, widget, or button) from a dashboard. Behaves the same as the
+            delete button in the UI — the underlying Insight, Text, ButtonTile, or widget row is preserved (so an
+            insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically
+            compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the
+            DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard
+            instead, use dashboard-delete.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-get:
         operation: dashboards_retrieve
         enabled: true
@@ -100,10 +144,17 @@ tools:
         enrich_url: '{id}'
         title: Get dashboard
         description: >
-            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and
-            layout information. Insight results, filters, and query metadata are omitted to save context — use
-            dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or
-            insight-query for a single insight.
+            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights, widget
+            configurations, and layout information. Widget tiles include a `widget` object with `widget_type` and
+            `config` but no live data — use dashboard-widgets-run with tile IDs from this response. Insight results,
+            filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual
+            data for every insight on the dashboard in one call, or insight-query for a single insight. Supports
+            variables_override and filters_override query params; on this endpoint they affect only the merged `filters`
+            and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same
+            query params to dashboard-insights-run.
+        param_overrides:
+            id:
+                cast: string-int
         response:
             exclude:
                 - effective_restriction_level
@@ -155,7 +206,11 @@ tools:
         description: >
             Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set
             refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or
-            'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.
+            'json' for raw query results. Supports variables_override and filters_override query params to run insights
+            with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true
@@ -168,14 +223,17 @@ tools:
         enrich_url: '{id}'
         title: Reorder dashboard tiles
         description: >
-            Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a
-            2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile
-            IDs.
+            Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use
+            dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the
+            layout parameter to force a 2-column or full-width grid instead.
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false
     dashboard-templates-create:
         operation: dashboard_templates_create
+        enabled: false
+    dashboard-templates-destroy:
+        operation: dashboard_templates_destroy
         enabled: false
     dashboard-templates-json-schema-retrieve:
         operation: dashboard_templates_json_schema_retrieve
@@ -183,6 +241,33 @@ tools:
     dashboard-templates-list:
         operation: dashboard_templates_list
         enabled: false
+    dashboard-templates-partial-update:
+        operation: dashboard_templates_partial_update
+        enabled: false
+    dashboard-templates-retrieve:
+        operation: dashboard_templates_retrieve
+        enabled: false
+    dashboard-templates-update:
+        operation: dashboard_templates_update
+        enabled: false
+    dashboard-tile-copy:
+        operation: dashboards_copy_tile_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Copy dashboard tile
+        description: >
+            Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the
+            destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the
+            dashboard-widgets feature flag and are deep-cloned with a new widget row.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-update:
         operation: dashboards_partial_update
         enabled: true
@@ -196,8 +281,10 @@ tools:
         title: Update dashboard
         description: >
             Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
-            restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to
-            fetch the actual data for each insight.
+            restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus
+            fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses.
+            There is no separate PATCH .../widgets/:tile_id/ endpoint. The returned tiles omit insight results to save
+            context — use dashboard-insights-run to fetch the actual data for each insight.
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -210,6 +297,9 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+        param_overrides:
+            id:
+                cast: string-int
         response:
             exclude:
                 - effective_restriction_level
@@ -247,6 +337,78 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+    dashboard-update-text-tile:
+        operation: dashboards_update_text_tile_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Update dashboard text tile
+        description: >
+            Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile
+            id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted
+            fields are left unchanged.
+        param_overrides:
+            id:
+                cast: string-int
+    dashboard-widget-catalog-list:
+        operation: dashboards_widget_catalog_retrieve
+        enabled: true
+        scopes:
+            - dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List dashboard widget catalog
+        description: >
+            List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before
+            dashboard-widgets-batch-add to pick a widget_type and shape config.
+    dashboard-widgets-batch-add:
+        operation: dashboards_widgets_batch_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Add dashboard widgets
+        description: >
+            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call
+            dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as
+            an array of payloads (widget_type, config, optional name, description, layouts). For a single tile, pass a
+            one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles;
+            use dashboard-widgets-run to fetch live data.
+        param_overrides:
+            id:
+                cast: string-int
+        feature_flag: dashboard-widgets
+    dashboard-widgets-run:
+        operation: dashboards_run_widgets_retrieve
+        enabled: true
+        scopes:
+            - dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Run dashboard widgets
+        description: >
+            Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag.
+            Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a
+            comma-separated list. Returns per-tile errors when the caller lacks product access for a widget type (see
+            required_product_access on dashboard-widget-catalog-list).
+        param_overrides:
+            id:
+                cast: string-int
+        feature_flag: dashboard-widgets
     dashboards-analyze-refresh-result-create:
         operation: dashboards_analyze_refresh_result_create
         enabled: false
@@ -284,13 +446,39 @@ tools:
         list: true
         title: Get all dashboards
         description: >
-            Get all dashboards in the project with optional filtering by pinned status or search term. Returns name,
-            description, pinned status, tags, and creation metadata. Tiles and insights are not included — use
-            dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each
-            insight.
+            List dashboards in the project. The optional `search` parameter runs a fuzzy match against name and
+            description using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type)
+            and returns results ranked by relevance — use it to find a specific dashboard by name rather than paging
+            through every dashboard. `search` is capped at 200 characters; longer queries return a 400 error. Optional
+            filters by tag and pinned status are also supported. Returns name, description, pinned status, tags, and
+            creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles,
+            then dashboard-insights-run to fetch the actual data for each insight.
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
+    dashboards-move-tile-create:
+        operation: dashboards_move_tile_create
+        enabled: false
     dashboards-move-tile-partial-update:
         operation: dashboards_move_tile_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Move dashboard tile
+        description: >
+            Move a tile from the source dashboard (path ID) to another dashboard. Provide to_dashboard (destination
+            dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget
+            tiles require the dashboard-widgets feature flag on the project.
+        param_overrides:
+            id:
+                cast: string-int
     dashboards-sharing-list:
         operation: dashboards_sharing_list
         enabled: false
@@ -311,6 +499,12 @@ tools:
         enabled: false
     dashboards-update:
         operation: dashboards_update
+        enabled: false
+    dashboards-widget-catalog-retrieve:
+        operation: dashboards_widget_catalog_retrieve
+        enabled: false
+    dashboards-widgets-batch-create:
+        operation: dashboards_widgets_batch_create
         enabled: false
     data-color-themes-create:
         operation: data_color_themes_create

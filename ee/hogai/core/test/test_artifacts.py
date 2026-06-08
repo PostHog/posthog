@@ -7,8 +7,13 @@ from pydantic import ValidationError
 from posthog.schema import (
     AssistantTrendsQuery,
     DocumentArtifactContent,
+    EventsNode,
+    LifecycleQuery,
     MarkdownBlock,
+    PathsFilter,
+    PathsQuery,
     SessionReplayBlock,
+    StickinessQuery,
     TrendsQuery,
     VisualizationArtifactContent,
     VisualizationBlock,
@@ -33,6 +38,21 @@ class TestDocumentBlocks(BaseTest):
         block = VisualizationBlock(query=query)
         assert block.type == "visualization"
         assert block.query == query
+
+    @parameterized.expand(
+        [
+            ("lifecycle", LifecycleQuery(series=[EventsNode(event="$pageview")])),
+            ("stickiness", StickinessQuery(series=[EventsNode(event="$pageview")])),
+            ("paths", PathsQuery(pathsFilter=PathsFilter())),
+        ]
+    )
+    def test_visualization_block_accepts_saved_insight_query_types(self, _name, query):
+        # Saved insights can be Lifecycle/Stickiness/Paths queries (concrete, non-Assistant types).
+        # These must be valid members of the VisualizationBlock.query union, otherwise enriching a
+        # notebook artifact that references such an insight raises a ValidationError.
+        block = VisualizationBlock(query=query)
+        self.assertEqual(block.type, "visualization")
+        self.assertEqual(block.query, query)
 
     @parameterized.expand(
         [

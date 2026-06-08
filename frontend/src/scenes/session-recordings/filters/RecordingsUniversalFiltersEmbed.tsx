@@ -264,14 +264,13 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
 
     return (
         <div className="relative">
-            <div className="absolute top-0 right-0 z-1">
-                <LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />
-            </div>
             <LemonTabs
                 activeKey={activeFilterTab}
                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                 size="small"
                 tabs={tabs}
+                barClassName="sticky top-0 z-10 bg-primary"
+                rightSlot={<LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />}
             />
         </div>
     )
@@ -514,8 +513,12 @@ function RecordingsUniversalFilterAddFilterPopover({
         taxonomicGroupTypes,
     }
 
+    // Only render the category pill while the taxonomic filter is open. Without this,
+    // clicking the pill from a closed state opens its menu AND focuses the input (which
+    // opens the surrounding popover); the popover portal mounts last and ends up
+    // visually on top of the menu.
     const suffix =
-        categoryDropdownVariant === 'control' ? undefined : (
+        categoryDropdownVariant === 'control' || !isPopoverVisible ? undefined : (
             <CategoryDropdown variant={categoryDropdownVariant} onAfterChange={focusInput} />
         )
 
@@ -570,7 +573,9 @@ function RecordingsUniversalFilterAddFilterPopover({
         </Popover>
     )
 
-    return suffix ? (
+    // Bind the logic whenever the pill variant is in play so the suffix can mount/unmount
+    // alongside popover visibility without remounting the popover itself.
+    return categoryDropdownVariant !== 'control' ? (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             {popover}
         </BindLogic>

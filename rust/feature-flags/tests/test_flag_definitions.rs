@@ -1335,17 +1335,17 @@ async fn test_invalid_project_api_key() {
         "Should return 401 for invalid token. Body: {body_text}"
     );
 
-    // Verify the response body format (if JSON)
-    if let Ok(body) = serde_json::from_str::<Value>(&body_text) {
-        assert_eq!(body["type"], "authentication_error");
-        assert_eq!(body["code"], "not_authenticated");
-    } else {
-        // If not JSON, verify the error message mentions invalid API key
-        assert!(
-            body_text.contains("API key is invalid") || body_text.contains("expired"),
-            "Body should mention invalid API key. Got: {body_text}"
-        );
-    }
+    // An invalid project token must return the structured DRF-style JSON envelope,
+    // matching the secret/personal API key paths.
+    let body: Value = serde_json::from_str(&body_text)
+        .unwrap_or_else(|_| panic!("Body should be JSON. Got: {body_text}"));
+    assert_eq!(body["type"], "authentication_error");
+    assert_eq!(body["code"], "authentication_failed");
+    assert_eq!(
+        body["detail"],
+        "The provided API key is invalid or has expired. Please check your API key and try again."
+    );
+    assert_eq!(body["attr"], Value::Null);
 }
 
 #[tokio::test]
@@ -2555,4 +2555,89 @@ async fn test_db_rate_limit_allowlist() {
         .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
         .await
         .unwrap();
+}
+
+/// Verifies the billing path writes (or, when `skip_writes=true`,
+/// suppresses) the FlagDefinitions counter for `/flags/definitions`. The
+/// `/flags` endpoint is covered by tests in `test_flags.rs`; this test is
+/// the equivalent for the FlagDefinitions code path so a regression that
+/// honored `skip_writes` for one endpoint but not the other can't slip
+/// through.
+#[rstest::rstest]
+#[case(true)]
+#[case(false)]
+#[tokio::test]
+async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+    use serde_json::json;
+
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.skip_writes = FlexBool(skip_writes);
+
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Seed the HyperCache with a billable flag (a non-survey, non-product-tour
+    // key) so `has_billable_flags` returns true and `record()` actually fires.
+    context
+        .populate_cache_for_team_with_flags(
+            team.id,
+            json!({
+                "flags": [{"key": "billable-flag", "active": true}],
+                "group_type_mapping": {},
+                "cohorts": {},
+            }),
+        )
+        .await
+        .unwrap();
+
+    // Clean billing key so we can assert on a fresh write.
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let billing_key = get_team_request_key(team.id, FlagRequestType::FlagDefinitions);
+    redis.del(billing_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let http = reqwest::Client::new();
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
+    let response = http
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+
+    if skip_writes {
+        // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
+        // an erroneous `record()` behind a delayed first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let counter = redis.hget(billing_key, bucket_field).await;
+        assert!(
+            counter.is_err(),
+            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
+        );
+    } else {
+        let counter = common::poll_for_billing_counter(&redis, &billing_key, &bucket_field).await;
+        assert_eq!(
+            counter, "1",
+            "FlagDefinitions billing counter should be incremented once"
+        );
+    }
 }

@@ -193,6 +193,9 @@ tools:
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
+    external-data-sources-cdc-status-retrieve:
+        operation: external_data_sources_cdc_status_retrieve
+        enabled: false
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
         enabled: true
@@ -211,9 +214,25 @@ tools:
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
+    external-data-sources-check-cdc-prerequisites-for-source-create:
+        operation: external_data_sources_check_cdc_prerequisites_for_source_create
+        enabled: false
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List direct-query connections
+        description: >
+            List external data sources that can be used as a connectionId when running execute-sql against an external
+            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
+            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
+            discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
@@ -236,6 +255,9 @@ tools:
             - client_secret
             - account_id
             - job_inputs
+            - created_via
+        inject_body:
+            created_via: mcp
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -294,6 +316,12 @@ tools:
             Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
             delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
             resume syncing.
+    external-data-sources-disable-cdc-create:
+        operation: external_data_sources_disable_cdc_create
+        enabled: false
+    external-data-sources-enable-cdc-create:
+        operation: external_data_sources_enable_cdc_create
+        enabled: false
     external-data-sources-jobs:
         operation: external_data_sources_jobs_retrieve
         enabled: false
@@ -386,6 +414,9 @@ tools:
     external-data-sources-update:
         operation: external_data_sources_update
         enabled: false
+    external-data-sources-update-cdc-settings-create:
+        operation: external_data_sources_update_cdc_settings_create
+        enabled: false
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
         enabled: true
@@ -442,8 +473,20 @@ tools:
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
+    fix-hogql-destroy:
+        operation: fix_hogql_destroy
+        enabled: false
     fix-hogql-list:
         operation: fix_hogql_list
+        enabled: false
+    fix-hogql-partial-update:
+        operation: fix_hogql_partial_update
+        enabled: false
+    fix-hogql-retrieve:
+        operation: fix_hogql_retrieve
+        enabled: false
+    fix-hogql-update:
+        operation: fix_hogql_update
         enabled: false
     insight-variables-list:
         operation: insight_variables_list
@@ -559,10 +602,6 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
-            query:
-                description:
-                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
-                    {"query": "SELECT * FROM events LIMIT 100"}'
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
@@ -701,10 +740,6 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
-            query:
-                description:
-                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
-                    {"query": "SELECT * FROM events LIMIT 100"}'
             edited_history_id:
                 description:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for
@@ -714,6 +749,9 @@ tools:
         enabled: false
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
+        enabled: false
+    warehouse-model-paths-retrieve:
+        operation: warehouse_model_paths_retrieve
         enabled: false
     warehouse-saved-queries-activity-retrieve:
         operation: warehouse_saved_queries_activity_retrieve
@@ -772,17 +810,47 @@ tools:
     warehouse-tables-create:
         operation: warehouse_tables_create
         enabled: false
+    warehouse-tables-destroy:
+        operation: warehouse_tables_destroy
+        enabled: false
     warehouse-tables-file-create:
         operation: warehouse_tables_file_create
         enabled: false
     warehouse-tables-list:
         operation: warehouse_tables_list
         enabled: false
+    warehouse-tables-partial-update:
+        operation: warehouse_tables_partial_update
+        enabled: false
+    warehouse-tables-refresh-schema-create:
+        operation: warehouse_tables_refresh_schema_create
+        enabled: false
+    warehouse-tables-retrieve:
+        operation: warehouse_tables_retrieve
+        enabled: false
+    warehouse-tables-update:
+        operation: warehouse_tables_update
+        enabled: false
+    warehouse-tables-update-schema-create:
+        operation: warehouse_tables_update_schema_create
+        enabled: false
     warehouse-view-link-create:
         operation: warehouse_view_link_create
         enabled: false
+    warehouse-view-link-destroy:
+        operation: warehouse_view_link_destroy
+        enabled: false
     warehouse-view-link-list:
         operation: warehouse_view_link_list
+        enabled: false
+    warehouse-view-link-partial-update:
+        operation: warehouse_view_link_partial_update
+        enabled: false
+    warehouse-view-link-retrieve:
+        operation: warehouse_view_link_retrieve
+        enabled: false
+    warehouse-view-link-update:
+        operation: warehouse_view_link_update
         enabled: false
     warehouse-view-link-validate-create:
         operation: warehouse_view_link_validate_create
@@ -790,8 +858,20 @@ tools:
     warehouse-view-links-create:
         operation: warehouse_view_links_create
         enabled: false
+    warehouse-view-links-destroy:
+        operation: warehouse_view_links_destroy
+        enabled: false
     warehouse-view-links-list:
         operation: warehouse_view_links_list
+        enabled: false
+    warehouse-view-links-partial-update:
+        operation: warehouse_view_links_partial_update
+        enabled: false
+    warehouse-view-links-retrieve:
+        operation: warehouse_view_links_retrieve
+        enabled: false
+    warehouse-view-links-update:
+        operation: warehouse_view_links_update
         enabled: false
     warehouse-view-links-validate-create:
         operation: warehouse_view_links_validate_create

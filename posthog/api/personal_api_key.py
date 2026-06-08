@@ -159,6 +159,24 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
         )
         personal_api_key._value = value  # type: ignore
+        # User created their FIRST PAT themselves through a session, so the credential
+        # review interstitial has nothing partner-issued to surface for them - mark it
+        # acknowledged. Three gates, all load-bearing:
+        #   - count == 0: no pre-existing PATs, so this is the user's first. If they
+        #     already had keys, those might be partner-issued and still awaiting review,
+        #     so don't stamp.
+        #   - SessionAuthentication: PAT-bearer auth would let an attacker holding a
+        #     partner-issued PAT mint another PAT to silently dismiss the victim's
+        #     review screen. Same constraint as credentials_review_complete.
+        #   - credentials_reviewed_at IS NULL: don't clobber a real review timestamp.
+        request = self.context["request"]
+        if (
+            count == 0
+            and user.credentials_reviewed_at is None
+            and isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
+        ):
+            user.credentials_reviewed_at = timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
 
     def roll(self, personal_api_key: PersonalAPIKey) -> PersonalAPIKey:
@@ -195,10 +213,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
-    Personal API Keys can only access their own key and only for retrieval
+    Personal API keys can only access their own key and only for retrieval
     """
 
-    message = "This action does not support Personal API Key access"
+    message = "This action does not support personal API key access"
 
     def has_permission(self, request, view) -> bool:
         # This permission check only applies to the personal api key
@@ -214,7 +232,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
         return request.successful_authenticator.personal_api_key == item
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer

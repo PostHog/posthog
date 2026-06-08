@@ -1,24 +1,31 @@
+import os
 import base64
 import hashlib
+import importlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.db import OperationalError
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
+from posthog.api.oauth.views import OAuthValidator
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -43,6 +50,26 @@ def generate_rsa_key() -> str:
     )
 
     return pem.decode("utf-8")
+
+
+def jwks_entry_to_public_key(key_data: dict):
+    # Rebuild an RSA public key from a JWKS entry's modulus (n) and exponent (e).
+    public_numbers = rsa.RSAPublicNumbers(
+        e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
+        n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+    )
+    return public_numbers.public_key()
+
+
+def public_pem(public_key) -> str:
+    return public_key.public_bytes(
+        encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode("utf-8")
+
+
+def private_pem_to_public_pem(private_key_pem: str) -> str:
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+    return public_pem(private_key.public_key())
 
 
 @override_settings(
@@ -170,12 +197,12 @@ class TestOAuthAPI(APIBaseTest):
         self.client.logout()
 
         response = self.client.get(self.base_authorization_url)
-        assert response.status_code == status.HTTP_302_FOUND
-        assert f"/login?next=/oauth/authorize/" in response["Location"]
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn(f"/login?next=/oauth/authorize/", response["Location"])
 
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_first_party_app_auto_approves_with_org_scoped_grant(self):
         first_party_app = OAuthApplication.objects.create(
@@ -195,15 +222,15 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.get(url)
 
-        assert response.status_code == status.HTTP_302_FOUND
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response["Location"]
-        assert "code=" in location
+        self.assertIn("code=", location)
 
         code = parse_qs(urlparse(location).query)["code"][0]
         grant = OAuthGrant.objects.get(code=code)
 
-        assert self.team.pk in grant.scoped_teams
-        assert str(self.organization.id) in grant.scoped_organizations
+        self.assertEqual(grant.scoped_teams, [])
+        self.assertIn(str(self.organization.id), grant.scoped_organizations)
 
     def test_authorize_missing_client_id(self):
         url = self.base_authorization_url
@@ -211,9 +238,9 @@ class TestOAuthAPI(APIBaseTest):
         url_without_client_id = self.replace_param_in_url(url, "client_id", None)
 
         response = self.client.get(url_without_client_id)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Missing client_id parameter."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Missing client_id parameter.")
 
     def test_authorize_invalid_client_id(self):
         url = self.base_authorization_url
@@ -221,9 +248,9 @@ class TestOAuthAPI(APIBaseTest):
         url_without_client_id = self.replace_param_in_url(url, "client_id", "invalid_id")
 
         response = self.client.get(url_without_client_id)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Invalid client_id parameter value."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Invalid client_id parameter value.")
 
     def test_authorize_missing_redirect_uri(self):
         # According to the spec, if the client has a single redirect URI, the authorization server does not require an
@@ -234,7 +261,7 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.get(url_without_redirect_uri)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_authorize_rejects_if_missing_redirect_uri_and_multiple_redirect_uris(self):
         # According to the spec, if the client has multiple redirect URIs, the authorization server MUST require an
@@ -257,9 +284,9 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.get(url_with_client_id)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Missing redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Missing redirect URI.")
 
     def test_authorize_invalid_redirect_uri(self):
         url = self.base_authorization_url
@@ -268,9 +295,9 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.get(url_without_redirect_uri)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_authorize_fails_without_pkce(self):
         url = self.base_authorization_url
@@ -279,12 +306,12 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.get(url_without_code_challenge)
 
-        assert response.status_code == status.HTTP_302_FOUND
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         location = response["Location"]
 
-        assert "error=invalid_request" in location
-        assert "error_description=Code+challenge+required" in location
+        self.assertIn("error=invalid_request", location)
+        self.assertIn("error_description=Code+challenge+required", location)
 
     def test_authorize_post_fails_if_not_authenticated(self):
         self.client.logout()
@@ -294,7 +321,7 @@ class TestOAuthAPI(APIBaseTest):
             self.base_authorization_post_body,
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_authorize_post_authorization_granted(self):
@@ -303,24 +330,24 @@ class TestOAuthAPI(APIBaseTest):
             self.base_authorization_post_body,
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
-        assert "code=" in redirect_to
+        self.assertIn("code=", redirect_to)
 
         code = redirect_to.split("code=")[1].split("&")[0]
 
         grant = OAuthGrant.objects.get(code=code)
 
-        assert grant.application == self.confidential_application
-        assert grant.user == self.user
-        assert grant.code == code
-        assert grant.code_challenge == self.code_challenge
-        assert grant.code_challenge_method == "S256"
+        self.assertEqual(grant.application, self.confidential_application)
+        self.assertEqual(grant.user, self.user)
+        self.assertEqual(grant.code, code)
+        self.assertEqual(grant.code_challenge, self.code_challenge)
+        self.assertEqual(grant.code_challenge_method, "S256")
 
         expiration_seconds = cast(int, settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"])
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
-        assert grant.expires == expected_expiration
+        self.assertEqual(grant.expires, expected_expiration)
 
     def test_authorize_post_denied_authorization(self):
         response = self.client.post(
@@ -331,10 +358,52 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert redirect_to == "https://example.com/callback?error=access_denied"
+        self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
+
+    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self):
+        # PostHog does not support OIDC silent authentication: `prompt=none` is always rejected
+        # with a spec-compliant error, never a token and never a 500. On the GET validate path
+        # oauthlib hasn't attached the user yet, so it rejects at the first gate with
+        # `login_required` (a missing validate_silent_login override used to crash here instead).
+        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+
+        response = self.client.get(url)
+
+        self.assertLess(response.status_code, 500)
+        self.assertIn("error=login_required", response.headers["Location"])
+
+    # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
+    # requests before validate_silent_login runs, so the validator's False branch can't
+    # be exercised through the HTTP flow — call it directly instead.
+    @parameterized.expand(
+        [
+            ("authenticated_user", lambda self: SimpleNamespace(user=self.user), True),
+            ("unauthenticated_user", lambda self: SimpleNamespace(user=SimpleNamespace(is_authenticated=False)), False),
+            ("no_user_attr", lambda self: SimpleNamespace(), False),
+            ("none_user", lambda self: SimpleNamespace(user=None), False),
+        ]
+    )
+    def test_validate_silent_login(self, _name, make_request, expected):
+        self.assertEqual(OAuthValidator().validate_silent_login(make_request(self)), expected)
+
+    def test_validate_silent_authorization_always_false(self):
+        # PostHog never authorizes silently; prompt=none must fall back to interactive consent.
+        self.assertFalse(OAuthValidator().validate_silent_authorization(SimpleNamespace(user=self.user)))
+
+    def test_authorize_post_allow_with_prompt_none_returns_consent_required(self):
+        # The authorization-completion path (unlike the GET validate path) attaches the
+        # authenticated user, so oauthlib runs validate_silent_authorization here. We reject
+        # silent authorization with a spec-compliant consent_required error rather than a 500.
+        response = self.client.post(
+            "/oauth/authorize/?scope=openid&prompt=none",
+            {**self.base_authorization_post_body, "allow": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("error=consent_required", response.json()["redirect_to"])
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
@@ -349,8 +418,8 @@ class TestOAuthAPI(APIBaseTest):
         response = self.post("/oauth/token/", data)
 
         # Assert the response
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     @freeze_time("2025-01-01 00:00:00")
     def test_cannot_get_token_with_expired_code(self):
@@ -374,14 +443,14 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/token/", data)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_token_endpoint_missing_grant_type(self):
         response = self.post("/oauth/token/", {})
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "unsupported_grant_type"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "unsupported_grant_type")
 
     def test_token_endpoint_invalid_grant(self):
         data = {
@@ -394,14 +463,14 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_full_oauth_flow(self):
         # 1. Get authorization request
         response = self.client.get(self.base_authorization_url)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # 2. Post authorization approval
         response = self.client.post(
@@ -409,7 +478,7 @@ class TestOAuthAPI(APIBaseTest):
             self.base_authorization_post_body,
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Extract authorization code from redirect URL
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -421,16 +490,16 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/token/", data)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
 
-        assert "access_token" in data
-        assert "token_type" in data
-        assert "expires_in" in data
-        assert "refresh_token" in data
-        assert "scope" in data
-        assert "scoped_teams" in data
-        assert "scoped_organizations" in data
+        self.assertIn("access_token", data)
+        self.assertIn("token_type", data)
+        self.assertIn("expires_in", data)
+        self.assertIn("refresh_token", data)
+        self.assertIn("scope", data)
+        self.assertIn("scoped_organizations", data)
+        self.assertIn("scoped_teams", data)
 
         access_token = data["access_token"]
         refresh_token = data["refresh_token"]
@@ -443,14 +512,14 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/token/", data, headers={"Authorization": authorization_header})
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
 
-        assert "access_token" in data
-        assert "refresh_token" in data
+        self.assertIn("access_token", data)
+        self.assertIn("refresh_token", data)
 
-        assert data["access_token"] != access_token
-        assert data["refresh_token"] != refresh_token
+        self.assertNotEqual(data["access_token"], access_token)
+        self.assertNotEqual(data["refresh_token"], refresh_token)
 
     def _create_cimd_app_and_grant(
         self,
@@ -516,12 +585,12 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self._exchange_code_for_token(wizard_app, grant)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
 
-        assert "access_token" in body
-        assert "refresh_token" not in body
-        assert not OAuthRefreshToken.objects.filter(application=wizard_app).exists()
+        self.assertIn("access_token", body)
+        self.assertNotIn("refresh_token", body)
+        self.assertFalse(OAuthRefreshToken.objects.filter(application=wizard_app).exists())
 
     def test_non_wizard_cimd_client_still_issues_refresh_token(self):
         # Ensures the allowlist is targeted: CIMD clients that aren't the wizard
@@ -534,12 +603,12 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self._exchange_code_for_token(other_app, grant)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
 
-        assert "access_token" in body
-        assert "refresh_token" in body
-        assert OAuthRefreshToken.objects.filter(application=other_app).exists()
+        self.assertIn("access_token", body)
+        self.assertIn("refresh_token", body)
+        self.assertTrue(OAuthRefreshToken.objects.filter(application=other_app).exists())
 
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_invalid_client_credentials(self):
@@ -562,7 +631,7 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", data)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_invalid_scoped_organizations_with_all_access_level(self):
         data = {
@@ -573,11 +642,10 @@ class TestOAuthAPI(APIBaseTest):
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
-        assert not serializer.is_valid()
-        assert "scoped_organizations" in serializer.errors
-        assert (
-            serializer.errors["scoped_organizations"][0]
-            == "scoped_organizations is not allowed when access_level is all"
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertEqual(
+            serializer.errors["scoped_organizations"][0], "scoped_organizations is not allowed when access_level is all"
         )
 
     def test_invalid_scoped_teams_with_organization_access_level(self):
@@ -588,9 +656,11 @@ class TestOAuthAPI(APIBaseTest):
             "scoped_teams": [1],
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
-        assert not serializer.is_valid()
-        assert "scoped_teams" in serializer.errors
-        assert serializer.errors["scoped_teams"][0] == "scoped_teams is not allowed when access_level is organization"
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertEqual(
+            serializer.errors["scoped_teams"][0], "scoped_teams is not allowed when access_level is organization"
+        )
 
     def test_missing_scoped_organizations_with_organization_access_level(self):
         data = {
@@ -599,11 +669,11 @@ class TestOAuthAPI(APIBaseTest):
             "scoped_organizations": [],
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
-        assert not serializer.is_valid()
-        assert "scoped_organizations" in serializer.errors
-        assert (
-            serializer.errors["scoped_organizations"][0]
-            == "scoped_organizations is required when access_level is organization"
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertEqual(
+            serializer.errors["scoped_organizations"][0],
+            "scoped_organizations is required when access_level is organization",
         )
 
     def test_missing_scoped_teams_with_team_access_level(self):
@@ -613,9 +683,9 @@ class TestOAuthAPI(APIBaseTest):
             "scoped_teams": [],
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
-        assert not serializer.is_valid()
-        assert "scoped_teams" in serializer.errors
-        assert serializer.errors["scoped_teams"][0] == "scoped_teams is required when access_level is team"
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertEqual(serializer.errors["scoped_teams"][0], "scoped_teams is required when access_level is team")
 
     def test_full_oauth_flow_preserves_scoped_teams(self):
         scoped_teams = [self.team.id]
@@ -631,17 +701,17 @@ class TestOAuthAPI(APIBaseTest):
             authorization_data,
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert "code=" in redirect_to
+        self.assertIn("code=", redirect_to)
         code = redirect_to.split("code=")[1].split("&")[0]
 
-        assert code is not None
+        self.assertIsNotNone(code)
 
         grant = OAuthGrant.objects.get(code=code)
 
-        assert grant.scoped_teams == scoped_teams
+        self.assertEqual(grant.scoped_teams, scoped_teams)
 
         token_data = {
             **self.base_token_body,
@@ -653,21 +723,20 @@ class TestOAuthAPI(APIBaseTest):
             token_data,
         )
 
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
-        assert "access_token" in token_response_data
-        assert "refresh_token" in token_response_data
-        assert "scoped_teams" in token_response_data
-        assert token_response_data["scoped_teams"] == scoped_teams
+        self.assertIn("access_token", token_response_data)
+        self.assertIn("refresh_token", token_response_data)
+        self.assertEqual(token_response_data["scoped_teams"], scoped_teams)
 
         access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
 
-        assert access_token.scoped_teams == scoped_teams
+        self.assertEqual(access_token.scoped_teams, scoped_teams)
 
         refresh_token = OAuthRefreshToken.objects.get(token=token_response_data["refresh_token"])
 
-        assert refresh_token.scoped_teams == scoped_teams
+        self.assertEqual(refresh_token.scoped_teams, scoped_teams)
 
         # refresh the access token
         refresh_token_data = {
@@ -679,21 +748,20 @@ class TestOAuthAPI(APIBaseTest):
 
         refresh_token_response = self.post("/oauth/token/", refresh_token_data)
 
-        assert refresh_token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_token_response.status_code, status.HTTP_200_OK)
         refresh_token_response_data = refresh_token_response.json()
 
-        assert "access_token" in refresh_token_response_data
-        assert "refresh_token" in refresh_token_response_data
-        assert "scoped_teams" in refresh_token_response_data
-        assert refresh_token_response_data["scoped_teams"] == scoped_teams
+        self.assertIn("access_token", refresh_token_response_data)
+        self.assertIn("refresh_token", refresh_token_response_data)
+        self.assertEqual(refresh_token_response_data["scoped_teams"], scoped_teams)
 
         access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
 
-        assert access_token.scoped_teams == scoped_teams
+        self.assertEqual(access_token.scoped_teams, scoped_teams)
 
         refresh_token = OAuthRefreshToken.objects.get(token=refresh_token_response_data["refresh_token"])
 
-        assert refresh_token.scoped_teams == scoped_teams
+        self.assertEqual(refresh_token.scoped_teams, scoped_teams)
 
     def test_full_oauth_flow_preserves_scoped_organizations(self):
         scoped_organizations = [str(self.organization.id)]
@@ -709,17 +777,17 @@ class TestOAuthAPI(APIBaseTest):
             authorization_data,
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert "code=" in redirect_to
+        self.assertIn("code=", redirect_to)
         code = redirect_to.split("code=")[1].split("&")[0]
 
-        assert code is not None
+        self.assertIsNotNone(code)
 
         grant = OAuthGrant.objects.get(code=code)
 
-        assert grant.scoped_organizations == scoped_organizations
+        self.assertEqual(grant.scoped_organizations, scoped_organizations)
 
         token_data = {
             **self.base_token_body,
@@ -731,19 +799,19 @@ class TestOAuthAPI(APIBaseTest):
             token_data,
         )
 
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
-        assert "scoped_organizations" in token_response_data
-        assert token_response_data["scoped_organizations"] == scoped_organizations
+        self.assertIn("scoped_organizations", token_response_data)
+        self.assertEqual(token_response_data["scoped_organizations"], scoped_organizations)
 
         access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
 
-        assert access_token.scoped_organizations == scoped_organizations
+        self.assertEqual(access_token.scoped_organizations, scoped_organizations)
 
         refresh_token = OAuthRefreshToken.objects.get(token=token_response_data["refresh_token"])
 
-        assert refresh_token.scoped_organizations == scoped_organizations
+        self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
         refresh_token_data = {
             "grant_type": "refresh_token",
@@ -754,21 +822,21 @@ class TestOAuthAPI(APIBaseTest):
 
         refresh_token_response = self.post("/oauth/token/", refresh_token_data)
 
-        assert refresh_token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_token_response.status_code, status.HTTP_200_OK)
         refresh_token_response_data = refresh_token_response.json()
 
-        assert "access_token" in refresh_token_response_data
-        assert "refresh_token" in refresh_token_response_data
-        assert "scoped_organizations" in refresh_token_response_data
-        assert refresh_token_response_data["scoped_organizations"] == scoped_organizations
+        self.assertIn("access_token", refresh_token_response_data)
+        self.assertIn("refresh_token", refresh_token_response_data)
+        self.assertIn("scoped_organizations", refresh_token_response_data)
+        self.assertEqual(refresh_token_response_data["scoped_organizations"], scoped_organizations)
 
         access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
 
-        assert access_token.scoped_organizations == scoped_organizations
+        self.assertEqual(access_token.scoped_organizations, scoped_organizations)
 
         refresh_token = OAuthRefreshToken.objects.get(token=refresh_token_response_data["refresh_token"])
 
-        assert refresh_token.scoped_organizations == scoped_organizations
+        self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
     # OIDC tests
 
@@ -780,9 +848,9 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.post("/oauth/authorize/", data_with_openid)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json().get("redirect_to", "")
-        assert "code=" in redirect_to
+        self.assertIn("code=", redirect_to)
 
         code = redirect_to.split("code=")[1].split("&")[0]
 
@@ -793,10 +861,10 @@ class TestOAuthAPI(APIBaseTest):
 
         token_response = self.post("/oauth/token/", token_data)
 
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
-        assert "id_token" in token_response_data
+        self.assertIn("id_token", token_response_data)
 
         id_token = token_response_data["id_token"]
 
@@ -805,50 +873,108 @@ class TestOAuthAPI(APIBaseTest):
         )
 
         # Verify the claims
-        assert decoded_token["sub"] == str(self.user.uuid)
-        assert decoded_token["email"] == self.user.email
-        assert decoded_token["email_verified"] == (self.user.is_email_verified or False)
-        assert decoded_token["given_name"] == self.user.first_name
-        assert decoded_token["family_name"] == self.user.last_name
+        self.assertEqual(decoded_token["sub"], str(self.user.uuid))
+        self.assertEqual(decoded_token["email"], self.user.email)
+        self.assertEqual(decoded_token["email_verified"], self.user.is_email_verified or False)
+        self.assertEqual(decoded_token["given_name"], self.user.first_name)
+        self.assertEqual(decoded_token["family_name"], self.user.last_name)
 
         # Fetch /oauth/userinfo
         userinfo_response = self.client.get(
             "/oauth/userinfo/", headers={"Authorization": f"Bearer {token_response_data['access_token']}"}
         )
-        assert userinfo_response.status_code == status.HTTP_200_OK
+        self.assertEqual(userinfo_response.status_code, status.HTTP_200_OK)
         userinfo_data = userinfo_response.json()
 
         # Verify the response matches the decoded token
-        assert userinfo_data["sub"] == str(self.user.uuid)
-        assert userinfo_data["email"] == self.user.email
-        assert userinfo_data["email_verified"] == (self.user.is_email_verified or False)
-        assert userinfo_data["given_name"] == self.user.first_name
-        assert userinfo_data["family_name"] == self.user.last_name
+        self.assertEqual(userinfo_data["sub"], str(self.user.uuid))
+        self.assertEqual(userinfo_data["email"], self.user.email)
+        self.assertEqual(userinfo_data["email_verified"], self.user.is_email_verified or False)
+        self.assertEqual(userinfo_data["given_name"], self.user.first_name)
+        self.assertEqual(userinfo_data["family_name"], self.user.last_name)
 
     def test_jwks_endpoint_returns_valid_jwks(self):
         response = self.client.get("/.well-known/jwks.json")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         jwks = response.json()
-        assert "keys" in jwks
+        self.assertIn("keys", jwks)
 
-        jwks = response.json()
+        self.assertEqual(public_pem(jwks_entry_to_public_key(jwks["keys"][0])), self.public_key)
 
-        key_data = jwks["keys"][0]
-        public_numbers = rsa.RSAPublicNumbers(
-            e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
-            n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+    def test_jwks_endpoint_publishes_active_and_inactive_keys(self):
+        inactive_key_1 = generate_rsa_key()
+        inactive_key_2 = generate_rsa_key()
+
+        with override_settings(
+            OAUTH2_PROVIDER={
+                **settings.OAUTH2_PROVIDER,
+                "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [inactive_key_1, inactive_key_2],
+            }
+        ):
+            response = self.client.get("/.well-known/jwks.json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+
+        # Active key plus both inactive keys, each published under a distinct kid
+        self.assertEqual(len(keys), 3)
+        self.assertEqual(len({key["kid"] for key in keys}), 3)
+
+        published_public_pems = {public_pem(jwks_entry_to_public_key(key)) for key in keys}
+        expected_public_pems = {
+            private_pem_to_public_pem(pem) for pem in (self.private_key, inactive_key_1, inactive_key_2)
+        }
+        self.assertEqual(published_public_pems, expected_public_pems)
+
+    def test_jwks_endpoint_publishes_only_active_key_when_no_inactive_keys(self):
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": []}):
+            response = self.client.get("/.well-known/jwks.json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+        self.assertEqual(len(keys), 1)
+        self.assertEqual(public_pem(jwks_entry_to_public_key(keys[0])), self.public_key)
+
+    def test_token_signed_with_inactive_key_still_verifies_via_jwks(self):
+        # Simulates a rotation: a token signed by the previous active key keeps verifying
+        # because that key is still published as an inactive key in the JWKS.
+        previous_key = generate_rsa_key()
+        previous_kid = jwk_from_pem(previous_key).thumbprint()
+
+        token = jwt.encode(
+            {"sub": "user-123", "aud": "test_confidential_client_id"},
+            previous_key,
+            algorithm="RS256",
+            headers={"kid": previous_kid},
         )
 
-        public_key = public_numbers.public_key()
+        with override_settings(
+            OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [previous_key]}
+        ):
+            response = self.client.get("/.well-known/jwks.json")
 
-        public_key_pem_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        matching_entry = next(key for key in response.json()["keys"] if key["kid"] == previous_kid)
+
+        decoded = jwt.decode(
+            token,
+            jwks_entry_to_public_key(matching_entry),
+            algorithms=["RS256"],
+            audience="test_confidential_client_id",
         )
+        self.assertEqual(decoded["sub"], "user-123")
 
-        public_key_pem_str = public_key_pem_bytes.decode("utf-8")
+    def test_jwks_endpoint_errors_when_an_inactive_key_is_empty(self):
+        # An empty PEM raises in the JWKS view — this is why settings filters empties out
+        # before they ever reach OIDC_RSA_PRIVATE_KEYS_INACTIVE.
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [""]}):
+            with self.assertRaises(ValueError):
+                self.client.get("/.well-known/jwks.json")
 
-        assert public_key_pem_str == self.public_key
+    def test_configured_inactive_keys_never_contain_empty_strings(self):
+        inactive_keys = cast(list[str], settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEYS_INACTIVE"])
+        self.assertNotIn("", inactive_keys)
 
     def test_id_token_not_returned_without_openid_scope(self):
         data_without_openid = {
@@ -858,9 +984,9 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.client.post("/oauth/authorize/", data_without_openid)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json().get("redirect_to", "")
-        assert "code=" in redirect_to
+        self.assertIn("code=", redirect_to)
 
         code = redirect_to.split("code=")[1].split("&")[0]
 
@@ -875,13 +1001,13 @@ class TestOAuthAPI(APIBaseTest):
 
         token_response = self.post("/oauth/token/", token_data)
 
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
-        assert "access_token" in token_response_data
-        assert "refresh_token" in token_response_data
+        self.assertIn("access_token", token_response_data)
+        self.assertIn("refresh_token", token_response_data)
 
-        assert "id_token" not in token_response_data
+        self.assertNotIn("id_token", token_response_data)
 
     # Revoking tokens
 
@@ -904,11 +1030,11 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/revoke/", body)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         refresh_token.refresh_from_db()
 
-        assert refresh_token.revoked == timezone.now()
+        self.assertEqual(refresh_token.revoked, timezone.now())
 
     def test_revoke_refresh_token_for_confidential_application_without_client_secret_fails(self):
         token_value = f"test_refresh_token_to_revoke_without_client_secret"
@@ -927,11 +1053,11 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/revoke/", body)
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         refresh_token.refresh_from_db()
 
-        assert refresh_token.revoked is None
+        self.assertIsNone(refresh_token.revoked)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_revoke_refresh_token_for_public_application_without_client_secret(self):
@@ -951,11 +1077,11 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/revoke/", body)
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         refresh_token.refresh_from_db()
 
-        assert refresh_token.revoked == timezone.now()
+        self.assertEqual(refresh_token.revoked, timezone.now())
 
     def test_serializer_requires_user_in_context(self):
         data = {
@@ -964,14 +1090,14 @@ class TestOAuthAPI(APIBaseTest):
 
         with self.assertRaises(ValueError) as cm:
             OAuthAuthorizationSerializer(data=data)
-        assert str(cm.exception) == "OAuthAuthorizationSerializer requires 'user' in context"
+        self.assertEqual(str(cm.exception), "OAuthAuthorizationSerializer requires 'user' in context")
 
         with self.assertRaises(ValueError) as cm:
             OAuthAuthorizationSerializer(data=data, context={})
-        assert str(cm.exception) == "OAuthAuthorizationSerializer requires 'user' in context"
+        self.assertEqual(str(cm.exception), "OAuthAuthorizationSerializer requires 'user' in context")
 
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
-        assert serializer.is_valid()
+        self.assertTrue(serializer.is_valid())
 
     def test_cannot_scope_to_unauthorized_organization(self):
         from posthog.models import Organization
@@ -985,10 +1111,11 @@ class TestOAuthAPI(APIBaseTest):
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
-        assert not serializer.is_valid()
-        assert "scoped_organizations" in serializer.errors
-        assert "Invalid organization specified or you do not have access" in str(
-            serializer.errors["scoped_organizations"][0]
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertIn(
+            "Invalid organization specified or you do not have access",
+            str(serializer.errors["scoped_organizations"][0]),
         )
 
     def test_cannot_scope_to_unauthorized_team(self):
@@ -1004,9 +1131,9 @@ class TestOAuthAPI(APIBaseTest):
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
-        assert not serializer.is_valid()
-        assert "scoped_teams" in serializer.errors
-        assert "Invalid team specified or you do not have access" in str(serializer.errors["scoped_teams"][0])
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertIn("Invalid team specified or you do not have access", str(serializer.errors["scoped_teams"][0]))
 
     def test_malformed_organization_uuid_rejected(self):
         data = {
@@ -1016,9 +1143,9 @@ class TestOAuthAPI(APIBaseTest):
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
-        assert not serializer.is_valid()
-        assert "scoped_organizations" in serializer.errors
-        assert "Invalid organization UUID" in str(serializer.errors["scoped_organizations"][0])
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertIn("Invalid organization UUID", str(serializer.errors["scoped_organizations"][0]))
 
     def test_nonexistent_team_rejected(self):
         data = {
@@ -1028,41 +1155,80 @@ class TestOAuthAPI(APIBaseTest):
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
-        assert not serializer.is_valid()
-        assert "scoped_teams" in serializer.errors
-        assert "Invalid team specified or you do not have access" in str(serializer.errors["scoped_teams"][0])
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertIn("Invalid team specified or you do not have access", str(serializer.errors["scoped_teams"][0]))
 
     def test_authorization_code_reuse_prevented(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
         token_data = {**self.base_token_body, "code": code}
 
         response1 = self.post("/oauth/token/", token_data)
-        assert response1.status_code == status.HTTP_200_OK
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
 
         response2 = self.post("/oauth/token/", token_data)
-        assert response2.status_code == status.HTTP_400_BAD_REQUEST
-        assert response2.json()["error"] == "invalid_grant"
+        self.assertEqual(response2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response2.json()["error"], "invalid_grant")
+
+    def test_token_endpoint_returns_invalid_grant_when_access_token_lookup_misses(self):
+        token_data = {**self.base_token_body, "code": "does_not_matter"}
+
+        with patch(
+            "oauth2_provider.views.base.TokenView.post",
+            side_effect=OAuthAccessToken.DoesNotExist,
+        ):
+            response = self.post("/oauth/token/", token_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["error"], "invalid_grant")
+        self.assertIn("error_description", body)
+
+    def test_token_endpoint_returns_temporarily_unavailable_on_pgbouncer_query_wait_timeout(self):
+        token_data = {**self.base_token_body, "code": "does_not_matter"}
+
+        with patch(
+            "oauth2_provider.views.base.TokenView.post",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            response = self.post("/oauth/token/", token_data)
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response["Retry-After"], "1")
+        body = response.json()
+        self.assertEqual(body["error"], "temporarily_unavailable")
+        self.assertIn("error_description", body)
+
+    def test_token_endpoint_does_not_swallow_unrelated_operational_errors(self):
+        token_data = {**self.base_token_body, "code": "does_not_matter"}
+
+        with patch(
+            "oauth2_provider.views.base.TokenView.post",
+            side_effect=OperationalError("something else broke"),
+        ):
+            with self.assertRaises(OperationalError):
+                self.post("/oauth/token/", token_data)
 
     def test_pkce_code_verifier_validation(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
         token_data = {**self.base_token_body, "code": code, "code_verifier": "wrong_verifier"}
 
         response = self.post("/oauth/token/", token_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_redirect_uri_exact_match_required(self):
         malicious_data = {**self.base_authorization_post_body, "redirect_uri": "https://example.com/callback/malicious"}
 
         response = self.client.post("/oauth/authorize/", malicious_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_scope_persistence_through_refresh(self):
         scoped_data = {
@@ -1086,13 +1252,100 @@ class TestOAuthAPI(APIBaseTest):
             }
 
             refresh_response = self.post("/oauth/token/", refresh_data)
-            assert refresh_response.status_code == status.HTTP_200_OK
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
 
             new_access_token = refresh_response.json()["access_token"]
             db_token = OAuthAccessToken.objects.get(token=new_access_token)
-            assert db_token.scoped_teams == [self.team.id]
+            self.assertEqual(db_token.scoped_teams, [self.team.id])
 
             refresh_token = refresh_response.json()["refresh_token"]
+
+    def _create_refreshable_token_pair(self, scope: str) -> OAuthRefreshToken:
+        suffix = scope.replace(" ", "_").replace("*", "star").replace(":", "_")
+        access_token = OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"at_{suffix}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        return OAuthRefreshToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"rt_{suffix}",
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+
+    def _refresh_and_get_scopes(self, refresh_token: OAuthRefreshToken) -> set[str]:
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_access_token = OAuthAccessToken.objects.get(token=response.json()["access_token"])
+        return set((new_access_token.scope or "").split())
+
+    @parameterized.expand(
+        [
+            (
+                "narrow_to_tightened_ceiling",
+                ["experiment:read"],
+                "openid experiment:read insight:read",
+                {"openid", "experiment:read"},
+            ),
+            (
+                "preserve_in_ceiling",
+                ["experiment:read", "insight:read"],
+                "experiment:read insight:read",
+                {"experiment:read", "insight:read"},
+            ),
+            ("empty_ceiling_is_noop", [], "experiment:read insight:read", {"experiment:read", "insight:read"}),
+        ]
+    )
+    def test_refresh_caps_scopes_at_app_ceiling(self, _name, ceiling, token_scope, expected):
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("insight:read")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+
+    def test_refresh_leaves_wildcard_token_untouched(self):
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("*")
+
+        # Wildcard narrowing is deferred to #60342; the token must keep working.
+        self.assertIn("*", self._refresh_and_get_scopes(refresh_token))
 
     def test_refresh_with_injected_code_does_not_escalate_scopes(self):
         """A refresh request that includes a `code` parameter from a broader-scope
@@ -1127,11 +1380,11 @@ class TestOAuthAPI(APIBaseTest):
             "code": broad_code,
         }
         refresh_response = self.post("/oauth/token/", refresh_data)
-        assert refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
 
         new_access_token = refresh_response.json()["access_token"]
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
-        assert db_token.scoped_teams == [self.team.id]
+        self.assertEqual(db_token.scoped_teams, [self.team.id])
 
     @freeze_time("2026-01-01 00:00:00")
     def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
@@ -1167,12 +1420,12 @@ class TestOAuthAPI(APIBaseTest):
                 "client_secret": "test_confidential_client_secret",
             },
         )
-        assert refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
 
         new_access_token_value = refresh_response.json()["access_token"]
         new_access_token = OAuthAccessToken.objects.get(token=new_access_token_value)
-        assert new_access_token.scoped_teams == [self.team.id]
-        assert new_access_token.scoped_organizations is None
+        self.assertEqual(new_access_token.scoped_teams, [self.team.id])
+        self.assertIsNone(new_access_token.scoped_organizations)
 
     def test_revoked_refresh_token_invalidates_access_tokens(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1183,7 +1436,7 @@ class TestOAuthAPI(APIBaseTest):
         refresh_token = token_response.json()["refresh_token"]
 
         userinfo_response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
-        assert userinfo_response.status_code == status.HTTP_200_OK
+        self.assertEqual(userinfo_response.status_code, status.HTTP_200_OK)
 
         revoke_data = {
             "token": refresh_token,
@@ -1193,15 +1446,15 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         revoke_response = self.post("/oauth/revoke/", revoke_data)
-        assert revoke_response.status_code == status.HTTP_200_OK
+        self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
         db_refresh_token = OAuthRefreshToken.objects.get(token=refresh_token)
-        assert db_refresh_token.revoked is not None
+        self.assertIsNotNone(db_refresh_token.revoked)
 
         userinfo_response_after_revoke = self.client.get(
             "/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"}
         )
-        assert userinfo_response_after_revoke.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(userinfo_response_after_revoke.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_client_credentials_required_for_confidential_clients(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1216,7 +1469,7 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", token_data_no_secret)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_wrong_client_credentials_rejected(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1229,7 +1482,7 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", token_data_wrong_secret)
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_cannot_use_authorization_code_with_different_client(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1245,8 +1498,8 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", token_data_different_client)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     @freeze_time("2025-01-01 00:00:00")
     def test_refresh_token_rotation_invalidates_old_token(self):
@@ -1264,21 +1517,21 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         refresh_response = self.post("/oauth/token/", refresh_data)
-        assert refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
         new_refresh_token = refresh_response.json()["refresh_token"]
 
-        assert old_refresh_token != new_refresh_token
+        self.assertNotEqual(old_refresh_token, new_refresh_token)
 
         # Within grace period, old token should still work and return the same new tokens
         retry_old_token_within_grace = self.post("/oauth/token/", refresh_data)
-        assert retry_old_token_within_grace.status_code == status.HTTP_200_OK
-        assert retry_old_token_within_grace.json()["refresh_token"] == new_refresh_token
+        self.assertEqual(retry_old_token_within_grace.status_code, status.HTTP_200_OK)
+        self.assertEqual(retry_old_token_within_grace.json()["refresh_token"], new_refresh_token)
 
         # After grace period, old token should be invalid
         with freeze_time("2025-01-01 00:03:00"):  # 3 minutes later, beyond grace period
             retry_old_token_after_grace = self.post("/oauth/token/", refresh_data)
-            assert retry_old_token_after_grace.status_code == status.HTTP_400_BAD_REQUEST
-            assert retry_old_token_after_grace.json()["error"] == "invalid_grant"
+            self.assertEqual(retry_old_token_after_grace.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(retry_old_token_after_grace.json()["error"], "invalid_grant")
 
     def test_mixed_scoped_access_levels_rejected(self):
         data = {
@@ -1289,8 +1542,8 @@ class TestOAuthAPI(APIBaseTest):
         }
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
 
-        assert not serializer.is_valid()
-        assert "scoped_teams" in serializer.errors
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
 
     def test_application_isolation_different_users(self):
         from posthog.models import Organization, OrganizationMembership, User
@@ -1302,12 +1555,12 @@ class TestOAuthAPI(APIBaseTest):
         self.client.force_login(other_user)
 
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
         grant = OAuthGrant.objects.get(code=code)
-        assert grant.user == other_user
-        assert grant.user != self.user
+        self.assertEqual(grant.user, other_user)
+        self.assertNotEqual(grant.user, self.user)
 
     def test_authorization_code_expires_correctly(self):
         with freeze_time("2025-01-01 00:00:00") as frozen_time:
@@ -1318,8 +1571,8 @@ class TestOAuthAPI(APIBaseTest):
 
             token_data = {**self.base_token_body, "code": code}
             response = self.post("/oauth/token/", token_data)
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json()["error"] == "invalid_grant"
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_public_client_pkce_enforcement(self):
         public_auth_data = {
@@ -1334,9 +1587,9 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", public_auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
-        assert "error=invalid_request" in redirect_to
+        self.assertIn("error=invalid_request", redirect_to)
 
     def test_invalid_grant_type_rejected(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1349,12 +1602,12 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", token_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
 
     def test_userinfo_endpoint_requires_valid_token(self):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_userinfo_endpoint_with_expired_token(self):
@@ -1369,7 +1622,7 @@ class TestOAuthAPI(APIBaseTest):
         db_token.save()
 
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_redirect_uri_with_query_params_handled_safely(self):
         auth_data = {
@@ -1382,12 +1635,12 @@ class TestOAuthAPI(APIBaseTest):
         response_data = response.json()
         redirect_to = response_data.get("redirect_to", "")
 
-        assert redirect_to.startswith("https://example.com/callback")
-        assert "https://evil.com" not in redirect_to.split("?")[0]
+        self.assertTrue(redirect_to.startswith("https://example.com/callback"))
+        self.assertNotIn("https://evil.com", redirect_to.split("?")[0])
 
     def test_authorization_code_cannot_be_used_across_different_applications(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
@@ -1401,8 +1654,8 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", token_data_wrong_app)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_pkce_strictly_enforced_for_public_clients(self):
         public_auth_data_no_pkce = {
@@ -1417,17 +1670,17 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", public_auth_data_no_pkce)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
-        assert "error=invalid_request" in redirect_to
-        assert "Code+challenge+required" in redirect_to
+        self.assertIn("error=invalid_request", redirect_to)
+        self.assertIn("Code+challenge+required", redirect_to)
 
     def test_public_client_full_oauth_flow(self):
         # Public client authorization with PKCE
         public_auth_url = f"/oauth/authorize/?client_id=test_public_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(public_auth_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Post authorization approval for public client
         public_auth_data = {
@@ -1444,7 +1697,7 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", public_auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
@@ -1458,14 +1711,14 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         token_response = self.post("/oauth/token/", public_token_data)
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
 
         # Verify we get all expected tokens
         token_data = token_response.json()
-        assert "access_token" in token_data
-        assert "refresh_token" in token_data
-        assert "token_type" in token_data
-        assert "expires_in" in token_data
+        self.assertIn("access_token", token_data)
+        self.assertIn("refresh_token", token_data)
+        self.assertIn("token_type", token_data)
+        self.assertIn("expires_in", token_data)
 
     def test_public_client_refresh_token_flow(self):
         # Complete initial OAuth flow for public client
@@ -1506,14 +1759,14 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         refresh_response = self.post("/oauth/token/", refresh_data)
-        assert refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
 
         refresh_response_data = refresh_response.json()
-        assert "access_token" in refresh_response_data
-        assert "refresh_token" in refresh_response_data
+        self.assertIn("access_token", refresh_response_data)
+        self.assertIn("refresh_token", refresh_response_data)
 
         # Verify token rotation occurred
-        assert refresh_response_data["refresh_token"] != refresh_token
+        self.assertNotEqual(refresh_response_data["refresh_token"], refresh_token)
 
     def test_public_client_cannot_use_client_secret_authentication(self):
         # Complete initial OAuth flow for public client
@@ -1547,7 +1800,7 @@ class TestOAuthAPI(APIBaseTest):
         )
 
         # Public client should still work even with client_secret provided
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
 
     def test_public_client_pkce_code_verifier_validation(self):
         # Complete authorization for public client
@@ -1579,8 +1832,8 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        assert token_response.status_code == status.HTTP_400_BAD_REQUEST
-        assert token_response.json()["error"] == "invalid_grant"
+        self.assertEqual(token_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(token_response.json()["error"], "invalid_grant")
 
     def test_public_client_missing_pkce_fails_token_exchange(self):
         # Complete authorization for public client
@@ -1611,8 +1864,8 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        assert token_response.status_code == status.HTTP_400_BAD_REQUEST
-        assert token_response.json()["error"] == "invalid_request"
+        self.assertEqual(token_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(token_response.json()["error"], "invalid_request")
 
     def test_public_client_userinfo_access(self):
         # Complete OAuth flow and get access token
@@ -1648,12 +1901,12 @@ class TestOAuthAPI(APIBaseTest):
         # Use access token to access userinfo endpoint
         userinfo_response = self.client.get("/oauth/userinfo/", headers={"Authorization": f"Bearer {access_token}"})
 
-        assert userinfo_response.status_code == status.HTTP_200_OK
+        self.assertEqual(userinfo_response.status_code, status.HTTP_200_OK)
         userinfo_data = userinfo_response.json()
 
         # Verify expected user claims
-        assert userinfo_data["sub"] == str(self.user.uuid)
-        assert userinfo_data["email"] == self.user.email
+        self.assertEqual(userinfo_data["sub"], str(self.user.uuid))
+        self.assertEqual(userinfo_data["email"], self.user.email)
 
     def test_public_client_scoped_access(self):
         # Test public client with team-scoped access
@@ -1671,7 +1924,7 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", scoped_auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
@@ -1686,37 +1939,37 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        assert token_response.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
 
         # Verify scoped access is preserved in token
         access_token = token_response.json()["access_token"]
         from posthog.models.oauth import OAuthAccessToken
 
         db_token = OAuthAccessToken.objects.get(token=access_token)
-        assert db_token.scoped_teams == [self.team.id]
+        self.assertEqual(db_token.scoped_teams, [self.team.id])
 
     def test_redirect_uri_exact_match_required_authorization(self):
         malicious_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback/malicious&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(malicious_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_redirect_uri_subdomain_attack_prevention(self):
         subdomain_attack_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://evil.example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(subdomain_attack_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_redirect_uri_with_fragments_rejected(self):
         fragment_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback%23fragment&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(fragment_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
 
     @pytest.mark.skip(
         reason="django-oauth-toolkit 3.1.0 introduced case-insensitive hostname matching (PR #1508), "
@@ -1726,17 +1979,17 @@ class TestOAuthAPI(APIBaseTest):
         case_different_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://EXAMPLE.COM/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(case_different_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_redirect_uri_path_traversal_attack_prevention(self):
         path_traversal_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback/../admin&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(path_traversal_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_redirect_uri_query_parameter_checks_value(self):
         OAuthApplication.objects.create(
@@ -1756,25 +2009,25 @@ class TestOAuthAPI(APIBaseTest):
         exact_match_url = f"/oauth/authorize/?client_id=test_query_params_client&redirect_uri={quote(redirect_uri)}&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(exact_match_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Should fail because it has a different query parameter value for session
         different_param_redirect_uri = "https://example.com/callback?foo=baz"
         different_query_param_url = f"/oauth/authorize/?client_id=test_query_params_client&redirect_uri={quote(different_param_redirect_uri)}&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(different_query_param_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_redirect_uri_port_manipulation_attack(self):
         # Test that port manipulation is prevented
         port_attack_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com:8080/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(port_attack_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
-        assert response.json()["error_description"] == "Mismatching redirect URI."
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+        self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_redirect_uri_consistency_authorization_to_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1787,8 +2040,8 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         token_response = self.post("/oauth/token/", token_data)
-        assert token_response.status_code == status.HTTP_400_BAD_REQUEST
-        assert token_response.json()["error"] == "invalid_request"
+        self.assertEqual(token_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(token_response.json()["error"], "invalid_request")
 
     def test_state_parameter_csrf_protection(self):
         state_value = "secure_random_state_12345"
@@ -1796,7 +2049,7 @@ class TestOAuthAPI(APIBaseTest):
         auth_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&state={state_value}"
 
         response = self.client.get(auth_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         auth_data = {
             **self.base_authorization_post_body,
@@ -1804,12 +2057,12 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert f"state={state_value}" in redirect_to
+        self.assertIn(f"state={state_value}", redirect_to)
 
-        assert "code=" in redirect_to
+        self.assertIn("code=", redirect_to)
 
     def test_state_parameter_preserved_in_error_responses(self):
         state_value = "error_state_preservation_test"
@@ -1818,8 +2071,8 @@ class TestOAuthAPI(APIBaseTest):
         auth_url = f"/oauth/authorize/?client_id=invalid_client&redirect_uri=https://example.com/callback&response_type=code&state={state_value}"
 
         response = self.client.get(auth_url)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_request"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
 
     def test_state_parameter_with_special_characters(self):
         # Test that state parameter handles special characters properly
@@ -1828,7 +2081,7 @@ class TestOAuthAPI(APIBaseTest):
         auth_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&state={state_value}"
 
         response = self.client.get(auth_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         auth_data = {
             **self.base_authorization_post_body,
@@ -1836,25 +2089,25 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
         # URL encoding might occur, so we check for the presence rather than exact match
-        assert "state=" in redirect_to
+        self.assertIn("state=", redirect_to)
 
     def test_missing_state_parameter_handling(self):
         auth_url = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
         response = self.client.get(auth_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Complete authorization without state
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert "code=" in redirect_to
-        assert "state=" not in redirect_to
+        self.assertIn("code=", redirect_to)
+        self.assertNotIn("state=", redirect_to)
 
     def test_state_parameter_reuse(self):
         state_value = "reusable_state_value"
@@ -1865,14 +2118,14 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response1 = self.client.post("/oauth/authorize/", auth_data)
-        assert response1.status_code == status.HTTP_200_OK
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
         redirect_to1 = response1.json()["redirect_to"]
-        assert f"state={state_value}" in redirect_to1
+        self.assertIn(f"state={state_value}", redirect_to1)
 
         response2 = self.client.post("/oauth/authorize/", auth_data)
-        assert response2.status_code == status.HTTP_200_OK
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
         redirect_to2 = response2.json()["redirect_to"]
-        assert f"state={state_value}" in redirect_to2
+        self.assertIn(f"state={state_value}", redirect_to2)
 
     def test_state_parameter_length_limits(self):
         state_value = "a" * 2048
@@ -1883,10 +2136,10 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert "state=" in redirect_to
+        self.assertIn("state=", redirect_to)
 
     def test_denial_preserves_state_parameter(self):
         state_value = "denial_test_state"
@@ -1898,11 +2151,11 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.client.post("/oauth/authorize/", auth_data)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        assert "error=access_denied" in redirect_to
-        assert f"state={state_value}" in redirect_to
+        self.assertIn("error=access_denied", redirect_to)
+        self.assertIn(f"state={state_value}", redirect_to)
 
     def test_nonce_uniqueness_validation(self):
         nonce_value = "test_nonce_12345"
@@ -1910,20 +2163,20 @@ class TestOAuthAPI(APIBaseTest):
         auth_data_with_nonce = {**self.base_authorization_post_body, "nonce": nonce_value, "scope": "openid"}
 
         response1 = self.client.post("/oauth/authorize/", auth_data_with_nonce)
-        assert response1.status_code == status.HTTP_200_OK
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
 
         code1 = response1.json()["redirect_to"].split("code=")[1].split("&")[0]
 
         token_response1 = self.post("/oauth/token/", {**self.base_token_body, "code": code1})
-        assert token_response1.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response1.status_code, status.HTTP_200_OK)
 
         response2 = self.client.post("/oauth/authorize/", auth_data_with_nonce)
-        assert response2.status_code == status.HTTP_200_OK
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
 
         code2 = response2.json()["redirect_to"].split("code=")[1].split("&")[0]
 
         token_response2 = self.post("/oauth/token/", {**self.base_token_body, "code": code2})
-        assert token_response2.status_code == status.HTTP_200_OK
+        self.assertEqual(token_response2.status_code, status.HTTP_200_OK)
 
     def test_access_token_isolation_between_applications(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1945,8 +2198,8 @@ class TestOAuthAPI(APIBaseTest):
         )
 
         db_token = OAuthAccessToken.objects.get(token=access_token)
-        assert db_token.application == self.confidential_application
-        assert db_token.application != other_app
+        self.assertEqual(db_token.application, self.confidential_application)
+        self.assertNotEqual(db_token.application, other_app)
 
     def test_token_leakage_in_error_responses(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
@@ -1963,7 +2216,7 @@ class TestOAuthAPI(APIBaseTest):
         for invalid_request in invalid_requests:
             response = self.post("/oauth/token/", invalid_request)
             response_text = response.content.decode()
-            assert access_token not in response_text
+            self.assertNotIn(access_token, response_text)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_refresh_token_reuse_within_grace_period(self):
@@ -1981,17 +2234,17 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         first_refresh_response = self.post("/oauth/token/", refresh_data)
-        assert first_refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
         new_refresh_token = first_refresh_response.json()["refresh_token"]
         new_access_token = first_refresh_response.json()["access_token"]
 
         # Reuse old refresh token within grace period (2 minutes by default)
         with freeze_time("2025-01-01 00:01:00"):
             reuse_response = self.post("/oauth/token/", refresh_data)
-            assert reuse_response.status_code == status.HTTP_200_OK
+            self.assertEqual(reuse_response.status_code, status.HTTP_200_OK)
 
-            assert reuse_response.json()["refresh_token"] == new_refresh_token
-            assert reuse_response.json()["access_token"] == new_access_token
+            self.assertEqual(reuse_response.json()["refresh_token"], new_refresh_token)
+            self.assertEqual(reuse_response.json()["access_token"], new_access_token)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_refresh_token_reuse_after_grace_period_revokes_token_family(self):
@@ -2010,22 +2263,22 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         first_refresh_response = self.post("/oauth/token/", refresh_data)
-        assert first_refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
         new_refresh_token = first_refresh_response.json()["refresh_token"]
 
         # Try to reuse old refresh token after grace period (2 minutes by default)
         with freeze_time("2025-01-01 00:03:00"):
             reuse_response = self.post("/oauth/token/", refresh_data)
-            assert reuse_response.status_code == status.HTTP_400_BAD_REQUEST
-            assert reuse_response.json()["error"] == "invalid_grant"
+            self.assertEqual(reuse_response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(reuse_response.json()["error"], "invalid_grant")
 
             # Verify all tokens in the family are revoked
             old_token_db = OAuthRefreshToken.objects.get(token=old_refresh_token)
-            assert old_token_db.revoked is not None
+            self.assertIsNotNone(old_token_db.revoked)
 
             # New refresh token should also be revoked
             new_token_db = OAuthRefreshToken.objects.get(token=new_refresh_token)
-            assert new_token_db.revoked is not None
+            self.assertIsNotNone(new_token_db.revoked)
 
             # The new refresh token behavior depends on the OAuth library implementation
             # Some implementations may immediately revoke all tokens in the family,
@@ -2056,14 +2309,14 @@ class TestOAuthAPI(APIBaseTest):
             }
 
             refresh_response = self.post("/oauth/token/", refresh_data)
-            assert refresh_response.status_code == status.HTTP_200_OK
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
 
             new_refresh_token = refresh_response.json()["refresh_token"]
             refresh_tokens.append(new_refresh_token)
 
             # Verify the new token has the same token family
             new_token_db = OAuthRefreshToken.objects.get(token=new_refresh_token)
-            assert new_token_db.token_family == token_family
+            self.assertEqual(new_token_db.token_family, token_family)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_concurrent_refresh_token_requests_within_grace_period(self):
@@ -2083,17 +2336,17 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         first_refresh_response = self.post("/oauth/token/", refresh_data)
-        assert first_refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(first_refresh_response.status_code, status.HTTP_200_OK)
         first_new_tokens = first_refresh_response.json()
 
         # Simulate concurrent request with the same old refresh token within grace period
         with freeze_time("2025-01-01 00:00:30"):  # 30 seconds later
             concurrent_response = self.post("/oauth/token/", refresh_data)
-            assert concurrent_response.status_code == status.HTTP_200_OK
+            self.assertEqual(concurrent_response.status_code, status.HTTP_200_OK)
 
             # Should return the same tokens as the first refresh
-            assert concurrent_response.json()["refresh_token"] == first_new_tokens["refresh_token"]
-            assert concurrent_response.json()["access_token"] == first_new_tokens["access_token"]
+            self.assertEqual(concurrent_response.json()["refresh_token"], first_new_tokens["refresh_token"])
+            self.assertEqual(concurrent_response.json()["access_token"], first_new_tokens["access_token"])
 
     @freeze_time("2025-01-01 00:00:00")
     def test_refresh_token_reuse_with_different_client_fails(self):
@@ -2113,8 +2366,8 @@ class TestOAuthAPI(APIBaseTest):
         }
 
         response = self.post("/oauth/token/", refresh_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "invalid_grant"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_invalid_scope_validation_with_and_without_trailing_slash(self):
         """Test that invalid scope validation works with and without trailing slash."""
@@ -2123,10 +2376,10 @@ class TestOAuthAPI(APIBaseTest):
         invalid_scope_url_with_slash = f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
 
         response = self.client.get(invalid_scope_url_with_slash)
-        assert response.status_code == status.HTTP_302_FOUND
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response.get("Location")
         assert location
-        assert "error=invalid_scope" in location
+        self.assertIn("error=invalid_scope", location)
 
         # Test without trailing slash (should now also validate scopes after fix)
         invalid_scope_url_without_slash = f"/oauth/authorize?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256&scope=invalid_scope_name"
@@ -2134,10 +2387,104 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get(invalid_scope_url_without_slash)
 
         # After the fix, both should behave the same - redirect with error
-        assert response.status_code == status.HTTP_302_FOUND
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response.get("Location")
         assert location
-        assert "error=invalid_scope" in location
+        self.assertIn("error=invalid_scope", location)
+
+    # --- Per-application scope ceiling (OAuthApplication.scopes) ---
+
+    def _set_ceiling(self, *scopes: str) -> None:
+        self.confidential_application.scopes = list(scopes)
+        self.confidential_application.save()
+
+    def _authorize_post(self, scope: str):
+        body = {**self.base_authorization_post_body, "scope": scope}
+        return self.client.post("/oauth/authorize/", body)
+
+    def test_authorize_rejects_scope_outside_app_ceiling(self):
+        # GET rejects with a redirect carrying error=invalid_scope; the
+        # validator short-circuits before any template render.
+        self._set_ceiling("experiment:read")
+        response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response.get("Location")
+        assert location
+        self.assertIn("error=invalid_scope", location)
+
+    def test_authorize_accepts_scope_within_app_ceiling(self):
+        self._set_ceiling("experiment:read", "dashboard:read")
+        response = self._authorize_post("experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        self.assertIn("code=", redirect_to)
+
+    def test_authorize_empty_ceiling_falls_back_to_unprivileged(self):
+        # confidential_application.scopes defaults to [] -> broad default
+        # (UNPRIVILEGED_SCOPES), so experiment:read passes.
+        response = self._authorize_post("experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        self.assertIn("code=", redirect_to)
+
+    def test_authorize_oidc_and_introspection_bypass_app_ceiling(self):
+        # OIDC + introspection are identity / token-management scopes, not
+        # resource permissions; they pass regardless of the per-app ceiling.
+        self._set_ceiling("experiment:read")
+        response = self._authorize_post("openid profile email introspection experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        self.assertIn("code=", redirect_to)
+
+    def test_authorize_wildcard_rejected_when_app_ceiling_set(self):
+        self._set_ceiling("experiment:read")
+        response = self.client.get(f"{self.base_authorization_url}&scope=*")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response.get("Location")
+        assert location
+        self.assertIn("error=invalid_scope", location)
+
+    def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
+        # Existing clients (the PostHog Code CLI today) still send scope=*
+        # against apps that have no explicit ceiling. Until wildcard retirement
+        # (#60342) lands, those broad-default apps keep accepting it.
+        response = self._authorize_post("*")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        self.assertIn("code=", redirect_to)
+
+    @parameterized.expand(
+        [
+            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+        ]
+    )
+    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+        self._set_ceiling(*ceiling)
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error=invalid_scope", response.get("Location") or "")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["reason"], "invalid_scope")
+        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+
+    def test_authorize_success_does_not_capture_invalid_scope_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            self._authorize_post("experiment:read")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(rejected, [])
 
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_with_json_payload(self):
@@ -2168,16 +2515,16 @@ class TestOAuthAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert "access_token" in response_data
-        assert "refresh_token" in response_data
-        assert "token_type" in response_data
-        assert "scoped_teams" in response_data
-        assert "scoped_organizations" in response_data
-        assert response_data["token_type"] == "Bearer"
-        assert response_data["scoped_teams"] == []
-        assert response_data["scoped_organizations"] == []
+        self.assertIn("access_token", response_data)
+        self.assertIn("refresh_token", response_data)
+        self.assertIn("token_type", response_data)
+        self.assertIn("scoped_organizations", response_data)
+        self.assertIn("scoped_teams", response_data)
+        self.assertEqual(response_data["token_type"], "Bearer")
+        self.assertEqual(response_data["scoped_organizations"], [])
+        self.assertEqual(response_data["scoped_teams"], [])
 
     def test_token_endpoint_with_invalid_json_payload(self):
         response = self.client.post(
@@ -2186,22 +2533,22 @@ class TestOAuthAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        assert response_data["error"] == "invalid_request"
-        assert "Invalid JSON" in response_data["error_description"]
+        self.assertEqual(response_data["error"], "invalid_request")
+        self.assertIn("Invalid JSON", response_data["error_description"])
 
     def _create_access_and_refresh_tokens(self, scopes: str = "openid") -> tuple[OAuthAccessToken, OAuthRefreshToken]:
         response = self.client.post(
             "/oauth/authorize/",
             {**self.base_authorization_post_body, "scope": scopes},
         )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
 
         response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
@@ -2224,22 +2571,22 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": authorization_header},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
-        assert data["client_id"] == "test_confidential_client_id"
-        assert data["client_name"] == "Test Confidential App"
-        assert "scoped_teams" in data
-        assert "scoped_organizations" in data
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], "test_confidential_client_id")
+        self.assertEqual(data["client_name"], "Test Confidential App")
+        self.assertIn("scoped_organizations", data)
+        self.assertIn("scoped_teams", data)
 
         if token_type == "access_token":
-            assert data["token_type"] == "access_token"
-            assert data["scope"] == "openid"
-            assert "exp" in data
+            self.assertEqual(data["token_type"], "access_token")
+            self.assertEqual(data["scope"], "openid")
+            self.assertIn("exp", data)
         else:
-            assert data["token_type"] == "refresh_token"
-            assert "scope" not in data
-            assert "exp" not in data
+            self.assertEqual(data["token_type"], "refresh_token")
+            self.assertNotIn("scope", data)
+            self.assertNotIn("exp", data)
 
     @parameterized.expand(["access_token", "refresh_token"])
     def test_introspection_with_client_credentials_in_body(self, token_type):
@@ -2255,17 +2602,17 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
-        assert data["client_id"] == "test_confidential_client_id"
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], "test_confidential_client_id")
 
         if token_type == "access_token":
-            assert data["token_type"] == "access_token"
-            assert data["scope"] == "openid"
+            self.assertEqual(data["token_type"], "access_token")
+            self.assertEqual(data["scope"], "openid")
         else:
-            assert data["token_type"] == "refresh_token"
-            assert "scope" not in data
+            self.assertEqual(data["token_type"], "refresh_token")
+            self.assertNotIn("scope", data)
 
     def test_introspection_with_bearer_token_requires_introspection_scope(self):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
@@ -2277,7 +2624,7 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(["access_token", "refresh_token"])
     def test_introspection_with_bearer_token_with_introspection_scope(self, token_type):
@@ -2293,16 +2640,16 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
+        self.assertTrue(data["active"])
 
         if token_type == "access_token":
-            assert data["token_type"] == "access_token"
-            assert data["scope"] == "openid"
+            self.assertEqual(data["token_type"], "access_token")
+            self.assertEqual(data["scope"], "openid")
         else:
-            assert data["token_type"] == "refresh_token"
-            assert "scope" not in data
+            self.assertEqual(data["token_type"], "refresh_token")
+            self.assertNotIn("scope", data)
 
     def test_introspection_with_invalid_token(self):
         authorization_header = self.get_basic_auth_header(
@@ -2315,17 +2662,17 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": authorization_header},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert not data["active"]
-        assert len(data) == 1
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
 
     def test_introspection_without_authentication_fails(self):
         access_token, _ = self._create_access_and_refresh_tokens()
 
         response = self.post("/oauth/introspect/", {"token": access_token.token})
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_introspection_with_wrong_client_credentials_fails(self):
         access_token, _ = self._create_access_and_refresh_tokens()
@@ -2339,7 +2686,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_introspection_with_expired_token(self):
@@ -2358,9 +2705,9 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": authorization_header},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert not data["active"]
+        self.assertFalse(data["active"])
 
     def test_introspection_via_get_method(self):
         access_token, _ = self._create_access_and_refresh_tokens()
@@ -2374,9 +2721,9 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": authorization_header},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
+        self.assertTrue(data["active"])
 
     def test_introspection_with_json_body(self):
         access_token, _ = self._create_access_and_refresh_tokens()
@@ -2392,10 +2739,10 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": authorization_header},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
-        assert data["scope"] == "openid"
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid")
 
     def test_introspection_with_missing_token_returns_inactive(self):
         authorization_header = self.get_basic_auth_header(
@@ -2408,9 +2755,9 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": authorization_header},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert not data["active"]
+        self.assertFalse(data["active"])
 
     def test_self_introspection_succeeds_without_introspection_scope(self):
         """A token can introspect itself without requiring the introspection scope."""
@@ -2422,10 +2769,10 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
-        assert data["scope"] == "openid user:read"
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid user:read")
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -2436,9 +2783,9 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
+        self.assertTrue(data["active"])
 
     def test_self_introspection_with_json_body_succeeds(self):
         """Self-introspection works with JSON body."""
@@ -2451,9 +2798,9 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
+        self.assertTrue(data["active"])
 
     @freeze_time("2025-01-01 00:00:00")
     def test_self_introspection_with_expired_token_returns_inactive(self):
@@ -2468,9 +2815,9 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert not data["active"]
+        self.assertFalse(data["active"])
 
     def test_self_introspection_with_revoked_token_fails(self):
         """A revoked (deleted) token cannot self-introspect."""
@@ -2484,7 +2831,7 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {token_value}"},
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_introspecting_different_token_still_requires_introspection_scope(self):
         """Introspecting a different token still requires the introspection scope."""
@@ -2497,7 +2844,7 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {bearer_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_introspecting_different_token_succeeds_with_introspection_scope(self):
         """Introspecting a different token succeeds when bearer has introspection scope."""
@@ -2510,10 +2857,10 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {bearer_token.token}"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["active"]
-        assert data["scope"] == "openid user:read"
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid user:read")
 
     @freeze_time("2025-01-01 00:00:00")
     def test_dcr_client_gets_extended_token_expiry(self):
@@ -2549,12 +2896,12 @@ class TestOAuthAPI(APIBaseTest):
 
         data = token_response.json()
 
-        assert data["expires_in"] == 60 * 60 * 24 * 7
+        self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
 
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
         expected_expiry = timezone.now() + timedelta(days=7)
         time_diff = abs((access_token.expires - expected_expiry).total_seconds())
-        assert time_diff < 60
+        self.assertLess(time_diff, 60)
 
     def test_non_dcr_client_gets_default_token_expiry(self):
         self.public_application.is_dcr_client = False
@@ -2589,7 +2936,7 @@ class TestOAuthAPI(APIBaseTest):
 
         data = token_response.json()
 
-        assert data["expires_in"] == 60 * 60
+        self.assertEqual(data["expires_in"], 60 * 60)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_dcr_client_refresh_token_is_not_rotated(self):
@@ -2636,16 +2983,16 @@ class TestOAuthAPI(APIBaseTest):
                     "client_id": self.public_application.client_id,
                 },
             )
-            assert refresh_response.status_code == status.HTTP_200_OK
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
             data = refresh_response.json()
-            assert data["refresh_token"] == original_refresh_token
-            assert data["access_token"] != original_access_token
-            assert data["expires_in"] == 60 * 60 * 24 * 7
+            self.assertEqual(data["refresh_token"], original_refresh_token)
+            self.assertNotEqual(data["access_token"], original_access_token)
+            self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
             original_access_token = data["access_token"]
 
         # Verify the refresh token was never revoked
         db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
-        assert db_refresh_token.revoked is None
+        self.assertIsNone(db_refresh_token.revoked)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_non_dcr_client_refresh_token_is_rotated(self):
@@ -2689,12 +3036,12 @@ class TestOAuthAPI(APIBaseTest):
                 "client_id": self.public_application.client_id,
             },
         )
-        assert refresh_response.status_code == status.HTTP_200_OK
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
         new_refresh_token = refresh_response.json()["refresh_token"]
-        assert new_refresh_token != original_refresh_token
+        self.assertNotEqual(new_refresh_token, original_refresh_token)
 
         old_db_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
-        assert old_db_token.revoked is not None
+        self.assertIsNotNone(old_db_token.revoked)
 
     @parameterized.expand(["vscode", "obsidian", "myapp"])
     def test_error_redirect_with_custom_scheme_does_not_500(self, scheme):
@@ -2723,9 +3070,9 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get(url)
 
         # Should redirect back to the client with the error, not 500
-        assert response.status_code == status.HTTP_302_FOUND
-        assert response["Location"].startswith(f"{scheme}://posthog/callback")
-        assert "error=invalid_scope" in response["Location"]
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(response["Location"].startswith(f"{scheme}://posthog/callback"))
+        self.assertIn("error=invalid_scope", response["Location"])
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
@@ -2744,10 +3091,10 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/token/", {**self.base_token_body, "code": grant.code})
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["posthog_region"] == "us"
-        assert data["posthog_base_url"] == "https://us.posthog.com"
+        self.assertEqual(data["posthog_region"], "us")
+        self.assertEqual(data["posthog_base_url"], "https://us.posthog.com")
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(CLOUD_DEPLOYMENT="EU", SITE_URL="https://eu.posthog.com")
@@ -2766,10 +3113,10 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/token/", {**self.base_token_body, "code": grant.code})
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert data["posthog_region"] == "eu"
-        assert data["posthog_base_url"] == "https://eu.posthog.com"
+        self.assertEqual(data["posthog_region"], "eu")
+        self.assertEqual(data["posthog_base_url"], "https://eu.posthog.com")
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(CLOUD_DEPLOYMENT=None)
@@ -2788,10 +3135,117 @@ class TestOAuthAPI(APIBaseTest):
 
         response = self.post("/oauth/token/", {**self.base_token_body, "code": grant.code})
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        assert "posthog_region" not in data
-        assert "posthog_base_url" not in data
+        self.assertNotIn("posthog_region", data)
+        self.assertNotIn("posthog_base_url", data)
+
+    def _create_first_party_app(self, *, slug: str, is_first_party: bool = True) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=f"First Party App {slug}",
+            client_id=f"first_party_{slug}_client_id",
+            client_secret=f"first_party_{slug}_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+            is_first_party=is_first_party,
+        )
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_token_response_derives_scoped_teams_for_first_party_app(self):
+        app = self._create_first_party_app(slug="first-party-derive")
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="first_party_derive_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": "first_party_first-party-derive_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
+        self.assertIn(self.team.pk, data["scoped_teams"])
+
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        self.assertEqual(access_token.scoped_teams, [])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_token_response_does_not_derive_scoped_teams_for_third_party_app(self):
+        app = self._create_first_party_app(slug="third-party-no-derive", is_first_party=False)
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="third_party_no_derive_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": "first_party_third-party-no-derive_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
+        self.assertEqual(data["scoped_teams"], [])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_token_response_preserves_stored_scoped_teams_for_first_party_app(self):
+        app = self._create_first_party_app(slug="first-party-preserve")
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="first_party_preserve_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": "first_party_first-party-preserve_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
+        self.assertEqual(data["scoped_teams"], [self.team.pk])
 
 
 @override_settings(
@@ -2837,7 +3291,7 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
             f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
         )
         response = self.client.get(auth_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_localhost_without_port_still_works(self):
         """http://localhost/callback should still match exactly."""
@@ -2847,7 +3301,7 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
             f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
         )
         response = self.client.get(auth_url)
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_localhost_wrong_path_rejected(self):
         """http://localhost:50470/evil should NOT match http://localhost/callback."""
@@ -2858,7 +3312,26 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         )
         response = self.client.get(auth_url)
         # DOT returns a redirect with error params or an error response
-        assert response.status_code != status.HTTP_200_OK
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            # urlparse sees hostname='localhost' so the portless reconstruction matches the
+            # registered URI, but the browser following the redirect interprets the backslash
+            # as a path separator and delivers the authorization code to evil.example.
+            ("raw_backslash", "http://evil.example\\@localhost:50470/callback"),
+            # Same trick with the percent-encoded form `%5c`.
+            ("percent_encoded_backslash", "http://evil.example%5C@localhost:50470/callback"),
+        ]
+    )
+    def test_backslash_authority_bypass_in_localhost_redirect_rejected(self, _name, redirect_uri):
+        auth_url = (
+            f"/oauth/authorize/?client_id=test_localhost_client_id"
+            f"&redirect_uri={redirect_uri}"
+            f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        )
+        response = self.client.get(auth_url)
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
 
     def test_non_localhost_port_mismatch_still_rejected(self):
         """Port flexibility only applies to loopback addresses, not arbitrary hosts."""
@@ -2879,7 +3352,7 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
             f"&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
         )
         response = self.client.get(auth_url)
-        assert response.status_code != status.HTTP_200_OK
+        self.assertNotEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):
@@ -2887,14 +3360,14 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
     def test_returns_valid_metadata(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         metadata = response.json()
 
         # Required fields per RFC 8414
-        assert "issuer" in metadata
-        assert "authorization_endpoint" in metadata
-        assert "token_endpoint" in metadata
+        self.assertIn("issuer", metadata)
+        self.assertIn("authorization_endpoint", metadata)
+        self.assertIn("token_endpoint", metadata)
 
     def test_metadata_endpoints_are_valid_urls(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
@@ -2911,19 +3384,20 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         ]
 
         for field in endpoint_fields:
-            assert field in metadata
-            assert metadata[field].startswith("http://") or metadata[field].startswith("https://"), (
-                f"{field} should be a valid URL, got: {metadata[field]}"
+            self.assertIn(field, metadata)
+            self.assertTrue(
+                metadata[field].startswith("http://") or metadata[field].startswith("https://"),
+                f"{field} should be a valid URL, got: {metadata[field]}",
             )
 
     def test_metadata_includes_supported_features(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
 
-        assert metadata["response_types_supported"] == ["code"]
-        assert metadata["grant_types_supported"] == ["authorization_code", "refresh_token"]
-        assert metadata["code_challenge_methods_supported"] == ["S256"]
-        assert "none" in metadata["token_endpoint_auth_methods_supported"]
+        self.assertEqual(metadata["response_types_supported"], ["code"])
+        self.assertEqual(metadata["grant_types_supported"], ["authorization_code", "refresh_token"])
+        self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
+        self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])
 
     def test_metadata_includes_scopes(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
@@ -2932,13 +3406,13 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         scopes = metadata["scopes_supported"]
 
         # OIDC scopes
-        assert "openid" in scopes
-        assert "profile" in scopes
-        assert "email" in scopes
+        self.assertIn("openid", scopes)
+        self.assertIn("profile", scopes)
+        self.assertIn("email", scopes)
 
         # Resource scopes (from get_scope_descriptions) are in format "resource:action"
         resource_scopes = [s for s in scopes if ":" in s]
-        assert len(resource_scopes) > 0, "Should have resource scopes like 'event_definition:read'"
+        self.assertGreater(len(resource_scopes), 0, "Should have resource scopes like 'event_definition:read'")
 
     def test_metadata_excludes_internal_scope_objects(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
@@ -2953,16 +3427,57 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.client.logout()
 
         response = self.client.get("/.well-known/oauth-authorization-server")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_metadata_includes_region_for_cloud(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
-        assert metadata["posthog_region"] == "us"
+        self.assertEqual(metadata["posthog_region"], "us")
 
     @override_settings(CLOUD_DEPLOYMENT=None)
     def test_metadata_excludes_region_for_self_hosted(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
-        assert "posthog_region" not in metadata
+        self.assertNotIn("posthog_region", metadata)
+
+
+class TestOIDCInactiveKeysSetting(SimpleTestCase):
+    """OIDC_RSA_PRIVATE_KEYS_INACTIVE is assembled from two env vars so multi-line PEMs
+    don't need delimiter parsing. Only keys that are actually set may be included — an
+    empty entry would break the JWKS endpoint (see test_jwks_endpoint_errors_when_an_inactive_key_is_empty).
+
+    Reloading posthog.settings.web only rebinds names in that module; django.conf.settings
+    is populated from the posthog.settings package and is unaffected, so this stays isolated.
+    """
+
+    @parameterized.expand(
+        [
+            ("both_unset", None, None, []),
+            ("both_blank", "", "", []),
+            ("only_first_set", "key-1", None, ["key-1"]),
+            ("only_second_set", None, "key-2", ["key-2"]),
+            ("first_blank_second_set", "", "key-2", ["key-2"]),
+            ("both_set", "key-1", "key-2", ["key-1", "key-2"]),
+        ]
+    )
+    def test_inactive_keys_built_from_env_vars(self, _name, env_1, env_2, expected):
+        env_vars = {
+            "OIDC_RSA_PRIVATE_KEY_INACTIVE_1": env_1,
+            "OIDC_RSA_PRIVATE_KEY_INACTIVE_2": env_2,
+        }
+        overrides = {var: value for var, value in env_vars.items() if value is not None}
+
+        web_settings = importlib.import_module("posthog.settings.web")
+        try:
+            with patch.dict(os.environ, overrides, clear=False):
+                for var, value in env_vars.items():
+                    if value is None:
+                        os.environ.pop(var, None)
+                importlib.reload(web_settings)
+                self.assertEqual(web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE, expected)
+                self.assertNotIn("", web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE)
+        finally:
+            # Restore module attributes to the real environment (patch.dict has already
+            # restored os.environ by this point, so this reload sees the original vars).
+            importlib.reload(web_settings)

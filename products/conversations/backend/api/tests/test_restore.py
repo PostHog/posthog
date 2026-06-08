@@ -632,6 +632,47 @@ class TestRestoreAPI(BaseTest):
         assert data["status"] == "used"
         assert data["code"] == "token_already_used"
 
+    @parameterized.expand(
+        [
+            # urlparse sees hostname='allowed.com', so a naive check would accept this.
+            # The browser following the emailed link decodes `\` as a path separator and
+            # delivers the restore token to attacker.example.
+            ("raw_backslash", "https://attacker.example\\@allowed.com/support"),
+            ("percent_encoded_backslash", "https://attacker.example%5C@allowed.com/support"),
+        ]
+    )
+    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
+    @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
+    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
+    def test_restore_request_rejects_backslash_authority_bypass(
+        self,
+        _name,
+        request_url,
+        mock_send_email,
+        mock_validate_origin,
+        mock_throttle,
+    ):
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            "widget_domains": ["allowed.com"],
+        }
+        self.team.save()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore/request",
+            {"email": self.customer_email, "request_url": request_url},
+            **self._get_headers(origin="https://allowed.com"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_send_email.delay.assert_not_called()
+
     def test_restore_redeem_authentication_required(self):
         response = self.client.post(
             "/api/conversations/v1/widget/restore",

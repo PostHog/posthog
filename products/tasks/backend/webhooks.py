@@ -1,15 +1,18 @@
 import hmac
-import json
 import uuid
 import hashlib
 
-from django.http import HttpRequest, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
 
 import structlog
+import posthoganalytics
 
+from posthog.event_usage import groups
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 
+from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -71,51 +74,11 @@ def get_github_webhook_secret() -> str | None:
     return secret if secret else None
 
 
-@csrf_exempt
-def github_pr_webhook(request: HttpRequest) -> HttpResponse:
+def handle_pull_request_event(payload: dict) -> HttpResponse:
+    """Process a pre-verified pull_request webhook event.
+
+    Called from ``posthog.urls.github_webhook`` (unified dispatcher).
     """
-    Handle GitHub pull_request webhook events.
-
-    This endpoint:
-    1. Validates the HMAC-SHA256 signature from GitHub
-    2. Parses pull_request events (opened, closed, merged)
-    3. Finds TaskRun by matching pr_url in output field
-    4. Emits console log events and analytics
-
-    Expected events:
-    - pull_request.opened → log "PR created"
-    - pull_request.closed with merged=true → log "PR merged"
-    - pull_request.closed with merged=false → log "PR closed"
-    """
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    webhook_secret = get_github_webhook_secret()
-    if not webhook_secret:
-        logger.error(
-            "github_pr_webhook_no_secret",
-            message="GITHUB_WEBHOOK_SECRET not configured",
-        )
-        return HttpResponse("Webhook not configured", status=500)
-
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not verify_github_signature(request.body, signature, webhook_secret):
-        logger.warning(
-            "github_pr_webhook_invalid_signature",
-            has_signature=bool(signature),
-        )
-        return HttpResponse("Invalid signature", status=403)
-
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse("Invalid JSON", status=400)
-
-    event_type = request.headers.get("X-GitHub-Event")
-    if event_type != "pull_request":
-        # Not a PR event, acknowledge but don't process, shouldnt happen becuase of github app permissions
-        return HttpResponse(status=200)
-
     action = payload.get("action")
     pull_request = payload.get("pull_request", {})
     pr_url = pull_request.get("html_url")
@@ -136,7 +99,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
             event_action = "closed"
             analytics_event = "pr_closed"
     else:
-        # Other actions (reopened, edited, etc.) - acknowledge but don't process
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
 
@@ -144,27 +106,122 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
 
-    if not task_run:
-        logger.debug(
-            "github_pr_webhook_no_task_run",
-            action=action,
-            pr_url=pr_url,
-            message="No TaskRun found with this PR URL",
-        )
-        return HttpResponse(status=200)
-
     logger.info(
         "github_pr_webhook_processed",
         action=action,
         event_action=event_action,
         pr_url=pr_url,
-        task_id=str(task_run.task_id),
-        run_id=str(task_run.id),
+        pr_source="task" if task_run else "external",
+        task_id=str(task_run.task_id) if task_run else None,
+        run_id=str(task_run.id) if task_run else None,
     )
 
-    # Generate a deterministic UUID from the PR URL and event type so that
-    # duplicate webhook deliveries for the same PR action are deduplicated.
+    # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
-    task_run.capture_event(analytics_event, {"pr_url": pr_url}, event_uuid=event_uuid)
+    _capture_pr_event(payload, task_run, analytics_event, event_uuid)
+
+    if task_run and action == "closed" and merged:
+        _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
     return HttpResponse(status=200)
+
+
+# Nulled on external PRs so their schema matches task-originated PR events.
+_TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
+
+
+def _pr_payload_properties(payload: dict) -> dict:
+    pull_request = payload.get("pull_request") or {}
+    return {
+        "pr_url": pull_request.get("html_url"),
+        "pr_number": pull_request.get("number"),
+        "pr_author": (pull_request.get("user") or {}).get("login"),
+        "pr_base_ref": (pull_request.get("base") or {}).get("ref"),
+        "pr_head_ref": (pull_request.get("head") or {}).get("ref"),
+    }
+
+
+def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
+    pr_properties = _pr_payload_properties(payload)
+
+    if task_run is not None:
+        task_run.capture_event(analytics_event, {**pr_properties, "pr_source": "task"}, event_uuid=event_uuid)
+        return
+
+    team = _resolve_external_team(payload)
+    if team is None:
+        logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
+        return
+
+    properties: dict = {
+        **pr_properties,
+        "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
+        "pr_source": "external",
+        "team_id": team.id,
+        # title omitted to avoid leaking customer business context.
+        **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+    }
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event=analytics_event,
+            properties=properties,
+            groups=groups(team=team),
+            uuid=event_uuid,
+        )
+    except Exception as e:
+        logger.warning("github_pr_webhook_capture_failed", analytics_event=analytics_event, error=str(e))
+
+
+def _resolve_external_team(payload: dict) -> Team | None:
+    installation_id = (payload.get("installation") or {}).get("id")
+    if installation_id is None:
+        return None
+
+    # One installation can map to multiple teams; order_by makes attribution deterministic.
+    integration = (
+        Integration.objects.filter(kind="github", integration_id=str(installation_id))
+        .select_related("team")
+        .order_by("team_id")
+        .first()
+    )
+    return integration.team if integration else None
+
+
+def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
+    """Mark signal reports linked to a merged PR's task as resolved.
+
+    Kept tolerant: a single bad transition should not fail the whole webhook,
+    since GitHub retries 5xx responses and we've already acknowledged the PR event.
+    """
+    reports = (
+        SignalReport.objects.filter(report_tasks__task_id=task_id)
+        .exclude(
+            status__in=[
+                SignalReport.Status.RESOLVED,
+                SignalReport.Status.DELETED,
+                SignalReport.Status.SUPPRESSED,
+            ]
+        )
+        .distinct()
+    )
+
+    for report in reports:
+        try:
+            updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
+        except InvalidStatusTransition:
+            logger.warning(
+                "github_pr_webhook_signal_report_invalid_transition",
+                report_id=str(report.id),
+                from_status=report.status,
+                pr_url=pr_url,
+            )
+            continue
+        report.save(update_fields=updated_fields)
+        logger.info(
+            "github_pr_webhook_signal_report_resolved",
+            report_id=str(report.id),
+            task_id=str(task_id),
+            pr_url=pr_url,
+        )

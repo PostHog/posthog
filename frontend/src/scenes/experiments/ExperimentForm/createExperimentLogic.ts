@@ -2,6 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -339,12 +340,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             actions.saveExperimentStarted()
 
             try {
-                // Make experiment eligible for timeseries
-                const schedulingConfig = {
-                    ...values.experiment?.scheduling_config,
-                    timeseries: true,
-                }
-
                 const savedMetrics = [
                     ...values.sharedMetrics.primary.map((metric) => ({
                         id: metric.sharedMetricId!,
@@ -362,7 +357,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                 const experimentPayload: Experiment = {
                     ...values.experiment,
-                    scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
                 }
 
@@ -389,6 +383,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.createExperimentSuccess()
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
                     lemonToast.success('Experiment created successfully!')
+                    tryShowMCPHint('experiments.create', {
+                        derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
+                    })
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()

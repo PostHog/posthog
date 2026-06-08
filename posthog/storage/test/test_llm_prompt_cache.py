@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from posthog.models.llm_prompt import LLMPrompt
 from posthog.storage.llm_prompt_cache import (
     _serialize_prompt,
     get_prompt_by_name_from_cache,
@@ -15,6 +14,8 @@ from posthog.storage.llm_prompt_cache import (
     llm_prompts_hypercache,
 )
 from posthog.storage.llm_prompt_cache_keys import prompt_latest_cache_key
+
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
 
 class TestLLMPromptCache(BaseTest):
@@ -68,12 +69,14 @@ class TestLLMPromptCache(BaseTest):
         cached_prompt = get_prompt_by_name_from_cache(self.team, "cached-prompt")
 
         assert cached_prompt is not None
-        assert cached_prompt["id"] == str(latest_version.id)
-        assert cached_prompt["version"] == 2
-        assert cached_prompt["latest_version"] == 2
-        assert cached_prompt["version_count"] == 2
-        assert cached_prompt["first_version_created_at"] == first_version.created_at.isoformat().replace("+00:00", "Z")
-        assert cached_prompt["is_latest"]
+        self.assertEqual(cached_prompt["id"], str(latest_version.id))
+        self.assertEqual(cached_prompt["version"], 2)
+        self.assertEqual(cached_prompt["latest_version"], 2)
+        self.assertEqual(cached_prompt["version_count"], 2)
+        self.assertEqual(
+            cached_prompt["first_version_created_at"], first_version.created_at.isoformat().replace("+00:00", "Z")
+        )
+        self.assertTrue(cached_prompt["is_latest"])
 
     def test_get_prompt_by_name_from_cache_returns_historical_prompt_with_latest_metadata(self):
         historical = self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
@@ -82,11 +85,11 @@ class TestLLMPromptCache(BaseTest):
         cached_prompt = get_prompt_by_name_from_cache(self.team, "cached-prompt", version=1)
 
         assert cached_prompt is not None
-        assert cached_prompt["id"] == str(historical.id)
-        assert cached_prompt["version"] == 1
-        assert cached_prompt["latest_version"] == 2
-        assert cached_prompt["version_count"] == 2
-        assert not cached_prompt["is_latest"]
+        self.assertEqual(cached_prompt["id"], str(historical.id))
+        self.assertEqual(cached_prompt["version"], 1)
+        self.assertEqual(cached_prompt["latest_version"], 2)
+        self.assertEqual(cached_prompt["version_count"], 2)
+        self.assertFalse(cached_prompt["is_latest"])
 
     def test_first_version_created_at_follows_version_one_not_oldest_timestamp(self):
         version_one = self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
@@ -99,25 +102,30 @@ class TestLLMPromptCache(BaseTest):
         cached_prompt = get_prompt_by_name_from_cache(self.team, "cached-prompt")
 
         assert cached_prompt is not None
-        assert cached_prompt["first_version_created_at"] == version_one.created_at.isoformat().replace("+00:00", "Z")
+        self.assertEqual(
+            cached_prompt["first_version_created_at"], version_one.created_at.isoformat().replace("+00:00", "Z")
+        )
 
     def test_serialize_prompt_matches_expected_cache_shape(self):
         prompt = self.create_prompt_version(name="serializer-shape")
 
         serialized_prompt = _serialize_prompt(prompt)
-        assert set(serialized_prompt.keys()) == {
-            "id",
-            "name",
-            "prompt",
-            "version",
-            "created_at",
-            "updated_at",
-            "deleted",
-            "is_latest",
-            "latest_version",
-            "version_count",
-            "first_version_created_at",
-        }
+        self.assertEqual(
+            set(serialized_prompt.keys()),
+            {
+                "id",
+                "name",
+                "prompt",
+                "version",
+                "created_at",
+                "updated_at",
+                "deleted",
+                "is_latest",
+                "latest_version",
+                "version_count",
+                "first_version_created_at",
+            },
+        )
 
     def test_get_prompt_by_name_from_cache_hits_latest_loader_once_when_cache_is_warm(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=True)
@@ -126,7 +134,7 @@ class TestLLMPromptCache(BaseTest):
             get_prompt_by_name_from_cache(self.team, "cached-prompt")
             get_prompt_by_name_from_cache(self.team, "cached-prompt")
 
-        assert mock_load_fn.call_count == 1
+        self.assertEqual(mock_load_fn.call_count, 1)
 
     def test_get_prompt_by_name_from_cache_hits_version_loader_once_when_historical_cache_is_warm(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
@@ -141,7 +149,7 @@ class TestLLMPromptCache(BaseTest):
             get_prompt_by_name_from_cache(self.team, "cached-prompt", version=1)
             get_prompt_by_name_from_cache(self.team, "cached-prompt", version=1)
 
-        assert mock_load_fn.call_count == 1
+        self.assertEqual(mock_load_fn.call_count, 1)
 
     def test_invalidate_prompt_latest_cache_forces_latest_loader_on_next_read(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=True)
@@ -151,7 +159,7 @@ class TestLLMPromptCache(BaseTest):
             invalidate_prompt_latest_cache(self.team.id, "cached-prompt")
             get_prompt_by_name_from_cache(self.team, "cached-prompt")
 
-        assert mock_load_fn.call_count == 2
+        self.assertEqual(mock_load_fn.call_count, 2)
 
     def test_invalidate_prompt_version_cache_forces_version_loader_on_next_read(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
@@ -167,27 +175,30 @@ class TestLLMPromptCache(BaseTest):
             invalidate_prompt_version_cache(self.team.id, "cached-prompt", 1)
             get_prompt_by_name_from_cache(self.team, "cached-prompt", version=1)
 
-        assert mock_load_fn.call_count == 2
+        self.assertEqual(mock_load_fn.call_count, 2)
 
     def test_name_miss_falls_back_to_db_when_latest_prompt_cache_entry_is_stale(self):
         self.create_prompt_version(name="existing-prompt", version=1, is_latest=True)
         get_prompt_by_name_from_cache(self.team, "existing-prompt")
 
-        with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
+        with patch(
+            "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback: None,
+        ):
             self.create_prompt_version(name="new-prompt", version=1, is_latest=True)
 
         cached_prompt = get_prompt_by_name_from_cache(self.team, "new-prompt")
 
         assert cached_prompt is not None
-        assert cached_prompt["name"] == "new-prompt"
-        assert cached_prompt["version"] == 1
+        self.assertEqual(cached_prompt["name"], "new-prompt")
+        self.assertEqual(cached_prompt["version"], 1)
 
     def test_archive_invalidation_clears_sparse_version_cache_for_reused_name(self):
         old_v1 = self.create_prompt_version(name="reused-prompt", version=1, is_latest=False, prompt="old-v1")
         self.create_prompt_version(name="reused-prompt", version=2, is_latest=True, prompt="old-v2")
         first_cached = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
         assert first_cached is not None
-        assert first_cached["id"] == str(old_v1.id)
+        self.assertEqual(first_cached["id"], str(old_v1.id))
 
         invalidate_prompt_name_caches(self.team.id, "reused-prompt", [1, 2])
         LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
@@ -199,16 +210,19 @@ class TestLLMPromptCache(BaseTest):
         second_cached = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
 
         assert second_cached is not None
-        assert second_cached["id"] == str(new_v1.id)
-        assert second_cached["id"] != str(old_v1.id)
+        self.assertEqual(second_cached["id"], str(new_v1.id))
+        self.assertNotEqual(second_cached["id"], str(old_v1.id))
 
     def test_stale_exact_version_cache_entry_is_detected_using_first_version_id(self):
         old_v1 = self.create_prompt_version(name="reused-prompt", version=1, is_latest=True, prompt="old-v1")
         cached_old = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
         assert cached_old is not None
-        assert cached_old["id"] == str(old_v1.id)
+        self.assertEqual(cached_old["id"], str(old_v1.id))
 
-        with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
+        with patch(
+            "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback: None,
+        ):
             LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
                 deleted=True, is_latest=False
             )
@@ -218,8 +232,8 @@ class TestLLMPromptCache(BaseTest):
         refreshed = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
 
         assert refreshed is not None
-        assert refreshed["id"] == str(new_v1.id)
-        assert refreshed["id"] != str(old_v1.id)
+        self.assertEqual(refreshed["id"], str(new_v1.id))
+        self.assertNotEqual(refreshed["id"], str(old_v1.id))
 
     def test_stale_exact_version_cache_entry_uses_first_version_id_generation_marker(self):
         old_v1 = self.create_prompt_version(name="reused-prompt", version=1, is_latest=True, prompt="old-v1")
@@ -227,9 +241,12 @@ class TestLLMPromptCache(BaseTest):
 
         cached_old = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
         assert cached_old is not None
-        assert cached_old["id"] == str(old_v1.id)
+        self.assertEqual(cached_old["id"], str(old_v1.id))
 
-        with patch("posthog.models.llm_prompt.transaction.on_commit", side_effect=lambda callback: None):
+        with patch(
+            "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
+            side_effect=lambda callback: None,
+        ):
             LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
                 deleted=True,
                 is_latest=False,
@@ -241,8 +258,8 @@ class TestLLMPromptCache(BaseTest):
 
         refreshed = get_prompt_by_name_from_cache(self.team, "reused-prompt", version=1)
         assert refreshed is not None
-        assert refreshed["id"] == str(new_v1.id)
-        assert refreshed["id"] != str(old_v1.id)
+        self.assertEqual(refreshed["id"], str(new_v1.id))
+        self.assertNotEqual(refreshed["id"], str(old_v1.id))
 
     def test_exact_fetch_refreshes_latest_cache_entry_missing_generation_marker(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=False, prompt="v1")
@@ -267,7 +284,7 @@ class TestLLMPromptCache(BaseTest):
 class TestLLMPromptCacheSignals(BaseTest):
     def test_model_signal_invalidates_latest_and_exact_version_caches_on_commit(self):
         with (
-            patch("posthog.models.llm_prompt.transaction.on_commit") as mock_on_commit,
+            patch("products.ai_observability.backend.models.llm_prompt.transaction.on_commit") as mock_on_commit,
             patch("posthog.storage.llm_prompt_cache.invalidate_prompt_latest_cache") as mock_invalidate_latest,
             patch("posthog.storage.llm_prompt_cache.invalidate_prompt_version_cache") as mock_invalidate_version,
         ):
@@ -280,6 +297,6 @@ class TestLLMPromptCacheSignals(BaseTest):
                 created_by=self.user,
             )
 
-        assert mock_on_commit.called
+        self.assertTrue(mock_on_commit.called)
         mock_invalidate_latest.assert_called_with(self.team.id, "signal-prompt")
         mock_invalidate_version.assert_called_with(self.team.id, "signal-prompt", 1)

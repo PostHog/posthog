@@ -54,7 +54,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { series: [{ event: '$pageview', kind: 'EventsNode' }] },
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'test-distinct-id',
         })
 
@@ -65,40 +65,13 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         expect(payload).not.toHaveProperty('structuredContent')
     })
 
-    it.each([
-        ['claude-code'],
-        ['Claude Code'], // whitespace variant — normalizer strips it
-        ['claude-code-cli'],
-        ['claude-code/1.2.3'],
-        ['cline'],
-        ['cline-bot'],
-        ['continue'],
-        ['codex'],
-        ['windsurf'],
-        ['zed'],
-        ['aider'],
-        ['github.copilot'],
-    ])('suppresses structuredContent for coding agent %s', (clientName) => {
+    it('keeps structuredContent when suppression is false', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName,
-            distinctId: 'd',
-        })
-
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-        expect(payload).not.toHaveProperty('structuredContent')
-    })
-
-    it('keeps structuredContent for Cursor (it reads text for the model, structured for UI)', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: queryTrendsHandlerResult(),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: {},
-            clientName: 'cursor',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'test-distinct-id',
         })
 
@@ -112,22 +85,18 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         expect(payload.structuredContent).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
     })
 
-    it.each([['Claude Desktop'], ['claude-desktop'], ['mcp-inspector'], [undefined]])(
-        'keeps structuredContent for non-coding client %s',
-        (clientName) => {
-            const payload = buildToolResultPayload({
-                handlerResult: queryTrendsHandlerResult(),
-                toolMeta: queryTrendsToolMeta,
-                toolName: 'query-trends',
-                params: {},
-                clientName,
-                distinctId: 'd',
-            })
+    it('keeps structuredContent when suppression is omitted', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            distinctId: 'd',
+        })
 
-            expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-            expect(payload.structuredContent).not.toBeUndefined()
-        }
-    )
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload.structuredContent).not.toBeUndefined()
+    })
 
     it('keeps structuredContent when caller explicitly passes output_format=json (even on claude-code)', () => {
         const payload = buildToolResultPayload({
@@ -135,7 +104,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { output_format: 'json' },
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'd',
         })
 
@@ -158,7 +127,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'd',
         })
 
@@ -174,7 +143,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName: 'claude-desktop',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'user-abc-123',
         })
 
@@ -194,7 +163,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: undefined,
             toolName: 'whatever',
             params: {},
-            clientName: 'cursor',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'd',
         })
 
@@ -214,7 +183,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             toolMeta: undefined,
             toolName: 'execute-sql',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: undefined,
         })
 
@@ -231,7 +200,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             toolMeta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } },
             toolName: 'query-llm-traces-list',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: undefined,
         })
 

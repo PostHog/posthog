@@ -6,9 +6,10 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
 
+from products.posthog_ai.backend.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
+
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
 from ee.hogai.utils.types import AssistantState
-from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class TestRememberCommand(BaseTest):

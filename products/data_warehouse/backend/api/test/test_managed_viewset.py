@@ -4,7 +4,8 @@ from rest_framework import status
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 

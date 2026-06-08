@@ -115,6 +115,32 @@ class TestWidgetAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["ticket_id"] == str(ticket.id)
 
+    def test_unverified_request_cannot_repoint_ticket_distinct_id(self):
+        # An anonymous (widget_session_id-only) request must not be able to overwrite an
+        # existing ticket's distinct_id with another identity. Otherwise an attacker who
+        # owns a ticket could re-point it at a victim's distinct_id and have it surface in
+        # the victim's verified history / be linked to the victim's profile for staff.
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Trying to hijack identity",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": "victim@example.com",
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.distinct_id, self.distinct_id)
+
     def test_create_message_updates_session_data_on_existing_ticket(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,

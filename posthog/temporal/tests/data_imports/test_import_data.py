@@ -12,13 +12,13 @@ from posthog.tasks.test.test_usage_report import freeze_time
 from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 @sync_to_async
@@ -102,6 +102,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             team_id=team.id,
             require_ssl=True,
             is_initial_sync=True,
+            enabled_columns=None,
         )
 
 
@@ -143,6 +144,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             team_id=team.id,
             require_ssl=True,
             is_initial_sync=True,
+            enabled_columns=None,
         )
 
 
@@ -196,6 +198,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             team_id=team.id,
             require_ssl=True,
             is_initial_sync=True,
+            enabled_columns=None,
         )
 
 
@@ -264,6 +267,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             team_id=team.id,
             require_ssl=True,
             is_initial_sync=True,
+            enabled_columns=None,
         )
 
 

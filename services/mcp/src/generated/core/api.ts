@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -55,7 +55,11 @@ export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
         .min(organizationsProjectsRetrievePathIdMin)
         .max(organizationsProjectsRetrievePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
@@ -70,7 +74,11 @@ export const OrganizationsProjectsPartialUpdateParams = /* @__PURE__ */ zod.obje
         .min(organizationsProjectsPartialUpdatePathIdMin)
         .max(organizationsProjectsPartialUpdatePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const organizationsProjectsPartialUpdateBodyNameMax = 200
@@ -124,7 +132,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -145,7 +153,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -158,8 +166,8 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -173,8 +181,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Enables session replay recording for this project.'),
         session_recording_sample_rate: zod
-            .string()
-            .regex(organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp)
+            .stringFormat('decimal', organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp)
             .nullish()
             .describe(
                 'Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).'
@@ -185,11 +192,11 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .max(organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -197,7 +204,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -208,15 +215,12 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -230,9 +234,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -247,9 +251,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -257,13 +261,110 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DesktopFileSystemListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemCreateBodyTypeMax = 100
+
+export const desktopFileSystemCreateBodyRefMax = 100
+
+export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Return the latest non-deleted instructions for this folder.
+ */
+export const DesktopFileSystemInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const DesktopFileSystemInstructionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
+        .optional()
+        .describe(
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
+        ),
+})
 
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -299,7 +400,6 @@ export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const subscriptionsCreateBodyIntervalMin = -2147483648
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -347,10 +447,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsCreateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsCreateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod
@@ -375,12 +476,18 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({}).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
         until_date: zod.iso
-            .datetime({})
+            .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsCreateBodyTitleMax)
@@ -417,7 +524,6 @@ export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const subscriptionsPartialUpdateBodyIntervalMin = -2147483648
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -468,10 +574,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsPartialUpdateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsPartialUpdateBodyIntervalMax)
             .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod
@@ -496,12 +604,21 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsPartialUpdateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({}).optional().describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe('When to start delivering (ISO 8601 datetime).'),
         until_date: zod.iso
-            .datetime({})
+            .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsPartialUpdateBodyTitleMax)
@@ -570,9 +687,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
     password: zod.string().max(usersPartialUpdateBodyPasswordMax).optional(),
@@ -583,15 +700,15 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -599,9 +716,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -613,5 +730,11 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })

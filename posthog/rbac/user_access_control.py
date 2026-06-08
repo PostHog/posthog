@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
+from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
@@ -51,12 +52,16 @@ NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
+# We need to restrict this for HogQL access control which uses `NOT IN (...)`
+ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
+
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
     "experiment",
     "external_data_source",
+    "warehouse_objects",
     "feature_flag",
     "insight",
     "llm_analytics",
@@ -75,16 +80,26 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "warehouse_table": "warehouse_objects",
+    "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
     "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "llm_skill": "llm_analytics",
+    "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "dashboard_template": "dashboard",
+    # Marketing analytics doesn't have its own RBAC resource yet — inherit from
+    # web_analytics so the existing per-team controls actually gate it (matches
+    # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
+    # AccessControlResourceType.WebAnalytics).
+    "marketing_analytics": "web_analytics",
 }
+
+tracer = trace.get_tracer(__name__)
 
 
 class UserAccessControlError(Exception):
@@ -124,6 +139,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "external_data_source":
         return "data warehouse sources"
+    if resource == "warehouse_objects":
+        # Umbrella label for both warehouse tables and views (both children inherit from this)
+        return "data warehouse tables & views"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -278,8 +296,16 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "external_data_source"
     if name == "externaldataschema":
         return "external_data_schema"
+    if name == "datawarehousesavedquery":
+        return "warehouse_view"
+    if name == "datawarehousesavedqueryfolder":
+        return "warehouse_view"
+    if name == "datawarehousetable":
+        return "warehouse_table"
     if name == "customerjourney":
         return "customer_journey"
+    if name in ("replayscanner", "replayobservation"):
+        return "replay_scanner"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -351,7 +377,7 @@ class UserAccessControl:
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
     # ------------------------------------------------------------
     # Access control helpers
@@ -378,7 +404,13 @@ class UserAccessControl:
             return []
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
-            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+            with tracer.start_as_current_span("rbac.access_controls.db") as span:
+                resource = filters.get("resource")
+                if isinstance(resource, str):
+                    span.set_attribute("rbac.resource", resource)
+                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+                span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
 
@@ -724,6 +756,16 @@ class UserAccessControl:
             # If there is no team, then there can't be any access controls on this resource
             return False
 
+        # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
+        # bypass their own resource-level rows: only the parent (umbrella) is consulted.
+        # This keeps the AC picker simple — admins configure one umbrella scope instead
+        # of N child scopes — at the cost of ignoring any standalone resource-level row
+        # written against a child. Object-level rows on the child are still honored via
+        # specific_access_level_for_object, which queries the child resource directly.
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.has_access_levels_for_resource(parent_resource)
+
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
         return bool(access_controls)
@@ -801,20 +843,28 @@ class UserAccessControl:
         - "viewer" if user has specific object access (allows page access but not creation)
         - None or "none" if user has no access at all
         """
-        # First check resource-level access
-        resource_access = self.access_level_for_resource(resource)
+        with tracer.start_as_current_span("rbac.effective_access_level_for_resource") as span:
+            span.set_attribute("rbac.resource", str(resource))
+            # First check resource-level access
+            with tracer.start_as_current_span("rbac.resource_level_check"):
+                resource_access = self.access_level_for_resource(resource)
 
-        # If resource access is not "none", return it directly
-        if resource_access and resource_access != NO_ACCESS_LEVEL:
-            return resource_access
+            # If resource access is not "none", return it directly
+            if resource_access and resource_access != NO_ACCESS_LEVEL:
+                span.set_attribute("rbac.path", "resource_level")
+                return resource_access
 
-        # If resource access is "none" or None, check for specific object access
-        # For navigation purposes, if they have specific access to any objects,
-        # grant them "viewer" level to see the resource page but NOT create new items
-        if self.has_any_specific_access_for_resource(resource, required_level="viewer"):
-            return "viewer"
+            # If resource access is "none" or None, check for specific object access
+            # For navigation purposes, if they have specific access to any objects,
+            # grant them "viewer" level to see the resource page but NOT create new items
+            with tracer.start_as_current_span("rbac.specific_access_fallback"):
+                has_specific = self.has_any_specific_access_for_resource(resource, required_level="viewer")
+            if has_specific:
+                span.set_attribute("rbac.path", "specific_access")
+                return "viewer"
 
-        return resource_access  # This will be "none" or None
+            span.set_attribute("rbac.path", "no_access")
+            return resource_access  # This will be "none" or None
 
     # ------------------------------------------------------------
     # Filtering querysets

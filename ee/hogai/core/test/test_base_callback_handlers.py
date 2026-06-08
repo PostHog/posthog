@@ -6,9 +6,10 @@ from unittest.mock import Mock, patch
 import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.core.runner import SubagentCallbackHandler
-from ee.models import Conversation
 
 
 class TestBaseAgentRunnerCallbackHandlers(BaseTest):

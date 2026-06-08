@@ -28,7 +28,8 @@ import { TaskStatusBadge } from './TaskStatusBadge'
 import { UserFilter } from './UserFilter'
 
 export function TasksList(): JSX.Element {
-    const { searchQuery, repository, status, showInternal, isDev, isCreateModalOpen } = useValues(taskTrackerSceneLogic)
+    const { searchQuery, repository, status, showInternal, isStaff, isCreateModalOpen } =
+        useValues(taskTrackerSceneLogic)
     const { tasks, tasksLoading, repositories } = useValues(tasksLogic)
     const { setSearchQuery, setRepository, setStatus, setShowInternal, openCreateModal, closeCreateModal } =
         useActions(taskTrackerSceneLogic)
@@ -139,7 +140,7 @@ export function TasksList(): JSX.Element {
                     )}
                     <LemonSelect value={status} onChange={setStatus} options={statusOptions} className="min-w-32" />
                     <UserFilter />
-                    {isDev && (
+                    {isStaff && (
                         <LemonSwitch
                             label="Show internal"
                             checked={showInternal}

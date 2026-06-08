@@ -1,13 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from '@posthog/lemon-ui'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { toggleSubscriptionEnabled } from 'lib/components/Subscriptions/toggleSubscriptionEnabled'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -194,7 +193,6 @@ function buildSubscriptionsListOrdering(sorting: Sorting | null): string {
 
 export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
     path(['scenes', 'subscriptions', 'subscriptionsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({ values: [userLogic, ['user']] })),
     actions({
         loadSubscriptions: true,
@@ -209,6 +207,9 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: true,
+        setSubscriptionEnabledFailure: true,
     }),
     reducers({
         search: [
@@ -278,6 +279,16 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 deliverSubscription: (_, { id }) => id,
                 deliverSubscriptionSuccess: () => null,
                 deliverSubscriptionFailure: () => null,
+            },
+        ],
+        // Tracks the subscription whose Pause/Resume PATCH is in flight so the row's
+        // menu item can show a busy state and prevent double-clicks.
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
             },
         ],
     }),
@@ -372,8 +383,17 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 actions.deliverSubscriptionFailure()
             }
         },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            const ok = await toggleSubscriptionEnabled(id, enabled)
+            if (ok) {
+                actions.setSubscriptionEnabledSuccess()
+            } else {
+                actions.setSubscriptionEnabledFailure()
+            }
+        },
+        setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const syncUrl = (
             replace: boolean
         ): [string, Record<string, any>, Record<string, unknown> | undefined, { replace: boolean }] | undefined => {
@@ -402,7 +422,7 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             setCurrentTab: () => syncUrl(false),
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.subscriptions()]: (_, searchParams) => {
             const parsed = parseSubscriptionsSearchParams(searchParams)
             const listState = {

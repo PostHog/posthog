@@ -7,6 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface SessionSummariesApi {
+    /**
+     * List of session IDs to summarize (max 300)
+     * @minItems 1
+     * @maxItems 300
+     */
+    session_ids: string[]
+    /**
+     * Optional focus area for the summarization
+     * @maxLength 500
+     */
+    focus_area?: string
+}
+
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -36,14 +50,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +73,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -109,9 +119,9 @@ export interface SessionRecordingPlaylistApi {
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+  * `collection` - Collection
+  * `filters` - Filters */
+    type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
@@ -159,9 +169,9 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+  * `collection` - Collection
+  * `filters` - Filters */
+    type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
@@ -311,6 +321,138 @@ export interface PatchedSessionRecordingApi {
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }
 
+/**
+ * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+ * @nullable
+ */
+export type SingleSessionSummaryMinimalApiSessionOutcome = {
+    readonly success?: boolean
+    readonly description?: string
+} | null
+
+/**
+ * Optional context passed to the summary at generation time (e.g. `focus_area`).
+ * @nullable
+ */
+export type SingleSessionSummaryMinimalApiExtraSummaryContext = {
+    readonly focus_area?: string
+} | null
+
+/**
+ * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
+ */
+export interface SingleSessionSummaryMinimalApi {
+    readonly id: string
+    /** Session replay ID */
+    readonly session_id: string
+    /**
+     * Distinct ID of the session's user
+     * @nullable
+     */
+    readonly distinct_id: string | null
+    /**
+     * Session start time
+     * @nullable
+     */
+    readonly session_start_time: string | null
+    /**
+     * Session duration in seconds
+     * @nullable
+     */
+    readonly session_duration: number | null
+    /**
+     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+     * @nullable
+     */
+    readonly session_outcome: SingleSessionSummaryMinimalApiSessionOutcome
+    /** Number of exception event IDs surfaced by this summary (capped at 100). */
+    readonly exception_count: number
+    /** True if the summary surfaced any exception events. */
+    readonly has_exceptions: boolean
+    /**
+     * LLM model identifier that generated this summary, if recorded in run metadata.
+     * @nullable
+     */
+    readonly model_used: string | null
+    /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
+    readonly visual_confirmation: boolean
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    readonly extra_summary_context: SingleSessionSummaryMinimalApiExtraSummaryContext
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+}
+
+export interface PaginatedSingleSessionSummaryMinimalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SingleSessionSummaryMinimalApi[]
+}
+
+/**
+ * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
+ */
+export type SingleSessionSummaryApiSummary = { [key: string]: unknown }
+
+/**
+ * Optional context passed to the summary at generation time (e.g. `focus_area`).
+ * @nullable
+ */
+export type SingleSessionSummaryApiExtraSummaryContext = {
+    readonly focus_area?: string
+} | null
+
+/**
+ * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+ * @nullable
+ */
+export type SingleSessionSummaryApiRunMetadata = { [key: string]: unknown } | null
+
+/**
+ * Full session summary, including the generated `summary` JSON content.
+ */
+export interface SingleSessionSummaryApi {
+    readonly id: string
+    /** Session replay ID */
+    readonly session_id: string
+    /**
+     * Distinct ID of the session's user
+     * @nullable
+     */
+    readonly distinct_id: string | null
+    /**
+     * Session start time
+     * @nullable
+     */
+    readonly session_start_time: string | null
+    /**
+     * Session duration in seconds
+     * @nullable
+     */
+    readonly session_duration: number | null
+    /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
+    readonly summary: SingleSessionSummaryApiSummary
+    /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
+    readonly exception_event_ids: readonly string[]
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    readonly extra_summary_context: SingleSessionSummaryApiExtraSummaryContext
+    /**
+     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+     * @nullable
+     */
+    readonly run_metadata: SingleSessionSummaryApiRunMetadata
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+}
+
 export type SessionRecordingPlaylistsListParams = {
     created_by?: number
     /**
@@ -334,3 +476,59 @@ export type SessionRecordingsListParams = {
      */
     offset?: number
 }
+
+export type SingleSessionSummariesListParams = {
+    /**
+     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
+     */
+    created_by?: string
+    /**
+     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
+     */
+    date_from?: string
+    /**
+     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
+     */
+    date_to?: string
+    /**
+     * Filter to summaries for a single user (the session's `distinct_id`).
+     */
+    distinct_id?: string
+    /**
+     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
+     */
+    has_exceptions?: boolean
+    /**
+     * When true, only summaries produced via the video-based visual-confirmation workflow.
+     */
+    has_visual_confirmation?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
+     */
+    order?: string
+    /**
+     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
+     */
+    outcome?: SingleSessionSummariesListOutcome
+    /**
+     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
+     */
+    session_ids?: string
+}
+
+export type SingleSessionSummariesListOutcome =
+    (typeof SingleSessionSummariesListOutcome)[keyof typeof SingleSessionSummariesListOutcome]
+
+export const SingleSessionSummariesListOutcome = {
+    Failure: 'failure',
+    Success: 'success',
+    Unknown: 'unknown',
+} as const

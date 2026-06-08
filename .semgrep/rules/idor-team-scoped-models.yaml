@@ -55,6 +55,7 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |Account
                               |Action
                               |AgentArtifact
                               |Alert
@@ -63,6 +64,8 @@ rules:
                               |ApprovalPolicy
                               |BatchExport
                               |BatchExportBackfill
+                              |BatchExportFileDownload
+                              |BatchExportOnDemand
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
@@ -78,6 +81,7 @@ rules:
                               |DAG
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
                               |Dataset
@@ -90,6 +94,9 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |Deployment
+                              |DeploymentEvent
+                              |DeploymentProject
                               |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
@@ -105,6 +112,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
+                              |ErrorTrackingSettings
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -123,7 +131,10 @@ rules:
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
+                              |TeamWorkflowsConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
+                              |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
@@ -137,9 +148,15 @@ rules:
                               |Insight
                               |InsightVariable
                               |Integration
+                              |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
+                              |LogsExclusionRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -151,17 +168,26 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |MCPIntentClusterSnapshot
+                              |MCPIntentEmbeddingCache
+                              |MCPSession
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
                               |ObjectMediaPreview
+                              |ParserRecipe
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
+                              |PropertyAccessControl
+                              |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |ReplayObservation
+                              |ReplayScanner
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -177,8 +203,13 @@ rules:
                               |SignalReportTask
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalScoutConfig
+                              |SignalScoutRun
+                              |SignalScratchpad
+                              |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SourceBatch
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -188,11 +219,13 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
+                              |TaskPresence
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |ToleratedHash
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
@@ -202,8 +235,10 @@ rules:
                               |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
+                              |UserInterviewTopic
                               |UserRepoPreference
                               |WebAnalyticsFilterPreset
+                              |WizardSession
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -228,6 +263,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Combined pattern rule: any lookup without team filter
     - id: idor-lookup-without-team
@@ -256,6 +293,7 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |Account
                         |Action
                         |AgentArtifact
                         |Alert
@@ -264,6 +302,8 @@ rules:
                         |ApprovalPolicy
                         |BatchExport
                         |BatchExportBackfill
+                        |BatchExportFileDownload
+                        |BatchExportOnDemand
                         |BatchImport
                         |ButtonTile
                         |ChangeRequest
@@ -279,6 +319,7 @@ rules:
                         |DAG
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
                         |Dataset
@@ -291,6 +332,9 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |Deployment
+                        |DeploymentEvent
+                        |DeploymentProject
                         |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
@@ -306,6 +350,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
+                        |ErrorTrackingSettings
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -324,7 +369,10 @@ rules:
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
+                        |TeamWorkflowsConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
+                        |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
@@ -338,6 +386,11 @@ rules:
                         |Insight
                         |InsightVariable
                         |Integration
+                        |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -349,17 +402,26 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |MCPIntentClusterSnapshot
+                        |MCPIntentEmbeddingCache
+                        |MCPSession
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
                         |ObjectMediaPreview
+                        |ParserRecipe
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
+                        |PropertyAccessControl
+                        |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |ReplayObservation
+                        |ReplayScanner
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -375,8 +437,13 @@ rules:
                         |SignalReportTask
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalScoutConfig
+                        |SignalScoutRun
+                        |SignalScratchpad
+                        |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SourceBatch
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -386,11 +453,13 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
+                        |TaskPresence
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |ToleratedHash
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
@@ -400,8 +469,10 @@ rules:
                         |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
+                        |UserInterviewTopic
                         |UserRepoPreference
                         |WebAnalyticsFilterPreset
+                        |WizardSession
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
@@ -440,6 +511,8 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Organization-scoped model taint rule
     - id: idor-taint-user-input-to-org-model
@@ -486,7 +559,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              LegalDocument
+                              CIMDVerificationToken
+                              |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -523,6 +597,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Organization-scoped model lookup rule
     - id: idor-lookup-without-org
@@ -549,7 +625,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        LegalDocument
+                        CIMDVerificationToken
+                        |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
@@ -600,6 +677,8 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # User-scoped model taint rule
     - id: idor-taint-user-input-to-user-model
@@ -649,6 +728,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |UserPushToken
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -670,6 +750,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # User-scoped model lookup rule
     - id: idor-lookup-without-user
@@ -700,6 +782,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |UserPushToken
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)
@@ -734,6 +817,8 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Composite user+team scoped model taint rule
     - id: idor-taint-user-input-to-user-team-model
@@ -823,6 +908,8 @@ rules:
               - '**/management/**'
               - '**/.semgrep/**'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'
 
     # Composite user+team scoped model lookup rule
     - id: idor-lookup-without-user-and-team
@@ -905,3 +992,5 @@ rules:
               - '**/models/**'
               - '**/signals.py'
               - '**/admin/admins/**'
+              - '**/backend/admin.py'
+              - '**/backend/admin/**'

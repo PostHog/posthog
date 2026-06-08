@@ -63,6 +63,7 @@ def query_events() -> list[dict]:
     )
 
 
+@pytest.mark.skip(reason="Slow test for an old migration that will never run again")
 class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         MIGRATION_DEFINITION.parameters["TEAM_ID"] = (None, "", int)

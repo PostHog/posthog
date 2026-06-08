@@ -1,6 +1,24 @@
+import posthog from 'posthog-js'
+
+import { toSentenceCase } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { APIScopeObject, AccessControlLevel, AccessControlResourceType } from '~/types'
+import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
+
+/** Which iteration of the access control settings UI an interaction came from. */
+export type AccessControlUIVersion = 'v1' | 'v2'
+
+/**
+ * Capture an access control analytics event. All events are tagged with
+ * `platform_feature: ACCESS_CONTROL` so usage of the feature can be grouped and
+ * filtered together, matching the tagging used elsewhere (e.g. RestrictedArea).
+ */
+export const captureAccessControlEvent = (event: string, properties?: Record<string, unknown>): void => {
+    posthog.capture(event, {
+        ...properties,
+        platform_feature: AvailableFeature.ACCESS_CONTROL,
+    })
+}
 
 /**
  * Returns the minimum allowed access level for a resource.
@@ -41,7 +59,7 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === AccessControlResourceType.CustomerAnalytics) {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
-        return 'LLM analytics'
+        return 'AI observability'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
@@ -50,6 +68,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
+    } else if (resource === AccessControlResourceType.WarehouseObjects) {
+        // Umbrella label for warehouse tables + views (both inherit from this)
+        return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
     }
@@ -85,7 +106,7 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
     if (resourceType === AccessControlResourceType.CustomerAnalytics) {
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
-        return 'LLM analytics resource'
+        return 'AI observability resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
@@ -142,7 +163,14 @@ export const getAccessControlDisabledReason = (
         : false
 
     if (!hasAccess) {
-        let reason = `You don't have sufficient permissions for this ${resourceTypeToString(resourceType)}.`
+        let reason: string
+        if (resourceType === AccessControlResourceType.WarehouseObjects) {
+            // warehouse_objects is the umbrella scope id; the label users see in the picker is
+            // "Data warehouse tables & views". Use it verbatim here for clarity.
+            reason = `Requires ${toSentenceCase(minAccessLevel)} access to Data warehouse tables & views.`
+        } else {
+            reason = `You don't have sufficient permissions for this ${resourceTypeToString(resourceType)}.`
+        }
         if (includeAccessDetails) {
             reason += ` Your access level (${parsedUserAccessLevel ?? 'none'}) doesn't meet the required level (${minAccessLevel}).`
         }
@@ -179,6 +207,9 @@ export const userHasAccess = (
 export const getAccessControlTooltip = (resource: APIScopeObject): string | null => {
     if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
+    }
+    if (resource === AccessControlResourceType.WarehouseObjects) {
+        return 'Controls creating, editing, and deleting warehouse tables, views (aka "models"), folders, and joins, plus materialization actions (sync now, revert, sync frequency). Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
     }
     return null
 }

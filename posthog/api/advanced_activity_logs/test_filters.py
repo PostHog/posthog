@@ -1,8 +1,13 @@
 from posthog.test.base import BaseTest
 
+from django.http import QueryDict
+
+from parameterized import parameterized
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from .filters import AdvancedActivityLogFilterManager
+from .viewset import AdvancedActivityLogFiltersSerializer
 
 
 class TestAdvancedActivityLogFilterManager(BaseTest):
@@ -222,6 +227,85 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
 
         filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "gt", "value": "a"}})
         assert filtered.count() == 1
+
+
+class TestIpAddressFilter(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.filter_manager = AdvancedActivityLogFilterManager()
+
+    def _create_log(self, ip_address: str | None) -> ActivityLog:
+        return ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            scope="TestScope",
+            activity="updated",
+            item_id="test-item",
+            detail={},
+            ip_address=ip_address,
+        )
+
+    def test_filters_by_single_ip(self):
+        match = self._create_log("203.0.113.42")
+        self._create_log("198.51.100.7")
+        self._create_log(None)
+
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.42"]})
+        self.assertEqual(set(filtered.values_list("id", flat=True)), {match.id})
+
+    def test_filters_by_multiple_ips(self):
+        match1 = self._create_log("203.0.113.42")
+        match2 = self._create_log("198.51.100.7")
+        self._create_log("192.0.2.99")
+
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.42", "198.51.100.7"]})
+        self.assertEqual(set(filtered.values_list("id", flat=True)), {match1.id, match2.id})
+
+    def test_no_ip_filter_returns_all(self):
+        log1 = self._create_log("203.0.113.42")
+        log2 = self._create_log(None)
+
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": []})
+        self.assertEqual(set(filtered.values_list("id", flat=True)), {log1.id, log2.id})
+
+    def test_filters_by_wildcard_prefix(self):
+        match1 = self._create_log("203.0.113.42")
+        match2 = self._create_log("203.0.113.99")
+        self._create_log("198.51.100.7")
+        self._create_log(None)
+
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.*"]})
+        self.assertEqual(set(filtered.values_list("id", flat=True)), {match1.id, match2.id})
+
+    def test_combines_exact_and_wildcard(self):
+        exact_match = self._create_log("198.51.100.7")
+        wildcard_match = self._create_log("203.0.113.42")
+        self._create_log("10.0.0.1")
+
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["198.51.100.7", "203.0.*"]})
+        self.assertEqual(set(filtered.values_list("id", flat=True)), {exact_match.id, wildcard_match.id})
+
+    @parameterized.expand(
+        [
+            ("ipv4", "203.0.113.42", True),
+            ("ipv6", "2001:db8::1", True),
+            ("wildcard", "203.0.113.*", True),
+            ("text", "not-an-ip", False),
+            ("regex_metachar", "192.168.1.(0|1)", False),
+            ("empty", "", False),
+        ]
+    )
+    def test_serializer_validates_ip_filter_shape(self, _name: str, value: str, expected: bool) -> None:
+        query = QueryDict(mutable=True)
+        query.appendlist("ip_addresses", value)
+        serializer = AdvancedActivityLogFiltersSerializer(data=query)
+        self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
 
 class TestTypeConversionIntegration(BaseTest):

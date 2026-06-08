@@ -14,13 +14,13 @@ from posthog.schema import EventsQuery
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
@@ -418,7 +418,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_header_resilient(self):
         key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value
         assert key_before is not None
-        assert key_before.startswith("sha256$")
+        self.assertTrue(key_before.startswith("sha256$"))
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer  {self.value}  "}
@@ -427,12 +427,12 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
         # Retrieve key from db to check that no update was made
         key_after = PersonalAPIKey.objects.get(id=self.key.id).secure_value
-        assert key_after == key_before
+        self.assertEqual(key_after, key_before)
 
     def test_header_alternative_iteration_count(self):
         key_before = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
         assert key_before is not None
-        assert key_before.startswith("pbkdf2_sha256$390000$")
+        self.assertTrue(key_before.startswith("pbkdf2_sha256$390000$"))
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value_390000}"}
@@ -441,8 +441,8 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
         # Retrieve key from db to check if hash was updated to latest mode
         key_after = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
-        assert key_after == hash_key_value(self.value_390000)
-        assert key_after != key_before
+        self.assertEqual(key_after, hash_key_value(self.value_390000))
+        self.assertNotEqual(key_after, key_before)
 
     def test_header_hardcoded(self):
         response = self.client.get(
@@ -583,7 +583,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_special_handling_for_teams_still_forbids(self):
         response = self._do_request(f"/api/projects/{self.team.id}/")
@@ -660,7 +660,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_errors_for_action_without_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_forbids_action_with_other_scope(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
@@ -869,7 +869,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_denies_available_filters_with_unrelated_scope(self):
         self.key.scopes = ["feature_flag:read"]
@@ -997,44 +997,44 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
     def test_list_personal_api_keys_with_bearer_auth(self):
         # Should not be allowed to list with API key
         response = self.client.get(f"/api/personal_api_keys/", **self._get_auth_headers(self.api_key_value))
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_retrieve_personal_api_key_with_bearer_auth(self):
         # Should be allowed to get current key
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["label"] == "Test key"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "Test key")
 
         # Should not be allowed to get by ID
         response = self.client.get(
             f"/api/personal_api_keys/{self.personal_api_key.id}/", **self._get_auth_headers(self.api_key_value)
         )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["label"] == "Test key"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "Test key")
 
     def test_create_personal_api_key_with_bearer_auth(self):
         response = self.client.post(
             f"/api/personal_api_keys/", {"label": "New key"}, **self._get_auth_headers(self.api_key_value)
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_update_personal_api_key_with_bearer_auth(self):
         response = self.client.patch(
             f"/api/personal_api_keys/@current/", {"label": "Updated key"}, **self._get_auth_headers(self.api_key_value)
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_delete_personal_api_key_with_bearer_auth(self):
         response = self.client.delete(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_invalid_bearer_token(self):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):

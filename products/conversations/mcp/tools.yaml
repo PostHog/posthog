@@ -18,6 +18,9 @@ tools:
     conversations-create:
         operation: conversations_create
         enabled: false
+    conversations-destroy:
+        operation: conversations_destroy
+        enabled: false
     conversations-list:
         operation: conversations_list
         enabled: false
@@ -39,8 +42,14 @@ tools:
     conversations-retrieve:
         operation: conversations_retrieve
         enabled: false
+    conversations-tickets-bulk-update-status-create:
+        operation: conversations_tickets_bulk_update_status_create
+        enabled: false
     conversations-tickets-bulk-update-tags-create:
         operation: conversations_tickets_bulk_update_tags_create
+        enabled: false
+    conversations-tickets-compose-create:
+        operation: conversations_tickets_compose_create
         enabled: false
     conversations-tickets-create:
         operation: conversations_tickets_create

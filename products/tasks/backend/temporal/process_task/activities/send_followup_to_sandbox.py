@@ -7,17 +7,18 @@ import structlog
 from django_redis import get_redis_connection
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.agent_command import (
+    FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     send_refresh_session,
     send_user_message,
 )
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
 from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -44,6 +45,7 @@ class SendFollowupToSandboxInput:
 
 
 @activity.defn
+@close_db_connections
 def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     """Send a follow-up user message to the sandbox and write result markers to Redis.
 
@@ -85,7 +87,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         input.message,
         artifacts=artifacts,
         auth_token=auth_token,
-        timeout=SANDBOX_TTL_SECONDS,
+        timeout=FOLLOWUP_TIMEOUT_SECONDS,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
@@ -146,6 +148,7 @@ def _refresh_sandbox_mcp(
             token=access_token,
             team_id=task_run.team_id,
             user_id=task.created_by_id,
+            interaction_origin=(task_run.state or {}).get("interaction_origin"),
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs

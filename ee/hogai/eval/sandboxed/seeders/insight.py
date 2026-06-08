@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 from ee.hogai.eval.sandboxed.seeders.common import LOOKUP_PREFIX, NameProviders, make_name_providers
 
@@ -118,7 +118,7 @@ def seed_insight_noise(context: CustomPromptSandboxContext) -> dict[str, Any]:
     whether the agent found the right one. Synchronous — runs in a worker
     thread via ``asyncio.to_thread`` from ``base.py:task()``.
     """
-    from posthog.models.insight import Insight
+    from products.product_analytics.backend.models.insight import Insight
 
     team_id = context.team_id
     user_id = context.user_id

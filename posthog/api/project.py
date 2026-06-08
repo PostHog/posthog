@@ -1,4 +1,3 @@
-from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -18,9 +17,13 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
-    TEAM_CONFIG_FIELDS_SET,
+    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
+    TEAM_CONFIG_MEMBER_FIELDS_SET,
+    PromotedProductIntentSerializer,
     TeamSerializer,
+    get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_logs_config,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -29,7 +32,6 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -39,8 +41,9 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
@@ -48,22 +51,34 @@ from posthog.models.product_intent.product_intent import (
 )
 from posthog.models.project import Project
 from posthog.models.team.setup_tasks import SetupTaskId
+from posthog.models.team.team import Team
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
-    OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    UserCanCreateProjectPermission,
     get_organization_from_view,
+)
+from posthog.rbac.user_access_control import (
+    UserAccessControlSerializerMixin,
+    get_field_access_control_map,
+    resource_to_display_name,
 )
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    TargetType,
+    create_notification,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
@@ -81,7 +96,11 @@ class ProjectSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "organization_id", "created_at"]
 
 
-class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, UserPermissionsSerializerMixin):
+class ProjectBackwardCompatSerializer(
+    UserAccessControlSerializerMixin,
+    ProjectBackwardCompatBasicSerializer,
+    UserPermissionsSerializerMixin,
+):
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
@@ -347,26 +366,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return bool(get_group_types_for_project(project.id))
+        return bool(cached_group_types_for_project(project))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
-        return get_group_types_for_project(project.id)
+        return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        claims = {
-            "team_id": team.id,
-            "api_token": team.api_token,
-            "user_id": user_id,
-            "organization_id": str(team.organization_id),
-        }
-        return encode_jwt(
-            claims,
-            timedelta(days=7),
-            PosthogJwtAudience.LIVESTREAM,
-        )
+        return get_or_mint_live_events_token(team, user_id)
 
     @extend_schema_field(
         {
@@ -433,11 +442,34 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def validate_modifiers(value: dict | None) -> dict | None:
         return TeamSerializer.validate_modifiers(value)
 
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return TeamSerializer.validate_test_account_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
+
+        if self.instance:
+            field_mappings = get_field_access_control_map(Team)
+            user_access_control = self.user_access_control
+            if field_mappings and user_access_control is not None:
+                team = self.instance.passthrough_team
+                for field_name in attrs:
+                    if field_name not in field_mappings:
+                        continue
+                    resource, required_level = field_mappings[field_name]
+                    if resource == "project":
+                        has_access = user_access_control.check_access_level_for_object(team, required_level)
+                    else:
+                        has_access = user_access_control.check_access_level_for_resource(resource, required_level)
+                    if not has_access:
+                        display_name = resource_to_display_name(resource)
+                        raise serializers.ValidationError(
+                            {field_name: f"You need {required_level} access to {display_name} to modify this field."}
+                        )
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
@@ -638,7 +670,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=("Retrieve a project and its settings."),
@@ -685,23 +717,56 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             return ProjectBackwardCompatBasicSerializer
         return super().get_serializer_class()
 
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        super().perform_create(serializer)
+        project = cast(Project, serializer.instance)
+        self._notify_org_admins_of_member_project_creation(project)
+
+    def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
+        """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
+        try:
+            user = cast(User, self.request.user)
+            membership = OrganizationMembership.objects.filter(
+                user=user, organization_id=project.organization_id
+            ).first()
+            if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+                return
+
+            admin_user_ids = OrganizationMembership.objects.filter(
+                organization_id=project.organization_id,
+                level__gte=OrganizationMembership.Level.ADMIN,
+            ).values_list("user_id", flat=True)
+
+            creator = user.first_name or user.email
+            for admin_user_id in admin_user_ids:
+                create_notification(
+                    NotificationData(
+                        team_id=project.pk,
+                        notification_type=NotificationType.PROJECT_CREATED,
+                        title=f"{creator} created a new project",
+                        body=f'"{project.name}" was created by {creator}. Review it in project settings.',
+                        target_type=TargetType.USER,
+                        target_id=str(admin_user_id),
+                        source_url=f"/project/{project.pk}/settings",
+                    )
+                )
+        except Exception:
+            logger.exception("Failed to dispatch member project creation notification", project_id=project.pk)
+
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         # Used for the AccessControlViewSetMixin
         mixin_result = super().dangerously_get_required_scopes(request, view)
         if mixin_result is not None:
             return mixin_result
 
-        # If the request only contains config fields, require read:team scope
-        # Otherwise, require write:team scope (handled by APIScopePermission)
-        # NOTE: This downgrade only applies to session-based auth (browser users).
-        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
-        # to modify any fields, preserving the semantic meaning of read-only API keys.
+        # See TeamViewSet.dangerously_get_required_scopes for the rationale. Only downgrade
+        # to project:read when every field is a member-safe team config field; anything else
+        # falls through to project:write so admin-only settings require admin object access.
         if self.action == "partial_update":
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields:
+                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
                     return ["project:read"]
 
         # Fall back to the default behavior
@@ -724,7 +789,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(OrganizationAdminWritePermissions)
+                    permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -893,6 +958,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this project's canonical environment.
+        Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+        alongside the legacy /api/environments/:id/logs_config/ alias."""
+        project = self.get_object()
+        return handle_logs_config(request, project.passthrough_team)
+
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
@@ -909,6 +987,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @extend_schema(
+        tags=["platform_features"],
+        responses={200: PromotedProductIntentSerializer},
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
+        project = self.get_object()
+        team = project.passthrough_team
+        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
+        return response.Response({"product_key": product_key})
 
     @action(
         methods=["PATCH"],

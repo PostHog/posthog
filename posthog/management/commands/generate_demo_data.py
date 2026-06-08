@@ -8,18 +8,21 @@ from time import monotonic
 from typing import Optional
 from urllib.parse import quote
 
+from django.conf import settings
 from django.core import exceptions
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db.utils import OperationalError
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
+from posthog.health import get_pending_postgres_migrations
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
 from posthog.products import Products
@@ -28,6 +31,10 @@ from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
+
+# Deterministic project token for the locally seeded demo team, so SDKs/tools can target it without
+# looking up the random token. Only used for the freshly created demo account (not existing projects).
+DEMO_PROJECT_API_TOKEN = "phc_localposthogprojecttoken"
 
 
 class Command(BaseCommand):
@@ -59,6 +66,11 @@ class Command(BaseCommand):
             help="Number of clusters (default: 500)",
         )
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
+        parser.add_argument(
+            "--skip-migration-check",
+            action="store_true",
+            help="Skip the pre-flight check for unapplied Postgres migrations",
+        )
         parser.add_argument(
             "--team-id",
             type=int,
@@ -116,6 +128,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         timer = monotonic()
+
+        if not options.get("skip_migration_check"):
+            try:
+                pending = get_pending_postgres_migrations()
+            except OperationalError:
+                pending = []  # DB unreachable — let the normal flow surface the connection error
+            if pending:
+                raise CommandError(
+                    f"{len(pending)} unapplied Postgres migration(s) (e.g. {pending[0]}). "
+                    "The dev database schema is behind the code, so demo data generation would fail. "
+                    "Run `python manage.py migrate` (or `hogli migrations:sync`) first, "
+                    "or pass --skip-migration-check to bypass."
+                )
+
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
@@ -141,12 +167,7 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
             group_type_index_offset=(
-                # nosemgrep: no-direct-persons-db-orm
-                GroupTypeMapping.objects.filter(
-                    project_id=existing_team.project_id
-                ).count()  # nosemgrep: no-direct-persons-db-orm
-                if existing_team
-                else 0  # nosemgrep: no-direct-persons-db-orm
+                len(get_group_types_for_project(existing_team.project_id)) if existing_team else 0
             ),
         )
         print("Running simulation...")
@@ -175,6 +196,10 @@ class Command(BaseCommand):
                             raise ValueError(f"Project {existing_team_id} has no organization members")
                         matrix_manager.run_on_team(team, user)
                 else:
+                    # Hand the demo team a deterministic token in local dev only. In tests (e.g. Playwright
+                    # setup, which seeds many workspaces) and shared/cloud environments, keep random tokens
+                    # so runs don't fight over the unique token or mutate unrelated projects.
+                    demo_api_token = DEMO_PROJECT_API_TOKEN if (settings.DEBUG and not settings.TEST) else None
                     _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
@@ -182,6 +207,7 @@ class Command(BaseCommand):
                         is_staff=bool(options.get("staff")),
                         password=password,
                         email_collision_handling="disambiguate",
+                        api_token=demo_api_token,
                     )
 
                     # Optionally generate demo issues for issue tracker if extension is available
@@ -238,6 +264,7 @@ class Command(BaseCommand):
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
+                    f"The project API token is:\n{team.api_token if team is not None else 'unknown'}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
                     f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
                 )

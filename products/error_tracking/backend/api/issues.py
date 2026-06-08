@@ -12,8 +12,6 @@ from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -32,6 +30,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueCohort,
     sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
 from .utils import ErrorTrackingIssueAssignmentSerializer
@@ -191,7 +190,6 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
@@ -419,6 +417,12 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         )
 
         send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
+
+        dispatch_issue_assigned_realtime(
+            assignment=assignment_after,
+            assignee=assignee,
+            assigner=user,
+        )
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None

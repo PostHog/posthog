@@ -1,5 +1,4 @@
 from datetime import datetime
-from time import sleep
 from typing import Any
 
 from freezegun import freeze_time
@@ -12,14 +11,14 @@ from rest_framework import status
 from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
@@ -64,36 +63,36 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_201_CREATED == response.status_code, response.json()
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
 
-        assert "test_query" == response_data["name"]
-        assert self.sample_hogql_query == response_data["query"]
-        assert "Test query description" == response_data["description"]
-        assert response_data["is_active"]
-        assert "id" in response_data
-        assert "endpoint_path" in response_data
-        assert "created_at" in response_data
-        assert "updated_at" in response_data
+        self.assertEqual("test_query", response_data["name"])
+        self.assertEqual(self.sample_hogql_query, response_data["query"])
+        self.assertEqual("Test query description", response_data["description"])
+        self.assertTrue(response_data["is_active"])
+        self.assertIn("id", response_data)
+        self.assertIn("endpoint_path", response_data)
+        self.assertIn("created_at", response_data)
+        self.assertIn("updated_at", response_data)
 
-        assert response_data["derived_from_insight"] is None
+        self.assertIsNone(response_data["derived_from_insight"])
 
         # Verify it was saved to database
         endpoint = Endpoint.objects.get(name="test_query", team=self.team)
         # Query is stored on the version, not the endpoint
         version = endpoint.get_version()
         assert version is not None
-        assert version.query == self.sample_hogql_query
-        assert endpoint.created_by == self.user
-        assert endpoint.derived_from_insight is None
+        self.assertEqual(version.query, self.sample_hogql_query)
+        self.assertEqual(endpoint.created_by, self.user)
+        self.assertIsNone(endpoint.derived_from_insight)
 
         # Activity log created
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="created")
-        assert logs.count() == 1, list(logs.values("activity", "scope", "item_id"))
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
         log = logs.latest("created_at")
-        assert log.item_id == str(endpoint.id)
+        self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
-        assert log.detail.get("name") == "test_query"
+        self.assertEqual(log.detail.get("name"), "test_query")
 
     def test_cannot_create_endpoint_with_invalid_sql(self):
         """Test creating an endpoint with invalid HogQL fails."""
@@ -105,9 +104,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         response_data = response.json()
-        assert response_data["type"] == "validation_error"
+        self.assertEqual(response_data["type"], "validation_error")
 
     def test_cannot_create_endpoint_with_undefined_variable_placeholders(self):
         data = {
@@ -120,8 +119,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
-        assert "event_name" in response.json()["detail"]
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("event_name", response.json()["detail"])
 
     def test_create_endpoint_with_defined_variable_placeholders(self):
         variable = InsightVariable.objects.create(
@@ -145,7 +144,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_201_CREATED == response.status_code, response.json()
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
     def test_cannot_create_endpoint_with_partially_defined_variables(self):
         variable = InsightVariable.objects.create(
@@ -169,9 +168,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
-        assert "os" in response.json()["detail"]
-        assert "event_name" not in response.json()["detail"]
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("os", response.json()["detail"])
+        self.assertNotIn("event_name", response.json()["detail"])
 
     def test_cannot_update_endpoint_with_undefined_variable_placeholders(self):
         create_data = {
@@ -190,8 +189,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
         )
 
-        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
-        assert "event_name" in response.json()["detail"]
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("event_name", response.json()["detail"])
 
     def test_update_endpoint_syncs_query_variables_from_placeholders(self):
         event_name_variable = InsightVariable.objects.create(
@@ -224,7 +223,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             },
         }
         create_response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
-        assert status.HTTP_201_CREATED == create_response.status_code, create_response.json()
+        self.assertEqual(status.HTTP_201_CREATED, create_response.status_code, create_response.json())
 
         update_data = {
             "query": {
@@ -248,12 +247,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
         )
 
-        assert status.HTTP_200_OK == update_response.status_code, update_response.json()
+        self.assertEqual(status.HTTP_200_OK, update_response.status_code, update_response.json())
 
         variables = update_response.json()["query"]["variables"]
-        assert {v["code_name"] for v in variables.values()} == {"event_name", "city"}
-        assert variables[str(event_name_variable.id)]["value"] == "$pageleave"
-        assert variables[str(city_variable.id)]["value"] == "Paris"
+        self.assertEqual({v["code_name"] for v in variables.values()}, {"event_name", "city"})
+        self.assertEqual(variables[str(event_name_variable.id)]["value"], "$pageleave")
+        self.assertEqual(variables[str(city_variable.id)]["value"], "Paris")
 
     def test_cannot_create_endpoint_with_non_uuid_variable_id(self):
         create_data = {
@@ -271,8 +270,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             },
         }
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
-        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
-        assert "not valid UUIDs" in response.json()["detail"]
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("not valid UUIDs", response.json()["detail"])
 
     def test_cannot_create_endpoint_with_nonexistent_variable_id(self):
         fake_uuid = "00000000-0000-0000-0000-000000000001"
@@ -291,8 +290,8 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             },
         }
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
-        assert status.HTTP_400_BAD_REQUEST == response.status_code, response.json()
-        assert "Variable ID(s) not found" in response.json()["detail"]
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("Variable ID(s) not found", response.json()["detail"])
 
     def test_create_insight_endpoint(self):
         data = {
@@ -303,7 +302,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_201_CREATED == response.status_code, response.json()
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
 
     def test_update_endpoint(self):
         """Test updating an existing endpoint."""
@@ -326,11 +325,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_data = response.json()
-        assert status.HTTP_200_OK == response.status_code, response_data
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response_data)
 
-        assert "update_test" == response_data["name"]
-        assert "Updated description" == response_data["description"]
-        assert not response_data["is_active"]
+        self.assertEqual("update_test", response_data["name"])
+        self.assertEqual("Updated description", response_data["description"])
+        self.assertFalse(response_data["is_active"])
         want_query = {
             "connectionId": None,
             "explain": None,
@@ -346,14 +345,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "variables": None,
             "version": None,
         }
-        assert want_query == response_data["query"]
+        self.assertEqual(want_query, response_data["query"])
 
         # Verify database was updated
         endpoint.refresh_from_db()
         version = endpoint.get_version()
-        assert version is not None
-        assert version.description == "Updated description"
-        assert not endpoint.is_active
+        self.assertIsNotNone(version)
+        self.assertEqual(version.description, "Updated description")
+        self.assertFalse(endpoint.is_active)
 
         # Activity log updated with changes
         logs = ActivityLog.objects.filter(
@@ -362,16 +361,16 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             activity="updated",
             item_id=str(endpoint.id),
         )
-        assert logs.count() == 1, list(logs.values("activity", "detail"))
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "detail")))
         log = logs.latest("created_at")
         assert log.detail is not None
 
-        assert "updated" == log.activity
+        self.assertEqual("updated", log.activity)
         changes = log.detail.get("changes", [])
         changed_fields = {c.get("field") for c in changes}
         # description is now stored on EndpointVersion, not tracked in Endpoint activity log
-        assert "is_active" in changed_fields
-        assert "description" not in changed_fields
+        self.assertIn("is_active", changed_fields)
+        self.assertNotIn("description", changed_fields)
 
     def test_delete_endpoint(self):
         endpoint = create_endpoint_with_version(
@@ -382,30 +381,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/delete_test/")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         # Endpoint still exists in database but is soft-deleted
         endpoint.refresh_from_db()
-        assert endpoint.deleted
-        assert endpoint.deleted_at is not None
+        self.assertTrue(endpoint.deleted)
+        self.assertIsNotNone(endpoint.deleted_at)
 
         # Not visible in list
         list_response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
-        assert list_response.status_code == status.HTTP_200_OK
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         names = [e["name"] for e in list_response.json()["results"]]
-        assert "delete_test" not in names
+        self.assertNotIn("delete_test", names)
 
         # Not accessible via retrieve
         retrieve_response = self.client.get(f"/api/environments/{self.team.id}/endpoints/delete_test/")
-        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND
+        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
 
         # Activity log still created
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="deleted")
-        assert logs.count() == 1, list(logs.values("activity", "scope", "item_id"))
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
         log = logs.latest("created_at")
-        assert log.item_id == str(endpoint.id)
+        self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
-        assert log.detail.get("name") == "delete_test"
+        self.assertEqual(log.detail.get("name"), "delete_test")
 
     def test_delete_endpoint_prevents_hard_delete(self):
         endpoint = create_endpoint_with_version(
@@ -426,16 +425,16 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         delete_response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/reusable_name/")
-        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
 
         endpoint.refresh_from_db()
-        assert endpoint.deleted
+        self.assertTrue(endpoint.deleted)
 
         # Create a new endpoint with the same name
         data = {"name": "reusable_name", "query": self.sample_hogql_query}
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["name"] == "reusable_name"
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["name"], "reusable_name")
 
     def test_soft_deleted_endpoint_not_runnable(self):
         create_endpoint_with_version(
@@ -447,7 +446,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.client.delete(f"/api/environments/{self.team.id}/endpoints/run_deleted/")
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/run_deleted/run/")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_invalid_query_name_validation(self):
         """Test validation of invalid query names."""
@@ -458,7 +457,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
 
     def test_missing_required_fields(self):
         """Test validation when required fields are missing."""
@@ -466,13 +465,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         data = {"name": "test_query"}
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_duplicate_name_in_team(self):
         """Test that duplicate names within the same team are not allowed."""
@@ -490,7 +489,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_team_isolation(self):
         """Test that queries are properly isolated between teams."""
@@ -506,7 +505,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/other_team_query/run/")
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_filter_by_is_active(self):
         """Test filtering endpoints by is_active status."""
@@ -526,18 +525,18 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?is_active=true")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert len(response_data["results"]) == 1
-        assert response_data["results"][0]["name"] == "active_query"
-        assert response_data["results"][0]["is_active"]
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "active_query")
+        self.assertTrue(response_data["results"][0]["is_active"])
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?is_active=false")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert len(response_data["results"]) == 1
-        assert response_data["results"][0]["name"] == "inactive_query"
-        assert not response_data["results"][0]["is_active"]
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "inactive_query")
+        self.assertFalse(response_data["results"][0]["is_active"])
 
     def test_list_filter_by_created_by(self):
         """Test filtering endpoints by created_by user."""
@@ -558,17 +557,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Test filtering by first user
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by={self.user.id}")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert len(response_data["results"]) == 1
-        assert response_data["results"][0]["name"] == "query_by_user1"
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "query_by_user1")
 
         # Test filtering by second user
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by={other_user.id}")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert len(response_data["results"]) == 1
-        assert response_data["results"][0]["name"] == "query_by_user2"
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "query_by_user2")
 
     def test_list_filter_combined(self):
         """Test filtering endpoints by both is_active and created_by."""
@@ -599,11 +598,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/?is_active=true&created_by={self.user.id}"
         )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert len(response_data["results"]) == 1
-        assert response_data["results"][0]["name"] == "active_query_user1"
-        assert response_data["results"][0]["is_active"]
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "active_query_user1")
+        self.assertTrue(response_data["results"][0]["is_active"])
 
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
@@ -624,11 +623,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Test without any filters - should return all queries
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert len(response_data["results"]) == 2
+        self.assertEqual(len(response_data["results"]), 2)
         query_names = {q["name"] for q in response_data["results"]}
-        assert query_names == {"query1", "query2"}
+        self.assertEqual(query_names, {"query1", "query2"})
 
     def test_create_endpoint_with_comprehensive_trends_query(self):
         """Test creating a endpoint with a comprehensive TrendsQuery containing many fields."""
@@ -700,61 +699,61 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_201_CREATED == response.status_code, response.json()
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
 
         # Verify all the key fields are preserved
-        assert "comprehensive_trends_test" == response_data["name"]
-        assert "A comprehensive trends query with many fields populated" == response_data["description"]
-        assert response_data["is_active"]
+        self.assertEqual("comprehensive_trends_test", response_data["name"])
+        self.assertEqual("A comprehensive trends query with many fields populated", response_data["description"])
+        self.assertTrue(response_data["is_active"])
 
         saved_query = response_data["query"]
-        assert "TrendsQuery" == saved_query["kind"]
-        assert "week" == saved_query["interval"]
-        assert 2 == len(saved_query["series"])
-        assert "$pageview" == saved_query["series"][0]["event"]
-        assert "Page Views" == saved_query["series"][0]["custom_name"]
+        self.assertEqual("TrendsQuery", saved_query["kind"])
+        self.assertEqual("week", saved_query["interval"])
+        self.assertEqual(2, len(saved_query["series"]))
+        self.assertEqual("$pageview", saved_query["series"][0]["event"])
+        self.assertEqual("Page Views", saved_query["series"][0]["custom_name"])
 
         # Verify date range
-        assert "2025-01-01" == saved_query["dateRange"]["date_from"]
-        assert "2025-01-31" == saved_query["dateRange"]["date_to"]
-        assert saved_query["dateRange"]["explicitDate"]
+        self.assertEqual("2025-01-01", saved_query["dateRange"]["date_from"])
+        self.assertEqual("2025-01-31", saved_query["dateRange"]["date_to"])
+        self.assertTrue(saved_query["dateRange"]["explicitDate"])
 
-        assert "$geoip_country_code" == saved_query["breakdownFilter"]["breakdown"]
-        assert "event" == saved_query["breakdownFilter"]["breakdown_type"]
-        assert 10 == saved_query["breakdownFilter"]["breakdown_limit"]
+        self.assertEqual("$geoip_country_code", saved_query["breakdownFilter"]["breakdown"])
+        self.assertEqual("event", saved_query["breakdownFilter"]["breakdown_type"])
+        self.assertEqual(10, saved_query["breakdownFilter"]["breakdown_limit"])
 
-        assert saved_query["compareFilter"]["compare"]
-        assert "-1m" == saved_query["compareFilter"]["compare_to"]
+        self.assertTrue(saved_query["compareFilter"]["compare"])
+        self.assertEqual("-1m", saved_query["compareFilter"]["compare_to"])
 
         trends_filter = saved_query["trendsFilter"]
-        assert "ActionsLineGraph" == trends_filter["display"]
-        assert trends_filter["showLegend"]
-        assert trends_filter["showValuesOnSeries"]
-        assert "numeric" == trends_filter["aggregationAxisFormat"]
-        assert "$" == trends_filter["aggregationAxisPrefix"]
-        assert " USD" == trends_filter["aggregationAxisPostfix"]
-        assert 2 == trends_filter["decimalPlaces"]
-        assert 0.95 == trends_filter["confidenceLevel"]
-        assert "A + B" == trends_filter["formula"]
-        assert 1 == len(trends_filter["goalLines"])
-        assert 1000 == trends_filter["goalLines"][0]["value"]
+        self.assertEqual("ActionsLineGraph", trends_filter["display"])
+        self.assertTrue(trends_filter["showLegend"])
+        self.assertTrue(trends_filter["showValuesOnSeries"])
+        self.assertEqual("numeric", trends_filter["aggregationAxisFormat"])
+        self.assertEqual("$", trends_filter["aggregationAxisPrefix"])
+        self.assertEqual(" USD", trends_filter["aggregationAxisPostfix"])
+        self.assertEqual(2, trends_filter["decimalPlaces"])
+        self.assertEqual(0.95, trends_filter["confidenceLevel"])
+        self.assertEqual("A + B", trends_filter["formula"])
+        self.assertEqual(1, len(trends_filter["goalLines"]))
+        self.assertEqual(1000, trends_filter["goalLines"][0]["value"])
 
-        assert 2 == len(saved_query["properties"])
-        assert "$browser" == saved_query["properties"][0]["key"]
-        assert "in" == saved_query["properties"][0]["operator"]
-        assert ["Chrome", "Firefox", "Safari"] == saved_query["properties"][0]["value"]
+        self.assertEqual(2, len(saved_query["properties"]))
+        self.assertEqual("$browser", saved_query["properties"][0]["key"])
+        self.assertEqual("in", saved_query["properties"][0]["operator"])
+        self.assertEqual(["Chrome", "Firefox", "Safari"], saved_query["properties"][0]["value"])
 
-        assert saved_query["filterTestAccounts"]
-        assert 0.1 == saved_query["samplingFactor"]
-        assert 1 == saved_query["aggregation_group_type_index"]
+        self.assertTrue(saved_query["filterTestAccounts"])
+        self.assertEqual(0.1, saved_query["samplingFactor"])
+        self.assertEqual(1, saved_query["aggregation_group_type_index"])
 
         endpoint = Endpoint.objects.get(name="comprehensive_trends_test", team=self.team)
-        assert endpoint.created_by == self.user
+        self.assertEqual(endpoint.created_by, self.user)
         # Query is stored on the version, not the endpoint
         version = endpoint.get_version()
         assert version is not None
-        assert "TrendsQuery" == version.query["kind"]
+        self.assertEqual("TrendsQuery", version.query["kind"])
 
     def test_get_last_execution_times_empty_names(self):
         """Test getting last execution times with empty names list."""
@@ -764,15 +763,15 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        assert "query_status" in response_data, response_data
+        self.assertIn("query_status", response_data, response_data)
         query_status = response_data["query_status"]
-        assert "complete" in query_status
-        assert "results" in query_status
+        self.assertIn("complete", query_status)
+        self.assertIn("results", query_status)
 
-        assert query_status["results"] is None, query_status
+        self.assertIsNone(query_status["results"], query_status)
 
     def test_get_last_execution_times_after_endpoint_execution(self):
         """Test getting last execution times with endpoint names after they have been executed."""
@@ -791,49 +790,104 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        # Execute the endpoints using API key to generate query_log entries with is_personal_api_key_request=true
+        # Execute the endpoints using API key to update Postgres execution timestamps.
         response1 = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/test_query_1/run/",
             headers={"authorization": f"Bearer {self.api_key}"},
         )
-        assert response1.status_code == status.HTTP_200_OK
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
 
         response2 = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/test_query_2/run/",
             headers={"authorization": f"Bearer {self.api_key}"},
         )
-        assert response2.status_code == status.HTTP_200_OK
-
-        # wait for the queries to end up in query_log :/
-        sleep(3)
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
 
         data = {"names": ["test_query_1", "test_query_2", "nonexistent_query"]}
         response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         response_data = response.json()
 
-        assert "query_status" in response_data
+        self.assertIn("query_status", response_data)
         query_status = response_data["query_status"]
-        assert "complete" in query_status
-        assert "results" in query_status
-        assert isinstance(query_status["results"], list)
+        self.assertIn("complete", query_status)
+        self.assertIn("results", query_status)
+        self.assertIsInstance(query_status["results"], list)
 
         results = query_status["results"]
-        assert len(results) == 2, f"Expected 2 results, got {results}"
+        self.assertEqual(len(results), 2, f"Expected 2 results, got {results}")
 
         query_timestamps = {row[0]: row[1] for row in results if len(row) >= 2}
 
-        assert "test_query_1" in query_timestamps, f"test_query_1 not found in results: {results}"
-        assert "test_query_2" in query_timestamps, f"test_query_2 not found in results: {results}"
-        assert datetime.fromisoformat(query_timestamps["test_query_1"]) is not None, (
-            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}"
+        self.assertIn("test_query_1", query_timestamps, f"test_query_1 not found in results: {results}")
+        self.assertIn("test_query_2", query_timestamps, f"test_query_2 not found in results: {results}")
+        self.assertIsNotNone(
+            datetime.fromisoformat(query_timestamps["test_query_1"]),
+            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}",
         )
-        assert datetime.fromisoformat(query_timestamps["test_query_2"]) is not None, (
-            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}"
+        self.assertIsNotNone(
+            datetime.fromisoformat(query_timestamps["test_query_2"]),
+            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}",
         )
+
+        endpoint = Endpoint.objects.get(name="test_query_1", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
+    def test_last_execution_times_is_endpoint_level_only(self):
+        """last_execution_times returns endpoint-level rows only — per-version data is not exposed."""
+        endpoint = create_endpoint_with_version(
+            name="test_query_versions",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+            current_version=2,
+        )
+        endpoint.last_executed_at = datetime.fromisoformat("2026-05-02T12:00:00+00:00")
+        endpoint.save(update_fields=["last_executed_at"])
+        # A per-version timestamp must not surface through this endpoint.
+        version_2 = endpoint.get_version(2)
+        assert version_2 is not None
+        version_2.last_executed_at = datetime.fromisoformat("2026-05-09T12:00:00+00:00")
+        version_2.save(update_fields=["last_executed_at"])
+
+        data = {"names": ["test_query_versions"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["query_status"]["results"]
+        # Endpoint-level shape [name, last_executed_at] — two elements, no version, endpoint timestamp.
+        self.assertEqual(results, [["test_query_versions", "2026-05-02T12:00:00+00:00"]])
+
+    def test_versions_endpoint_reports_per_version_last_executed_at(self):
+        """endpoint-versions reports each version's own last_executed_at, not the endpoint-level one."""
+        endpoint = create_endpoint_with_version(
+            name="v_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+        endpoint.last_executed_at = datetime.fromisoformat("2026-05-02T12:00:00+00:00")
+        endpoint.save(update_fields=["last_executed_at"])
+        version = endpoint.get_version()
+        assert version is not None
+        version.last_executed_at = datetime.fromisoformat("2026-05-09T12:00:00+00:00")
+        version.save(update_fields=["last_executed_at"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/v_test/versions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        rows = response.json()["results"]
+        self.assertEqual(len(rows), 1)
+        # The version's own timestamp, not the endpoint-level one.
+        self.assertEqual(rows[0]["last_executed_at"], "2026-05-09T12:00:00+00:00")
 
     def test_get_last_execution_times_with_nonexistent_query(self):
         """Test getting last execution times with a nonexistent query."""
@@ -843,13 +897,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        assert "query_status" in response_data
+        self.assertIn("query_status", response_data)
         query_status = response_data["query_status"]
-        assert isinstance(query_status["results"], list)
-        assert len(query_status["results"]) == 0
+        self.assertIsInstance(query_status["results"], list)
+        self.assertEqual(len(query_status["results"]), 0)
 
     def test_get_last_execution_times_of_endpoint_not_executed(self):
         """Test getting last execution times of a endpoint that has not been executed."""
@@ -867,13 +921,37 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        assert "query_status" in response_data
+        self.assertIn("query_status", response_data)
         query_status = response_data["query_status"]
-        assert isinstance(query_status["results"], list)
-        assert len(query_status["results"]) == 0, query_status
+        self.assertIsInstance(query_status["results"], list)
+        self.assertEqual(len(query_status["results"]), 0, query_status)
+
+    def test_get_last_execution_times_with_personal_api_key(self):
+        """Personal API key access must be allowed — the MCP server calls this action via a personal API key."""
+        create_endpoint_with_version(
+            name="test_query_1",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Drop session auth so the request is authenticated purely by the personal API key,
+        # matching how the MCP server reaches this endpoint.
+        self.client.logout()
+
+        data = {"names": ["test_query_1"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/last_execution_times/",
+            data,
+            format="json",
+            headers={"authorization": f"Bearer {self.api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     @parameterized.expand(
         [
@@ -894,13 +972,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "data_freshness_seconds": data_freshness_seconds,
         }
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-        assert response.status_code == expected_status
+        self.assertEqual(response.status_code, expected_status)
 
         if expected_status == status.HTTP_201_CREATED:
             expected_value = data_freshness_seconds if data_freshness_seconds is not None else 86400
-            assert response.json()["data_freshness_seconds"] == expected_value
+            self.assertEqual(response.json()["data_freshness_seconds"], expected_value)
         elif expected_error_text:
-            assert expected_error_text in str(response.json())
+            self.assertIn(expected_error_text, str(response.json()))
 
     @parameterized.expand(
         [
@@ -940,29 +1018,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # First execution - should calculate fresh
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        assert "cache_key" in response_data
-        assert "last_refresh" in response_data
+        self.assertIn("cache_key", response_data)
+        self.assertIn("last_refresh", response_data)
         cache_key = response_data["cache_key"]
 
         # Second execution immediately - should use cache
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert response_data["cache_key"] == cache_key
-        assert response_data.get("is_cached", False)
+        self.assertEqual(response_data["cache_key"], cache_key)
+        self.assertTrue(response_data.get("is_cached", False))
 
         # Move time forward (still within freshness window)
         hours_within = time_within_freshness_min // 60
         mins_within = time_within_freshness_min % 60
         with freeze_time(f"2025-01-01 {12 + hours_within:02d}:{mins_within:02d}:00"):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
-            assert response_data.get("is_cached", False), (
-                f"Should still use cache at {time_within_freshness_min} minutes"
+            self.assertTrue(
+                response_data.get("is_cached", False),
+                f"Should still use cache at {time_within_freshness_min} minutes",
             )
 
         # Move time forward (past freshness window) - should recalculate
@@ -970,10 +1049,11 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         mins_past = time_past_freshness_min % 60
         with freeze_time(f"2025-01-01 {12 + hours_past:02d}:{mins_past:02d}:00"):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
-            assert not response_data.get("is_cached", True), (
-                f"Should recalculate after {time_past_freshness_min} minutes"
+            self.assertFalse(
+                response_data.get("is_cached", True),
+                f"Should recalculate after {time_past_freshness_min} minutes",
             )
 
     @freeze_time("2025-01-01 12:00:00")
@@ -988,17 +1068,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # First execution
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         cache_key = response_data.get("cache_key")
 
         # Move time forward 5 minutes - should still use cache (default is 24 hours)
         with freeze_time("2025-01-01 12:05:00"):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
-            assert response_data.get("is_cached", False), "Should use cache with default timing"
-            assert response_data.get("cache_key") == cache_key
+            self.assertTrue(response_data.get("is_cached", False), "Should use cache with default timing")
+            self.assertEqual(response_data.get("cache_key"), cache_key)
 
     def test_update_data_freshness_seconds(self):
         endpoint = create_endpoint_with_version(
@@ -1014,13 +1094,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
         )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["data_freshness_seconds"] == 21600
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["data_freshness_seconds"], 21600)
 
         endpoint.refresh_from_db()
         version = endpoint.get_version()
-        assert version is not None
-        assert version.data_freshness_seconds == 21600
+        self.assertIsNotNone(version)
+        self.assertEqual(version.data_freshness_seconds, 21600)
 
     def test_create_endpoint_with_insight_reference(self):
         """Test creating an endpoint with a reference to the insight it was created from."""
@@ -1033,13 +1113,124 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        assert status.HTTP_201_CREATED == response.status_code, response.json()
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
 
-        assert "test_with_insight" == response_data["name"]
-        assert "abc123xyz" == response_data["derived_from_insight"]
+        self.assertEqual("test_with_insight", response_data["name"])
+        self.assertEqual("abc123xyz", response_data["derived_from_insight"])
         endpoint = Endpoint.objects.get(name="test_with_insight", team=self.team)
-        assert endpoint.derived_from_insight == "abc123xyz"
+        self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
+
+
+class TestEndpointTags(ClickhouseTestMixin, APIBaseTest):
+    """Cover the Tag mixin wired into the Endpoints viewset."""
+
+    ENDPOINT = "endpoints"
+
+    def setUp(self):
+        super().setUp()
+        self.sample_hogql_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1",
+        }
+
+    def _create(self, name: str, **extra: Any) -> dict:
+        payload: dict[str, Any] = {"name": name, "query": self.sample_hogql_query}
+        payload.update(extra)
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        return response.json()
+
+    def test_create_with_tags(self):
+        from posthog.models import Tag
+
+        response_data = self._create("ep_create_tags", tags=["alpha", "beta"])
+
+        self.assertEqual(sorted(response_data["tags"]), ["alpha", "beta"])
+        self.assertEqual(Tag.objects.filter(team_id=self.team.id).count(), 2)
+
+    def test_create_without_tags_returns_empty_list(self):
+        response_data = self._create("ep_no_tags")
+        self.assertEqual(response_data["tags"], [])
+
+    def test_patch_replaces_tags(self):
+        self._create("ep_patch", tags=["alpha", "beta"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_patch/",
+            {"tags": ["gamma"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], ["gamma"])
+
+    def test_patch_with_empty_list_clears_tags(self):
+        from posthog.models import Tag
+
+        self._create("ep_clear", tags=["alpha"])
+        self.assertEqual(Tag.objects.filter(team_id=self.team.id, name="alpha").count(), 1)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_clear/",
+            {"tags": []},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], [])
+        # Orphaned tag is cleaned up
+        self.assertEqual(Tag.objects.filter(team_id=self.team.id, name="alpha").count(), 0)
+
+    def test_patch_without_tags_field_keeps_tags(self):
+        self._create("ep_keep", tags=["alpha"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/ep_keep/",
+            {"description": "updated"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], ["alpha"])
+
+    def test_retrieve_returns_tags(self):
+        self._create("ep_get", tags=["alpha"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/ep_get/")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["alpha"])
+
+    def test_list_returns_tags(self):
+        self._create("ep_list_1", tags=["alpha"])
+        self._create("ep_list_2", tags=["beta", "gamma"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        results = {r["name"]: sorted(r["tags"]) for r in response.json()["results"]}
+        self.assertEqual(results["ep_list_1"], ["alpha"])
+        self.assertEqual(results["ep_list_2"], ["beta", "gamma"])
+
+    def test_tags_not_a_list_returns_400(self):
+        # Pydantic validates the shape via EndpointRequest.tags: list[str] | None
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": "ep_bad", "query": self.sample_hogql_query, "tags": "not-a-list"},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+
+    def test_tags_are_scoped_per_team(self):
+        from posthog.models import Tag
+
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        Tag.objects.create(name="alpha", team_id=other_team.id)
+
+        self._create("ep_scope", tags=["alpha"])
+
+        team_tags = Tag.objects.filter(name="alpha")
+        self.assertEqual(team_tags.count(), 2)
+        self.assertEqual(set(team_tags.values_list("team_id", flat=True)), {self.team.id, other_team.id})
 
 
 class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
@@ -1057,7 +1248,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1137,7 +1328,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert endpoint_data.get("materialization", {}).get("status") is None
 
     def test_bucket_overrides_stored_on_version(self):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1364,7 +1555,7 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
         from products.endpoints.backend.models import EndpointVersion
 
         result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
-        assert result == expected
+        self.assertEqual(result, expected)
 
 
 class TestClickhouseTypeMapping(TestCase):
@@ -1398,4 +1589,4 @@ class TestClickhouseTypeMapping(TestCase):
     def test_clickhouse_type_to_serialized_type(self, ch_type: str, expected: str):
         from products.endpoints.backend.models import _clickhouse_type_to_serialized_type
 
-        assert _clickhouse_type_to_serialized_type(ch_type) == expected
+        self.assertEqual(_clickhouse_type_to_serialized_type(ch_type), expected)

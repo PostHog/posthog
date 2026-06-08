@@ -7,6 +7,8 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 from django.core.cache import cache
+from django.db import connection
+from django.utils import timezone
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -32,7 +34,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         super().setUp()
         self.organization.available_product_features = [
             *(self.organization.available_product_features or []),
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -56,27 +58,114 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.create(target_email="siloed@posthog.com", organization=org)
 
         response = self.client.get(f"/api/organizations/{org.id}/invites/")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         # Even though there's no retrieve for invites, permissions are validated first
         response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+    def test_member_cannot_list_invites_when_members_can_invite_false(self):
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="hidden@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_member_can_list_invites_when_members_can_invite_true(self):
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="visible@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(invite.id), ids)
+
+    def test_member_cannot_list_invites_for_higher_levels(self):
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        member_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="peer@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        admin_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="future-admin@posthog.com",
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(member_invite.id), ids)
+        self.assertNotIn(str(admin_invite.id), ids)
+
+    def test_admin_can_list_invites_for_all_levels(self):
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        member_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="peer@posthog.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        admin_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="another-admin@posthog.com",
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(member_invite.id), ids)
+        self.assertIn(str(admin_invite.id), ids)
 
     # Creating invites
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_email_required(self, mock_capture):
         response = self.client.post("/api/organizations/@current/invites/")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        assert response_data == {
-            "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
-            "attr": "target_email",
-        }
+        self.assertDictEqual(
+            response_data,
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "target_email",
+            },
+        )
 
         mock_capture.assert_not_called()
 
@@ -91,32 +180,35 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 {"target_email": email},
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        assert OrganizationInvite.objects.exists()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(OrganizationInvite.objects.exists())
         response_data = response.json()
         invite_id = response_data.pop("id")
         response_data.pop("created_at")
         response_data.pop("updated_at")
-        assert response_data == {
-            "target_email": email,
-            "first_name": "",
-            "created_by": {
-                "id": self.user.id,
-                "uuid": str(self.user.uuid),
-                "distinct_id": self.user.distinct_id,
-                "email": self.user.email,
-                "first_name": self.user.first_name,
-                "last_name": self.user.last_name,
-                "is_email_verified": self.user.is_email_verified,
-                "hedgehog_config": None,
-                "role_at_organization": None,
+        self.assertDictEqual(
+            response_data,
+            {
+                "target_email": email,
+                "first_name": "",
+                "created_by": {
+                    "id": self.user.id,
+                    "uuid": str(self.user.uuid),
+                    "distinct_id": self.user.distinct_id,
+                    "email": self.user.email,
+                    "first_name": self.user.first_name,
+                    "last_name": self.user.last_name,
+                    "is_email_verified": self.user.is_email_verified,
+                    "hedgehog_config": None,
+                    "role_at_organization": None,
+                },
+                "is_expired": False,
+                "level": 1,
+                "emailing_attempt_made": True,
+                "message": None,
+                "private_project_access": [],
             },
-            "is_expired": False,
-            "level": 1,
-            "emailing_attempt_made": True,
-            "message": None,
-            "private_project_access": [],
-        }
+        )
 
         capture_props = {
             "name_provided": False,
@@ -146,12 +238,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert mock_capture.call_count == 2
+        self.assertEqual(mock_capture.call_count, 2)
 
         # Assert invite email is sent
-        assert len(mail.outbox) == 1
-        assert mail.outbox[0].to == [email]
-        assert mail.outbox[0].reply_to == [self.user.email]  # Reply-To is set to the inviting user
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertListEqual(mail.outbox[0].to, [email])
+        self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email_on_instance_but_send_email_prop_false(self, mock_capture):
@@ -166,11 +258,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "/api/organizations/@current/invites/", {"target_email": email, "send_email": False}
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        assert OrganizationInvite.objects.exists()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(OrganizationInvite.objects.exists())
 
         # Assert invite email is not sent
-        assert len(mail.outbox) == 0
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_create_invites_for_the_same_email_multiple_times_deletes_older_invites(self):
         email = "x@posthog.com"
@@ -178,12 +270,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         for _ in range(0, 3):
             response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
-            assert response.status_code == status.HTTP_201_CREATED
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             obj = OrganizationInvite.objects.get(id=response.json()["id"])
-            assert obj.target_email == email
-            assert obj.created_by == self.user
+            self.assertEqual(obj.target_email, email)
+            self.assertEqual(obj.created_by, self.user)
 
-        assert OrganizationInvite.objects.count() == count + 1
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
     def test_can_specify_private_project_access_in_invite(self):
         email = "x@posthog.com"
@@ -213,11 +305,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
-        assert obj.level == OrganizationMembership.Level.MEMBER
-        assert obj.private_project_access == [{"id": private_team.id, "level": "admin"}]
-        assert OrganizationInvite.objects.count() == count + 1
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
         # if member of org but admin of team, should be able to invite new project admins to private project
         org_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -233,11 +325,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
-        assert obj.level == OrganizationMembership.Level.MEMBER
-        assert obj.private_project_access == [{"id": private_team.id, "level": "admin"}]
-        assert OrganizationInvite.objects.count() == count + 1
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
     def test_can_invite_to_private_project_if_user_has_implicit_access_to_team(self):
         """
@@ -268,11 +360,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
-        assert obj.level == OrganizationMembership.Level.MEMBER
-        assert obj.private_project_access == [{"id": private_team.id, "level": "admin"}]
-        assert OrganizationInvite.objects.count() == count + 1
+        self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
+        self.assertEqual(OrganizationInvite.objects.count(), count + 1)
         # reset the org membership level in case it's used in other tests
         org_membership.level = OrganizationMembership.Level.MEMBER
         org_membership.save()
@@ -298,15 +390,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "private_project_access": [{"id": team_in_other_org.id, "level": "admin"}],
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        assert {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
-            "attr": "private_project_access",
-        } == response_data
-        assert OrganizationInvite.objects.count() == count
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
         email = "xx@posthog.com"
@@ -328,15 +423,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        assert {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
-            "attr": "private_project_access",
-        } == response_data
-        assert OrganizationInvite.objects.count() == count
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level(self):
         email = "x@posthog.com"
@@ -369,15 +467,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        assert {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "You cannot invite to a restricted project with a higher level than your own.",
-            "attr": "private_project_access",
-        } == response_data
-        assert OrganizationInvite.objects.count() == count
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "You cannot invite to a restricted project with a higher level than your own.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
         """
@@ -406,15 +507,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "private_project_access": [{"id": restricted_team.id, "level": "admin"}],
             },
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        assert {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "You cannot invite to a restricted project with a higher level than your own.",
-            "attr": "private_project_access",
-        } == response_data
-        assert OrganizationInvite.objects.count() == count
+        self.assertDictEqual(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "You cannot invite to a restricted project with a higher level than your own.",
+                "attr": "private_project_access",
+            },
+            response_data,
+        )
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     def test_cannot_create_invite_for_another_org(self):
         another_org = Organization.objects.create(name="Another Org")
@@ -422,10 +526,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         count = OrganizationInvite.objects.count()
         email = "x@posthog.com"
         response = self.client.post(f"/api/organizations/{another_org.id}/invites/", {"target_email": email})
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
-        assert OrganizationInvite.objects.count() == count
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
     # Bulk create invites
 
@@ -443,23 +547,23 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 format="json",
                 headers={"X-Posthog-Session-Id": "123", "Referer": "http://test.posthog.com/my-url"},
             )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
 
-        assert OrganizationInvite.objects.count() == count + 7
+        self.assertEqual(OrganizationInvite.objects.count(), count + 7)
 
-        assert len(response_data) == 7
+        self.assertEqual(len(response_data), 7)
 
         # Check objects are properly saved and response matches
         for i, item in enumerate(response_data):
             instance = OrganizationInvite.objects.get(id=item["id"])
-            assert instance.target_email == payload[i]["target_email"]
-            assert instance.target_email == item["target_email"]
-            assert instance.first_name == payload[i]["first_name"]
-            assert instance.first_name == item["first_name"]
+            self.assertEqual(instance.target_email, payload[i]["target_email"])
+            self.assertEqual(instance.target_email, item["target_email"])
+            self.assertEqual(instance.first_name, payload[i]["first_name"])
+            self.assertEqual(instance.first_name, item["first_name"])
 
         # Emails should be sent
-        assert len(mail.outbox) == 7
+        self.assertEqual(len(mail.outbox), 7)
 
         # Assert capture was called
         mock_capture.assert_any_call(
@@ -506,19 +610,22 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         ):
             response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "max_length",
-            "detail": "A maximum of 20 invites can be sent in a single request.",
-            "attr": None,
-        }
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "max_length",
+                "detail": "A maximum of 20 invites can be sent in a single request.",
+                "attr": None,
+            },
+        )
 
         # No invites created
-        assert OrganizationInvite.objects.count() == count
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
         # No emails should be sent
-        assert len(mail.outbox) == 0
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_invites_are_created_atomically(self):
         count = OrganizationInvite.objects.count()
@@ -532,13 +639,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         ):
             response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # No invites created
-        assert OrganizationInvite.objects.count() == count
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
         # No emails should be sent
-        assert len(mail.outbox) == 0
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_cannot_bulk_create_invites_for_another_organization(self):
         another_org = Organization.objects.create()
@@ -557,14 +664,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 format="json",
             )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json() == self.permission_denied_response()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         # No invites created
-        assert OrganizationInvite.objects.count() == count
+        self.assertEqual(OrganizationInvite.objects.count(), count)
 
         # No emails should be sent
-        assert len(mail.outbox) == 0
+        self.assertEqual(len(mail.outbox), 0)
 
     # Deleting invites
 
@@ -574,10 +681,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         # Members should not be able to delete invites
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "Your organization access level is insufficient" in response.json()["detail"]
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Your organization access level is insufficient", response.json()["detail"])
         # Invite should still exist
-        assert OrganizationInvite.objects.filter(id=invite.id).exists()
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     def test_delete_organization_invite_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -585,10 +692,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         # Admins should be able to delete invites
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert response.content == b""  # Empty response
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content, b"")  # Empty response
         # Invite should be deleted
-        assert not OrganizationInvite.objects.filter(id=invite.id).exists()
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     def test_delete_organization_invite_if_owner(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -596,10 +703,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
         # Owners should be able to delete invites
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert response.content == b""  # Empty response
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content, b"")  # Empty response
         # Invite should be deleted
-        assert not OrganizationInvite.objects.filter(id=invite.id).exists()
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     # Combine pending invites
 
@@ -660,24 +767,24 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         combined_invite = response.json()
 
         # Check that previous invites are deleted
-        assert not OrganizationInvite.objects.filter(id=first_invite["id"]).exists()
-        assert not OrganizationInvite.objects.filter(id=second_invite["id"]).exists()
+        self.assertFalse(OrganizationInvite.objects.filter(id=first_invite["id"]).exists())
+        self.assertFalse(OrganizationInvite.objects.filter(id=second_invite["id"]).exists())
 
         # Check that the new invite has the highest level (ADMIN)
-        assert combined_invite["level"] == OrganizationMembership.Level.ADMIN
+        self.assertEqual(combined_invite["level"], OrganizationMembership.Level.ADMIN)
 
         # Check that private project access is combined with highest levels
         expected_access = [
             {"id": private_team_1.id, "level": "admin"},
             {"id": private_team_2.id, "level": "admin"},
         ]
-        assert len(combined_invite["private_project_access"]) == 2
+        self.assertEqual(len(combined_invite["private_project_access"]), 2)
         for access in expected_access:
-            assert access in combined_invite["private_project_access"]
+            self.assertIn(access, combined_invite["private_project_access"])
 
     def test_combine_pending_invites_with_no_existing_invites(self):
         email = "x@posthog.com"
@@ -690,11 +797,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         invite = response.json()
-        assert invite["level"] == OrganizationMembership.Level.MEMBER
-        assert invite["target_email"] == email
-        assert invite["private_project_access"] == []
+        self.assertEqual(invite["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite["target_email"], email)
+        self.assertEqual(invite["private_project_access"], [])
 
     @freeze_time("2024-01-10")
     def test_combine_pending_invites_with_expired_invites(self):
@@ -717,13 +824,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         invite = response.json()
 
         # Check that the new invite uses its own level, not the expired invite's level
-        assert invite["level"] == OrganizationMembership.Level.MEMBER
-        assert invite["target_email"] == email
-        assert invite["private_project_access"] == []
+        self.assertEqual(invite["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite["target_email"], email)
+        self.assertEqual(invite["private_project_access"], [])
 
     def test_combine_pending_invites_false_expires_existing_invites(self):
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
@@ -750,14 +857,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         new_invite = response.json()
 
         # Check that previous invite is deleted
-        assert not OrganizationInvite.objects.filter(id=first_invite["id"]).exists()
+        self.assertFalse(OrganizationInvite.objects.filter(id=first_invite["id"]).exists())
 
         # Check that new invite uses its own level
-        assert new_invite["level"] == OrganizationMembership.Level.MEMBER
+        self.assertEqual(new_invite["level"], OrganizationMembership.Level.MEMBER)
 
     def test_member_cannot_invite_admin(self):
         # Create a member user
@@ -775,10 +882,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You cannot invite a user with a higher permission level than your own."
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "You cannot invite a user with a higher permission level than your own.",
+        )
 
-        assert OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count() == 0
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count(), 0)
 
     def test_admin_cannot_invite_owner(self):
         # Create an admin user
@@ -796,11 +906,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You cannot invite a user with a higher permission level than your own."
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "You cannot invite a user with a higher permission level than your own.",
+        )
 
         # Verify no invite was created
-        assert OrganizationInvite.objects.filter(target_email="new_owner@posthog.com").count() == 0
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_owner@posthog.com").count(), 0)
 
     def test_member_can_invite_member(self):
         # Create a member user
@@ -818,12 +931,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify invite was created
-        assert OrganizationInvite.objects.filter(target_email="new_member@posthog.com").count() == 1
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_member@posthog.com").count(), 1)
         invite = OrganizationInvite.objects.get(target_email="new_member@posthog.com")
-        assert invite.level == OrganizationMembership.Level.MEMBER
+        self.assertEqual(invite.level, OrganizationMembership.Level.MEMBER)
 
     def test_admin_can_invite_admin(self):
         # Create an admin user
@@ -841,12 +954,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify invite was created
-        assert OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count() == 1
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count(), 1)
         invite = OrganizationInvite.objects.get(target_email="new_admin@posthog.com")
-        assert invite.level == OrganizationMembership.Level.ADMIN
+        self.assertEqual(invite.level, OrganizationMembership.Level.ADMIN)
 
     def test_bulk_invite_with_higher_permission_level(self):
         # Create a member user
@@ -874,15 +987,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         response = self.client.post(f"/api/organizations/{self.organization.id}/invites/bulk/", payload)
 
         # Should be forbidden due to the admin invite
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You cannot invite a user with a higher permission level than your own."
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "You cannot invite a user with a higher permission level than your own.",
+        )
 
         # Verify no invites were created
-        assert (
+        self.assertEqual(
             OrganizationInvite.objects.filter(
                 target_email__in=["new_member@posthog.com", "new_admin@posthog.com", "another_member@posthog.com"]
-            ).count()
-            == 0
+            ).count(),
+            0,
         )
 
     def test_bulk_invite_with_same_permission_level(self):
@@ -907,14 +1023,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         response = self.client.post(f"/api/organizations/{self.organization.id}/invites/bulk/", payload)
 
         # Should be successful
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify invites were created
-        assert (
+        self.assertEqual(
             OrganizationInvite.objects.filter(
                 target_email__in=["new_member1@posthog.com", "new_member2@posthog.com"]
-            ).count()
-            == 2
+            ).count(),
+            2,
         )
 
     def test_member_cannot_invite_when_members_can_invite_false_and_feature_available(self):
@@ -939,7 +1055,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "level": OrganizationMembership.Level.MEMBER,
             },
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         # Try to create bulk invites
         response = self.client.post(
@@ -951,7 +1067,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 }
             ],
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_member_cannot_delete_invite_when_members_can_invite_false(self):
         # Create a member user and log in as them
@@ -971,8 +1087,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Try to delete as member
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert OrganizationInvite.objects.filter(id=invite.id).exists()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     def test_member_can_invite_when_members_can_invite_true_and_feature_available(self):
         """Test that members can invite when members_can_invite is True and ORGANIZATION_INVITE_SETTINGS is available."""
@@ -996,7 +1112,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "level": OrganizationMembership.Level.MEMBER,
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Try to create bulk invites
         response = self.client.post(
@@ -1008,7 +1124,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 }
             ],
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_admin_can_always_invite_regardless_of_members_can_invite(self):
         """Test that admins can always invite regardless of members_can_invite setting."""
@@ -1029,7 +1145,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "level": OrganizationMembership.Level.MEMBER,
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Try to create bulk invites
         response = self.client.post(
@@ -1041,7 +1157,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 }
             ],
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_member_can_invite_when_feature_not_available(self):
         """Test that members can invite when ORGANIZATION_INVITE_SETTINGS feature is not available."""
@@ -1062,7 +1178,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "level": OrganizationMembership.Level.MEMBER,
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Try to create bulk invites
         response = self.client.post(
@@ -1074,7 +1190,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 }
             ],
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_can_invite_with_new_access_control_as_org_admin(self):
         """
@@ -1099,14 +1215,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
 
         # Should be successful
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         assert invite.private_project_access is not None
-        assert len(invite.private_project_access) == 1
-        assert invite.private_project_access[0]["id"] == team.id
-        assert invite.private_project_access[0]["level"] == "member"
+        self.assertEqual(len(invite.private_project_access), 1)
+        self.assertEqual(invite.private_project_access[0]["id"], team.id)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     def test_can_invite_with_new_access_control_as_org_member_to_non_private_team(self):
         """
@@ -1131,14 +1247,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
 
         # Should be successful since the team is not private
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         assert invite.private_project_access is not None
-        assert len(invite.private_project_access) == 1
-        assert invite.private_project_access[0]["id"] == team.id
-        assert invite.private_project_access[0]["level"] == "member"
+        self.assertEqual(len(invite.private_project_access), 1)
+        self.assertEqual(invite.private_project_access[0]["id"], team.id)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     def test_cannot_invite_with_new_access_control_as_org_member_to_private_team(self):
         """
@@ -1166,10 +1282,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
 
         # Should fail because the team is private and the user doesn't have access
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            "Project does not exist on this organization, or it is private and you do not have access to it"
-            in response.json()["detail"]
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "Project does not exist on this organization, or it is private and you do not have access to it",
+            response.json()["detail"],
         )
 
     def test_can_invite_with_new_access_control_as_team_admin(self):
@@ -1208,14 +1324,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
 
         # Should be successful because the user has admin access to the team
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify the invite was created with the correct private project access
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         assert invite.private_project_access is not None
-        assert len(invite.private_project_access) == 1
-        assert invite.private_project_access[0]["id"] == team.id
-        assert invite.private_project_access[0]["level"] == "member"
+        self.assertEqual(len(invite.private_project_access), 1)
+        self.assertEqual(invite.private_project_access[0]["id"], team.id)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):
@@ -1229,13 +1345,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 {"target_email": mixed_case_email},
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         invite = OrganizationInvite.objects.get()
-        assert invite.target_email == expected_normalized_email
+        self.assertEqual(invite.target_email, expected_normalized_email)
 
         response_data = response.json()
-        assert response_data["target_email"] == expected_normalized_email
+        self.assertEqual(response_data["target_email"], expected_normalized_email)
 
     def test_add_organization_invite_case_insensitive_duplicate_prevention(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -1248,8 +1364,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 {"target_email": base_email},
             )
 
-        assert response1.status_code == status.HTTP_201_CREATED
-        assert OrganizationInvite.objects.count() == 1
+        self.assertEqual(response1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
 
         mixed_case_email = "User@Example.COM"
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
@@ -1258,8 +1374,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 {"target_email": mixed_case_email},
             )
 
-        assert response2.status_code == status.HTTP_201_CREATED
-        assert OrganizationInvite.objects.count() == 1
+        self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
 
     def test_add_organization_invite_case_insensitive_existing_member_check(self):
         """Test that invites are rejected if a user with case variation already exists as member"""
@@ -1277,8 +1393,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {"target_email": invite_email},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert OrganizationInvite.objects.count() == 0
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     def test_user_join_with_default_role(self):
         """Test that new users get assigned the default role when joining an organization"""
@@ -1381,7 +1497,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         org_b = Organization.objects.create(name="Org B")
         org_b.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         org_b.members_can_invite = False
         org_b.save()
@@ -1392,7 +1508,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Org A allows members to invite
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.members_can_invite = True
         self.organization.save()
@@ -1405,7 +1521,322 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{org_b.id}/invites/",
             {"target_email": "cross_org_test@posthog.com"},
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestOnboardingDelegationInviteAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        # Delegation grants ADMIN-level access on accept; the caller must themselves hold ADMIN+.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _delegate_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/invites/delegate/"
+
+    def test_delegate_rejects_non_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthoganalytics.capture")
+    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture):
+        response = self.client.post(
+            self._delegate_url(),
+            {"target_email": "engineer@example.com", "message": "please help"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
+        self.assertTrue(invite.is_setup_delegation)
+        self.assertEqual(invite.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(invite.message, "please help")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+
+    def test_delegate_requires_target_email(self):
+        response = self.client.post(self._delegate_url(), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_malformed_email(self):
+        response = self.client.post(self._delegate_url(), {"target_email": "not-an-email"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_self_delegation(self):
+        response = self.client.post(self._delegate_url(), {"target_email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_email_already_in_org(self):
+        existing = User.objects.create_user(email="member@example.com", password=None, first_name="M")
+        existing.join(organization=self.organization, level=OrganizationMembership.Level.MEMBER)
+
+        response = self.client.post(self._delegate_url(), {"target_email": "member@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_when_existing_pending_invite(self):
+        # Prior non-delegation invite for this email — don't silently clobber it.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            target_email="engineer@example.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Generic code used to avoid leaking distinct "existing_member" vs "existing_invite" signals.
+        self.assertIn("cannot_delegate_to_email", str(response.content))
+
+    def test_delegate_acceptance_marks_delegator_only(self):
+        # _mark_delegators_accepted stamps only users whose FK points at this invite.
+        # The delegate is NOT a delegator — their own onboarding_delegation_accepted_at stays null.
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
+
+        delegate = User.objects.create_user(email="engineer@example.com", password=None, first_name="Eng")
+        invite.use(delegate, prevalidated=True)
+
+        self.user.refresh_from_db()
+        delegate.refresh_from_db()
+        self.assertIsNotNone(self.user.onboarding_delegation_accepted_at)
+        # Acceptance must not un-suppress the delegator: they explicitly exited via delegation.
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+        # Delegate was never a delegator; stamping this field here would pollute the meaning
+        # for users who happen to be a delegate in one org and a delegator in another.
+        self.assertIsNone(delegate.onboarding_delegation_accepted_at)
+
+    def test_delegate_resets_stale_accepted_timestamp_for_new_delegation(self):
+        stale_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            target_email="old-delegate@example.com",
+            level=OrganizationMembership.Level.ADMIN,
+            is_setup_delegation=True,
+        )
+        self.user.onboarding_delegated_to_invite = stale_invite
+        self.user.onboarding_delegation_accepted_at = timezone.now()
+        self.user.save()
+
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.onboarding_delegation_accepted_at)
+        self.assertEqual(self.user.onboarding_delegated_to_invite.target_email, "engineer@example.com")
+
+
+class TestOnboardingSkipAPI(APIBaseTest):
+    def _skip_url(self) -> str:
+        return "/api/users/@me/onboarding/skip/"
+
+    def test_skip_sets_timestamp_and_reason(self):
+        response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "later")
+
+    def test_skip_is_idempotent_preserves_first_timestamp(self):
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        first_ts = self.user.onboarding_skipped_at
+
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_skipped_at, first_ts)
+
+    def test_skip_rejects_invalid_reason(self):
+        response = self.client.post(self._skip_url(), {"reason": "nope"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_skip_rejects_delegated_reason(self):
+        # The delegate endpoint is the only path that should produce reason="delegated".
+        response = self.client.post(self._skip_url(), {"reason": "delegated"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_skip_clears_stale_delegation_fk(self):
+        # If a user previously delegated but then changes their mind to "later",
+        # clear the stale delegation link so the redirect-suppression state stays consistent.
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            target_email="engineer@example.com",
+            level=OrganizationMembership.Level.ADMIN,
+            is_setup_delegation=True,
+        )
+        self.user.onboarding_delegated_to_invite = invite
+        self.user.onboarding_skipped_at = timezone.now()
+        self.user.onboarding_skipped_reason = "delegated"
+        self.user.save()
+
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.onboarding_delegated_to_invite_id)
+        self.assertEqual(self.user.onboarding_skipped_reason, "later")
+
+    def test_user_patch_cannot_set_onboarding_skipped_reason(self):
+        # Regression guard: DRF's Meta.read_only_fields is silently ignored for explicitly
+        # declared serializer fields. The dedicated /onboarding/skip/ endpoint rejects
+        # reason="delegated" and runs atomic state cleanup; the user PATCH path must NOT
+        # be a back door that bypasses those guarantees.
+        for attempted_value in ("delegated", "later", "other"):
+            response = self.client.patch("/api/users/@me/", {"onboarding_skipped_reason": attempted_value})
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.user.refresh_from_db()
+            self.assertIsNone(self.user.onboarding_skipped_reason)
+            self.assertIsNone(self.user.onboarding_skipped_at)
+
+    def test_skip_does_not_delete_cross_org_stale_invite_pointer(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_invite = OrganizationInvite.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            target_email="cross-org@example.com",
+            level=OrganizationMembership.Level.ADMIN,
+            is_setup_delegation=True,
+        )
+        self.user.onboarding_delegated_to_invite = other_invite
+        # Pointer says current org; actual invite is in another org.
+        self.user.onboarding_delegated_to_organization_id = self.organization.id
+        self.user.onboarding_skipped_reason = "delegated"
+        self.user.save()
+
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(OrganizationInvite.objects.filter(id=other_invite.id).exists())
+
+
+class TestDelegationCancellationUnsuppressesRedirect(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_cancelling_delegation_invite_unsuppresses_redirect(self):
+        delegate_url = f"/api/organizations/{self.organization.id}/invites/delegate/"
+        response = self.client.post(delegate_url, {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/invites/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Full redirect condition: both the FK *and* the skip timestamp/reason must be cleared
+        # so the frontend's sceneLogic suppression stops firing and onboarding re-engages.
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.onboarding_delegated_to_invite_id)
+        self.assertIsNone(self.user.onboarding_skipped_at)
+        self.assertIsNone(self.user.onboarding_skipped_reason)
+
+
+class TestOnboardingDelegationStateTransitionTable(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _delegate_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/invites/delegate/"
+
+    def _skip_url(self) -> str:
+        return "/api/users/@me/onboarding/skip/"
+
+    def _assert_user_state(
+        self,
+        *,
+        reason: str | None,
+        has_skip_ts: bool,
+        has_invite_fk: bool,
+        has_accepted_ts: bool,
+    ) -> None:
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_skipped_reason, reason)
+        self.assertEqual(self.user.onboarding_skipped_at is not None, has_skip_ts)
+        self.assertEqual(self.user.onboarding_delegated_to_invite_id is not None, has_invite_fk)
+        self.assertEqual(self.user.onboarding_delegation_accepted_at is not None, has_accepted_ts)
+
+    @parameterized.expand(
+        [
+            (
+                "delegate_sets_pending_delegation_state",
+                "_run_delegate_only",
+                {"reason": "delegated", "has_skip_ts": True, "has_invite_fk": True, "has_accepted_ts": False},
+            ),
+            (
+                "delegate_then_accept_marks_accepted_without_unsuppressing",
+                "_run_delegate_then_accept",
+                {"reason": "delegated", "has_skip_ts": True, "has_invite_fk": False, "has_accepted_ts": True},
+            ),
+            (
+                "delegate_then_skip_later_clears_delegation_and_keeps_skip",
+                "_run_delegate_then_skip_later",
+                {"reason": "later", "has_skip_ts": True, "has_invite_fk": False, "has_accepted_ts": False},
+            ),
+            (
+                "delegate_then_cancel_unsuppresses_onboarding",
+                "_run_delegate_then_cancel",
+                {"reason": None, "has_skip_ts": False, "has_invite_fk": False, "has_accepted_ts": False},
+            ),
+        ]
+    )
+    def test_state_transition(self, _name: str, run_method_name: str, expected: dict) -> None:
+        """Each parametrised case runs in its own Django test transaction, so DB state is
+        reset between cases by the test runner — no manual reset is needed."""
+        getattr(self, run_method_name)()
+        self._assert_user_state(**expected)
+
+    def _run_delegate_only(self) -> None:
+        self._last_delegate_email = f"engineer+{random.randint(100000, 999999)}@example.com"
+        response = self.client.post(self._delegate_url(), {"target_email": self._last_delegate_email})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    def _run_delegate_then_accept(self) -> None:
+        self._run_delegate_only()
+        invite = OrganizationInvite.objects.get(target_email=self._last_delegate_email)
+        delegate = User.objects.create_user(email=self._last_delegate_email, password=None, first_name="Eng")
+        invite.use(delegate, prevalidated=True)
+
+    def _run_delegate_then_skip_later(self) -> None:
+        self._run_delegate_only()
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def _run_delegate_then_cancel(self) -> None:
+        self._run_delegate_only()
+        invite = OrganizationInvite.objects.get(target_email=self._last_delegate_email)
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/invites/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+
+class TestOnboardingDelegationMigrationIndex(APIBaseTest):
+    def test_partial_index_exists_and_is_valid(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT i.indisvalid
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indexrelid
+                WHERE c.relname = 'posthog_user_onboarding_delegated_to_invite_id_idx'
+                """
+            )
+            row = cursor.fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertTrue(row[0])
 
 
 @patch("posthog.permissions.TimeSensitiveActionPermission.has_permission", return_value=True)
@@ -1434,13 +1865,13 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
                 "/api/organizations/@current/invites/",
                 {"target_email": f"burst_{i}@posthog.com"},
             )
-            assert response.status_code == status.HTTP_201_CREATED
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {"target_email": "burst_final@posthog.com"},
         )
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="10/hour")
     def test_bulk_counts_invites_not_requests(self, _rate_limit_enabled_mock, _time_sensitive_mock):
@@ -1451,14 +1882,14 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             self._payload(6, seed="first"),
             format="json",
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         response = self.client.post(
             "/api/organizations/@current/invites/bulk/",
             self._payload(6, seed="second"),
             format="json",
         )
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="5/hour")
     def test_bulk_request_larger_than_cap_is_rejected_even_on_empty_bucket(
@@ -1469,8 +1900,8 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             self._payload(6, seed="oversize"),
             format="json",
         )
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert OrganizationInvite.objects.count() == 0
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(OrganizationInvite.objects.count(), 0)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
     def test_burst_bucket_resets_after_window(self, _rate_limit_enabled_mock, _time_sensitive_mock):
@@ -1481,19 +1912,19 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
                     "/api/organizations/@current/invites/",
                     {"target_email": f"reset_{i}@posthog.com"},
                 )
-                assert response.status_code == status.HTTP_201_CREATED
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "reset_blocked@posthog.com"},
             )
-            assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         with freeze_time(base_time + timedelta(hours=1, seconds=1)):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "reset_later@posthog.com"},
             )
-            assert response.status_code == status.HTTP_201_CREATED
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="1000/hour")
     @patch("posthog.rate_limit.OrganizationInviteSustainedThrottle.rate", new="3/day")
@@ -1507,14 +1938,14 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
                     "/api/organizations/@current/invites/",
                     {"target_email": f"sustained_{i}@posthog.com"},
                 )
-                assert response.status_code == status.HTTP_201_CREATED
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         with freeze_time(base_time + timedelta(hours=8)):
             response = self.client.post(
                 "/api/organizations/@current/invites/",
                 {"target_email": "sustained_blocked@posthog.com"},
             )
-            assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="2/hour")
     def test_rate_limit_is_scoped_per_organization(self, _rate_limit_enabled_mock, _time_sensitive_mock):
@@ -1528,18 +1959,18 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
                 "/api/organizations/@current/invites/",
                 {"target_email": f"scoped_{i}@posthog.com"},
             )
-            assert response.status_code == status.HTTP_201_CREATED
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Current org is capped.
         response = self.client.post(
             "/api/organizations/@current/invites/",
             {"target_email": "scoped_over@posthog.com"},
         )
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         # The other org has its own bucket and can still invite.
         response = self.client.post(
             f"/api/organizations/{other_org.id}/invites/",
             {"target_email": "scoped_other@posthog.com"},
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

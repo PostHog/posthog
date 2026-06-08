@@ -95,7 +95,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_no_crash_when_no_source_is_selected
@@ -202,7 +202,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_country_filter
@@ -363,7 +363,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data
@@ -373,7 +373,7 @@
   SELECT mrr_per_day_subquery.breakdown_by AS breakdown_by, mrr_per_day_subquery.customer_id AS customer_id, mrr_per_day_subquery.subscription_id AS subscription_id, mrr_per_day_subquery.date AS date, mrr_per_day_subquery.amount AS amount, lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by, mrr_per_day_subquery.customer_id, mrr_per_day_subquery.subscription_id
   ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount, if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount, if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount, negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount, negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
   FROM (
-  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('today', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
+  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date DESC) AS row_number, toString(date) AS date_string, if(mapContains(map_query.amount_map, date_string), map_query.amount_map[date_string], NULL) AS date_amount, nullIf(maxIf(date, mapContains(map_query.amount_map, date_string)) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), toDateOrNull('1970-01-01')) AS date_amount_changed, multiIf(isNull(date_amount_changed), 0, ifNull(greater(dateDiff('day', date_amount_changed, date), 45), 0), 0, coalesce(last_value(date_amount) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), 0)) AS amount
@@ -434,7 +434,7 @@
   SELECT mrr_per_day_subquery.breakdown_by AS breakdown_by, mrr_per_day_subquery.customer_id AS customer_id, mrr_per_day_subquery.subscription_id AS subscription_id, mrr_per_day_subquery.date AS date, mrr_per_day_subquery.amount AS amount, lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by, mrr_per_day_subquery.customer_id, mrr_per_day_subquery.subscription_id
   ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount, if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount, if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount, negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount, negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
   FROM (
-  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('today', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
+  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date DESC) AS row_number, toString(date) AS date_string, if(mapContains(map_query.amount_map, date_string), map_query.amount_map[date_string], NULL) AS date_amount, nullIf(maxIf(date, mapContains(map_query.amount_map, date_string)) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), toDateOrNull('1970-01-01')) AS date_amount_changed, multiIf(isNull(date_amount_changed), 0, ifNull(greater(dateDiff('day', date_amount_changed, date), 45), 0), 0, coalesce(last_value(date_amount) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), 0)) AS amount
@@ -470,7 +470,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_date_range_for_daily_interval
@@ -573,7 +573,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_double_grouping
@@ -744,7 +744,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_product_grouping
@@ -861,7 +861,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_with_managed_viewsets_ff
@@ -871,7 +871,7 @@
   SELECT mrr_per_day_subquery.breakdown_by AS breakdown_by, mrr_per_day_subquery.customer_id AS customer_id, mrr_per_day_subquery.subscription_id AS subscription_id, mrr_per_day_subquery.date AS date, mrr_per_day_subquery.amount AS amount, lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by, mrr_per_day_subquery.customer_id, mrr_per_day_subquery.subscription_id
   ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount, if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount, if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount, negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount, negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
   FROM (
-  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('today', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
+  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date DESC) AS row_number, toString(date) AS date_string, if(mapContains(map_query.amount_map, date_string), map_query.amount_map[date_string], NULL) AS date_amount, nullIf(maxIf(date, mapContains(map_query.amount_map, date_string)) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), toDateOrNull('1970-01-01')) AS date_amount_changed, multiIf(isNull(date_amount_changed), 0, ifNull(greater(dateDiff('day', date_amount_changed, date), 45), 0), 0, coalesce(last_value(date_amount) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), 0)) AS amount
@@ -932,7 +932,7 @@
   SELECT mrr_per_day_subquery.breakdown_by AS breakdown_by, mrr_per_day_subquery.customer_id AS customer_id, mrr_per_day_subquery.subscription_id AS subscription_id, mrr_per_day_subquery.date AS date, mrr_per_day_subquery.amount AS amount, lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by, mrr_per_day_subquery.customer_id, mrr_per_day_subquery.subscription_id
   ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount, if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount, if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount, negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount, negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
   FROM (
-  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('today', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
+  SELECT map_query.breakdown_by AS breakdown_by, map_query.customer_id AS customer_id, map_query.subscription_id AS subscription_id, arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date, ROW_NUMBER() OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date DESC) AS row_number, toString(date) AS date_string, if(mapContains(map_query.amount_map, date_string), map_query.amount_map[date_string], NULL) AS date_amount, nullIf(maxIf(date, mapContains(map_query.amount_map, date_string)) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), toDateOrNull('1970-01-01')) AS date_amount_changed, multiIf(isNull(date_amount_changed), 0, ifNull(greater(dateDiff('day', date_amount_changed, date), 45), 0), 0, coalesce(last_value(date_amount) OVER (PARTITION BY breakdown_by, customer_id, subscription_id
   ORDER BY date ASC ROWS UNBOUNDED PRECEDING), 0)) AS amount
@@ -968,7 +968,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_empty_date_range
@@ -1075,7 +1075,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data
@@ -1182,7 +1182,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -1289,7 +1289,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_grouping
@@ -1406,7 +1406,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_with_managed_viewsets_ff
@@ -1513,7 +1513,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter
@@ -1630,7 +1630,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter.1
@@ -1747,6 +1747,6 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---

@@ -85,7 +85,7 @@ class TestCrossSellCandidateSelectorPreferenceWeights(TestCase):
             for path in selector.intent_to_paths.get(key, []):
                 if key not in BASE_PREFERENCE_WEIGHTS:
                     assert weights[path] != LLM_ADJACENT_WEIGHT, (
-                        f"LLM adjacent product {path} should NOT have boosted weight when LLM Analytics is not enabled"
+                        f"LLM adjacent product {path} should NOT have boosted weight when AI observability is not enabled"
                     )
 
     def test_same_category_boost(self):

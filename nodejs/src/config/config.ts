@@ -1,6 +1,6 @@
+import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'
 import {
-    getDefaultKafkaMskProducerEnvConfig,
     getDefaultKafkaWarehouseProducerEnvConfig,
     getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
@@ -9,11 +9,11 @@ import {
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import { getDefaultLlmAnalyticsConfig } from '../llm-analytics/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
 } from '../logs-ingestion/config'
+import { getDefaultMetricsIngestionConsumerConfig } from '../metrics-ingestion/config'
 import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
@@ -27,14 +27,14 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
-        ...getDefaultLlmAnalyticsConfig(),
+        ...getDefaultAIObservabilityConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
+        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
-        ...getDefaultKafkaMskProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
@@ -139,6 +139,50 @@ export function buildIntegerMatcher(config: string | undefined, allowStar: boole
         return (v: number) => {
             return values.has(v)
         }
+    }
+}
+
+/**
+ * Builds a matcher that supports team IDs and/or percentage-based rollout.
+ *
+ * Formats:
+ *   ''          → no match
+ *   '*'         → match all
+ *   '123,456'   → only teams 123 and 456
+ *   '*:0.1'     → 10% of all traffic (random per call)
+ *   '123,*:0.05' → team 123 always + 5% of all other teams
+ */
+export function buildIntegerMatcherWithPercentage(config: string | undefined): ValueMatcher<number> {
+    if (!config || config.trim().length === 0) {
+        return () => false
+    }
+    if (config.trim() === '*') {
+        return () => true
+    }
+
+    const parts = config.split(',').map((s) => s.trim())
+    const teamIds = new Set<number>()
+    let percentage = 0
+
+    for (const part of parts) {
+        if (part.startsWith('*:')) {
+            percentage = parseFloat(part.slice(2))
+        } else {
+            const num = parseInt(part)
+            if (!isNaN(num)) {
+                teamIds.add(num)
+            }
+        }
+    }
+
+    return (teamId: number) => {
+        if (teamIds.has(teamId)) {
+            return true
+        }
+        if (percentage > 0) {
+            return Math.random() < percentage
+        }
+        return false
     }
 }
 

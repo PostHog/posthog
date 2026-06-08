@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
@@ -23,7 +25,7 @@ DEFAULT_CH_OP = AsyncMigrationOperationSQL(sql="SELECT 1", rollback=None, timeou
 DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1", rollback=None)
 
 
-class TestUtils(AsyncMigrationBaseTest):
+class TestExecuteOp(SimpleTestCase):
     @patch("posthog.clickhouse.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")
@@ -31,6 +33,8 @@ class TestUtils(AsyncMigrationBaseTest):
         # correctly routes to ch
         mock_sync_execute.assert_called_once_with("SELECT 1", None, settings={"max_execution_time": 10})
 
+
+class TestUtils(AsyncMigrationBaseTest):
     @patch("django.db.connection.cursor")
     def test_execute_op_postgres(self, mock_cursor):
         execute_op(DEFAULT_POSTGRES_OP, "some_id")
@@ -45,12 +49,12 @@ class TestUtils(AsyncMigrationBaseTest):
         process_error(sm, "second error")
 
         sm.refresh_from_db()
-        assert sm.status == MigrationStatus.Errored
-        assert sm.finished_at > datetime.now(UTC) - timedelta(hours=1)
+        self.assertEqual(sm.status, MigrationStatus.Errored)
+        self.assertGreater(sm.finished_at, datetime.now(UTC) - timedelta(hours=1))
         errors = AsyncMigrationError.objects.filter(async_migration=sm).order_by("created_at")
-        assert errors.count() == 2
-        assert errors[0].description == "some error"
-        assert errors[1].description == "second error"
+        self.assertEqual(errors.count(), 2)
+        self.assertEqual(errors[0].description, "some error")
+        self.assertEqual(errors[1].description, "second error")
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_migration(self, mock_run_async_migration):
@@ -66,10 +70,10 @@ class TestUtils(AsyncMigrationBaseTest):
 
         sm.refresh_from_db()
         mock_app_control_revoke.assert_called_once()
-        assert sm.status == MigrationStatus.Errored
+        self.assertEqual(sm.status, MigrationStatus.Errored)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        assert errors.count() == 1
-        assert errors[0].description == "Force stopped by user"
+        self.assertEqual(errors.count(), 1)
+        self.assertEqual(errors[0].description, "Force stopped by user")
 
     def test_complete_migration(self):
         sm = create_async_migration()
@@ -77,12 +81,12 @@ class TestUtils(AsyncMigrationBaseTest):
 
         sm.refresh_from_db()
 
-        assert sm.status == MigrationStatus.CompletedSuccessfully
-        assert sm.finished_at > datetime.now(UTC) - timedelta(hours=1)
+        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
+        self.assertGreater(sm.finished_at, datetime.now(UTC) - timedelta(hours=1))
 
-        assert sm.progress == 100
+        self.assertEqual(sm.progress, 100)
         errors = AsyncMigrationError.objects.filter(async_migration=sm)
-        assert errors.count() == 0
+        self.assertEqual(errors.count(), 0)
 
     def test_execute_on_each_shard(self):
         execute_on_each_shard("SELECT 1")

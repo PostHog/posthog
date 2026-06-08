@@ -23,7 +23,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 
@@ -330,6 +330,39 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             # MRR is calculated from recurring events (those with subscription_id)
             # Total revenue = 100.42 + 250.42 = 350.84, MRR = 250.42 (only the recurring event)
             assert results.results == [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))]
+
+    def test_revenue_aggregated_per_person_across_multiple_customers(self):
+        self.setup_schema_sources()
+        self.join.source_table_key = "id"
+        self.join.save()
+
+        # One person owns two distinct IDs, each matching a different Stripe customer. Without
+        # per-person aggregation this maps to two rows and fans the persons table out on join.
+        person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1", "cus_2"])
+
+        expected_revenue = Decimal("766.0654934005")  # cus_1 283.8496260553 + cus_2 482.2158673452
+        expected_mrr = Decimal("63.7684363904")  # cus_1 22.9631447238 + cus_2 40.8052916666
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            table_results = execute_hogql_query(
+                parse_select(
+                    "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
+                    placeholders={"id": ast.Constant(value=person.uuid)},
+                ),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+            self.assertEqual(table_results.results, [(person.uuid, expected_revenue, expected_mrr)])
+
+            persons_results = execute_hogql_query(
+                parse_select(
+                    "SELECT id, $virt_revenue, $virt_mrr FROM persons WHERE id = {id}",
+                    placeholders={"id": ast.Constant(value=person.uuid)},
+                ),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+            self.assertEqual(persons_results.results, [(person.uuid, expected_revenue, expected_mrr)])
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):

@@ -7,53 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DataWarehouseSavedQueryDraftApi {
-    readonly id: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
-export interface PaginatedDataWarehouseSavedQueryDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseSavedQueryDraftApi[]
-}
-
-export interface PatchedDataWarehouseSavedQueryDraftApi {
-    readonly id?: string
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
 /**
  * * `Cancelled` - Cancelled
  * `Completed` - Completed
@@ -171,10 +124,6 @@ export const SyncTypeEnumApi = {
     Cdc: 'cdc',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `integer` - integer
  * `numeric` - numeric
@@ -239,7 +188,25 @@ export const CdcTableModeEnumApi = {
 /**
  * @nullable
  */
-export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type ExternalDataSchemaApiAvailableColumnsItem = {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+}
+
+/**
+ * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+ * @nullable
+ */
+export type ExternalDataSchemaApiSource = {
+    readonly id?: string
+    readonly source_type?: string
+    readonly supports_column_selection?: boolean
+    /** @nullable */
+    readonly user_access_level?: string | null
+} | null
 
 export interface ExternalDataSchemaApi {
     readonly id: string
@@ -261,12 +228,12 @@ export interface ExternalDataSchemaApi {
     readonly status: string | null
     /** Sync strategy: incremental, full_refresh, append, or cdc.
 
-* `full_refresh` - full_refresh
-* `incremental` - incremental
-* `append` - append
-* `webhook` - webhook
-* `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+  * `full_refresh` - full_refresh
+  * `incremental` - incremental
+  * `append` - append
+  * `webhook` - webhook
+  * `cdc` - cdc */
+    sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -274,27 +241,27 @@ export interface ExternalDataSchemaApi {
     incremental_field?: string | null
     /** Data type of the incremental field.
 
-* `integer` - integer
-* `numeric` - numeric
-* `datetime` - datetime
-* `date` - date
-* `timestamp` - timestamp
-* `objectid` - objectid */
-    incremental_field_type?: IncrementalFieldTypeEnumApi | NullEnumApi | null
+  * `integer` - integer
+  * `numeric` - numeric
+  * `datetime` - datetime
+  * `date` - date
+  * `timestamp` - timestamp
+  * `objectid` - objectid */
+    incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
 
-* `never` - never
-* `1min` - 1min
-* `5min` - 5min
-* `15min` - 15min
-* `30min` - 30min
-* `1hour` - 1hour
-* `6hour` - 6hour
-* `12hour` - 12hour
-* `24hour` - 24hour
-* `7day` - 7day
-* `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | NullEnumApi | null
+  * `never` - never
+  * `1min` - 1min
+  * `5min` - 5min
+  * `15min` - 15min
+  * `30min` - 30min
+  * `1hour` - 1hour
+  * `6hour` - 6hour
+  * `12hour` - 12hour
+  * `24hour` - 24hour
+  * `7day` - 7day
+  * `30day` - 30day */
+    sync_frequency?: SyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -309,10 +276,22 @@ export interface ExternalDataSchemaApi {
     primary_key_columns?: string[] | null
     /** For CDC syncs: consolidated, cdc_only, or both.
 
-* `consolidated` - consolidated
-* `cdc_only` - cdc_only
-* `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+  * `consolidated` - consolidated
+  * `cdc_only` - cdc_only
+  * `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    readonly source: ExternalDataSchemaApiSource
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -327,7 +306,25 @@ export interface PaginatedExternalDataSchemaListApi {
 /**
  * @nullable
  */
-export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+}
+
+/**
+ * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiSource = {
+    readonly id?: string
+    readonly source_type?: string
+    readonly supports_column_selection?: boolean
+    /** @nullable */
+    readonly user_access_level?: string | null
+} | null
 
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
@@ -349,12 +346,12 @@ export interface PatchedExternalDataSchemaApi {
     readonly status?: string | null
     /** Sync strategy: incremental, full_refresh, append, or cdc.
 
-* `full_refresh` - full_refresh
-* `incremental` - incremental
-* `append` - append
-* `webhook` - webhook
-* `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+  * `full_refresh` - full_refresh
+  * `incremental` - incremental
+  * `append` - append
+  * `webhook` - webhook
+  * `cdc` - cdc */
+    sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -362,27 +359,27 @@ export interface PatchedExternalDataSchemaApi {
     incremental_field?: string | null
     /** Data type of the incremental field.
 
-* `integer` - integer
-* `numeric` - numeric
-* `datetime` - datetime
-* `date` - date
-* `timestamp` - timestamp
-* `objectid` - objectid */
-    incremental_field_type?: IncrementalFieldTypeEnumApi | NullEnumApi | null
+  * `integer` - integer
+  * `numeric` - numeric
+  * `datetime` - datetime
+  * `date` - date
+  * `timestamp` - timestamp
+  * `objectid` - objectid */
+    incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
 
-* `never` - never
-* `1min` - 1min
-* `5min` - 5min
-* `15min` - 15min
-* `30min` - 30min
-* `1hour` - 1hour
-* `6hour` - 6hour
-* `12hour` - 12hour
-* `24hour` - 24hour
-* `7day` - 7day
-* `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | NullEnumApi | null
+  * `never` - never
+  * `1min` - 1min
+  * `5min` - 5min
+  * `15min` - 15min
+  * `30min` - 30min
+  * `1hour` - 1hour
+  * `6hour` - 6hour
+  * `12hour` - 12hour
+  * `24hour` - 24hour
+  * `7day` - 7day
+  * `30day` - 30day */
+    sync_frequency?: SyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -397,11 +394,36 @@ export interface PatchedExternalDataSchemaApi {
     primary_key_columns?: string[] | null
     /** For CDC syncs: consolidated, cdc_only, or both.
 
-* `consolidated` - consolidated
-* `cdc_only` - cdc_only
-* `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+  * `consolidated` - consolidated
+  * `cdc_only` - cdc_only
+  * `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    readonly source?: PatchedExternalDataSchemaApiSource
 }
+
+/**
+ * * `web` - web
+ * `api` - api
+ * `mcp` - mcp
+ */
+export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
+
+export const CreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
 
 /**
  * * `Ashby` - Ashby
@@ -422,6 +444,7 @@ export interface PatchedExternalDataSchemaApi {
  * `Chargebee` - Chargebee
  * `Clerk` - Clerk
  * `GoogleAds` - GoogleAds
+ * `GoogleSearchConsole` - GoogleSearchConsole
  * `TemporalIO` - TemporalIO
  * `DoIt` - DoIt
  * `GoogleSheets` - GoogleSheets
@@ -548,6 +571,9 @@ export interface PatchedExternalDataSchemaApi {
  * `ClickHouse` - ClickHouse
  * `Plain` - Plain
  * `Resend` - Resend
+ * `PgAnalyze` - PgAnalyze
+ * `WorkOS` - WorkOS
+ * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -571,6 +597,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Chargebee: 'Chargebee',
     Clerk: 'Clerk',
     GoogleAds: 'GoogleAds',
+    GoogleSearchConsole: 'GoogleSearchConsole',
     TemporalIO: 'TemporalIO',
     DoIt: 'DoIt',
     GoogleSheets: 'GoogleSheets',
@@ -697,6 +724,9 @@ export const ExternalDataSourceTypeEnumApi = {
     ClickHouse: 'ClickHouse',
     Plain: 'Plain',
     Resend: 'Resend',
+    PgAnalyze: 'PgAnalyze',
+    WorkOS: 'WorkOS',
+    Custom: 'Custom',
 } as const
 
 /**
@@ -736,6 +766,12 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+  * `web` - web
+  * `api` - api
+  * `mcp` - mcp */
+    created_via?: CreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -755,13 +791,13 @@ export interface ExternalDataSourceSerializersApi {
     readonly access_method: AccessMethodEnumApi
     /** Backend engine detected for the direct connection.
 
-* `duckdb` - duckdb
-* `postgres` - postgres */
-    readonly engine: EngineEnumApi | NullEnumApi | null
+  * `duckdb` - duckdb
+  * `postgres` - postgres */
+    readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
-    job_inputs?: unknown | null
+    job_inputs?: unknown
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -769,6 +805,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether this source supports per-column sync selection via `enabled_columns`. */
+    readonly supports_column_selection: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -788,150 +826,154 @@ export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
 export interface ExternalDataSourceCreateApi {
     /** The source type (e.g. 'Postgres', 'Stripe').
 
-* `Ashby` - Ashby
-* `Supabase` - Supabase
-* `CustomerIO` - CustomerIO
-* `Github` - Github
-* `Stripe` - Stripe
-* `Hubspot` - Hubspot
-* `Postgres` - Postgres
-* `Zendesk` - Zendesk
-* `Snowflake` - Snowflake
-* `Salesforce` - Salesforce
-* `MySQL` - MySQL
-* `MongoDB` - MongoDB
-* `MSSQL` - MSSQL
-* `Vitally` - Vitally
-* `BigQuery` - BigQuery
-* `Chargebee` - Chargebee
-* `Clerk` - Clerk
-* `GoogleAds` - GoogleAds
-* `TemporalIO` - TemporalIO
-* `DoIt` - DoIt
-* `GoogleSheets` - GoogleSheets
-* `MetaAds` - MetaAds
-* `Klaviyo` - Klaviyo
-* `Mailchimp` - Mailchimp
-* `Braze` - Braze
-* `Mailjet` - Mailjet
-* `Redshift` - Redshift
-* `Polar` - Polar
-* `RevenueCat` - RevenueCat
-* `LinkedinAds` - LinkedinAds
-* `RedditAds` - RedditAds
-* `TikTokAds` - TikTokAds
-* `BingAds` - BingAds
-* `Shopify` - Shopify
-* `Attio` - Attio
-* `SnapchatAds` - SnapchatAds
-* `Linear` - Linear
-* `Intercom` - Intercom
-* `Amplitude` - Amplitude
-* `Mixpanel` - Mixpanel
-* `Jira` - Jira
-* `ActiveCampaign` - ActiveCampaign
-* `Marketo` - Marketo
-* `Adjust` - Adjust
-* `AppsFlyer` - AppsFlyer
-* `Freshdesk` - Freshdesk
-* `GoogleAnalytics` - GoogleAnalytics
-* `Pipedrive` - Pipedrive
-* `SendGrid` - SendGrid
-* `Slack` - Slack
-* `PagerDuty` - PagerDuty
-* `Asana` - Asana
-* `Notion` - Notion
-* `Airtable` - Airtable
-* `Greenhouse` - Greenhouse
-* `BambooHR` - BambooHR
-* `Lever` - Lever
-* `GitLab` - GitLab
-* `Datadog` - Datadog
-* `Sentry` - Sentry
-* `Pendo` - Pendo
-* `FullStory` - FullStory
-* `AmazonAds` - AmazonAds
-* `PinterestAds` - PinterestAds
-* `AppleSearchAds` - AppleSearchAds
-* `QuickBooks` - QuickBooks
-* `Xero` - Xero
-* `NetSuite` - NetSuite
-* `WooCommerce` - WooCommerce
-* `BigCommerce` - BigCommerce
-* `PayPal` - PayPal
-* `Square` - Square
-* `Zoom` - Zoom
-* `Trello` - Trello
-* `Monday` - Monday
-* `ClickUp` - ClickUp
-* `Confluence` - Confluence
-* `Recurly` - Recurly
-* `SalesLoft` - SalesLoft
-* `Outreach` - Outreach
-* `Gong` - Gong
-* `Calendly` - Calendly
-* `Typeform` - Typeform
-* `Iterable` - Iterable
-* `ZohoCRM` - ZohoCRM
-* `Close` - Close
-* `Oracle` - Oracle
-* `DynamoDB` - DynamoDB
-* `Elasticsearch` - Elasticsearch
-* `Kafka` - Kafka
-* `LaunchDarkly` - LaunchDarkly
-* `Braintree` - Braintree
-* `Recharge` - Recharge
-* `HelpScout` - HelpScout
-* `Gorgias` - Gorgias
-* `Instagram` - Instagram
-* `YouTubeAnalytics` - YouTubeAnalytics
-* `FacebookPages` - FacebookPages
-* `TwitterAds` - TwitterAds
-* `Workday` - Workday
-* `ServiceNow` - ServiceNow
-* `Pardot` - Pardot
-* `Copper` - Copper
-* `Front` - Front
-* `ChartMogul` - ChartMogul
-* `Zuora` - Zuora
-* `Paddle` - Paddle
-* `CircleCI` - CircleCI
-* `CockroachDB` - CockroachDB
-* `Firebase` - Firebase
-* `AzureBlob` - AzureBlob
-* `GoogleDrive` - GoogleDrive
-* `OneDrive` - OneDrive
-* `SharePoint` - SharePoint
-* `Box` - Box
-* `SFTP` - SFTP
-* `MicrosoftTeams` - MicrosoftTeams
-* `Aircall` - Aircall
-* `Webflow` - Webflow
-* `Okta` - Okta
-* `Auth0` - Auth0
-* `Productboard` - Productboard
-* `Smartsheet` - Smartsheet
-* `Wrike` - Wrike
-* `Plaid` - Plaid
-* `SurveyMonkey` - SurveyMonkey
-* `Eventbrite` - Eventbrite
-* `RingCentral` - RingCentral
-* `Twilio` - Twilio
-* `Freshsales` - Freshsales
-* `Shortcut` - Shortcut
-* `ConvertKit` - ConvertKit
-* `Drip` - Drip
-* `CampaignMonitor` - CampaignMonitor
-* `MailerLite` - MailerLite
-* `Omnisend` - Omnisend
-* `Brevo` - Brevo
-* `Postmark` - Postmark
-* `Granola` - Granola
-* `BuildBetter` - BuildBetter
-* `Convex` - Convex
-* `ClickHouse` - ClickHouse
-* `Plain` - Plain
-* `Resend` - Resend */
+  * `Ashby` - Ashby
+  * `Supabase` - Supabase
+  * `CustomerIO` - CustomerIO
+  * `Github` - Github
+  * `Stripe` - Stripe
+  * `Hubspot` - Hubspot
+  * `Postgres` - Postgres
+  * `Zendesk` - Zendesk
+  * `Snowflake` - Snowflake
+  * `Salesforce` - Salesforce
+  * `MySQL` - MySQL
+  * `MongoDB` - MongoDB
+  * `MSSQL` - MSSQL
+  * `Vitally` - Vitally
+  * `BigQuery` - BigQuery
+  * `Chargebee` - Chargebee
+  * `Clerk` - Clerk
+  * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
+  * `TemporalIO` - TemporalIO
+  * `DoIt` - DoIt
+  * `GoogleSheets` - GoogleSheets
+  * `MetaAds` - MetaAds
+  * `Klaviyo` - Klaviyo
+  * `Mailchimp` - Mailchimp
+  * `Braze` - Braze
+  * `Mailjet` - Mailjet
+  * `Redshift` - Redshift
+  * `Polar` - Polar
+  * `RevenueCat` - RevenueCat
+  * `LinkedinAds` - LinkedinAds
+  * `RedditAds` - RedditAds
+  * `TikTokAds` - TikTokAds
+  * `BingAds` - BingAds
+  * `Shopify` - Shopify
+  * `Attio` - Attio
+  * `SnapchatAds` - SnapchatAds
+  * `Linear` - Linear
+  * `Intercom` - Intercom
+  * `Amplitude` - Amplitude
+  * `Mixpanel` - Mixpanel
+  * `Jira` - Jira
+  * `ActiveCampaign` - ActiveCampaign
+  * `Marketo` - Marketo
+  * `Adjust` - Adjust
+  * `AppsFlyer` - AppsFlyer
+  * `Freshdesk` - Freshdesk
+  * `GoogleAnalytics` - GoogleAnalytics
+  * `Pipedrive` - Pipedrive
+  * `SendGrid` - SendGrid
+  * `Slack` - Slack
+  * `PagerDuty` - PagerDuty
+  * `Asana` - Asana
+  * `Notion` - Notion
+  * `Airtable` - Airtable
+  * `Greenhouse` - Greenhouse
+  * `BambooHR` - BambooHR
+  * `Lever` - Lever
+  * `GitLab` - GitLab
+  * `Datadog` - Datadog
+  * `Sentry` - Sentry
+  * `Pendo` - Pendo
+  * `FullStory` - FullStory
+  * `AmazonAds` - AmazonAds
+  * `PinterestAds` - PinterestAds
+  * `AppleSearchAds` - AppleSearchAds
+  * `QuickBooks` - QuickBooks
+  * `Xero` - Xero
+  * `NetSuite` - NetSuite
+  * `WooCommerce` - WooCommerce
+  * `BigCommerce` - BigCommerce
+  * `PayPal` - PayPal
+  * `Square` - Square
+  * `Zoom` - Zoom
+  * `Trello` - Trello
+  * `Monday` - Monday
+  * `ClickUp` - ClickUp
+  * `Confluence` - Confluence
+  * `Recurly` - Recurly
+  * `SalesLoft` - SalesLoft
+  * `Outreach` - Outreach
+  * `Gong` - Gong
+  * `Calendly` - Calendly
+  * `Typeform` - Typeform
+  * `Iterable` - Iterable
+  * `ZohoCRM` - ZohoCRM
+  * `Close` - Close
+  * `Oracle` - Oracle
+  * `DynamoDB` - DynamoDB
+  * `Elasticsearch` - Elasticsearch
+  * `Kafka` - Kafka
+  * `LaunchDarkly` - LaunchDarkly
+  * `Braintree` - Braintree
+  * `Recharge` - Recharge
+  * `HelpScout` - HelpScout
+  * `Gorgias` - Gorgias
+  * `Instagram` - Instagram
+  * `YouTubeAnalytics` - YouTubeAnalytics
+  * `FacebookPages` - FacebookPages
+  * `TwitterAds` - TwitterAds
+  * `Workday` - Workday
+  * `ServiceNow` - ServiceNow
+  * `Pardot` - Pardot
+  * `Copper` - Copper
+  * `Front` - Front
+  * `ChartMogul` - ChartMogul
+  * `Zuora` - Zuora
+  * `Paddle` - Paddle
+  * `CircleCI` - CircleCI
+  * `CockroachDB` - CockroachDB
+  * `Firebase` - Firebase
+  * `AzureBlob` - AzureBlob
+  * `GoogleDrive` - GoogleDrive
+  * `OneDrive` - OneDrive
+  * `SharePoint` - SharePoint
+  * `Box` - Box
+  * `SFTP` - SFTP
+  * `MicrosoftTeams` - MicrosoftTeams
+  * `Aircall` - Aircall
+  * `Webflow` - Webflow
+  * `Okta` - Okta
+  * `Auth0` - Auth0
+  * `Productboard` - Productboard
+  * `Smartsheet` - Smartsheet
+  * `Wrike` - Wrike
+  * `Plaid` - Plaid
+  * `SurveyMonkey` - SurveyMonkey
+  * `Eventbrite` - Eventbrite
+  * `RingCentral` - RingCentral
+  * `Twilio` - Twilio
+  * `Freshsales` - Freshsales
+  * `Shortcut` - Shortcut
+  * `ConvertKit` - ConvertKit
+  * `Drip` - Drip
+  * `CampaignMonitor` - CampaignMonitor
+  * `MailerLite` - MailerLite
+  * `Omnisend` - Omnisend
+  * `Brevo` - Brevo
+  * `Postmark` - Postmark
+  * `Granola` - Granola
+  * `BuildBetter` - BuildBetter
+  * `Convex` - Convex
+  * `ClickHouse` - ClickHouse
+  * `Plain` - Plain
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -949,9 +991,15 @@ export interface ExternalDataSourceCreateApi {
     description?: string | null
     /** Connection mode: 'warehouse' (import) or 'direct' (live query).
 
-* `warehouse` - warehouse
-* `direct` - direct */
+  * `warehouse` - warehouse
+  * `direct` - direct */
     access_method?: AccessMethodEnumApi
+    /** Where the request came from
+
+  * `web` - web
+  * `api` - api
+  * `mcp` - mcp */
+    created_via?: CreatedViaEnumApi
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -964,6 +1012,12 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
+    /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+  * `web` - web
+  * `api` - api
+  * `mcp` - mcp */
+    created_via?: CreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -983,13 +1037,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly access_method?: AccessMethodEnumApi
     /** Backend engine detected for the direct connection.
 
-* `duckdb` - duckdb
-* `postgres` - postgres */
-    readonly engine?: EngineEnumApi | NullEnumApi | null
+  * `duckdb` - duckdb
+  * `postgres` - postgres */
+    readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
-    job_inputs?: unknown | null
+    job_inputs?: unknown
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -997,6 +1051,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether this source supports per-column sync selection via `enabled_columns`. */
+    readonly supports_column_selection?: boolean
 }
 
 export interface ExternalDataSourceBulkUpdateSchemaApi {
@@ -1006,12 +1062,12 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     should_sync?: boolean
     /** Requested sync mode for the schema.
 
-* `full_refresh` - full_refresh
-* `incremental` - incremental
-* `append` - append
-* `webhook` - webhook
-* `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+  * `full_refresh` - full_refresh
+  * `incremental` - incremental
+  * `append` - append
+  * `webhook` - webhook
+  * `cdc` - cdc */
+    sync_type?: SyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
      * @nullable
@@ -1034,10 +1090,15 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     sync_time_of_day?: string | null
     /** How CDC-backed tables should be exposed.
 
-* `consolidated` - consolidated
-* `cdc_only` - cdc_only
-* `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+  * `consolidated` - consolidated
+  * `cdc_only` - cdc_only
+  * `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Columns to sync. Null means sync all columns.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -1051,9 +1112,9 @@ export interface ExternalDataSourceConnectionOptionApi {
     readonly prefix: string | null
     /** Backend engine detected for the direct connection.
 
-* `duckdb` - duckdb
-* `postgres` - postgres */
-    readonly engine: EngineEnumApi | NullEnumApi | null
+  * `duckdb` - duckdb
+  * `postgres` - postgres */
+    readonly engine: EngineEnumApi | null
 }
 
 export interface PaginatedExternalDataSourceConnectionOptionListApi {
@@ -1075,150 +1136,154 @@ fields vary per source_type and are validated dynamically by the source registry
 export interface DatabaseSchemaRequestApi {
     /** The source type to validate against.
 
-* `Ashby` - Ashby
-* `Supabase` - Supabase
-* `CustomerIO` - CustomerIO
-* `Github` - Github
-* `Stripe` - Stripe
-* `Hubspot` - Hubspot
-* `Postgres` - Postgres
-* `Zendesk` - Zendesk
-* `Snowflake` - Snowflake
-* `Salesforce` - Salesforce
-* `MySQL` - MySQL
-* `MongoDB` - MongoDB
-* `MSSQL` - MSSQL
-* `Vitally` - Vitally
-* `BigQuery` - BigQuery
-* `Chargebee` - Chargebee
-* `Clerk` - Clerk
-* `GoogleAds` - GoogleAds
-* `TemporalIO` - TemporalIO
-* `DoIt` - DoIt
-* `GoogleSheets` - GoogleSheets
-* `MetaAds` - MetaAds
-* `Klaviyo` - Klaviyo
-* `Mailchimp` - Mailchimp
-* `Braze` - Braze
-* `Mailjet` - Mailjet
-* `Redshift` - Redshift
-* `Polar` - Polar
-* `RevenueCat` - RevenueCat
-* `LinkedinAds` - LinkedinAds
-* `RedditAds` - RedditAds
-* `TikTokAds` - TikTokAds
-* `BingAds` - BingAds
-* `Shopify` - Shopify
-* `Attio` - Attio
-* `SnapchatAds` - SnapchatAds
-* `Linear` - Linear
-* `Intercom` - Intercom
-* `Amplitude` - Amplitude
-* `Mixpanel` - Mixpanel
-* `Jira` - Jira
-* `ActiveCampaign` - ActiveCampaign
-* `Marketo` - Marketo
-* `Adjust` - Adjust
-* `AppsFlyer` - AppsFlyer
-* `Freshdesk` - Freshdesk
-* `GoogleAnalytics` - GoogleAnalytics
-* `Pipedrive` - Pipedrive
-* `SendGrid` - SendGrid
-* `Slack` - Slack
-* `PagerDuty` - PagerDuty
-* `Asana` - Asana
-* `Notion` - Notion
-* `Airtable` - Airtable
-* `Greenhouse` - Greenhouse
-* `BambooHR` - BambooHR
-* `Lever` - Lever
-* `GitLab` - GitLab
-* `Datadog` - Datadog
-* `Sentry` - Sentry
-* `Pendo` - Pendo
-* `FullStory` - FullStory
-* `AmazonAds` - AmazonAds
-* `PinterestAds` - PinterestAds
-* `AppleSearchAds` - AppleSearchAds
-* `QuickBooks` - QuickBooks
-* `Xero` - Xero
-* `NetSuite` - NetSuite
-* `WooCommerce` - WooCommerce
-* `BigCommerce` - BigCommerce
-* `PayPal` - PayPal
-* `Square` - Square
-* `Zoom` - Zoom
-* `Trello` - Trello
-* `Monday` - Monday
-* `ClickUp` - ClickUp
-* `Confluence` - Confluence
-* `Recurly` - Recurly
-* `SalesLoft` - SalesLoft
-* `Outreach` - Outreach
-* `Gong` - Gong
-* `Calendly` - Calendly
-* `Typeform` - Typeform
-* `Iterable` - Iterable
-* `ZohoCRM` - ZohoCRM
-* `Close` - Close
-* `Oracle` - Oracle
-* `DynamoDB` - DynamoDB
-* `Elasticsearch` - Elasticsearch
-* `Kafka` - Kafka
-* `LaunchDarkly` - LaunchDarkly
-* `Braintree` - Braintree
-* `Recharge` - Recharge
-* `HelpScout` - HelpScout
-* `Gorgias` - Gorgias
-* `Instagram` - Instagram
-* `YouTubeAnalytics` - YouTubeAnalytics
-* `FacebookPages` - FacebookPages
-* `TwitterAds` - TwitterAds
-* `Workday` - Workday
-* `ServiceNow` - ServiceNow
-* `Pardot` - Pardot
-* `Copper` - Copper
-* `Front` - Front
-* `ChartMogul` - ChartMogul
-* `Zuora` - Zuora
-* `Paddle` - Paddle
-* `CircleCI` - CircleCI
-* `CockroachDB` - CockroachDB
-* `Firebase` - Firebase
-* `AzureBlob` - AzureBlob
-* `GoogleDrive` - GoogleDrive
-* `OneDrive` - OneDrive
-* `SharePoint` - SharePoint
-* `Box` - Box
-* `SFTP` - SFTP
-* `MicrosoftTeams` - MicrosoftTeams
-* `Aircall` - Aircall
-* `Webflow` - Webflow
-* `Okta` - Okta
-* `Auth0` - Auth0
-* `Productboard` - Productboard
-* `Smartsheet` - Smartsheet
-* `Wrike` - Wrike
-* `Plaid` - Plaid
-* `SurveyMonkey` - SurveyMonkey
-* `Eventbrite` - Eventbrite
-* `RingCentral` - RingCentral
-* `Twilio` - Twilio
-* `Freshsales` - Freshsales
-* `Shortcut` - Shortcut
-* `ConvertKit` - ConvertKit
-* `Drip` - Drip
-* `CampaignMonitor` - CampaignMonitor
-* `MailerLite` - MailerLite
-* `Omnisend` - Omnisend
-* `Brevo` - Brevo
-* `Postmark` - Postmark
-* `Granola` - Granola
-* `BuildBetter` - BuildBetter
-* `Convex` - Convex
-* `ClickHouse` - ClickHouse
-* `Plain` - Plain
-* `Resend` - Resend */
+  * `Ashby` - Ashby
+  * `Supabase` - Supabase
+  * `CustomerIO` - CustomerIO
+  * `Github` - Github
+  * `Stripe` - Stripe
+  * `Hubspot` - Hubspot
+  * `Postgres` - Postgres
+  * `Zendesk` - Zendesk
+  * `Snowflake` - Snowflake
+  * `Salesforce` - Salesforce
+  * `MySQL` - MySQL
+  * `MongoDB` - MongoDB
+  * `MSSQL` - MSSQL
+  * `Vitally` - Vitally
+  * `BigQuery` - BigQuery
+  * `Chargebee` - Chargebee
+  * `Clerk` - Clerk
+  * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
+  * `TemporalIO` - TemporalIO
+  * `DoIt` - DoIt
+  * `GoogleSheets` - GoogleSheets
+  * `MetaAds` - MetaAds
+  * `Klaviyo` - Klaviyo
+  * `Mailchimp` - Mailchimp
+  * `Braze` - Braze
+  * `Mailjet` - Mailjet
+  * `Redshift` - Redshift
+  * `Polar` - Polar
+  * `RevenueCat` - RevenueCat
+  * `LinkedinAds` - LinkedinAds
+  * `RedditAds` - RedditAds
+  * `TikTokAds` - TikTokAds
+  * `BingAds` - BingAds
+  * `Shopify` - Shopify
+  * `Attio` - Attio
+  * `SnapchatAds` - SnapchatAds
+  * `Linear` - Linear
+  * `Intercom` - Intercom
+  * `Amplitude` - Amplitude
+  * `Mixpanel` - Mixpanel
+  * `Jira` - Jira
+  * `ActiveCampaign` - ActiveCampaign
+  * `Marketo` - Marketo
+  * `Adjust` - Adjust
+  * `AppsFlyer` - AppsFlyer
+  * `Freshdesk` - Freshdesk
+  * `GoogleAnalytics` - GoogleAnalytics
+  * `Pipedrive` - Pipedrive
+  * `SendGrid` - SendGrid
+  * `Slack` - Slack
+  * `PagerDuty` - PagerDuty
+  * `Asana` - Asana
+  * `Notion` - Notion
+  * `Airtable` - Airtable
+  * `Greenhouse` - Greenhouse
+  * `BambooHR` - BambooHR
+  * `Lever` - Lever
+  * `GitLab` - GitLab
+  * `Datadog` - Datadog
+  * `Sentry` - Sentry
+  * `Pendo` - Pendo
+  * `FullStory` - FullStory
+  * `AmazonAds` - AmazonAds
+  * `PinterestAds` - PinterestAds
+  * `AppleSearchAds` - AppleSearchAds
+  * `QuickBooks` - QuickBooks
+  * `Xero` - Xero
+  * `NetSuite` - NetSuite
+  * `WooCommerce` - WooCommerce
+  * `BigCommerce` - BigCommerce
+  * `PayPal` - PayPal
+  * `Square` - Square
+  * `Zoom` - Zoom
+  * `Trello` - Trello
+  * `Monday` - Monday
+  * `ClickUp` - ClickUp
+  * `Confluence` - Confluence
+  * `Recurly` - Recurly
+  * `SalesLoft` - SalesLoft
+  * `Outreach` - Outreach
+  * `Gong` - Gong
+  * `Calendly` - Calendly
+  * `Typeform` - Typeform
+  * `Iterable` - Iterable
+  * `ZohoCRM` - ZohoCRM
+  * `Close` - Close
+  * `Oracle` - Oracle
+  * `DynamoDB` - DynamoDB
+  * `Elasticsearch` - Elasticsearch
+  * `Kafka` - Kafka
+  * `LaunchDarkly` - LaunchDarkly
+  * `Braintree` - Braintree
+  * `Recharge` - Recharge
+  * `HelpScout` - HelpScout
+  * `Gorgias` - Gorgias
+  * `Instagram` - Instagram
+  * `YouTubeAnalytics` - YouTubeAnalytics
+  * `FacebookPages` - FacebookPages
+  * `TwitterAds` - TwitterAds
+  * `Workday` - Workday
+  * `ServiceNow` - ServiceNow
+  * `Pardot` - Pardot
+  * `Copper` - Copper
+  * `Front` - Front
+  * `ChartMogul` - ChartMogul
+  * `Zuora` - Zuora
+  * `Paddle` - Paddle
+  * `CircleCI` - CircleCI
+  * `CockroachDB` - CockroachDB
+  * `Firebase` - Firebase
+  * `AzureBlob` - AzureBlob
+  * `GoogleDrive` - GoogleDrive
+  * `OneDrive` - OneDrive
+  * `SharePoint` - SharePoint
+  * `Box` - Box
+  * `SFTP` - SFTP
+  * `MicrosoftTeams` - MicrosoftTeams
+  * `Aircall` - Aircall
+  * `Webflow` - Webflow
+  * `Okta` - Okta
+  * `Auth0` - Auth0
+  * `Productboard` - Productboard
+  * `Smartsheet` - Smartsheet
+  * `Wrike` - Wrike
+  * `Plaid` - Plaid
+  * `SurveyMonkey` - SurveyMonkey
+  * `Eventbrite` - Eventbrite
+  * `RingCentral` - RingCentral
+  * `Twilio` - Twilio
+  * `Freshsales` - Freshsales
+  * `Shortcut` - Shortcut
+  * `ConvertKit` - ConvertKit
+  * `Drip` - Drip
+  * `CampaignMonitor` - CampaignMonitor
+  * `MailerLite` - MailerLite
+  * `Omnisend` - Omnisend
+  * `Brevo` - Brevo
+  * `Postmark` - Postmark
+  * `Granola` - Granola
+  * `BuildBetter` - BuildBetter
+  * `Convex` - Convex
+  * `ClickHouse` - ClickHouse
+  * `Plain` - Plain
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -1249,14 +1314,14 @@ export interface InsightVariableApi {
     name: string
     /** Variable type. Controls how the value is rendered and substituted in HogQL.
 
-* `String` - String
-* `Number` - Number
-* `Boolean` - Boolean
-* `List` - List
-* `Date` - Date */
+  * `String` - String
+  * `Number` - Number
+  * `Boolean` - Boolean
+  * `List` - List
+  * `Date` - Date */
     type: InsightVariableTypeEnumApi
     /** Default value used when a query references this variable. */
-    default_value?: unknown | null
+    default_value?: unknown
     /**
      * ID of the user who created the SQL variable.
      * @nullable
@@ -1270,7 +1335,7 @@ export interface InsightVariableApi {
      */
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
-    values?: unknown | null
+    values?: unknown
 }
 
 export interface PaginatedInsightVariableListApi {
@@ -1292,14 +1357,14 @@ export interface PatchedInsightVariableApi {
     name?: string
     /** Variable type. Controls how the value is rendered and substituted in HogQL.
 
-* `String` - String
-* `Number` - Number
-* `Boolean` - Boolean
-* `List` - List
-* `Date` - Date */
+  * `String` - String
+  * `Number` - Number
+  * `Boolean` - Boolean
+  * `List` - List
+  * `Date` - Date */
     type?: InsightVariableTypeEnumApi
     /** Default value used when a query references this variable. */
-    default_value?: unknown | null
+    default_value?: unknown
     /**
      * ID of the user who created the SQL variable.
      * @nullable
@@ -1313,18 +1378,18 @@ export interface PatchedInsightVariableApi {
      */
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
-    values?: unknown | null
+    values?: unknown
 }
 
 export interface QueryTabStateApi {
     readonly id: string
     /**
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-             */
-    state?: unknown | null
+              Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+              and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+              ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+              for a user.
+               */
+    state?: unknown
 }
 
 export interface PaginatedQueryTabStateListApi {
@@ -1339,12 +1404,12 @@ export interface PaginatedQueryTabStateListApi {
 export interface PatchedQueryTabStateApi {
     readonly id?: string
     /**
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-             */
-    state?: unknown | null
+              Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+              and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+              ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+              for a user.
+               */
+    state?: unknown
 }
 
 /**
@@ -1379,7 +1444,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -1399,7 +1464,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -1472,12 +1537,12 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
-* `Cancelled` - Cancelled
-* `Modified` - Modified
-* `Completed` - Completed
-* `Failed` - Failed
-* `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
+  * `Cancelled` - Cancelled
+  * `Modified` - Modified
+  * `Completed` - Completed
+  * `Failed` - Failed
+  * `Running` - Running */
+    readonly status: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1492,10 +1557,10 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
 
-* `data_warehouse` - Data Warehouse
-* `endpoint` - Endpoint
-* `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi | null
+  * `data_warehouse` - Data Warehouse
+  * `endpoint` - Endpoint
+  * `managed_viewset` - Managed Viewset */
+    readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
     /**
@@ -1503,6 +1568,11 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly expires_at: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -1512,6 +1582,21 @@ export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     /** @nullable */
     previous?: string | null
     results: DataWarehouseSavedQueryMinimalApi[]
+}
+
+export type DataWarehouseSavedQueryApiQueryKind =
+    (typeof DataWarehouseSavedQueryApiQueryKind)[keyof typeof DataWarehouseSavedQueryApiQueryKind]
+
+export const DataWarehouseSavedQueryApiQueryKind = {
+    HogQLQuery: 'HogQLQuery',
+} as const
+
+/**
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
+ */
+export type DataWarehouseSavedQueryApiQuery = {
+    kind?: DataWarehouseSavedQueryApiQueryKind
+    query: string
 }
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -1530,8 +1615,8 @@ export interface DataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-    query?: unknown | null
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
+    query: DataWarehouseSavedQueryApiQuery
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1539,12 +1624,12 @@ export interface DataWarehouseSavedQueryApi {
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
-* `Cancelled` - Cancelled
-* `Modified` - Modified
-* `Completed` - Completed
-* `Failed` - Failed
-* `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
+  * `Cancelled` - Cancelled
+  * `Modified` - Modified
+  * `Completed` - Completed
+  * `Failed` - Failed
+  * `Running` - Running */
+    readonly status: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1582,10 +1667,10 @@ export interface DataWarehouseSavedQueryApi {
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
 
-* `data_warehouse` - Data Warehouse
-* `endpoint` - Endpoint
-* `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi | null
+  * `data_warehouse` - Data Warehouse
+  * `endpoint` - Endpoint
+  * `managed_viewset` - Managed Viewset */
+    readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1593,6 +1678,26 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export type PatchedDataWarehouseSavedQueryApiQueryKind =
+    (typeof PatchedDataWarehouseSavedQueryApiQueryKind)[keyof typeof PatchedDataWarehouseSavedQueryApiQueryKind]
+
+export const PatchedDataWarehouseSavedQueryApiQueryKind = {
+    HogQLQuery: 'HogQLQuery',
+} as const
+
+/**
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
+ */
+export type PatchedDataWarehouseSavedQueryApiQuery = {
+    kind?: PatchedDataWarehouseSavedQueryApiQueryKind
+    query: string
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
@@ -1611,8 +1716,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name?: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-    query?: unknown | null
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
+    query?: PatchedDataWarehouseSavedQueryApiQuery
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
@@ -1620,12 +1725,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
 
-* `Cancelled` - Cancelled
-* `Modified` - Modified
-* `Completed` - Completed
-* `Failed` - Failed
-* `Running` - Running */
-    readonly status?: SavedQueryStatusEnumApi | NullEnumApi | null
+  * `Cancelled` - Cancelled
+  * `Modified` - Modified
+  * `Completed` - Completed
+  * `Failed` - Failed
+  * `Running` - Running */
+    readonly status?: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1663,10 +1768,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
 
-* `data_warehouse` - Data Warehouse
-* `endpoint` - Endpoint
-* `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | NullEnumApi | null
+  * `data_warehouse` - Data Warehouse
+  * `endpoint` - Endpoint
+  * `managed_viewset` - Managed Viewset */
+    readonly origin?: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1674,8 +1779,63 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at?: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
+export interface DataWarehouseSavedQueryDraftApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+export interface PaginatedDataWarehouseSavedQueryDraftListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseSavedQueryDraftApi[]
+}
+
+export interface PatchedDataWarehouseSavedQueryDraftApi {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DataWarehouseSavedQueryFolderApi {
     readonly id: string
     /**
@@ -1686,8 +1846,16 @@ export interface DataWarehouseSavedQueryFolderApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly view_count: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface PatchedDataWarehouseSavedQueryFolderApi {
     readonly id?: string
     /**
@@ -1698,6 +1866,11 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly view_count?: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -1743,10 +1916,13 @@ export type TableApiColumnsItem = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type TableApiExternalSchema = { [key: string]: unknown } | null | null
+export type TableApiExternalSchema = { [key: string]: unknown } | null
 
 export type TableApiOptions = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface TableApi {
     readonly id: string
     /** @nullable */
@@ -1764,6 +1940,11 @@ export interface TableApi {
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
     options?: TableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTableListApi {
@@ -1773,6 +1954,42 @@ export interface PaginatedTableListApi {
     /** @nullable */
     previous?: string | null
     results: TableApi[]
+}
+
+export type PatchedTableApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
+
+export type PatchedTableApiOptions = { [key: string]: unknown }
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedTableApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    format?: TableFormatEnumApi
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 500 */
+    url_pattern?: string
+    credential?: CredentialApi
+    readonly columns?: readonly PatchedTableApiColumnsItem[]
+    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
+    /** @nullable */
+    readonly external_schema?: PatchedTableApiExternalSchema
+    options?: PatchedTableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export interface ViewLinkApi {
@@ -1791,7 +2008,7 @@ export interface ViewLinkApi {
     joining_table_key: string
     /** @maxLength 400 */
     field_name: string
-    configuration?: unknown | null
+    configuration?: unknown
 }
 
 export interface PaginatedViewLinkListApi {
@@ -1803,6 +2020,25 @@ export interface PaginatedViewLinkListApi {
     results: ViewLinkApi[]
 }
 
+export interface PatchedViewLinkApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 400 */
+    source_table_name?: string
+    /** @maxLength 400 */
+    source_table_key?: string
+    /** @maxLength 400 */
+    joining_table_name?: string
+    /** @maxLength 400 */
+    joining_table_key?: string
+    /** @maxLength 400 */
+    field_name?: string
+    configuration?: unknown
+}
+
 export interface ViewLinkValidationApi {
     /** @maxLength 255 */
     joining_table_name: string
@@ -1812,28 +2048,6 @@ export interface ViewLinkValidationApi {
     source_table_name: string
     /** @maxLength 255 */
     source_table_key: string
-}
-
-export type FixHogqlListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type DataModelingJobsListParams = {
@@ -1921,6 +2135,17 @@ export type ExternalDataSourcesConnectionsListParams = {
     search?: string
 }
 
+export type FixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type InsightVariablesListParams = {
     /**
      * A page number within the paginated result set.
@@ -1959,6 +2184,17 @@ export type WarehouseSavedQueriesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseTablesListParams = {

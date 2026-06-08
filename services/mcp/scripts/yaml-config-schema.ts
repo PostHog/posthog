@@ -38,6 +38,13 @@ export const ToolConfigSchema = z
         system_prompt_hint: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
+        /**
+         * Body key/value pairs hardcoded by the generated handler. The values are always sent and
+         * always win over anything the caller supplied (the assignments are emitted after the
+         * dynamic body builder). Use to attribute a tool's requests — e.g. forcing
+         * `created_via: 'mcp'` so agents can't claim another origin.
+         */
+        inject_body: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
         param_overrides: z
             .record(
                 z.string(),
@@ -62,6 +69,20 @@ export const ToolConfigSchema = z
                          * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
                          */
                         fallback: z.enum(['orgId', 'projectId']).optional(),
+                        /**
+                         * Apply a narrow input cast to the parameter. Wraps the original
+                         * Orval-derived schema with `z.preprocess(...)` so the field's
+                         * description, integer/min/max constraints, etc. are preserved.
+                         *
+                         * Currently supported:
+                         * - `'string-int'` — casts strings that look like a base-10 integer
+                         *   (e.g. `"123"`, `"-7"`) to a number. Anything else passes through
+                         *   unchanged so zod still rejects with its honest error.
+                         *
+                         * Mutually exclusive with `input_schema` and `schema_ref` (those
+                         * fully replace the schema; cast composes with the existing one).
+                         */
+                        cast: z.enum(['string-int']).optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {
@@ -70,9 +91,21 @@ export const ToolConfigSchema = z
                     .refine((data) => !(data.optional && !data.fallback), {
                         message: 'optional requires a fallback key to resolve the value from state',
                     })
+                    .refine((data) => !(data.cast && (data.input_schema || data.schema_ref)), {
+                        message:
+                            'cast wraps the existing field schema and cannot be combined with input_schema or schema_ref (which replace it)',
+                    })
             )
             .optional(),
-        mcp_version: z.number().int().positive().optional(),
+        /**
+         * Cross-field refinements applied to the composed tool schema.
+         * Each entry names a function exported from `@/schema/tool-inputs` whose
+         * signature is `(data, ctx: z.RefinementCtx) => void`. The codegen wires
+         * one `.superRefine(<fn>)` call per entry, in order. Use this when a single
+         * field's schema can't express the rule (e.g. mutual exclusivity between
+         * two optional fields).
+         */
+        validators: z.array(z.string()).optional(),
         /** References a key in ui_apps. */
         ui_app: z.string().optional(),
         /**
@@ -110,6 +143,8 @@ export const ToolConfigSchema = z
          * - `'disable'`: tool is hidden when the flag is on.
          */
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
         /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
@@ -144,6 +179,10 @@ export const ToolConfigSchema = z
     )
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
     })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
@@ -318,7 +357,6 @@ export const QueryWrapperToolConfigSchema = z
             })
             .strict()
             .optional(),
-        mcp_version: z.number().int().positive().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
@@ -364,10 +402,16 @@ export const QueryWrapperToolConfigSchema = z
          * - `'disable'`: tool is hidden when the flag is on.
          */
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
     })
 
 export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>

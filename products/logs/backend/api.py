@@ -34,9 +34,9 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
-from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
@@ -49,11 +49,12 @@ from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 from products.logs.backend.views_api import LogsViewViewSet
 
-__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
@@ -243,6 +244,11 @@ class _LogsQueryBodySerializer(serializers.Serializer):
     )
     limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.",
+    )
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -480,6 +486,10 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
         help_text='Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines.',
     )
     count = serializers.IntegerField()
+    bytes_uncompressed = serializers.IntegerField(
+        required=False,
+        help_text="Sum of uncompressed bytes for the bucket.",
+    )
 
 
 class _LogsSparklineResponseSerializer(serializers.Serializer):
@@ -487,6 +497,19 @@ class _LogsSparklineResponseSerializer(serializers.Serializer):
         many=True,
         help_text="Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown.",
     )
+
+
+class _LogsServiceSeverityBreakdownSerializer(serializers.Serializer):
+    debug = serializers.IntegerField()
+    info = serializers.IntegerField()
+    warn = serializers.IntegerField()
+    error = serializers.IntegerField()
+
+
+class _LogsServiceActiveRuleSerializer(serializers.Serializer):
+    rule_id = serializers.UUIDField()
+    rule_name = serializers.CharField()
+    summary_string = serializers.CharField()
 
 
 class _LogsServiceAggregateSerializer(serializers.Serializer):
@@ -500,12 +523,34 @@ class _LogsServiceAggregateSerializer(serializers.Serializer):
     error_rate = serializers.FloatField(
         help_text="Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services.",
     )
+    volume_share_pct = serializers.FloatField(
+        required=False,
+        help_text="Share of total log volume in the window for this service (0–100).",
+    )
+    severity_breakdown = _LogsServiceSeverityBreakdownSerializer(
+        required=False,
+        help_text="Counts by coarse severity bucket (debug, info, warn, error+fatal).",
+    )
+    active_rules = _LogsServiceActiveRuleSerializer(
+        many=True,
+        required=False,
+        help_text="Enabled sampling rules whose scope includes this service.",
+    )
 
 
 class _LogsServicesSparklineBucketSerializer(serializers.Serializer):
     time = serializers.CharField(help_text="Bucket start time (ISO 8601).")
     service_name = serializers.CharField()
     count = serializers.IntegerField()
+
+
+class _LogsServicesSummarySerializer(serializers.Serializer):
+    top_services_count = serializers.IntegerField(
+        help_text="Number of top services included in the volume_share aggregate (up to 5).",
+    )
+    top_services_volume_share_pct = serializers.FloatField(
+        help_text="Combined volume share (percent) of the top services by log_count.",
+    )
 
 
 class _LogsServicesResponseSerializer(serializers.Serializer):
@@ -516,6 +561,10 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
     sparkline = _LogsServicesSparklineBucketSerializer(
         many=True,
         help_text="Time-bucketed counts broken down by service, for plotting volume over time.",
+    )
+    summary = _LogsServicesSummarySerializer(
+        required=False,
+        help_text="Roll-up stats for the Services tab header.",
     )
 
 
@@ -552,7 +601,6 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["logs"])
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
@@ -616,6 +664,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
+            "excludeAttributes": query_data.get("excludeAttributes", False),
         }
         if live_logs_checkpoint:
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint

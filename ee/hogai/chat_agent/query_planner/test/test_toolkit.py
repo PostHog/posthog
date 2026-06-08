@@ -4,10 +4,11 @@ from textwrap import dedent
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.models import Action
 from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
@@ -81,43 +82,48 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, type=PropertyDefinition.Type.PERSON, name="test", property_type="String"
         )
         result = toolkit.retrieve_entity_properties("person")
-        assert "The data format is as follows:" in result
-        assert "<String>" in result
-        assert "- test" in result
-        assert "</String>" in result
+        self.assertIn("The data format is as follows:", result)
+        self.assertIn("<String>", result)
+        self.assertIn("- test", result)
+        self.assertIn("</String>", result)
 
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
         )
+        invalidate_group_types_cache(self.team.project_id)
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
+        toolkit = DummyToolkit(self.team)
         result = toolkit.retrieve_entity_properties("group")
-        assert "The data format is as follows:" in result
-        assert "<Numeric>" in result
-        assert "- test" in result
-        assert "</Numeric>" in result
+        self.assertIn("The data format is as follows:", result)
+        self.assertIn("<Numeric>", result)
+        self.assertIn("- test", result)
+        self.assertIn("</Numeric>", result)
 
         result = toolkit.retrieve_entity_properties("session")
-        assert "The data format is as follows:" in result
-        assert "$session_duration" in result
+        self.assertIn("The data format is as follows:", result)
+        self.assertIn(
+            "$session_duration",
+            result,
+        )
 
     def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_entity_properties("person")
-            == "Properties do not exist in the taxonomy for the entity person."
+        self.assertEqual(
+            toolkit.retrieve_entity_properties("person"),
+            "Properties do not exist in the taxonomy for the entity person.",
         )
 
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_entity_property_values("session", "$session_duration")
-            == "30, 146, 2 and many more distinct values."
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "$session_duration"),
+            "30, 146, 2 and many more distinct values.",
         )
-        assert (
-            toolkit.retrieve_entity_property_values("session", "nonsense")
-            == "The property nonsense does not exist in the taxonomy."
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "nonsense"),
+            "The property nonsense does not exist in the taxonomy.",
         )
 
         PropertyDefinition.objects.create(
@@ -142,19 +148,23 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
 
-        assert (
-            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"'
-            in toolkit.retrieve_entity_property_values("person", "email")
+        self.assertIn(
+            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
+            toolkit.retrieve_entity_property_values("person", "email"),
         )
-        assert "1 more distinct value" in toolkit.retrieve_entity_property_values("person", "id")
+        self.assertIn(
+            "1 more distinct value",
+            toolkit.retrieve_entity_property_values("person", "id"),
+        )
 
-        toolkit = DummyToolkit(self.team)
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
+        invalidate_group_types_cache(self.team.project_id)
+        toolkit = DummyToolkit(self.team)
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
@@ -179,8 +189,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 team_id=self.team.pk,
             )
 
-        assert toolkit.retrieve_entity_property_values("proj", "test") == "6, 5, 4, 3, 2, 1, 0"
-        assert toolkit.retrieve_entity_property_values("org", "test") == '"7"'
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("proj", "test"),
+            "6, 5, 4, 3, 2, 1, 0",
+        )
+        self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
     def test_group_names(self):
         create_group_type_mapping_without_created_at(
@@ -189,21 +202,22 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
+        invalidate_group_types_cache(self.team.project_id)
         toolkit = DummyToolkit(self.team)
-        assert toolkit._entity_names == ["person", "session", "proj", "org"]
+        self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_event_or_action_properties("pageview")
-            == "Properties do not exist in the taxonomy for the event pageview."
+        self.assertEqual(
+            toolkit.retrieve_event_or_action_properties("pageview"),
+            "Properties do not exist in the taxonomy for the event pageview.",
         )
 
     def test_empty_events(self):
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_event_or_action_properties("test")
-            == "Properties do not exist in the taxonomy for the event test."
+        self.assertEqual(
+            toolkit.retrieve_event_or_action_properties("test"),
+            "Properties do not exist in the taxonomy for the event test.",
         )
 
         _create_person(
@@ -219,9 +233,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         toolkit = DummyToolkit(self.team)
-        assert (
-            toolkit.retrieve_event_or_action_properties("event1")
-            == "Properties do not exist in the taxonomy for the event event1."
+        self.assertEqual(
+            toolkit.retrieve_event_or_action_properties("event1"),
+            "Properties do not exist in the taxonomy for the event event1.",
         )
 
     def test_retrieve_event_or_action_properties(self):
@@ -229,32 +243,34 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         toolkit = DummyToolkit(self.team)
         for item in ("event1", self.action.id):
             prompt = toolkit.retrieve_event_or_action_properties(item)
-            assert "The data format is as follows:" in prompt
-            assert "<Numeric>" in prompt
-            assert "- id" in prompt
-            assert "</Numeric>" in prompt
-            assert "<String>" in prompt
-            assert "- $browser – Name of the browser the user has used." in prompt
-            assert "</String>" in prompt
-            assert "<DateTime>" in prompt
-            assert "- date" in prompt
-            assert "</DateTime>" in prompt
-            assert "<Boolean>" in prompt
-            assert "- bool" in prompt
-            assert "</Boolean>" in prompt
+            self.assertIn("The data format is as follows:", prompt)
+            self.assertIn("<Numeric>", prompt)
+            self.assertIn("- id", prompt)
+            self.assertIn("</Numeric>", prompt)
+            self.assertIn("<String>", prompt)
+            self.assertIn("- $browser – Name of the browser the user has used.", prompt)
+            self.assertIn("</String>", prompt)
+            self.assertIn("<DateTime>", prompt)
+            self.assertIn("- date", prompt)
+            self.assertIn("</DateTime>", prompt)
+            self.assertIn("<Boolean>", prompt)
+            self.assertIn("- bool", prompt)
+            self.assertIn("</Boolean>", prompt)
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
 
         for item in ("event1", self.action.id):
-            assert '"Chrome"' in toolkit.retrieve_event_or_action_property_values(item, "$browser")
-            assert '"Firefox"' in toolkit.retrieve_event_or_action_property_values(item, "$browser")
-            assert toolkit.retrieve_event_or_action_property_values(item, "bool") == "true"
-            assert toolkit.retrieve_event_or_action_property_values(item, "id") == "9, 8, 7, 6, 5, 4, 3, 2, 1, 0"
-            assert (
-                toolkit.retrieve_event_or_action_property_values(item, "date")
-                == f'"{datetime(2024, 1, 1).isoformat()}"'
+            self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
+            self.assertIn('"Firefox"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
+            self.assertEqual(toolkit.retrieve_event_or_action_property_values(item, "bool"), "true")
+            self.assertEqual(
+                toolkit.retrieve_event_or_action_property_values(item, "id"),
+                "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
+            )
+            self.assertEqual(
+                toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
             )
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
@@ -262,9 +278,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         incorrect_action_id = self.action.id + 999  # Ensure it doesn't exist
 
         result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
-        assert (
-            result
-            == f"Action {incorrect_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
+        self.assertEqual(
+            result,
+            f"Action {incorrect_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again.",
         )
 
     def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
@@ -274,16 +290,16 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         incorrect_action_id = 9999
 
         result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
-        assert result == "No actions exist in the project."
+        self.assertEqual(result, "No actions exist in the project.")
 
     def test_enrich_props_with_descriptions(self):
         toolkit = DummyToolkit(self.team)
         res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])
-        assert len(res) == 1
+        self.assertEqual(len(res), 1)
         prop, type, description = res[0]
-        assert prop == "$geoip_city_name"
-        assert type == "String"
-        assert description is not None
+        self.assertEqual(prop, "$geoip_city_name")
+        self.assertEqual(type, "String")
+        self.assertIsNotNone(description)
 
     def test_generate_properties_output_replaces_newlines_in_descriptions(self):
         toolkit = DummyToolkit(self.team)
@@ -291,8 +307,8 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             ("test_prop", "String", "This is a description\nwith multiple\nlines")
         ]
         output = toolkit._generate_properties_output(props)
-        assert "- test_prop – This is a description with multiple lines" in output
-        assert "description\nwith" not in output
+        self.assertIn("- test_prop – This is a description with multiple lines", output)
+        self.assertNotIn("description\nwith", output)
 
 
 class TestFinalAnswerTool(BaseTest):
@@ -346,4 +362,4 @@ class TestFinalAnswerTool(BaseTest):
                 - property value: action
         """
         tool = final_answer(query_kind="trends", plan=dedent(original))
-        assert tool.plan.strip() == dedent(normalized).strip()
+        self.assertEqual(tool.plan.strip(), dedent(normalized).strip())

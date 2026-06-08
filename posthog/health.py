@@ -193,6 +193,18 @@ def is_postgres_connected(db_alias=DEFAULT_DB_ALIAS) -> bool:
     return True
 
 
+def get_pending_postgres_migrations() -> list[str]:
+    """
+    Return the `app_label.name` of every migration the running code knows about
+    that has not yet been applied to the default database. Empty list means up to date.
+
+    Does not swallow errors — callers decide how to treat an unreachable database.
+    """
+    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    return [f"{migration.app_label}.{migration.name}" for migration, _backwards in plan]
+
+
 def are_postgres_migrations_uptodate() -> bool:
     """
     Check that all migrations that the running version of the code knows about
@@ -201,13 +213,10 @@ def are_postgres_migrations_uptodate() -> bool:
     Returns `True` if so, `False` otherwise
     """
     try:
-        executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
-        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        return not get_pending_postgres_migrations()
     except Exception:
         logger.debug("postgres_migrations_check_failure", exc_info=True)
         return False
-
-    return not plan
 
 
 def is_clickhouse_connected() -> bool:
@@ -260,7 +269,7 @@ def is_cache_backend_connected() -> bool:
         # convenient less fragile way to do this. It would be nice if we could
         # have a `check_health` exposed in some generic way, as the python redis
         # client does appear to have something for this task.
-        cache.has_key("_connection_test_key")  # noqa: W601
+        cache.has_key("_connection_test_key")
     except Exception:
         # NOTE: We catch all exceptions here because we never want to throw from these checks
         logger.debug("cache_backend_connection_failure", exc_info=True)

@@ -17,6 +17,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
@@ -26,7 +27,9 @@ from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestPropertyTypes(BaseTest):
@@ -406,7 +409,15 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
     def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
         self.team.timezone = timezone
         self.team.save()
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        # This class asserts the structural shape of toTimeZone stripping (a PropertySwapper concern).
+        # Predicate pushdown is orthogonal: it relocates the (already-stripped) WHERE into an events subquery,
+        # changing where these comparisons appear without changing the tz behavior. Disable it here so the
+        # assertions stay about tz stripping; pushdown has its own test suite.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(pushDownPredicates=False),
+        )
         node = parse_select(hogql)
         clickhouse_sql, _ = prepare_and_print_ast(node, context=context, dialect="clickhouse")
         return clickhouse_sql, context.values

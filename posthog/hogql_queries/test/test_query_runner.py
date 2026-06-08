@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -39,10 +39,18 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import (
+    ExecutionMode,
+    QueryRunner,
+    get_query_runner,
+    shared_insights_execution_mode,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
@@ -115,7 +123,7 @@ class TestQueryRunner(BaseTest):
             with self.assertRaises(ValidationError) as context:
                 runner.calculate()
 
-        assert "Validation failed" in str(context.exception)
+        self.assertIn("Validation failed", str(context.exception))
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
 
@@ -124,14 +132,14 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
 
-        assert runner.query == TheTestQuery(some_attr="bla")
+        self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        assert runner.query == TheTestQuery(some_attr="bla")
+        self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
 
     @parameterized.expand(
         [
@@ -170,7 +178,7 @@ class TestQueryRunner(BaseTest):
     def test_get_query_runner_uses_source_query_for_wrappers(self, query, expected_source_query):
         runner = get_query_runner(query=query, team=self.team)
 
-        assert runner.query == expected_source_query
+        self.assertEqual(runner.query, expected_source_query)
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -209,6 +217,7 @@ class TestQueryRunner(BaseTest):
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionIdPushdown": False,
+                "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
@@ -290,7 +299,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
+        assert cache_key == "cache_42_13ab830e775c41ee3ae4b45c386e6064d74eec55fb93092732c0bb305d7e980f"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -304,7 +313,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
+        assert cache_key == "cache_42_b624e873acbdc9829f0973b4dc14424bb26e3b5c36c11387ce24e9ff3bea2a00"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -315,7 +324,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
+        assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -326,59 +335,59 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
-            assert isinstance(response, CacheMissResponse)
+            self.assertIsInstance(response, CacheMissResponse)
 
             # returns fresh response if uncached
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert not response.is_cached
-            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
-            assert response.next_allowed_client_refresh.isoformat() == "2023-02-04T13:41:42+00:00"
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
 
             # returns cached response afterwards
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
 
             # return fresh response if refresh requested
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert not response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert not response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
             mock_on_commit.assert_not_called()
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 5, 42)):
             # returns cached response - does not kick off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_not_called()
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11 + 11, 42)):
             # returns cached response but kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
         with freeze_time(datetime(2023, 2, 4, 23, 55, 42)):
             # returns cached response for extended time
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()  # still once
 
         mock_on_commit.reset_mock()
         with freeze_time(datetime(2023, 2, 5, 23, 55, 42)):
             # returns cached response for extended time but finally kicks off calculation in the background
             response = runner.run(execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
     @mock.patch("django.db.transaction.on_commit")
@@ -390,32 +399,32 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             # in cache-only mode, returns cache miss response if uncached
             response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
-            assert isinstance(response, CacheMissResponse)
+            self.assertIsInstance(response, CacheMissResponse)
 
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert not response.is_cached
-            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
-            assert response.next_allowed_client_refresh.isoformat() == "2023-02-04T13:41:42+00:00"
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
 
             # returns cached response afterwards
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert response.is_cached
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
             # Should kick off the calculation in the background
-            assert response.is_cached
-            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
+            self.assertEqual(response.is_cached, True)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
 
     def test_modifier_passthrough(self):
@@ -427,7 +436,7 @@ class TestQueryRunner(BaseTest):
             materialize("events", "$browser")
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            assert 1 + 2 == 3
+            self.assertEqual(1 + 2, 3)
             return
 
         runner = HogQLQueryRunner(
@@ -464,9 +473,9 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-            assert isinstance(response, TheTestCachedBasicQueryResponse)
-            assert not response.is_cached, "Should get a fresh response, not a cached one"
-            assert response.last_refresh.isoformat() == "2023-02-04T13:37:42+00:00"
+            self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False, "Should get a fresh response, not a cached one")
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_cache_manager.get_cache_data.assert_called_once()
             mock_cache_manager.set_cache_data.assert_called_once()
 
@@ -478,7 +487,12 @@ class TestQueryRunner(BaseTest):
         ]
     )
     def test_query_execution_metrics(self, _name, calculate_mode, expected_exception, success_delta, failure_delta):
+        from posthog.clickhouse.query_tagging import reset_query_tags
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        # Sibling tests in this class invoke real HogQL runners that flip
+        # `contains_user_hogql` on the ContextVar; reset so we observe "false".
+        reset_query_tags()
 
         TestQueryRunner = self.setup_test_query_runner_class()
         if calculate_mode == "error":
@@ -492,10 +506,10 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="success", error_type="none"
+            query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="error", error_type="ValueError"
+            query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -506,19 +520,116 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
+            )._value.get()
             - before_success
             == success_delta
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
+            )._value.get()
             - before_failure
             == failure_delta
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
+    @parameterized.expand([("success_path", None), ("error_path", ValueError)])
+    def test_query_execution_metric_labels_with_contains_user_hogql(
+        self, _name: str, expected_exception: Optional[type[Exception]]
+    ) -> None:
+        # Verifies the `contains_user_hogql` label flows from the canonical
+        # `QueryTags.contains_user_hogql` tag (set by `tag_contains_user_hogql()`
+        # at HogQL parse sites) rather than being recomputed schema-side.
+        from posthog.clickhouse.query_tagging import reset_query_tags, tag_contains_user_hogql
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        if expected_exception is None:
+
+            def calculate_tags(self: Any) -> Any:
+                tag_contains_user_hogql()
+                return TheTestBasicQueryResponse(results=[])
+
+            TestQueryRunner.calculate = calculate_tags
+            label_kwargs = {
+                "query_type": "TestQuery",
+                "category": "success",
+                "error_type": "none",
+                "contains_user_hogql": "true",
+            }
+        else:
+
+            def calculate_tags_then_raise(self: Any) -> Any:
+                tag_contains_user_hogql()
+                raise ValueError("boom")
+
+            TestQueryRunner.calculate = calculate_tags_then_raise
+            label_kwargs = {
+                "query_type": "TestQuery",
+                "category": "error",
+                "error_type": "ValueError",
+                "contains_user_hogql": "true",
+            }
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        # ContextVar persists across tests; reset both before (so we observe a real
+        # transition false→true via calculate) and after (so siblings don't see "true").
+        reset_query_tags()
+        before = QUERY_EXECUTION_TOTAL.labels(**label_kwargs)._value.get()
+
+        try:
+            if expected_exception:
+                with pytest.raises(expected_exception):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            else:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            assert QUERY_EXECUTION_TOTAL.labels(**label_kwargs)._value.get() - before == 1
+        finally:
+            reset_query_tags()
+
+    @parameterized.expand(
+        [
+            (
+                "user_access_control_error",
+                lambda: UserAccessControlError("query", "viewer", None),
+                SloOutcome.SUCCESS,
+                "user_error",
+            ),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+        ]
+    )
+    def test_run_classifies_slo_error_at_except_boundary(
+        self, _name, exception_factory, expected_outcome, expected_error_category
+    ):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = exception_factory()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+            with pytest.raises(type(raised_exc)):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        mock_emit_slo_completed.assert_called_once()
+        completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+        assert completed_kwargs["properties"].outcome == expected_outcome
+        assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
+        from posthog.clickhouse.query_tagging import reset_query_tags
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
+
+        # Sibling tests may have flipped `contains_user_hogql` on the ContextVar.
+        reset_query_tags()
 
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -527,10 +638,10 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="success", error_type="none"
+            query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", category="error", error_type="ValueError"
+            query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -539,11 +650,15 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="success", error_type="none", contains_user_hogql="false"
+            )._value.get()
             == before_success
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type="TestQuery", category="error", error_type="ValueError", contains_user_hogql="false"
+            )._value.get()
             == before_failure
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
@@ -668,9 +783,9 @@ class TestSeriesCustomNameCaching(BaseTest):
         cache_key_b = runner_b.get_cache_key()
 
         if expect_same_cache_key:
-            assert cache_key_a == cache_key_b
+            self.assertEqual(cache_key_a, cache_key_b)
         else:
-            assert cache_key_a != cache_key_b
+            self.assertNotEqual(cache_key_a, cache_key_b)
 
 
 class TestApplySeriesCustomNames(BaseTest):
@@ -755,7 +870,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
-        assert patched_response.results == expected_results
+        self.assertEqual(patched_response.results, expected_results)
 
     @parameterized.expand(
         [
@@ -842,8 +957,8 @@ class TestApplySeriesCustomNames(BaseTest):
 
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
-        assert patched_response.results == expected_results
-        assert was_modified == expect_modified
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
 
     @parameterized.expand(
         [
@@ -872,7 +987,9 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
+        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
+            StickinessQueryRunner,
+        )
 
         query = StickinessQuery(
             series=[
@@ -893,8 +1010,8 @@ class TestApplySeriesCustomNames(BaseTest):
 
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
-        assert patched_response.results == expected_results
-        assert was_modified == expect_modified
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
 
     @parameterized.expand(
         [
@@ -958,8 +1075,8 @@ class TestApplySeriesCustomNames(BaseTest):
 
         patched_response, was_modified = runner.apply_series_custom_names(cached_response)
 
-        assert patched_response.results == expected_results
-        assert was_modified == expect_modified
+        self.assertEqual(patched_response.results, expected_results)
+        self.assertEqual(was_modified, expect_modified)
 
     @parameterized.expand(
         [
@@ -1025,4 +1142,74 @@ class TestApplySeriesCustomNames(BaseTest):
 
         _, was_modified = runner.apply_series_custom_names(cached_response)
 
-        assert was_modified == expect_modified
+        self.assertEqual(was_modified, expect_modified)
+
+
+class TestSharedInsightsExecutionMode(BaseTest):
+    @parameterized.expand(
+        [
+            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            (
+                "force_blocking_no_last_refresh_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_refreshed_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(seconds=10),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_under_threshold_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=29, seconds=59),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_at_threshold_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=30),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "force_blocking_long_stale_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(hours=24),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "cache_only_remaps_to_extended_async",
+                ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                timedelta(seconds=10),
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "recent_cache_async_passes_through",
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "blocking_if_stale_passes_through",
+                # Used by the shared-notebook inline query payload builder. Must pass through so
+                # cold-cache loads block and return real results — falling back to async would
+                # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
+                # placeholder until a later reload picks up the warmed cache.
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+        ]
+    )
+    def test_shared_insights_execution_mode(
+        self,
+        _name: str,
+        execution_mode: ExecutionMode,
+        last_refresh_offset: timedelta | None,
+        expected_mode: ExecutionMode,
+    ) -> None:
+        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
+        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
+        self.assertEqual(result, expected_mode)

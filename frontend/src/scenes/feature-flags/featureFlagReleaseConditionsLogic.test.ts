@@ -785,6 +785,34 @@ describe('the feature flag release conditions logic', () => {
         })
     })
 
+    describe('early exit', () => {
+        it('enables early exit at the flag level', () => {
+            logic.actions.setEarlyExit(true)
+
+            expect(logic.values.filters.early_exit).toBe(true)
+        })
+
+        it('disables early exit', () => {
+            logic.actions.setEarlyExit(true)
+            logic.actions.setEarlyExit(false)
+
+            expect(logic.values.filters.early_exit).toBe(false)
+        })
+
+        it('preserves condition sets when toggling early exit', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.setEarlyExit(true)
+
+            expect(logic.values.filters.early_exit).toBe(true)
+            expect(logic.values.filters.groups).toEqual(filters.groups)
+        })
+    })
+
     describe('open conditions state', () => {
         it('initializes first condition as open when there is only one group', async () => {
             logic?.unmount()
@@ -1190,6 +1218,60 @@ describe('the feature flag release conditions logic', () => {
                 filters: expect.objectContaining({
                     aggregation_group_type_index: targetAggregation,
                     groups: expectedGroups.map((g) => expect.objectContaining(g)),
+                }),
+            })
+        })
+
+        // v2 Properties → Device: the UI calls setAggregationGroupTypeIndex(null) when switching
+        // to Device mode. Group-scoped condition properties are dropped (incompatible with
+        // distinct_id bucketing) while person-scoped condition properties are preserved.
+        it('drops group-scoped condition properties when v2 switches to Device mode', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'v2-properties-to-device',
+                filters: {
+                    ...generateFeatureFlagFilters([
+                        {
+                            properties: userProperties,
+                            rollout_percentage: 50,
+                            variant: null,
+                            sort_key: 'user-cond',
+                            aggregation_group_type_index: null,
+                        },
+                        {
+                            properties: groupProperties,
+                            rollout_percentage: 30,
+                            variant: 'test',
+                            sort_key: 'group-cond',
+                            aggregation_group_type_index: 0,
+                        },
+                    ]),
+                    aggregation_group_type_index: null,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setAggregationGroupTypeIndex(null)
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    aggregation_group_type_index: null,
+                    groups: [
+                        expect.objectContaining({
+                            sort_key: 'user-cond',
+                            rollout_percentage: 50,
+                            properties: userProperties,
+                        }),
+                        expect.objectContaining({
+                            sort_key: 'group-cond',
+                            rollout_percentage: 30,
+                            properties: [],
+                        }),
+                    ],
                 }),
             })
         })

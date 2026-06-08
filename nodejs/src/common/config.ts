@@ -23,15 +23,20 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_precalculated_filters = 'cdp-precalculated-filters',
+    cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
+    cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',
+    cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     ingestion_error_tracking = 'ingestion-errortracking',
+    ingestion_metrics = 'ingestion-metrics',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
+    cdp_rerun_worker = 'cdp-rerun-worker',
     recording_api = 'recording-api',
     ingestion_v2_testing = 'ingestion-v2-testing',
     ingestion_v2_combined = 'ingestion-v2-combined',
@@ -114,6 +119,12 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
+    /**
+     * When true, every Kafka consumer in this service uses KafkaConsumerV2; otherwise the
+     * legacy KafkaConsumer (v1) is used. Used by `createKafkaConsumer()` in
+     * `src/kafka/consumer/index.ts`. Will be removed once v1 is deleted.
+     */
+    CONSUMER_USE_V2: boolean
 
     // Kafka
     KAFKA_HOSTS: string
@@ -162,6 +173,9 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+
+    // Event loop yield helper (yieldEventLoopIfNeeded)
+    EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
 
 export type ExternalRequestConfig = Pick<
@@ -271,6 +285,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        CONSUMER_USE_V2: false,
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',
@@ -325,6 +340,9 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
+
+        // Event loop yield helper
+        EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

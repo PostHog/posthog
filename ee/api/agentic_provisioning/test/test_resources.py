@@ -1,10 +1,15 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 
-from posthog.models.oauth import OAuthAccessToken
+from parameterized import parameterized
+
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
+from ee.api.agentic_provisioning.views import _maybe_create_provisioned_pat
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -22,6 +27,24 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert data["id"] == str(self.team.id)
         assert "api_key" in data["complete"]["access_configuration"]
         assert "host" in data["complete"]["access_configuration"]
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_create_resource_capture_attributes_client(self, mock_capture_event):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+
+        success_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("resource_created", "success")
+        ]
+        assert len(success_calls) == 1
+        partner = success_calls[0].kwargs["partner"]
+        assert partner is not None
+        assert partner.name == "PostHog Stripe App"
 
     def test_get_resource_returns_complete(self):
         token = self._get_bearer_token()
@@ -118,7 +141,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
 
-    def test_create_resource_pat_label_contains_provisioning_prefix(self):
+    def test_create_resource_pat_label_defaults_to_team_name(self):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -127,10 +150,15 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.label.startswith("Stripe Projects")
+        assert pat.label == self.team.name[:40]
 
-    def test_create_resource_pat_is_scoped_to_authorized_team(self):
+    def test_create_resource_pat_inherits_app_scope_ceiling(self):
         token = self._get_bearer_token()
+        # Seed the grandfathered app's ceiling after minting the bearer so the PAT is
+        # capped at the app's scopes rather than the old hardcoded ["*"].
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["insight:read", "query:read"]
+        app.save(update_fields=["scopes"])
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
             data={"service_id": "analytics"},
@@ -138,8 +166,47 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
+        assert pat.scopes == ["insight:read", "query:read"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
+
+    def test_create_resource_omits_pat_when_app_gate_off(self):
+        token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.provisioning_issues_personal_api_key = False
+        app.save(update_fields=["provisioning_issues_personal_api_key"])
+        before = PersonalAPIKey.objects.filter(user=self.user).count()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+        assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == before
+
+    @parameterized.expand([("gate_off", False), ("gate_on", True)])
+    def test_create_provisioned_pat_gate(self, _name, gate_on):
+        app = OAuthApplication.objects.create(
+            name="Gate test app",
+            client_id=f"gate_test_{gate_on}",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            scopes=["insight:read"],
+            provisioning_issues_personal_api_key=gate_on,
+        )
+        result = _maybe_create_provisioned_pat(self.user, self.team, app)
+        if gate_on:
+            assert result is not None
+            pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+            assert pat is not None
+            assert pat.scopes == ["insight:read"]
+        else:
+            assert result is None
+            assert not PersonalAPIKey.objects.filter(user=self.user).exists()
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
@@ -148,7 +215,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
         assert first_pat is not None
 
         self._post_signed_with_bearer(
@@ -156,9 +223,66 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40])
         assert provisioning_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
+
+    @parameterized.expand(
+        [
+            ("partner_label", "Acme Co", "Acme Co - "),
+            ("empty_uses_team_name", "", "{team_name}"),
+            ("whitespace_uses_team_name", "   ", "{team_name}"),
+        ]
+    )
+    def test_create_resource_label_prefix_accepted(self, _name, label_prefix, expected_label_start_template):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "label_prefix": label_prefix},
+            token=token,
+        )
+        assert res.status_code == 200
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        expected_label_start = expected_label_start_template.format(team_name=self.team.name)
+        assert pat.label.startswith(expected_label_start)
+
+    @parameterized.expand(
+        [
+            ("too_long", "a" * 26),
+            ("control_char_newline", "Bad\nLabel"),
+            ("control_char_tab", "Bad\tLabel"),
+            ("bidi_override", "Bad‮Label"),
+            ("zero_width_space", "Bad​Label"),
+            ("non_string", 123),
+        ]
+    )
+    def test_create_resource_label_prefix_rejected(self, _name, label_prefix):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "label_prefix": label_prefix},
+            token=token,
+        )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_label_prefix"
+
+    def test_create_resource_label_combined_with_team_name_is_truncated_to_40_chars(self):
+        token = self._get_bearer_token()
+        long_team_name = "A" * 60
+        self.team.name = long_team_name
+        self.team.save()
+
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "label_prefix": "PartnerX"},
+            token=token,
+        )
+        assert res.status_code == 200
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert len(pat.label) == 40
+        assert pat.label.startswith("PartnerX - ")
 
     def test_create_resource_with_project_id_creates_new_team(self):
         token = self._get_bearer_token()
@@ -330,7 +454,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from ee.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -375,7 +499,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from ee.models.rbac.access_control import AccessControl
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -461,3 +585,44 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert res.status_code == 200
         assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestCreateProvisionedPat(ProvisioningTestBase):
+    def _minting_app(self) -> OAuthApplication:
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["query:read"]
+        app.save(update_fields=["scopes"])
+        return app
+
+    @parameterized.expand(
+        [
+            ("default_when_none", None, "{team_name}"),
+            ("custom_adds_prefix", "My Partner", "My Partner - {team_name}"),
+            ("empty_uses_team_name", "", "{team_name}"),
+        ]
+    )
+    def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
+        api_key = _maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), label_prefix=label_prefix)
+        assert api_key is not None
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.label == expected_label_template.format(team_name=self.team.name)[:40]
+
+    def test_label_is_truncated_to_40_chars(self):
+        self.team.name = "A" * 60
+        self.team.save()
+        _maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), label_prefix="LongPartnerName")
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert len(pat.label) == 40
+        assert pat.label.startswith("LongPartnerName - ")
+
+    def test_no_pat_when_ceiling_unseeded(self):
+        # A flag-on app without a scope ceiling must not fall back to ["*"] or
+        # mint an empty-scope key — skip the mint entirely.
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        assert app.scopes == []
+        initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
+        assert _maybe_create_provisioned_pat(self.user, self.team, app) is None
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count

@@ -16,6 +16,7 @@ CONSUMER_GROUP_INGESTION_WARNINGS = "clickhouse_ingestion_warnings" if _US else 
 CONSUMER_GROUP_SESSION_REPLAY_EVENTS = "clickhouse_session_replay_events" if _US else "group1"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES = "clickhouse_session_replay_features" if _US else "group1"
 CONSUMER_GROUP_LOG_ENTRIES = "clickhouse_log_entries_v3" if _US else "clickhouse_log_entries"
+CONSUMER_GROUP_HOG_INVOCATION_RESULTS = "clickhouse_hog_invocation_results"
 CONSUMER_GROUP_DOCUMENT_EMBEDDINGS = "clickhouse_document_embeddings2" if _US else "clickhouse_document_embeddings"
 CONSUMER_GROUP_HEATMAPS = "clickhouse_heatmaps" if _US else "group1"
 CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US else "clickhouse_prefiltered_events"
@@ -53,6 +54,7 @@ CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS = (
     "clickhouse_error_tracking_issue_fingerprint_overrides_ws"
 )
 CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tracking_fingerprint_issue_state_ws"
+CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_preagg"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
@@ -120,3 +122,21 @@ def ttl_period(field: str = "created_at", amount: int = 3, unit: Literal["DAY", 
 
 def trim_quotes_expr(expr: str) -> str:
     return f"replaceRegexpAll({expr}, '^\"|\"$', '')"
+
+
+def json_extract_trim_quotes(*args: str) -> str:
+    """Build a ClickHouse SQL expression that extracts a JSON value as a trimmed string.
+
+    Takes the same arguments as JSONExtractRaw (field, key1, key2, ...) and wraps the
+    result to: strip surrounding quotes, convert empty string and literal 'null' to NULL.
+
+    Three code paths must produce byte-identical output for the same input:
+    - HogQL printer's JSON fallback (``_unsafe_json_extract_trim_quotes``)
+    - SQL backfill mutation (``_generate_property_extraction_sql``)
+    - Plugin-server live ingest (``jsonExtractRawAndTrimQuotes`` in create-event.ts)
+
+    This function is the single source of truth for the SQL shape so the Python
+    paths can't drift from each other. The TypeScript path is covered by the
+    shared coercion fixture in ``coercion_fixtures.json``.
+    """
+    return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join(args)}), ''), 'null'), '^\"|\"$', '')"

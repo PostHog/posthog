@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures, IconRefresh } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
@@ -174,10 +174,17 @@ export function PropertyValue({
         propertyOptions?.status,
     ])
 
-    // set initial suggested values when options are loaded, but only if there is no search input
-    // (to avoid overwriting suggestions based on search input)
+    // set initial suggested values when options are loaded, but only if the response was for an
+    // empty search (so we don't merge search-filtered results into the suggested set). We gate on
+    // the model's recorded `searchInput` rather than the local ref because background polling
+    // refreshes reuse the original request's search term — the local ref reflects the user's
+    // current input, not the request that produced these results.
     useEffect(() => {
-        if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
+        if (
+            propertyOptions?.status === 'loaded' &&
+            propertyOptions?.values &&
+            (propertyOptions?.searchInput ?? '') === ''
+        ) {
             const newKeys = propertyOptions.values.map((v) => toString(v.name))
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
@@ -193,7 +200,7 @@ export function PropertyValue({
                 return { set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
 
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
@@ -437,7 +444,14 @@ export function PropertyValue({
                         : undefined
                 }
                 onChange={(nextVal) => {
-                    const newValues = nextVal.filter((v) => !formattedValues.includes(String(v)))
+                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
+                    // doesn't silently break the filter — the snack display hides the space.
+                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
+                    // part of the pattern (e.g. `^ foo`, `bar $`).
+                    const trimmedVal = isOperatorRegex(operator)
+                        ? nextVal
+                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
+                    const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
                         const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
@@ -450,7 +464,7 @@ export function PropertyValue({
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
-                    isMultiSelect ? setValue(nextVal) : setValue(nextVal[0])
+                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
                 }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
@@ -461,7 +475,6 @@ export function PropertyValue({
                 popoverClassName="max-w-200"
                 options={displayOptions.map(({ name: _name }, index) => {
                     const name = toString(_name)
-                    const isSuggested = initialSuggestedValues.set.has(name)
                     return {
                         key: name,
                         label: name,
@@ -474,11 +487,6 @@ export function PropertyValue({
                                 title={name}
                             >
                                 {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                                {isSuggested && currentSearchInput.current && (
-                                    <Tooltip title="Suggested value">
-                                        <IconFeatures className="text-muted shrink-0 w-4 h-4" />
-                                    </Tooltip>
-                                )}
                             </span>
                         ),
                     }

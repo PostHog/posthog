@@ -9,14 +9,6 @@ SNAPCHAT_APP_CLIENT_SECRET = get_from_env("SNAPCHAT_APP_CLIENT_SECRET", "")
 INTERCOM_APP_CLIENT_ID = get_from_env("INTERCOM_APP_CLIENT_ID", "")
 INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 
-SLACK_POSTHOG_CODE_CLIENT_ID = get_from_env("SLACK_POSTHOG_CODE_CLIENT_ID", get_from_env("SLACK_TWIG_CLIENT_ID", ""))
-SLACK_POSTHOG_CODE_CLIENT_SECRET = get_from_env(
-    "SLACK_POSTHOG_CODE_CLIENT_SECRET", get_from_env("SLACK_TWIG_CLIENT_SECRET", "")
-)
-SLACK_POSTHOG_CODE_SIGNING_SECRET = get_from_env(
-    "SLACK_POSTHOG_CODE_SIGNING_SECRET", get_from_env("SLACK_TWIG_SIGNING_SECRET", "")
-)
-
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 
@@ -26,6 +18,9 @@ LINKEDIN_APP_CLIENT_SECRET = get_from_env("LINKEDIN_APP_CLIENT_SECRET", "")
 GOOGLE_ADS_APP_CLIENT_ID = get_from_env("GOOGLE_ADS_APP_CLIENT_ID", "")
 GOOGLE_ADS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ADS_APP_CLIENT_SECRET", "")
 GOOGLE_ADS_DEVELOPER_TOKEN = get_from_env("GOOGLE_ADS_DEVELOPER_TOKEN", "")
+
+GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID = get_from_env("GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "")
+GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET = get_from_env("GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET", "")
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
@@ -98,6 +93,20 @@ CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", ""
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
 
+# ElevenLabs (Max hands-free mode)
+# STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
+# TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
+ELEVENLABS_API_KEY = get_from_env("ELEVENLABS_API_KEY", "")
+ELEVENLABS_API_BASE_URL = get_from_env("ELEVENLABS_API_BASE_URL", "https://api.elevenlabs.io")
+# Rachel is ElevenLabs' default voice — neutral, clear at gym pace. Override if you want a
+# different feel without redeploying.
+ELEVENLABS_VOICE_ID = get_from_env("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+# Turbo v2.5 has ~300ms TTFB latency, sits in the free tier, and sounds clean enough for
+# gym-pace narration. Flash v2.5 is marginally faster but requires Creator ($22/mo) or above
+# on the ElevenLabs side, so devs running on free quota hit a 402 from the TTS proxy.
+# Override at the env level if you're on a paid tier and want the extra polish.
+ELEVENLABS_TTS_MODEL_ID = get_from_env("ELEVENLABS_TTS_MODEL_ID", "eleven_turbo_v2_5")
+
 # PandaDoc (for legal documents: BAA/DPA). One template per document variant.
 # Each call needs the matching template id, so we keep them as separate env vars —
 # rotating one (e.g., when Legal updates the DPA copy) doesn't touch the others.
@@ -107,8 +116,16 @@ PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 
-# Slack incoming-webhook URL for internal legal-document notifications. The URL
-# is bound to a single channel at creation time in Slack's app admin, so there's
-# no channel to configure and no bot token to manage. Separate from the per-org
-# Slack integration used in products/slack_app.
-SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL = get_from_env("SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL", "")
+HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
+HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
+# Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
+HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
+HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
+HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS = get_from_env(
+    "HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS", True, type_cast=str_to_bool
+)
+# Pass --no-sandbox to the local heatmap Chromium. Defaults True (required where the container
+# can't create the unprivileged user namespace the Chromium sandbox needs). Set False to keep the
+# sandbox once the runtime allows it (seccomp profile permitting userns clone, non-root user).
+HEATMAP_CHROMIUM_NO_SANDBOX = get_from_env("HEATMAP_CHROMIUM_NO_SANDBOX", True, type_cast=str_to_bool)

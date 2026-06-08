@@ -43,7 +43,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
+        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -52,11 +52,15 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
+// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
+// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
+// internal http://go/session/ golink to make that explicit.
 function getSessionReplayLink(): string {
-    const replayUrl = posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')
-    return `\nSession: ${replayUrl}`
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    if (!replayUrl) {
+        return ''
+    }
+    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
@@ -102,14 +106,14 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
+    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
 function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
     if (!currentOrganization) {
         return ''
     }
-    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
+    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -245,7 +249,7 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
         value: 'llm-analytics',
         'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'LLM analytics',
+        label: 'AI observability',
     },
     {
         value: 'logs',
@@ -253,14 +257,14 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Logs',
     },
     {
-        value: 'max-ai',
-        'data-attr': `support-form-target-area-max-ai`,
+        value: 'posthog-ai',
+        'data-attr': `support-form-target-area-posthog-ai`,
         label: 'PostHog AI',
     },
     {
         value: 'posthog-mcp',
         'data-attr': `support-form-target-area-posthog-mcp`,
-        label: 'MCP Server',
+        label: 'PostHog MCP',
     },
     {
         value: 'analytics',
@@ -276,6 +280,16 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'session_replay',
         'data-attr': `support-form-target-area-session_replay`,
         label: 'Session replay (incl. recordings)',
+    },
+    {
+        value: 'signals',
+        'data-attr': `support-form-target-area-signals`,
+        label: 'Signals',
+    },
+    {
+        value: 'slack',
+        'data-attr': `support-form-target-area-slack`,
+        label: 'Slack app',
     },
     {
         value: 'surveys',
@@ -303,6 +317,11 @@ export const TARGET_AREA_TO_NAME = [
     { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
     { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
+
+// `key` is the label (not the value) so the searchable input shows readable text on edit, not the raw target_area
+export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] = TARGET_AREA_TO_NAME.flatMap(
+    (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
+)
 
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
@@ -459,7 +478,7 @@ export const supportLogic = kea<supportLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ values }) => ({
         sendSupportRequest: {
             defaults: {
                 name: '',
@@ -471,9 +490,9 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
-                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
-                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
-                    message: !message ? 'Please enter a message' : '',
+                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    message: !message ? 'Please enter a message' : undefined,
                     kind: !kind ? 'Please choose' : undefined,
                     severity_level: !severity_level ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
@@ -483,9 +502,7 @@ export const supportLogic = kea<supportLogicType>([
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                actions.submitZendeskTicket(formValues)
-                // Form closing and resetting is now handled in submitZendeskTicket listener
-                // based on success/failure of the submission
+                await supportLogic.asyncActions.submitZendeskTicket(formValues)
             },
         },
     })),
@@ -589,8 +606,8 @@ export const supportLogic = kea<supportLogicType>([
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
-            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
             const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
             if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {

@@ -41,7 +41,13 @@ const AssistantMultipleBreakdownFilter = z.union([
 
 const AssistantTrendsBreakdownFilter = z.object({
     breakdown_limit: integer.describe('How many distinct values to show.').default(25).optional(),
-    breakdowns: z.array(AssistantMultipleBreakdownFilter).describe('Use this field to define breakdowns.'),
+    breakdown_path_cleaning: z.coerce
+        .boolean()
+        .describe(
+            "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings."
+        )
+        .optional(),
+    breakdowns: z.array(AssistantMultipleBreakdownFilter).max(3).describe('Use this field to define breakdowns.'),
 })
 
 const CompareFilter = z.object({
@@ -193,11 +199,11 @@ const AssistantGroupPropertyFilter = z.union([
 
 const AssistantCohortPropertyFilter = z.object({
     key: z.literal('id').default('id'),
-    operator: z.literal('in').default('in'),
+    operator: z.enum(['in', 'not_in']).default('in'),
     type: z
         .literal('cohort')
         .describe(
-            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`'
+            'Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples:\n- Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`\n- Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
         )
         .default('cohort'),
     value: integer.describe('The cohort ID to filter by.'),
@@ -427,6 +433,27 @@ const AssistantTrendsActionsNode = z.object({
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
+const AssistantTrendsGroupNode = z.object({
+    custom_name: z.string().optional(),
+    kind: z.literal('GroupNode').default('GroupNode'),
+    math: MathType.describe(
+        'Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes.'
+    ).optional(),
+    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z.string().describe('Custom HogQL aggregation. When set, `math` must be `hogql`.').optional(),
+    math_multiplier: z.coerce.number().optional(),
+    math_property: z.string().optional(),
+    math_property_type: z.string().optional(),
+    name: z.string().describe('Display name for the combined series.').optional(),
+    nodes: z
+        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
+        .min(2)
+        .describe(
+            "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time."
+        ),
+    operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
+})
+
 const AggregationAxisFormat = z.enum([
     'numeric',
     'duration',
@@ -521,6 +548,8 @@ const AssistantTrendsFilter = z.object({
         .default(false)
         .optional(),
     smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
+    xAxisLabel: z.string().describe('Custom label rendered under the X axis.').optional(),
+    yAxisLabel: z.string().describe('Custom label rendered alongside the Y axis.').optional(),
     yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 
@@ -542,8 +571,10 @@ const AssistantTrendsQuery = z.object({
     kind: z.literal('TrendsQuery').default('TrendsQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
-        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
-        .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
+        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode, AssistantTrendsGroupNode]))
+        .describe(
+            'Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.'
+        ),
     trendsFilter: AssistantTrendsFilter.describe('Properties specific to the trends insight').optional(),
 })
 
@@ -683,7 +714,24 @@ const AssistantFunnelsActionsNode = z.object({
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
-const AssistantFunnelsNode = z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode])
+const AssistantFunnelsGroupNode = z.object({
+    custom_name: z.string().optional(),
+    kind: z.literal('GroupNode').default('GroupNode'),
+    name: z.string().describe('Display name for the combined step.').optional(),
+    nodes: z
+        .array(z.union([AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]))
+        .min(2)
+        .describe(
+            'Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.'
+        ),
+    operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
+})
+
+const AssistantFunnelsNode = z.union([
+    AssistantFunnelsEventsNode,
+    AssistantFunnelsActionsNode,
+    AssistantFunnelsGroupNode,
+])
 
 const AssistantFunnelsQuery = z.object({
     aggregation_group_type_index: integer
@@ -756,7 +804,7 @@ const AssistantRetentionFilter = z.object({
         .describe('The event or person property to aggregate when aggregationType is sum or avg.')
         .optional(),
     aggregationPropertyType: z
-        .enum(['event', 'person'])
+        .enum(['event', 'person', 'data_warehouse'])
         .describe('The type of property to aggregate on (event or person). Defaults to event.')
         .default('event')
         .optional(),
@@ -983,12 +1031,30 @@ const AssistantPathsFilter = z.object({
             'Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.'
         )
         .optional(),
+    pathDropoffKey: z
+        .string()
+        .describe(
+            'Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.'
+        )
+        .optional(),
+    pathEndKey: z
+        .string()
+        .describe(
+            'Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.'
+        )
+        .optional(),
     pathGroupings: z
         .array(z.string())
         .describe(
             'Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.'
         )
         .default([])
+        .optional(),
+    pathStartKey: z
+        .string()
+        .describe(
+            'Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.'
+        )
         .optional(),
     pathsHogQLExpression: z
         .string()
@@ -1085,6 +1151,7 @@ const AssistantLifecycleQuery = z.object({
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
         .array(AssistantLifecycleSeriesNode)
+        .max(1)
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
@@ -1153,6 +1220,29 @@ const AssistantTrendsActorsQuery = z.object({
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
     series: integer.describe('Series index (0-based) when the source has multiple series.').optional(),
     source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
+})
+
+const AssistantLifecycleStatus = z.enum(['new', 'returning', 'resurrecting', 'dormant'])
+
+const AssistantLifecycleActorsQuery = z.object({
+    day: z
+        .string()
+        .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    source: AssistantLifecycleQuery.describe('The source lifecycle insight query whose bucket we are drilling into.'),
+    status: AssistantLifecycleStatus.describe(
+        "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+    ),
+})
+
+const AssistantPathsActorsQuery = z.object({
+    includeRecordings: z.coerce
+        .boolean()
+        .describe('Whether to include matched session recordings for each actor.')
+        .default(true)
+        .optional(),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    source: AssistantPathsQuery.describe('The source paths insight query whose actors we are listing.'),
 })
 
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
@@ -1225,6 +1315,26 @@ const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
         ),
 })
 
+const QueryLifecycleActorsSchema = AssistantLifecycleActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryPathsActorsSchema = AssistantPathsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1234,7 +1344,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'TrendsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-funnel': createQueryWrapper({
         name: 'query-funnel',
@@ -1242,7 +1351,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'FunnelsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-retention': createQueryWrapper({
         name: 'query-retention',
@@ -1250,7 +1358,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'RetentionQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-stickiness': createQueryWrapper({
         name: 'query-stickiness',
@@ -1258,7 +1365,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'StickinessQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-paths': createQueryWrapper({
         name: 'query-paths',
@@ -1266,7 +1372,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'PathsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-lifecycle': createQueryWrapper({
         name: 'query-lifecycle',
@@ -1274,21 +1379,18 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-llm-traces-list': createQueryWrapper({
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
         outputFormat: 'json',
-        mcpVersion: 2,
     }),
     'query-llm-trace': createQueryWrapper({
         name: 'query-llm-trace',
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
         outputFormat: 'json',
-        mcpVersion: 2,
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
@@ -1296,6 +1398,19 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
+    }),
+    'query-lifecycle-actors': createQueryWrapper({
+        name: 'query-lifecycle-actors',
+        schema: QueryLifecycleActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+    }),
+    'query-paths-actors': createQueryWrapper({
+        name: 'query-paths-actors',
+        schema: QueryPathsActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
     }),
 }

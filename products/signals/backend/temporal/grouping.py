@@ -26,6 +26,7 @@ from posthog.api.embedding_worker import async_generate_embedding, emit_embeddin
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -80,6 +81,7 @@ class GenerateEmbeddingOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
@@ -142,6 +144,7 @@ def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeE
 
 
 async def generate_search_queries(
+    team_id: int | None,
     description: str,
     source_product: str,
     source_type: str,
@@ -164,10 +167,12 @@ async def generate_search_queries(
         return [truncate_query_to_token_limit(q) for q in result.queries]
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.7,
+        stage="query_generation",
     )
 
 
@@ -177,6 +182,9 @@ class GenerateSearchQueriesInput:
     source_product: str
     source_type: str
     signal_type_examples: list[SignalTypeExample]
+    # Optional with a default so workflows mid-flight across a deploy (whose activity input was
+    # serialized before this field existed) still deserialize; missing => gateway key owner's team.
+    team_id: int | None = None
 
 
 @dataclass
@@ -185,10 +193,12 @@ class GenerateSearchQueriesOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
         queries = await generate_search_queries(
+            team_id=input.team_id,
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -402,6 +412,7 @@ Write a PR title covering ALL the above signals (existing + new), then judge if 
 
 
 async def match_signal_to_report(
+    team_id: int | None,
     description: str,
     source_product: str,
     source_type: str,
@@ -453,10 +464,12 @@ async def match_signal_to_report(
         )
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=MATCHING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
         temperature=0.2,
+        stage="match",
     )
 
 
@@ -468,13 +481,17 @@ class MatchSignalToReportInput:
     queries: list[str]
     query_results: list[list[SignalCandidate]]
     report_contexts: dict[str, ReportContext]
+    # Optional with a default for deploy-time backward compatibility — see GenerateSearchQueriesInput.
+    team_id: int | None = None
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(
+            team_id=input.team_id,
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -510,6 +527,7 @@ class FetchReportContextsOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
     """Fetch lightweight context (title, signal count) for reports from Postgres."""
     if not input.report_ids:
@@ -557,6 +575,7 @@ class VerifyMatchSpecificityOutput:
 
 
 async def verify_match_specificity(
+    team_id: int,
     new_signal_description: str,
     new_signal_source_product: str,
     new_signal_source_type: str,
@@ -573,10 +592,12 @@ async def verify_match_specificity(
     )
 
     specificity = await call_llm(
+        team_id=team_id,
         system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
         user_prompt=specificity_prompt,
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
+        stage="specificity",
     )
 
     return VerifyMatchSpecificityOutput(
@@ -587,10 +608,12 @@ async def verify_match_specificity(
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
         result = await verify_match_specificity(
+            team_id=input.team_id,
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
@@ -642,6 +665,7 @@ class AssignAndEmitSignalOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
@@ -707,15 +731,24 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             # - SUPPRESSED reports gather signals indefinitely but are never promoted.
             # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
             #   signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
-            # - READY reports are re-promoted on every new signal so the agentic report
-            #   always reflects the latest evidence.
-            if report.status == SignalReport.Status.READY or (
-                report.status == SignalReport.Status.POTENTIAL
-                and report.total_weight >= WEIGHT_THRESHOLD
-                and report.signal_count >= report.signals_at_run
+            # - READY and RESOLVED reports are re-promoted on every new signal so the pipeline
+            #   reruns with latest evidence (resolved: issue recurred post-merge fix).
+            # - CANDIDATE re-promotes on every new signal to self-heal from failed spawn attempts. Concurrent runs blocked by Temporal.
+            if (
+                report.status == SignalReport.Status.READY
+                or report.status == SignalReport.Status.RESOLVED
+                or report.status == SignalReport.Status.CANDIDATE
+                or (
+                    report.status == SignalReport.Status.POTENTIAL
+                    and report.total_weight >= WEIGHT_THRESHOLD
+                    and report.signal_count >= report.signals_at_run
+                )
             ):
-                updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=updated_fields)
+                # If candidate got here - it usually means CH issue down the way
+                # (e.g. CH wait raised before start_child_workflow)
+                if report.status != SignalReport.Status.CANDIDATE:
+                    updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                    report.save(update_fields=updated_fields)
                 promoted = True
 
             report_id = str(report.id)
@@ -784,7 +817,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     },
                     groups=groups(team.organization, team),
                 )
-            except Exception:
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
                 # Swallow the exception, to avoid breaking the flow over failed analytics event
                 logger.exception(
                     "Failed to capture signal_assigned_to_report event",
@@ -923,6 +957,7 @@ async def _process_signal_batch(
             workflow.execute_activity(
                 generate_search_queries_activity,
                 GenerateSearchQueriesInput(
+                    team_id=team_id,
                     description=s.description,
                     source_product=s.source_product,
                     source_type=s.source_type,
@@ -1039,6 +1074,7 @@ async def _process_signal_batch(
             match_result = await workflow.execute_activity(
                 match_signal_to_report_activity,
                 MatchSignalToReportInput(
+                    team_id=team_id,
                     description=signal.description,
                     source_product=signal.source_product,
                     source_type=signal.source_type,
@@ -1179,26 +1215,31 @@ async def _process_signal_batch(
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    # Spawn summary workflows after CH wait so they can find the signals.
-    for report_input, run_count in promoted_reports.values():
+    # Spawn summary workflows after CH wait. Stable ID + ALLOW_DUPLICATE: Temporal rejects concurrent
+    # starts with the same ID (caught below); re-spawning is allowed only if the previous run has closed.
+    for report_input, _run_count in promoted_reports.values():
         try:
-            base_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
-            # Include run_count in the workflow ID to allow re-generating READY reports when enough new signals arrive,
-            # as without it ALLOW_DUPLICATE_FAILED_ONLY will prevent the re-report from starting
-            workflow_id = base_id if run_count == 0 else f"{base_id}:run-{run_count + 1}"
-            # Concurrent report generation of the same report can't happen, as the promotion gate only allows
-            # POTENTIAL and READY, so IN_PROGRESS reports are never re-promoted.
+            workflow_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 execution_timeout=timedelta(hours=1),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
+            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
             pass
+        except Exception:
+            # Log and continue: raising here would reprocess the whole batch and double-count
+            # signals. The report stays CANDIDATE and re-promotes on the next matching signal.
+            logger.exception(
+                "Failed to start summary workflow for promoted report; will retry on next signal",
+                team_id=report_input.team_id,
+                report_id=report_input.report_id,
+            )
 
     return dropped, type_examples_result
 
@@ -1247,6 +1288,12 @@ class TeamSignalGroupingWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: TeamSignalGroupingInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
         self._buffer_size_gauge.set(len(self._signal_buffer))
 

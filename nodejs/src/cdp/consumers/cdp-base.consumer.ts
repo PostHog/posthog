@@ -5,11 +5,18 @@ import type { CommonConfig } from '../../common/config'
 import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
-import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
-import { CdpCoreServicesConfig, CdpCoreServicesDeps, CdpOutputs, createCdpCoreServices } from '../cdp-services'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
+import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import {
+    CdpCoreServicesConfig,
+    CdpCoreServicesDeps,
+    CdpOutputs,
+    CdpValkeyShadowPools,
+    createCdpCoreServices,
+} from '../cdp-services'
 import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
+import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -20,6 +27,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
@@ -32,9 +40,9 @@ export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
-    personRepository: PersonRepository
+    personRepository: PersonReadRepository
     geoipService: GeoIPService
-    groupRepository: GroupRepository
+    groupRepository: GroupReadRepository
     quotaLimiting: QuotaLimiting
 }
 
@@ -45,12 +53,15 @@ export interface TeamIDWithConfig {
 
 export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = CdpConsumerBaseConfig> {
     redis: RedisV2
+    valkeyShadow: CdpValkeyShadowPools | null
     isStopping = false
 
     hogExecutor: HogExecutorService
+    hogInputsService: HogInputsService
     hogFlowExecutor: HogFlowExecutorService
     hogMasker: HogMaskerService
     hogWatcher: HogWatcherService
+    hogWatcherMirror: HogWatcherService | null
 
     groupsManager: GroupsManagerService
     hogFlowManager: HogFlowManagerService
@@ -60,6 +71,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     personsManager: PersonsManagerService
     recipientsManager: RecipientsManagerService
 
+    emailService: EmailService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -70,8 +82,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     protected outputs: CdpOutputs
     protected abstract name: string
 
-    protected heartbeat = () => {}
-
     constructor(
         protected config: TConfig,
         protected deps: CdpConsumerBaseDeps
@@ -79,15 +89,19 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         const services = createCdpCoreServices(config, deps)
 
         this.redis = services.redis
+        this.valkeyShadow = services.valkeyShadow
         this.hogFunctionManager = services.hogFunctionManager
         this.hogFlowManager = services.hogFlowManager
         this.hogWatcher = services.hogWatcher
+        this.hogWatcherMirror = services.hogWatcherMirror
         this.hogExecutor = services.hogExecutor
+        this.hogInputsService = services.hogInputsService
         this.hogFunctionTemplateManager = services.hogFunctionTemplateManager
         this.hogFlowFunctionsService = services.hogFlowFunctionsService
         this.recipientsManager = services.recipientsManager
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
+        this.emailService = services.emailService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
@@ -95,7 +109,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.outputs = services.outputs
 
         // Base-only services
-        this.hogMasker = new HogMaskerService(services.redis)
+        this.hogMasker = new HogMaskerService(services.redis, services.valkeyShadow?.writer ?? null)
         this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
@@ -107,15 +121,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy(),
         }
-    }
-
-    protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
-        const res = await func()
-        this.heartbeat()
-        await new Promise((resolve) => process.nextTick(resolve))
-
-        return res
     }
 
     public async start(): Promise<void> {

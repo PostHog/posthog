@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconBalance, IconDownload, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBalance, IconDownload, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -53,6 +53,18 @@ function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItem
                     disabledReason: alreadyExistsReason('BAA'),
                     'data-attr': 'new-legal-document-menu-baa',
                 },
+                {
+                    label: (
+                        <div className="flex flex-col text-sm py-1">
+                            <strong>Master Service Agreement (MSA)</strong>
+                            <span className="text-xs font-normal text-muted">
+                                Negotiated with sales — contact your TAM or PostHog support to sign one.
+                            </span>
+                        </div>
+                    ),
+                    disabledReason: 'MSAs are negotiated by sales. Contact your TAM or PostHog support to sign an MSA.',
+                    'data-attr': 'new-legal-document-menu-msa',
+                },
             ],
         },
     ]
@@ -64,7 +76,8 @@ export const scene: SceneExport = {
 }
 
 export function LegalDocumentsScene(): JSX.Element {
-    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes } = useValues(legalDocumentsLogic)
+    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId } = useValues(legalDocumentsLogic)
+    const { deleteLegalDocument } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
@@ -195,6 +208,46 @@ export function LegalDocumentsScene(): JSX.Element {
                         title: 'By',
                         render: (_: any, row: LegalDocument) =>
                             row.created_by?.first_name || row.created_by?.email || '—',
+                    },
+                    {
+                        title: '',
+                        width: 48,
+                        render: (_: any, row: LegalDocument) =>
+                            row.status === 'submitted_for_signature' ? (
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    status="danger"
+                                    size="small"
+                                    loading={deletingId === row.id}
+                                    disabledReason={
+                                        deletingId && deletingId !== row.id
+                                            ? 'Another document is being deleted'
+                                            : undefined
+                                    }
+                                    data-attr={`delete-legal-document-${row.id}`}
+                                    tooltip={`Delete this ${row.document_type} and cancel the PandaDoc envelope`}
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete this ${row.document_type}?`,
+                                            description: (
+                                                <>
+                                                    We'll cancel the pending PandaDoc envelope sent to{' '}
+                                                    <strong>{row.representative_email}</strong> first. The{' '}
+                                                    {row.document_type} is only deleted if the cancellation succeeds, so
+                                                    you can safely retry if PandaDoc is unreachable. Once it's deleted
+                                                    you can generate a fresh {row.document_type}.
+                                                </>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteLegalDocument(row.id, row.document_type),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                />
+                            ) : null,
                     },
                 ]}
             />

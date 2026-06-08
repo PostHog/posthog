@@ -12,24 +12,23 @@ import type {
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GitHubTeamsResponseApi,
     IntegrationConfigApi,
+    IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
-    PaginatedUserGitHubIntegrationListResponseListApi,
     PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
-    UserGitHubLinkStartRequestApi,
-    UserGitHubLinkStartResponseApi,
-    UsersIntegrationsGithubReposRetrieveParams,
-    UsersIntegrationsListParams,
+    SlackChannelsResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -49,6 +48,10 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
+}
+
 /**
  * ViewSet for organization-level integrations.
 
@@ -59,14 +62,10 @@ Creation is handled by the integration installation flows
 (e.g., Vercel marketplace installation). Users can disconnect integrations
 via the DELETE endpoint.
  */
-export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
-}
-
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationIntegrationApi: NonReadonly<PatchedOrganizationIntegrationApi>,
+    patchedOrganizationIntegrationApi?: NonReadonly<PatchedOrganizationIntegrationApi>,
     options?: RequestInit
 ): Promise<OrganizationIntegrationApi> => {
     return apiMutator<OrganizationIntegrationApi>(
@@ -239,16 +238,78 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/channels/`
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
+}
+
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
+}
+
+export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
+}
+
+export const integrationsAnthropicManagedAgentsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsChannelsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsChannelsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsChannelsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+): Promise<SlackChannelsResponseApi> => {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -306,7 +367,7 @@ export const getIntegrationsEmailPartialUpdateUrl = (projectId: string, id: numb
 export const integrationsEmailPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedIntegrationConfigApi: NonReadonly<PatchedIntegrationConfigApi>,
+    patchedIntegrationConfigApi?: NonReadonly<PatchedIntegrationConfigApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsEmailPartialUpdateUrl(projectId, id), {
@@ -411,6 +472,38 @@ export const integrationsGithubReposRefreshCreate = async (
     return apiMutator<GitHubReposRefreshResponseApi>(getIntegrationsGithubReposRefreshCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getIntegrationsGithubTeamsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_teams/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_teams/`
+}
+
+export const integrationsGithubTeamsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubTeamsResponseApi> => {
+    return apiMutator<GitHubTeamsResponseApi>(getIntegrationsGithubTeamsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -530,6 +623,10 @@ export const integrationsAuthorizeRetrieve = async (projectId: string, options?:
     })
 }
 
+export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
+}
+
 /**
  * Unified endpoint for generating Domain Connect apply URLs.
 
@@ -537,10 +634,6 @@ Accepts a context ("email" or "proxy") and the relevant resource ID.
 The backend resolves the domain, template variables, and service ID
 based on context, then builds the signed apply URL.
  */
-export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
-}
-
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
     integrationConfigApi: NonReadonly<IntegrationConfigApi>,
@@ -568,124 +661,42 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
-/**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
- * @summary List personal GitHub integrations
- */
-export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/`
-}
-
-export const usersIntegrationsList = async (
-    uuid: string,
-    params?: UsersIntegrationsListParams,
-    options?: RequestInit
-): Promise<PaginatedUserGitHubIntegrationListResponseListApi> => {
-    return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
-        ...options,
-        method: 'GET',
-    })
+export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/link_existing/`
 }
 
 /**
- * Remove a specific GitHub installation by its installation_id.
- * @summary Disconnect a personal GitHub integration
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
  */
-export const getUsersIntegrationsGithubDestroyUrl = (uuid: string, installationId: string) => {
-    return `/api/users/${uuid}/integrations/github/${installationId}/`
-}
-
-export const usersIntegrationsGithubDestroy = async (
-    uuid: string,
-    installationId: string,
+export const integrationsGithubLinkExistingCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getUsersIntegrationsGithubDestroyUrl(uuid, installationId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-/**
- * List repositories accessible to a specific GitHub installation (paginated, cached).
- * @summary List repositories for a personal GitHub installation
- */
-export const getUsersIntegrationsGithubReposRetrieveUrl = (
-    uuid: string,
-    installationId: string,
-    params?: UsersIntegrationsGithubReposRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/github/${installationId}/repos/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/github/${installationId}/repos/`
-}
-
-export const usersIntegrationsGithubReposRetrieve = async (
-    uuid: string,
-    installationId: string,
-    params?: UsersIntegrationsGithubReposRetrieveParams,
-    options?: RequestInit
-): Promise<GitHubReposResponseApi> => {
-    return apiMutator<GitHubReposResponseApi>(
-        getUsersIntegrationsGithubReposRetrieveUrl(uuid, installationId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-/**
- * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-- If the current project has **no** team-level GitHub ``Integration``, returns
-  ``install_url`` pointing at ``/installations/new`` (configure org + repos).
-- If the team **already** has a GitHub installation, returns ``install_url``
-  pointing at ``/login/oauth/authorize`` so the user only authorizes as
-  themselves for that installation (no repo scoping UI on GitHub).
-
-In both cases the response key is ``install_url`` for compatibility with callers.
- * @summary Start GitHub personal integration linking
- */
-export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
-    return `/api/users/${uuid}/integrations/github/start/`
-}
-
-export const usersIntegrationsGithubStartCreate = async (
-    uuid: string,
-    userGitHubLinkStartRequestApi: UserGitHubLinkStartRequestApi,
-    options?: RequestInit
-): Promise<UserGitHubLinkStartResponseApi> => {
-    return apiMutator<UserGitHubLinkStartResponseApi>(getUsersIntegrationsGithubStartCreateUrl(uuid), {
+    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userGitHubLinkStartRequestApi),
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
+}
+
+/**
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
+ */
+export const integrationsGithubOauthAuthorizeCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
     })
 }

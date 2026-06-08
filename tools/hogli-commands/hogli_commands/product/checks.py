@@ -12,11 +12,11 @@ import re
 import json
 import shlex
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .paths import TACH_TOML, get_tach_block
-from .scaffold import flatten_structure
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -35,36 +35,267 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
+def _iter_interface_blocks(tach_content: str) -> Iterator[tuple[list[str], list[str]]]:
+    """Yield (expose_patterns, from_patterns) for every [[interfaces]] block."""
+    for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
+        block = match.group(1)
+        expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
+        from_match = re.search(r"from\s*=\s*\[(.*?)\]", block, re.DOTALL)
+        if not expose_match or not from_match:
+            continue
+        expose_patterns = re.findall(r'"(.*?)"', expose_match.group(1))
+        from_patterns = re.findall(r'"(.*?)"', from_match.group(1))
+        yield expose_patterns, from_patterns
+
+
+def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
+    """Yield (path, depends_on) for every [[modules]] block."""
+    for match in re.finditer(r"\[\[modules\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
+        block = match.group(1)
+        path_match = re.search(r'path\s*=\s*"(.*?)"', block)
+        if not path_match:
+            continue
+        path = path_match.group(1)
+        deps_match = re.search(r"depends_on\s*=\s*\[(.*?)\]", block, re.DOTALL)
+        depends_on = re.findall(r'"(.*?)"', deps_match.group(1)) if deps_match else []
+        yield path, depends_on
+
+
+def _pattern_targets_public_surface(pattern: str) -> bool:
+    """True if a tach expose pattern targets a product's public surface.
+
+    Public surface is backend.facade, backend.presentation, or backend.routes —
+    the last being the product-local route registration entry point that core
+    imports to assemble the API router. It is a public composition hook, not an
+    internal leak, so it does not mark a product as un-isolatable.
+
+    Strips backslashes first so it works on both the on-disk TOML form (`\\.`,
+    two literal backslashes) and Python-string fixtures (single backslash).
+    """
+    normalized = pattern.replace("\\", "")
+    return (
+        normalized.startswith("backend.facade")
+        or normalized.startswith("backend.presentation")
+        or normalized.startswith("backend.routes")
+    )
+
+
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
     """Check if a product has legacy interface leak blocks in tach.toml.
 
     These are products where core (posthog/ee) still imports internals directly,
     so they can't safely be tested in isolation via contract-check.
 
-    Detected structurally: an [[interfaces]] block that exposes non-facade paths
-    (anything other than backend.facade or backend.presentation) and references
-    this specific module in its from = [...] field.
+    Detected structurally: an [[interfaces]] block whose `from` is exactly this
+    module and whose `expose` includes any non-facade/non-presentation pattern.
     """
-    # Find all [[interfaces]] blocks and check if any expose non-facade paths
-    # for this specific module.
-    for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        # Check if this block references our module in from = [...]
-        if not re.search(rf'from\s*=\s*\[\s*"{re.escape(module_path)}"\s*,?\s*\]', block):
+    for expose_patterns, from_patterns in _iter_interface_blocks(tach_content):
+        normalized_from = [p.replace("\\", "") for p in from_patterns]
+        if normalized_from != [module_path]:
             continue
-        # Check if any expose pattern is NOT facade or presentation
-        expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        if not expose_match:
-            continue
-        patterns = re.findall(r'"(.*?)"', expose_match.group(1))
-        for pattern in patterns:
-            if not pattern.startswith("backend\\.facade") and not pattern.startswith("backend\\.presentation"):
-                return True
+        if any(not _pattern_targets_public_surface(p) for p in expose_patterns):
+            return True
     return False
 
 
 def is_isolated_product(backend_dir: Path) -> bool:
     return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
+
+
+# ---------------------------------------------------------------------------
+# Canonical facade alternation validation (global, not per-product)
+# ---------------------------------------------------------------------------
+
+
+def _targets_facade_or_presentation(pattern: str) -> bool:
+    """True if a pattern targets backend.facade or backend.presentation specifically.
+
+    Narrower than `_pattern_targets_public_surface`, which also accepts
+    backend.routes. A routes-only block is a registration hook, not a canonical
+    facade surface, so it must not be treated as one (it would otherwise demand
+    facade/contracts.py isolation scaffolding the product may not have).
+    """
+    normalized = pattern.replace("\\", "")
+    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+
+
+def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
+    """Canonical = a public-surface block that actually exposes facade/presentation.
+
+    Every pattern must be public surface (facade/presentation/routes) and at
+    least one must be facade/presentation — so a routes-only registration block
+    does not get treated as a canonical facade alternation entry.
+    """
+    if not expose_patterns:
+        return False
+    if not all(_pattern_targets_public_surface(p) for p in expose_patterns):
+        return False
+    return any(_targets_facade_or_presentation(p) for p in expose_patterns)
+
+
+def _names_from_pattern(pattern: str) -> set[str]:
+    """Extract product short names from a tach `from` pattern.
+
+    Handles three forms:
+      - "products.experiments"                       -> {"experiments"}
+      - "products\\.experiments"                     -> {"experiments"}
+      - "products\\.(experiments|mcp_store|...)"     -> {"experiments", "mcp_store", ...}
+    """
+    # Normalize backslashes — tach regex uses `\.` which appears as `\\.` when
+    # read as raw TOML source.
+    normalized = pattern.replace("\\", "")
+    m = re.match(r"^products\.\(([^)]+)\)$", normalized)
+    if m:
+        return {n.strip() for n in m.group(1).split("|") if n.strip()}
+    m = re.match(r"^products\.([A-Za-z0-9_]+)$", normalized)
+    if m:
+        return {m.group(1)}
+    return set()
+
+
+def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[str]:
+    """Validate the canonical facade `[[interfaces]]` block(s).
+
+    Catches stale entries:
+      1. Every product named in the canonical alternation must exist as
+         products/<name>/.
+      2. Every product named in the canonical alternation must have
+         backend/facade/contracts.py (be isolated).
+      3. Names in alternation regexes must be sorted alphabetically.
+
+    The inverse direction ("every isolated product must be listed") is not
+    enforced — having `facade/contracts.py` is just scaffolding and doesn't
+    mean the product is ready for canonical exposure.
+    """
+    issues: list[str] = []
+
+    canonical_names: set[str] = set()
+    found_canonical_block = False
+    for expose_patterns, from_patterns in _iter_interface_blocks(tach_content):
+        if not _is_canonical_facade_expose(expose_patterns):
+            continue
+        found_canonical_block = True
+        for pattern in from_patterns:
+            names = _names_from_pattern(pattern)
+            if not names:
+                issues.append(
+                    f"canonical [[interfaces]] block has unparseable from pattern '{pattern}' — "
+                    "expected 'products.<name>' or 'products\\.(name1|name2|...)'"
+                )
+                continue
+            canonical_names |= names
+            names_list = _ordered_names_from_alternation(pattern)
+            if names_list and names_list != sorted(names_list):
+                issues.append(
+                    f"canonical alternation is not sorted alphabetically — expected '{('|'.join(sorted(names_list)))}'"
+                )
+
+    if not found_canonical_block:
+        return issues
+
+    for name in sorted(canonical_names):
+        product_dir = products_dir / name
+        if not product_dir.is_dir():
+            issues.append(
+                f"canonical facade alternation lists '{name}' but products/{name}/ does not exist — "
+                "remove the stale entry from tach.toml"
+            )
+            continue
+        if not is_isolated_product(product_dir / "backend"):
+            issues.append(
+                f"canonical facade alternation lists '{name}' but products/{name}/backend/facade/contracts.py "
+                "is missing — either add contracts.py or remove the entry from tach.toml"
+            )
+
+    return issues
+
+
+def _ordered_names_from_alternation(pattern: str) -> list[str] | None:
+    """Return names in their original order if the pattern is an alternation, else None."""
+    normalized = pattern.replace("\\", "")
+    m = re.match(r"^products\.\(([^)]+)\)$", normalized)
+    if m:
+        return [n.strip() for n in m.group(1).split("|") if n.strip()]
+    return None
+
+
+def validate_interface_blocks(tach_content: str) -> list[str]:
+    """Validate individual [[interfaces]] blocks for structural problems.
+
+    Checks:
+      1. No mixed facade + internal expose in a single block.
+      2. No overly broad expose patterns (backend.* catches everything).
+    """
+    issues: list[str] = []
+
+    for expose_patterns, from_patterns in _iter_interface_blocks(tach_content):
+        products = set()
+        for p in from_patterns:
+            products |= _names_from_pattern(p)
+        product_label = ", ".join(sorted(products)) or ", ".join(from_patterns)
+
+        has_facade = any(_pattern_targets_public_surface(p) for p in expose_patterns)
+        has_internal = any(not _pattern_targets_public_surface(p) for p in expose_patterns)
+        if has_facade and has_internal:
+            issues.append(
+                f"[[interfaces]] for {product_label} mixes facade/presentation exposes with "
+                "internal exposes — split into separate blocks or remove the facade patterns "
+                "from the legacy leak block"
+            )
+
+        for pattern in expose_patterns:
+            normalized = pattern.replace("\\", "")
+            if re.match(r"^backend\.{0,2}\*", normalized):
+                issues.append(
+                    f"[[interfaces]] for {product_label} has overly broad expose "
+                    f"'{pattern}' — enumerate specific submodules instead"
+                )
+
+    return issues
+
+
+def validate_tach_references(tach_content: str) -> list[str]:
+    """Validate referential integrity in tach.toml.
+
+    Checks:
+      1. Every [[interfaces]] from must reference an existing [[modules]] path.
+      2. Every [[modules]] depends_on entry must reference an existing module.
+    """
+    issues: list[str] = []
+
+    module_paths: set[str] = set()
+    for path, _deps in _iter_module_blocks(tach_content):
+        module_paths.add(path)
+
+    for _expose, from_patterns in _iter_interface_blocks(tach_content):
+        for pattern in from_patterns:
+            names = _names_from_pattern(pattern)
+            for name in names:
+                module_path = f"products.{name}"
+                if module_path not in module_paths:
+                    issues.append(
+                        f"[[interfaces]] references '{module_path}' but no [[modules]] "
+                        f"block with that path exists — dangling interface declaration"
+                    )
+
+    for path, depends_on in _iter_module_blocks(tach_content):
+        for dep in depends_on:
+            if dep not in module_paths:
+                issues.append(
+                    f"[[modules]] '{path}' depends on '{dep}' but no [[modules]] "
+                    f"block with that path exists — dangling dependency"
+                )
+
+    return issues
+
+
+def validate_tach_toml(tach_content: str, products_dir: Path) -> list[str]:
+    """Run all tach.toml validation checks."""
+    issues: list[str] = []
+    issues.extend(validate_facade_alternation(tach_content, products_dir))
+    issues.extend(validate_interface_blocks(tach_content))
+    issues.extend(validate_tach_references(tach_content))
+    return issues
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +500,16 @@ class MisplacedFilesCheck(ProductCheck):
 
     # Directories allowed in backend/ for strict products.
     # Anything else won't be covered by import-linter's wildcard contracts.
+    # `templates` is allowed because Django's app_directories loader requires
+    # the folder to live at <app>/templates/, and templates aren't Python
+    # imports so import-linter contracts don't apply.
+    # `admin` is allowed because Django's autodiscover_modules("admin") requires
+    # the admin module at <app>.admin — and that module can be a flat `admin.py`
+    # or an `admin/` package (both resolve to the same import). The file form is
+    # already accepted, so the package form has to be too.
+    # `hogql_queries` is the established home for HogQL query runners across
+    # products (web_analytics, revenue_analytics, product_analytics), so it is
+    # allowed in isolated products too rather than forcing query code into logic/.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -279,6 +520,9 @@ class MisplacedFilesCheck(ProductCheck):
         "management",
         "models",
         "logic",
+        "hogql_queries",
+        "templates",
+        "admin",
         "__pycache__",
     }
 
@@ -321,12 +565,29 @@ class FileFolderConflictsCheck(ProductCheck):
         if not ctx.backend_dir.exists():
             return CheckResult(skip=True)
 
+        # Collect "<name>" stems that may be expressed as either a file or a
+        # package, from two structure shapes:
+        #   - "<name>.py" with `can_be_folder: true`        (e.g. models.py)
+        #   - "<name>/" as a top-level backend_files entry  (e.g. logic/, facade/)
+        # Subdirectories qualify whether or not they declare an `__init__.py`
+        # in the structure — namespace packages are fine, and this also catches
+        # a stray `tasks.py` next to `tasks/`, which is always a mistake.
+        stems: set[str] = set()
+        for name, config in ctx.structure.get("backend_files", {}).items():
+            if name.endswith("/"):
+                stems.add(name.rstrip("/"))
+            elif name.endswith(".py") and isinstance(config, dict) and config.get("can_be_folder", False):
+                stems.add(name[: -len(".py")])
+
+        # Conflict if both `<stem>.py` and `<stem>/` directory exist on disk.
+        # Check the directory itself (not `__init__.py`) so a half-migrated state
+        # without `__init__.py` is still flagged.
         conflicts = []
-        for path, config in flatten_structure(ctx.structure.get("backend_files", {})).items():
-            if not config.get("can_be_folder", False):
-                continue
-            if (ctx.backend_dir / path).exists() and (ctx.backend_dir / path.replace(".py", "")).exists():
-                conflicts.append(f"Both 'backend/{path}' and 'backend/{path.replace('.py', '/')}' exist — pick one")
+        for stem in sorted(stems):
+            file_form = ctx.backend_dir / f"{stem}.py"
+            dir_form = ctx.backend_dir / stem
+            if file_form.is_file() and dir_form.is_dir():
+                conflicts.append(f"Both 'backend/{stem}.py' and 'backend/{stem}/' exist — pick one")
 
         if conflicts:
             return CheckResult(
@@ -533,7 +794,18 @@ class ProductYamlCheck(ProductCheck):
 
 
 class ProductYamlOwnersCheck(ProductCheck):
-    """Validates product.yaml owner slugs against GitHub org teams."""
+    """Validates product.yaml owner slugs against GitHub team slugs in the PostHog org.
+
+    Not part of the default CHECKS list — pays a GitHub API call per run, so it's
+    only invoked via the dedicated ``product:lint:owners`` subcommand. CI gates
+    that subcommand on a ``products/*/product.yaml`` paths filter, so the API
+    call only fires when an ownership change is actually proposed.
+
+    Validates "team exists in the org", not "team has access to this repo" — the
+    repo-collaborator endpoint needs a permission the assign-reviewers GH App
+    lacks. The "exists but lacks repo access" gap is covered by the script's
+    422 fallback (drops bad teams, keeps valid ones).
+    """
 
     label = "product.yaml owners"
 
@@ -555,10 +827,6 @@ class ProductYamlOwnersCheck(ProductCheck):
 
         gh_teams, fetch_err = get_team_slugs()
         if gh_teams is None:
-            import os
-
-            if os.environ.get("GITHUB_ACTIONS") == "true":
-                return CheckResult(lines=[f"⚠ {fetch_err}, skipping in CI"])
             return CheckResult(
                 lines=[f"✗ {fetch_err}"],
                 issues=[fetch_err],
@@ -568,9 +836,22 @@ class ProductYamlOwnersCheck(ProductCheck):
         result = CheckResult(file=f"products/{ctx.name}/product.yaml")
 
         for owner in owners:
-            if isinstance(owner, str) and owner not in gh_teams:
+            if not isinstance(owner, str):
+                continue
+            # `@username` entries are individual reviewers, not teams — validating
+            # them needs a different endpoint, and the assign-reviewers script
+            # already routes them separately. Skip here.
+            if owner.startswith("@"):
+                continue
+            if owner == "team-CHANGEME":
                 result.issues.append(
-                    f"owner '{owner}' is not a GitHub team in PostHog org — check https://github.com/orgs/PostHog/teams"
+                    "owner is still the 'team-CHANGEME' scaffold placeholder — pick a real owning team"
+                )
+                continue
+            if owner not in gh_teams:
+                result.issues.append(
+                    f"owner '{owner}' is not a GitHub team in the PostHog org. "
+                    f"See https://github.com/orgs/PostHog/teams"
                 )
 
         if result.issues:
@@ -580,13 +861,108 @@ class ProductYamlOwnersCheck(ProductCheck):
         return result
 
 
+class OrphanedTestFilesCheck(ProductCheck):
+    """Flag pytest test files that no CI runner will pick up.
+
+    Walks the product directory for `test_*.py` / `*_test.py` and checks each
+    is reachable from either:
+      - the pytest paths listed in `backend:test`, or
+      - a known external runner via `_EXTERNAL_RUNNER_PREFIXES` (e.g. `dags/`
+        directories are picked up by ci-dagster.yml, regardless of the
+        product's package.json).
+
+    Without this check, moving a test file to (say) `products/foo/scripts/test/`
+    or forgetting to add it to `backend:test` silently strands the tests —
+    they collect cleanly when run by hand but never run in CI.
+    """
+
+    label = "test file coverage"
+
+    # Directories whose test files are run by workflows other than the product
+    # matrix. Keep in sync with the workflows under `.github/workflows/` that
+    # invoke pytest against product paths.
+    _EXTERNAL_RUNNER_PREFIXES = (
+        "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
+    )
+    # Per-product exemptions — paths that another workflow targets directly
+    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    _PRODUCT_SPECIFIC_EXEMPTIONS = {
+        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        "batch_exports": ("backend/tests/temporal/",),
+        "tasks": ("backend/temporal/",),
+    }
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        # Find every test file under the product.
+        test_files = sorted(
+            p.relative_to(ctx.product_dir).as_posix()
+            for pattern in ("test_*.py", "*_test.py")
+            for p in ctx.product_dir.rglob(pattern)
+            if "__pycache__" not in p.parts
+        )
+        if not test_files:
+            return CheckResult(skip=True)
+
+        # Extract the pytest paths from backend:test, if present.
+        package_json = ctx.product_dir / "package.json"
+        scripts = {}
+        if package_json.exists():
+            try:
+                scripts = json.loads(package_json.read_text()).get("scripts", {})
+            except json.JSONDecodeError:
+                pass  # PackageJsonScriptsCheck reports the invalid JSON
+        test_script = scripts.get("backend:test", "")
+        base_script = test_script.split("||")[0].strip() if test_script else ""
+        if base_script.startswith("pytest"):
+            pytest_paths = _parse_pytest_paths(base_script)
+        else:
+            pytest_paths = []
+
+        def _covered_by(rel: str, path: str) -> bool:
+            # pytest path can be a file ("backend/test_max_tools.py") or a
+            # directory ("backend/" or "scripts/test"). Treat as a prefix
+            # match against the trailing slash to avoid "backend/" eating
+            # "backend_tools/foo.py".
+            if rel == path:
+                return True
+            return rel.startswith(path.rstrip("/") + "/")
+
+        result = CheckResult()
+        per_product = self._PRODUCT_SPECIFIC_EXEMPTIONS.get(ctx.name, ())
+        orphans = []
+        for rel in test_files:
+            if any(_covered_by(rel, p) for p in self._EXTERNAL_RUNNER_PREFIXES):
+                continue
+            if any(_covered_by(rel, p) for p in per_product):
+                continue
+            if any(_covered_by(rel, p) for p in pytest_paths):
+                continue
+            orphans.append(rel)
+
+        if orphans:
+            result.lines.append(
+                f"✗ {len(orphans)} test file(s) not reachable from backend:test or any known external runner"
+            )
+            for o in orphans:
+                result.lines.append(f"  → {o}")
+            result.issues.extend(
+                f"Test file {o} is not covered by backend:test pytest paths or a known "
+                "external runner (e.g. ci-dagster.yml for dags/). It will never run in CI"
+                for o in orphans
+            )
+            result.file = f"products/{ctx.name}/package.json"
+        else:
+            result.lines.append("✓ ok")
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
-    ProductYamlOwnersCheck(),
     RequiredRootFilesCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
     TachCheck(),
     IsolationChainCheck(),
+    OrphanedTestFilesCheck(),
 ]

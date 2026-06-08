@@ -14,6 +14,8 @@ __pycache__/
 .hypothesis
 .mypy_cache
 .parcel-cache
+pbt-divergences.jsonl
+posthog/hogql/test/fixtures/real_queries/
 .posthog/
 .postgres-backups/
 .python-version
@@ -46,6 +48,8 @@ common/replay-headless/dist
 common/storybook/dist
 coverage-*.xml
 debug.log
+docs/internal/logs-sampling-discovery.md
+docs/internal/logs-sampling-runbook.md
 docker-compose.prod.yml
 ee/benchmarks/results
 ee/support_sidebar_max/.env
@@ -61,6 +65,7 @@ playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 pyrightconfig.json
 settings.yml
+scripts/local/
 share/GeoLite2-City.*
 staticfiles
 storybook-static
@@ -124,6 +129,7 @@ playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
+frontend/dist-report/
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
@@ -177,16 +183,18 @@ QAREPORT.md
 data/seaweedfs
 data/seaweedfs/
 
-# No env files except for the example
+# No env files except for the example, development defaults, services, and local-overrides template
 .env*
 !.env.example
+!.env.development
+!.env.services
+!.env.local.example
 
 # Ignore Agent OS (Claude Code) files
 .claude/agents/agent-os
 .claude/commands/agent-os
 
 agent-os/
-
 # MCP build files
 services/mcp/public/ui-apps
 
@@ -200,4 +208,8 @@ junit.xml
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
 .pnpm-store
-pt009_fixer.py
+
+# Local-only HogQL log-corpus dumps (downloaded from Metabase by
+# posthog/hogql/scripts/log_corpus_diagnostic.py — contains
+# redacted production queries; not for git).
+posthog/hogql/scripts/.local/

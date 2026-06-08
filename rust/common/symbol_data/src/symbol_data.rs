@@ -83,7 +83,7 @@ where
     Ok(buffer)
 }
 
-pub fn read_as<T>(data: Vec<u8>) -> Result<T, Error>
+pub fn read_as<T>(data: &[u8]) -> Result<T, Error>
 where
     T: SymbolData,
 {
@@ -93,23 +93,23 @@ where
 /// Like `read_as`, but also returns the decompressed payload byte count.
 /// This is useful for cache memory accounting when the container uses compression,
 /// since the compressed size can be much smaller than the actual data in memory.
-pub fn read_as_with_byte_count<T>(data: Vec<u8>) -> Result<(T, usize), Error>
+pub fn read_as_with_byte_count<T>(data: &[u8]) -> Result<(T, usize), Error>
 where
     T: SymbolData,
 {
-    let version = read_version(&data)?;
+    let version = read_version(data)?;
 
     match version {
         V1_VERSION => {
             assert_at_least_as_long_as(v1_header_len(), data.len())?;
-            assert_data_type_impl(&data, T::data_type())?;
+            assert_data_type_impl(data, T::data_type())?;
             let payload = data[v1_header_len()..].to_vec();
             let byte_count = payload.len();
             T::from_bytes(payload).map(|v| (v, byte_count))
         }
         VERSION => {
             assert_at_least_as_long_as(v2_header_len(), data.len())?;
-            assert_data_type_impl(&data, T::data_type())?;
+            assert_data_type_impl(data, T::data_type())?;
             let compression = Compression::try_from(data[v2_header_len() - 1])?;
             let payload = &data[v2_header_len()..];
             let decompressed = match compression {

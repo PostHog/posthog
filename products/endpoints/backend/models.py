@@ -95,6 +95,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     This allows users to execute specific versions or track query evolution over time.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     team = models.ForeignKey(
@@ -119,7 +120,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
     )
     saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
+        "data_modeling.DataWarehouseSavedQuery",
         null=True,
         blank=True,
         db_index=False,
@@ -140,6 +141,11 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         null=True,
         blank=True,
         help_text="Per-column bucket function overrides for range variable materialization. E.g. {'timestamp': 'toStartOfHour'}",
+    )
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
     )
 
     class Meta:
@@ -287,7 +293,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:
-    /api/environments/{team_id}/endpoints/{endpoint_name}/run
+    /api/projects/{team_id}/endpoints/{endpoint_name}/run
 
     Query, description, data_freshness_seconds, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
@@ -317,7 +323,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     last_executed_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When this endpoint was last executed via the run API. Updated with hour granularity.",
+        help_text="When this endpoint was last executed via the run API. Updated with 30-minute granularity.",
     )
 
     class Meta:
@@ -337,7 +343,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     @property
     def endpoint_path(self) -> str:
         """Return the API endpoint path for this endpoint."""
-        return f"/api/environments/{self.team.id}/endpoints/{self.name}/run"
+        return f"/api/projects/{self.team.id}/endpoints/{self.name}/run"
 
     def has_query_changed(self, new_query: dict[str, Any]) -> bool:
         """Deep comparison to check if query has actually changed.

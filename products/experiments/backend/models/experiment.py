@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel
@@ -44,7 +45,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     secondary_metrics = models.JSONField(default=list, null=True, blank=True)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
-    feature_flag = models.ForeignKey("posthog.FeatureFlag", blank=False, on_delete=models.RESTRICT)
+    feature_flag = models.ForeignKey("feature_flags.FeatureFlag", blank=False, on_delete=models.RESTRICT)
     exposure_cohort = models.ForeignKey("posthog.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
     holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -155,6 +156,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
+            "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
             "created_at": self.created_at,
         }
@@ -163,9 +165,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.stats_config.get(key) if self.stats_config else None
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
-        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -256,7 +258,9 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
         db_table = "posthog_experimentsavedmetric"
 
 
-class ExperimentToSavedMetric(models.Model):
+class ExperimentToSavedMetric(ModelActivityMixin, models.Model):
+    activity_logging_on_delete = True
+
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 

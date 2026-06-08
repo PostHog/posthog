@@ -27,7 +27,7 @@ describe('personsSceneLogic', () => {
         sceneLogic.actions.setTabs([
             { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
         ])
-        logic = personsSceneLogic({ tabId: '1' })
+        logic = personsSceneLogic()
         logic.mount()
     })
 

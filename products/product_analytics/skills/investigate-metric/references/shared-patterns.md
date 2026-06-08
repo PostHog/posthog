@@ -143,7 +143,7 @@ running more queries. Fetch individual ones with `posthog:session-recording-get`
 
 ## Error / logs cross-check
 
-Run `posthog:error-tracking-issues-list` and `posthog:query-logs` for the anomaly window.
+Run `posthog:query-error-tracking-issues-list` and `posthog:query-logs` for the anomaly window.
 A correlated error is a candidate, not a conclusion — confirm three things:
 
 1. **Timing** — error volume aligns with the metric movement.

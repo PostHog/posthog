@@ -13,12 +13,20 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
-    AutoApproveResult,
+    BaselineEntry,
+    BaselineOverview,
+    BaselineQuarantineSummary,
+    BaselineTotals,
+    ClusterSummary,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
+    DiffCluster,
+    FinalizeResult,
+    FinalizeRunRequestInput,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    QuarantineSourceRun,
     RecomputeResult,
     Repo,
     Run,
@@ -57,12 +65,25 @@ class UserBasicInfoSerializer(DataclassSerializer):
         dataclass = UserBasicInfo
 
 
+class DiffClusterSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DiffCluster
+
+
+class ClusterSummarySerializer(DataclassSerializer):
+    items = DiffClusterSerializer(many=True)
+
+    class Meta:
+        dataclass = ClusterSummary
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
     baseline_artifact = ArtifactSerializer(allow_null=True, required=False)
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
@@ -90,14 +111,14 @@ class CreateRunResultSerializer(DataclassSerializer):
         dataclass = CreateRunResult
 
 
-class AutoApproveResultSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = AutoApproveResult
-
-
 class RecomputeResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = RecomputeResult
+
+
+class FinalizeResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = FinalizeResult
 
 
 # --- Input Serializers ---
@@ -129,13 +150,56 @@ class UpdateRepoInputSerializer(DataclassSerializer):
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(
+        help_text="The snapshot identifier to approve (e.g. Storybook story id plus theme).",
+    )
+    new_hash = serializers.CharField(
+        help_text="The content hash of the new baseline image to record for this identifier.",
+    )
+
     class Meta:
         dataclass = ApproveSnapshotInput
 
 
 class ApproveRunInputSerializer(DataclassSerializer):
+    snapshots = ApproveSnapshotInputSerializer(
+        many=True,
+        required=True,
+        allow_empty=False,
+        help_text=(
+            "Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the "
+            'review in the database (the per-snapshot "Accept change" action) — it does not change the '
+            "baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint."
+        ),
+    )
+
     class Meta:
         dataclass = ApproveRunRequestInput
+
+
+class FinalizeRunInputSerializer(DataclassSerializer):
+    approve_all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are "
+            "left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any "
+            "changed/new snapshot is still unreviewed."
+        ),
+    )
+    commit_to_github = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal "
+            "path — leave true). Set false only for tooling that commits the baseline itself: the server skips "
+            "the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT "
+            "greened and `metadata.baseline_commit_sha` is absent."
+        ),
+    )
+
+    class Meta:
+        dataclass = FinalizeRunRequestInput
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
@@ -151,19 +215,50 @@ class ToleratedHashEntrySerializer(DataclassSerializer):
 
 
 class MarkToleratedInputSerializer(serializers.Serializer):
-    snapshot_id = serializers.UUIDField()
+    snapshot_id = serializers.UUIDField(
+        help_text=(
+            "UUID of the changed snapshot to mark as a known tolerated alternate. "
+            "Future runs that produce the same alternate hash for this identifier will not be flagged as changes."
+        ),
+    )
+
+
+class QuarantineSourceRunSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineSourceRun
 
 
 class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
     created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    source_run = QuarantineSourceRunSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+    )
 
     class Meta:
         dataclass = QuarantinedIdentifierEntry
 
 
+class BaselineQuarantineSummarySerializer(DataclassSerializer):
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    source_run = QuarantineSourceRunSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = BaselineQuarantineSummary
+
+
 class QuarantineInputSerializer(DataclassSerializer):
-    identifier = serializers.CharField(max_length=512)
-    reason = serializers.CharField(max_length=255)
+    identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to quarantine.")
+    reason = serializers.CharField(max_length=255, help_text="Why this snapshot is being quarantined.")
+    source_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — "
+            "used to surface a 'view the failing run' link later."
+        ),
+    )
 
     class Meta:
         dataclass = QuarantineInput
@@ -176,3 +271,29 @@ class UnquarantineQuerySerializer(serializers.Serializer):
 class CreateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRepoInput
+
+
+class BaselineEntrySerializer(DataclassSerializer):
+    quarantine = BaselineQuarantineSummarySerializer(
+        allow_null=True,
+        required=False,
+        help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+
+    class Meta:
+        dataclass = BaselineEntry
+
+
+class BaselineTotalsSerializer(DataclassSerializer):
+    by_run_type = serializers.DictField(child=serializers.IntegerField())
+
+    class Meta:
+        dataclass = BaselineTotals
+
+
+class BaselineOverviewSerializer(DataclassSerializer):
+    entries = BaselineEntrySerializer(many=True)
+    totals = BaselineTotalsSerializer()
+
+    class Meta:
+        dataclass = BaselineOverview

@@ -4,6 +4,8 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
+from products.dashboards.backend.widget_registry import DashboardWidgetType
+
 
 class DashboardAPI:
     def __init__(self, client, team: Team, assertEqual):
@@ -320,3 +322,24 @@ class DashboardAPI:
             {"dashboards": dashboard_ids},
         )
         assert response.status_code == expected_status
+
+    def create_widget_tile(
+        self,
+        dashboard_id: int,
+        widget_type: DashboardWidgetType = "error_tracking_list",
+        config: dict[str, Any] | None = None,
+        team_id: int | None = None,
+        expected_status: int = status.HTTP_200_OK,
+    ) -> tuple[int, dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+        if config is None:
+            config = {"limit": 10}
+
+        response = self.client.patch(
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}",
+            {"tiles": [{"widget": {"widget_type": widget_type, "config": config}}]},
+        )
+        self.assertEqual(response.status_code, expected_status)
+        response_json = response.json()
+        return dashboard_id, response_json

@@ -123,7 +123,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
         skip_cache = True
 
     if repo in local_releases_cache and not skip_cache:
-        logger.info(f"[SDK Doctor] Returning cached releases for {repo}")
+        logger.info(f"[SDK Health] Returning cached releases for {repo}")
         return local_releases_cache[repo]
 
     releases = []
@@ -132,21 +132,21 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
     while page <= 10:  # Github only permits us to list the first 1000 items, so that's 100 items * 10 pages
         try:
             url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
-            logger.info(f"[SDK Doctor] Fetching releases from {url}")
+            logger.info(f"[SDK Health] Fetching releases from {url}")
 
             response = requests.get(url, timeout=10)
 
             if not response.ok:
-                logger.error(f"[SDK Doctor] Failed to fetch releases for {repo}", status_code=response.status_code)
+                logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)
                 break
 
             releases_json = response.json()
             if releases_json is None:
-                logger.error(f"[SDK Doctor] Expected list of releases, got empty response", repo=repo)
+                logger.error(f"[SDK Health] Expected list of releases, got empty response", repo=repo)
                 break
 
             if not isinstance(releases_json, list):
-                logger.error(f"[SDK Doctor] Expected list of releases, got {type(releases_json)}", repo=repo)
+                logger.error(f"[SDK Health] Expected list of releases, got {type(releases_json)}", repo=repo)
                 break
 
             if len(releases_json) == 0:
@@ -155,7 +155,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             releases.extend(releases_json)
             page += 1
         except Exception as e:
-            logger.exception(f"[SDK Doctor] Failed to fetch releases for {repo}", repo=repo)
+            logger.exception(f"[SDK Health] Failed to fetch releases for {repo}", repo=repo)
             capture_exception(e, additional_properties={"repo": repo, "page": page, "url": url})
             break
 

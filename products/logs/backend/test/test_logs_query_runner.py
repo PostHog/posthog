@@ -543,6 +543,60 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(queries) == 2
 
     @freeze_time("2025-12-16T10:33:00Z")
+    def test_multiple_negative_resource_attribute_filters(self):
+        # Two negative resource attribute filters on disjoint values (no log has both an envoy
+        # container AND the kube-system namespace). The fix exists so a resource is excluded when
+        # it matches ANY of the negative filters, not just when it matches every one. Pre-fix this
+        # would return ~all logs because nothing matched both filters at once.
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},
+            "limit": 2000,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "k8s.container.name",
+                                "value": "envoy",
+                                "operator": "is_not",
+                                "type": "log_resource_attribute",
+                            },
+                            {
+                                "key": "k8s.namespace.name",
+                                "value": "kube-system",
+                                "operator": "is_not",
+                                "type": "log_resource_attribute",
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+
+        response = self._make_logs_api_request(query_params)
+        results = response["results"]
+
+        # at least some logs come back (sanity check)
+        self.assertGreater(len(results), 0)
+        # neither excluded value appears anywhere — proves OR semantics
+        for result in results:
+            self.assertNotEqual(result["resource_attributes"].get("k8s.container.name"), "envoy")
+            self.assertNotEqual(result["resource_attributes"].get("k8s.namespace.name"), "kube-system")
+        # both excluded groups exist in the test data, so the result count must be strictly less than
+        # the unfiltered count. Pre-fix this would have returned every log in range (since no resource
+        # matched both filters at once).
+        unfiltered = self._make_logs_api_request(
+            {
+                "dateRange": query_params["dateRange"],
+                "limit": query_params["limit"],
+                "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            }
+        )
+        self.assertLess(len(results), len(unfiltered["results"]))
+
+    @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},

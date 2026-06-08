@@ -23,6 +23,8 @@ from langgraph.errors import NodeInterrupt
 
 from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
+from products.posthog_ai.backend.models.assistant import CoreMemory
+
 from ee.hogai.chat_agent.memory import prompts
 from ee.hogai.chat_agent.memory.nodes import (
     MemoryCollectorNode,
@@ -37,7 +39,6 @@ from ee.hogai.chat_agent.memory.nodes import (
 )
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models import CoreMemory
 
 
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, NonAtomicBaseTest):

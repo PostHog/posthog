@@ -6,14 +6,18 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Action, Insight, Project, Team
+from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+from posthog.models.scoping import team_scope
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
@@ -98,6 +102,70 @@ class TestResourceTransferPreview(APIBaseTest):
 
         tile_resource = next(r for r in resources if r["resource_kind"] == "DashboardTile")
         assert tile_resource["friendly_kind"] == "Dashboard tile"
+
+    def test_preview_returns_dashboard_with_widget_tiles(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Widget dashboard")
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(
+                team=self.team,
+                widget_type="error_tracking_list",
+                name="Top errors",
+                config={"limit": 10},
+            )
+        DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        resources = response.json()["resources"]
+        kinds = {r["resource_kind"] for r in resources}
+        assert "Dashboard" in kinds
+        assert "DashboardTile" in kinds
+        assert "DashboardWidget" in kinds
+
+        user_facing_kinds = {r["resource_kind"] for r in resources if r["user_facing"]}
+        assert "Dashboard" in user_facing_kinds
+        assert "DashboardWidget" not in user_facing_kinds
+        assert "DashboardTile" not in user_facing_kinds
+
+        widget_resource = next(r for r in resources if r["resource_kind"] == "DashboardWidget")
+        assert widget_resource["display_name"] == "Top errors"
+        assert widget_resource["friendly_kind"] == "Dashboard widget"
+        assert widget_resource["user_facing"] is False
+
+    def test_preview_dashboard_widget_uses_catalog_label_without_custom_name(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Widget dashboard")
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(
+                team=self.team,
+                widget_type="error_tracking_list",
+                config={"limit": 10},
+            )
+        DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)
+
+        response = self.client.post(
+            self._preview_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        widget_resource = next(r for r in response.json()["resources"] if r["resource_kind"] == "DashboardWidget")
+        assert widget_resource["display_name"] == "Top issues"
+        assert "DashboardWidget" not in widget_resource["display_name"]
+        assert str(widget.pk) not in widget_resource["display_name"]
 
     def test_preview_survey_includes_insight_and_dependencies(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Survey insight")
@@ -612,6 +680,17 @@ class TestResourceTransferSearch(APIBaseTest):
             {
                 "team_id": self.dest_team.pk,
                 "resource_kind": "Team",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_search_rejects_non_user_facing_kind(self) -> None:
+        response = self.client.post(
+            self._search_url(),
+            {
+                "team_id": self.dest_team.pk,
+                "resource_kind": "DashboardWidget",
             },
         )
 

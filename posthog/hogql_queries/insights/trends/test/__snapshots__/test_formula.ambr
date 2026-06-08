@@ -13,6 +13,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -31,6 +33,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -75,6 +79,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -119,6 +125,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -157,6 +165,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -195,6 +205,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -249,6 +261,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -293,6 +307,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -347,6 +363,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -401,6 +419,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -462,6 +482,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -523,6 +545,100 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql_with_as_alias
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql_with_as_alias.1
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT avg(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -567,6 +683,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -611,6 +729,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -629,6 +749,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -647,6 +769,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -676,6 +800,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -712,6 +838,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -741,6 +869,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -770,6 +900,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -799,6 +931,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -828,6 +962,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -869,6 +1005,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -898,6 +1036,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -933,6 +1073,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -962,6 +1104,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -997,6 +1141,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -1032,6 +1178,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''

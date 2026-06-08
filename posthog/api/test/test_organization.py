@@ -1,24 +1,30 @@
 from datetime import timedelta
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.api.organization import OrganizationSerializer
-from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
+from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
@@ -31,15 +37,15 @@ class TestOrganizationAPI(APIBaseTest):
 
     def test_get_current_organization(self):
         response = self.client.get("/api/organizations/@current")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        assert response_data["id"] == str(self.organization.id)
+        self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, no product features are available (can be None or [])
-        assert not response_data["available_product_features"]
+        self.assertFalse(response_data["available_product_features"])
 
         # DEPRECATED attributes
-        assert "personalization" not in response_data
-        assert "setup" not in response_data
+        self.assertNotIn("personalization", response_data)
+        self.assertNotIn("setup", response_data)
 
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
@@ -51,30 +57,33 @@ class TestOrganizationAPI(APIBaseTest):
 
         response_data = self.client.get("/api/organizations/@current").json()
 
-        assert response_data["id"] == str(self.organization.id)
+        self.assertEqual(response_data["id"], str(self.organization.id))
 
     # Creating organizations
 
     def test_cant_create_organization_without_valid_license_on_self_hosted(self):
         with self.is_cloud(False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
-            assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {
-                "attr": None,
-                "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.",
-                "type": "authentication_error",
-            }
-            assert Organization.objects.count() == 1
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(
+                response.json(),
+                {
+                    "attr": None,
+                    "code": "permission_denied",
+                    "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.",
+                    "type": "authentication_error",
+                },
+            )
+            self.assertEqual(Organization.objects.count(), 1)
             response = self.client.post("/api/organizations/", {"name": "Test"})
-            assert Organization.objects.count() == 1
+            self.assertEqual(Organization.objects.count(), 1)
 
     def test_cant_create_organization_with_custom_plugin_level(self):
         with self.is_cloud(True):
             response = self.client.post("/api/organizations/", {"name": "Test", "plugins_access_level": 6})
-            assert response.status_code == status.HTTP_201_CREATED
-            assert Organization.objects.count() == 2
-            assert response.json()["plugins_access_level"] == 3
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(Organization.objects.count(), 2)
+            self.assertEqual(response.json()["plugins_access_level"], 3)
 
     # Updating organizations
 
@@ -86,10 +95,10 @@ class TestOrganizationAPI(APIBaseTest):
 
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
 
-        assert response_rename.status_code == status.HTTP_200_OK
+        self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
 
         self.organization.refresh_from_db()
-        assert self.organization.name == "QWERTY"
+        self.assertEqual(self.organization.name, "QWERTY")
 
     def test_update_organization_if_owner(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -99,18 +108,18 @@ class TestOrganizationAPI(APIBaseTest):
 
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
 
-        assert response_rename.status_code == status.HTTP_200_OK
+        self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
 
         self.organization.refresh_from_db()
-        assert self.organization.name == "QWERTY"
+        self.assertEqual(self.organization.name, "QWERTY")
 
     def test_cannot_update_organization_if_not_owner_or_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
-        assert response_rename.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response_rename.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
-        assert self.organization.name != "ASDFG"
+        self.assertNotEqual(self.organization.name, "ASDFG")
 
     def test_cant_update_plugins_access_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -119,9 +128,9 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.save()
 
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"plugins_access_level": 9})
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        assert self.organization.plugins_access_level == 3
+        self.assertEqual(self.organization.plugins_access_level, 3)
 
     def test_is_active_fields_are_read_only(self):
         """Test that is_active and is_not_active_reason are returned but cannot be updated via API."""
@@ -130,29 +139,29 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify fields are returned in GET response
         response = self.client.get(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_200_OK
-        assert "is_active" in response.json()
-        assert "is_not_active_reason" in response.json()
-        assert response.json()["is_active"]
-        assert response.json()["is_not_active_reason"] is None
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("is_active", response.json())
+        self.assertIn("is_not_active_reason", response.json())
+        self.assertEqual(response.json()["is_active"], True)
+        self.assertIsNone(response.json()["is_not_active_reason"])
 
         # Attempt to update is_active - should be ignored
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}",
             {"is_active": False, "is_not_active_reason": "Test reason"},
         )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify fields were not updated
         self.organization.refresh_from_db()
-        assert self.organization.is_active
-        assert self.organization.is_not_active_reason is None
+        self.assertEqual(self.organization.is_active, True)
+        self.assertIsNone(self.organization.is_not_active_reason)
 
     @patch("posthoganalytics.capture")
     def test_enforce_2fa_for_everyone(self, mock_capture):
         # Only admins should be able to enforce 2fa
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -161,10 +170,10 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.save()
 
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.organization.refresh_from_db()
-        assert self.organization.enforce_2fa
+        self.assertEqual(self.organization.enforce_2fa, True)
 
         # Verify the capture event was called correctly
         mock_capture.assert_any_call(
@@ -187,10 +196,10 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": True}
         )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.organization.refresh_from_db()
-        assert self.organization.is_ai_data_processing_approved
+        self.assertEqual(self.organization.is_ai_data_processing_approved, True)
 
         mock_capture.assert_any_call(
             "organization ai data processing consent toggled",
@@ -220,13 +229,48 @@ class TestOrganizationAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/", {"members_can_invite": not current_value}
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
-        assert "payment_required" in error_data.get("code", "")
+        self.assertIn("payment_required", error_data.get("code", ""))
 
         # Verify the value didn't change
         self.organization.refresh_from_db()
-        assert self.organization.members_can_invite == current_value
+        self.assertEqual(self.organization.members_can_invite, current_value)
+
+    def test_cannot_update_members_can_create_projects_without_feature(self):
+        """members_can_create_projects is gated behind the ORGANIZATION_INVITE_SETTINGS entitlement for now."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        current_value = self.organization.members_can_create_projects
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_create_projects": not current_value}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.members_can_create_projects, current_value)
+
+    def test_can_update_members_can_create_projects_with_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"}
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_create_projects": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.members_can_create_projects)
 
     def test_cannot_update_enforce_2fa_without_feature(self):
         """Test that enforce_2fa cannot be updated without TWO_FACTOR_ENFORCEMENT feature."""
@@ -241,14 +285,14 @@ class TestOrganizationAPI(APIBaseTest):
         # Try to update enforce_2fa - should fail
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
-        assert "payment_required" in error_data.get("code", "")
-        assert "upgrade your plan" in error_data.get("detail", "")
+        self.assertIn("payment_required", error_data.get("code", ""))
+        self.assertIn("upgrade your plan", error_data.get("detail", ""))
 
         # Verify the value didn't change
         self.organization.refresh_from_db()
-        assert not self.organization.enforce_2fa
+        self.assertNotEqual(self.organization.enforce_2fa, True)
 
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
@@ -264,13 +308,13 @@ class TestOrganizationAPI(APIBaseTest):
         )
 
         # Try to update allow_publicly_shared_resources - should fail
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
-        assert "payment_required" in error_data.get("code", "")
+        self.assertIn("payment_required", error_data.get("code", ""))
 
         # Verify the value didn't change
         self.organization.refresh_from_db()
-        assert self.organization.allow_publicly_shared_resources == current_value
+        self.assertEqual(self.organization.allow_publicly_shared_resources, current_value)
 
     def test_cannot_update_members_can_use_personal_api_keys_without_feature(self):
         """Test that members_can_use_personal_api_keys cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
@@ -286,13 +330,13 @@ class TestOrganizationAPI(APIBaseTest):
         )
 
         # Try to update members_can_use_personal_api_keys - should fail
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
-        assert "payment_required" in error_data.get("code", "")
+        self.assertIn("payment_required", error_data.get("code", ""))
 
         # Verify the value didn't change
         self.organization.refresh_from_db()
-        assert self.organization.members_can_use_personal_api_keys == current_value
+        self.assertEqual(self.organization.members_can_use_personal_api_keys, current_value)
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, _ = Organization.objects.bootstrap(self.user)
@@ -308,9 +352,11 @@ class TestOrganizationAPI(APIBaseTest):
 
         response = self.client.get("/api/organizations/", headers={"authorization": f"Bearer {personal_api_key}"})
 
-        assert response.status_code == status.HTTP_200_OK
-        assert {org["id"] for org in response.json()["results"]} == {str(other_org.id)}, (
-            "Only the scoped organization should be listed, the other one should be excluded"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {org["id"] for org in response.json()["results"]},
+            {str(other_org.id)},
+            "Only the scoped organization should be listed, the other one should be excluded",
         )
 
     @override_settings(
@@ -344,7 +390,60 @@ class TestOrganizationAPI(APIBaseTest):
 
         response = self.client.get("/api/organizations/", headers={"authorization": f"Bearer {access_token.token}"})
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @parameterized.expand(
+        [
+            ("is_ai_data_processing_approved",),
+            ("is_ai_training_opted_in",),
+        ]
+    )
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_org_scoped_oauth_token_can_patch_current_organization(self, field: str):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        oauth_app = OAuthApplication.objects.create(
+            name="First Party Test App",
+            client_id=f"test_first_party_client_{field}",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+            is_first_party=True,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token=f"pha_test_first_party_token_{field}",
+            scope="organization:write",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(self.organization.id)],
+        )
+
+        bearer = {"authorization": f"Bearer {access_token.token}"}
+
+        get_response = self.client.get("/api/organizations/@current/", headers=bearer)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.json()["id"], str(self.organization.id))
+
+        patch_response = self.client.patch(
+            "/api/organizations/@current/",
+            {field: True},
+            content_type="application/json",
+            headers=bearer,
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK, patch_response.content)
+
+        self.organization.refresh_from_db()
+        self.assertTrue(getattr(self.organization, field))
 
     @patch("posthog.api.organization.delete_organization_data_and_notify_task")
     def test_delete_organizations_and_verify_list(self, mock_delete_task):
@@ -360,31 +459,31 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify we start with 3 organizations
         response = self.client.get("/api/organizations/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 3
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
 
         # Delete first org — it stays in the list but marked as pending deletion
         response = self.client.delete(f"/api/organizations/{org2.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         org2.refresh_from_db()
-        assert org2.is_pending_deletion
+        self.assertTrue(org2.is_pending_deletion)
 
         # Delete second org
         response = self.client.delete(f"/api/organizations/{org3.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         org3.refresh_from_db()
-        assert org3.is_pending_deletion
+        self.assertTrue(org3.is_pending_deletion)
 
         # All orgs still in the list (pending deletion ones included)
         response = self.client.get("/api/organizations/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 3
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
 
         # Delete last org
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.organization.refresh_from_db()
-        assert self.organization.is_pending_deletion
+        self.assertTrue(self.organization.is_pending_deletion)
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
@@ -398,9 +497,9 @@ class TestOrganizationAPI(APIBaseTest):
         with self.is_cloud(True):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "active subscription" in response.json()["detail"]
-        assert Organization.objects.filter(id=self.organization.id).exists()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("active subscription", response.json()["detail"])
+        self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
@@ -415,8 +514,8 @@ class TestOrganizationAPI(APIBaseTest):
         with self.is_cloud(True):
             response = self.client.delete(f"/api/organizations/{org_id}")
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not Organization.objects.filter(id=org_id).exists()
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Organization.objects.filter(id=org_id).exists())
 
     @patch("posthog.api.organization.delete_organization_data_and_notify_task")
     def test_delete_organization_sets_pending_deletion_flag(self, mock_delete_task):
@@ -424,10 +523,10 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self.organization.refresh_from_db()
-        assert self.organization.is_pending_deletion
+        self.assertTrue(self.organization.is_pending_deletion)
         mock_delete_task.delay.assert_called_once()
 
     @patch("posthog.api.organization.delete_organization_data_and_notify_task")
@@ -436,9 +535,9 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        assert OrganizationMembership.objects.filter(organization=self.organization, user=self.user).exists()
+        self.assertTrue(OrganizationMembership.objects.filter(organization=self.organization, user=self.user).exists())
 
     @patch("posthog.api.organization.delete_organization_data_and_notify_task")
     def test_delete_organization_returns_pending_deletion_in_api(self, mock_delete_task):
@@ -448,8 +547,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.client.delete(f"/api/organizations/{self.organization.id}")
 
         response = self.client.get(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["is_pending_deletion"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_pending_deletion"])
 
     @patch("posthog.api.organization.delete_organization_data_and_notify_task")
     def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
@@ -460,8 +559,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.save(update_fields=["is_pending_deletion"])
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already being deleted" in response.json()["detail"]
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
         mock_delete_task.delay.assert_not_called()
 
     @patch("posthog.api.organization.delete_organization_data_and_notify_task")
@@ -471,10 +570,10 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         event_names = [call.kwargs.get("event") for call in mock_capture.call_args_list]
-        assert "organization deletion initiated" in event_names
+        self.assertIn("organization deletion initiated", event_names)
 
 
 def create_organization(name: str) -> Organization:
@@ -498,7 +597,7 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             f"/api/organizations/{self.organization.id}",
             {"name": "Updated Name PUT"},
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_patch_organization_as_member_forbidden(self):
         """Test that members cannot update organization using PATCH method."""
@@ -509,7 +608,7 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             f"/api/organizations/{self.organization.id}",
             {"name": "Updated Name PATCH"},
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_patch_consistency_admin(self):
         """Test that PATCH method works consistently for admins."""
@@ -522,9 +621,9 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             f"/api/organizations/{self.organization.id}",
             {"name": "Admin Updated Name PATCH"},
         )
-        assert response_patch.status_code == status.HTTP_200_OK
+        self.assertEqual(response_patch.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        assert self.organization.name == "Admin Updated Name PATCH"
+        self.assertEqual(self.organization.name, "Admin Updated Name PATCH")
 
     def test_cannot_set_logo_media_from_another_organization(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -545,8 +644,8 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             {"logo_media_id": str(other_media.id)},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "logo_media_id"
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "logo_media_id")
 
     def test_can_set_logo_media_from_own_organization(self):
         media = UploadedMedia.objects.create(
@@ -565,9 +664,9 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             {"logo_media_id": str(media.id)},
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        assert self.organization.logo_media_id == media.id
+        self.assertEqual(self.organization.logo_media_id, media.id)
 
     def test_idor_protection_patch(self):
         """Test that users cannot modify organizations they don't belong to using PATCH."""
@@ -585,16 +684,17 @@ class TestOrganizationPutPatchPermissions(APIBaseTest):
             {"name": "Hacked Name PATCH"},
         )
         # Should be either forbidden or not found - both indicate access is properly restricted
-        assert response_patch.status_code in [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND]
+        self.assertIn(response_patch.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
         # Verify the other organization wasn't modified
         other_org.refresh_from_db()
-        assert other_org.name != "Hacked Name PATCH"
+        self.assertNotEqual(other_org.name, "Hacked Name PATCH")
 
 
 class TestOrganizationSerializer(APIBaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.factory = APIRequestFactory()
         self.request = self.factory.get("/")
         self.request.user = self.user
@@ -607,6 +707,16 @@ class TestOrganizationSerializer(APIBaseTest):
         self.view = MockView(UserPermissions(self.user))
         self.context = {"request": self.request, "view": self.view}
 
+    def _fresh_context_for(self, user):
+        request = self.factory.get("/")
+        request.user = user
+
+        class MockView:
+            def __init__(self, user_permissions):
+                self.user_permissions = user_permissions
+
+        return {"request": request, "view": MockView(UserPermissions(user))}
+
     def test_get_teams_with_no_org(self):
         # Clear current_team reference before deleting organization
         self.user.current_team = None
@@ -616,14 +726,14 @@ class TestOrganizationSerializer(APIBaseTest):
         self.organization.delete()
 
         serializer = OrganizationSerializer(context=self.context)
-        assert serializer.user_permissions.team_ids_visible_for_user == []
+        self.assertEqual(serializer.user_permissions.team_ids_visible_for_user, [])
 
     def test_get_teams_with_single_org_no_teams(self):
         # Delete default team created by APIBaseTest
         self.team.delete()
 
         serializer = OrganizationSerializer(self.organization, context=self.context)
-        assert serializer.get_teams(self.organization) == []
+        self.assertEqual(serializer.get_teams(self.organization), [])
 
     def test_get_teams_with_single_org_multiple_teams(self):
         team2 = Team.objects.create(organization=self.organization, name="Test Team 2")
@@ -632,9 +742,9 @@ class TestOrganizationSerializer(APIBaseTest):
         serializer = OrganizationSerializer(self.organization, context=self.context)
         teams = serializer.get_teams(self.organization)
 
-        assert len(teams) == 3
+        self.assertEqual(len(teams), 3)
         team_names = {team["name"] for team in teams}
-        assert team_names == {self.team.name, team2.name, team3.name}
+        self.assertEqual(team_names, {self.team.name, team2.name, team3.name})
 
     def test_get_teams_with_multiple_orgs(self):
         org2, _, _ = Organization.objects.bootstrap(self.user)
@@ -644,11 +754,169 @@ class TestOrganizationSerializer(APIBaseTest):
         teams1 = serializer.get_teams(self.organization)
         teams2 = serializer.get_teams(org2)
 
-        assert len(teams1) == 1
-        assert teams1[0]["name"] == self.team.name
+        self.assertEqual(len(teams1), 1)
+        self.assertEqual(teams1[0]["name"], self.team.name)
 
-        assert len(teams2) == 2
-        assert sorted([team["name"] for team in teams2]) == sorted(["Default project", team2.name])
+        self.assertEqual(len(teams2), 2)
+        self.assertEqual(
+            sorted([team["name"] for team in teams2]),
+            sorted(["Default project", team2.name]),
+        )
+
+    def test_get_teams_caches_per_user_org(self):
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        with patch.object(serializer, "_fetch_visible_teams", wraps=serializer._fetch_visible_teams) as spy:
+            first = serializer.get_teams(self.organization)
+            second = serializer.get_teams(self.organization)
+        assert spy.call_count == 1
+        assert first == second
+
+    def test_get_teams_invalidates_on_team_save(self):
+        OrganizationSerializer(self.organization, context=self.context).get_teams(self.organization)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Team.objects.create(organization=self.organization, name="New Team")
+
+        fresh_serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
+        with patch.object(fresh_serializer, "_fetch_visible_teams", wraps=fresh_serializer._fetch_visible_teams) as spy:
+            after = fresh_serializer.get_teams(self.organization)
+        assert spy.call_count == 1
+        assert len(after) == 2
+
+    def test_get_teams_invalidates_on_team_delete(self):
+        team2 = Team.objects.create(organization=self.organization, name="Will Be Deleted")
+        OrganizationSerializer(self.organization, context=self.context).get_teams(self.organization)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team2.delete()
+
+        fresh_serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
+        with patch.object(fresh_serializer, "_fetch_visible_teams", wraps=fresh_serializer._fetch_visible_teams) as spy:
+            after = fresh_serializer.get_teams(self.organization)
+        assert spy.call_count == 1
+        assert len(after) == 1
+
+    def test_get_teams_separate_cache_per_user(self):
+        other_user = self._create_user("other@posthog.com")
+        other_context = self._fresh_context_for(other_user)
+
+        serializer_a = OrganizationSerializer(self.organization, context=self.context)
+        serializer_b = OrganizationSerializer(self.organization, context=other_context)
+
+        with patch.object(serializer_a, "_fetch_visible_teams", wraps=serializer_a._fetch_visible_teams) as spy_a:
+            serializer_a.get_teams(self.organization)
+            serializer_a.get_teams(self.organization)
+        assert spy_a.call_count == 1
+
+        with patch.object(serializer_b, "_fetch_visible_teams", wraps=serializer_b._fetch_visible_teams) as spy_b:
+            serializer_b.get_teams(self.organization)
+        assert spy_b.call_count == 1
+
+    def test_get_projects_caches_and_invalidates_on_project_change(self):
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        with patch.object(serializer, "_fetch_visible_projects", wraps=serializer._fetch_visible_projects) as spy:
+            first = serializer.get_projects(self.organization)
+            second = serializer.get_projects(self.organization)
+        assert spy.call_count == 1
+        assert first == second
+
+        existing_project = self.team.project
+        existing_project.name = "Renamed Project"
+        with self.captureOnCommitCallbacks(execute=True):
+            existing_project.save()
+
+        fresh_serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
+        with patch.object(
+            fresh_serializer, "_fetch_visible_projects", wraps=fresh_serializer._fetch_visible_projects
+        ) as spy:
+            fresh_serializer.get_projects(self.organization)
+        assert spy.call_count == 1
+
+    @parameterized.expand(
+        [
+            (
+                "access_control",
+                lambda self: AccessControl.objects.create(team=self.team, access_level="member", resource="project"),
+            ),
+            (
+                "explicit_team_membership",
+                lambda self: ExplicitTeamMembership.objects.create(
+                    team=self.team,
+                    parent_membership=OrganizationMembership.objects.get(
+                        organization=self.organization, user=self.user
+                    ),
+                ),
+            ),
+            (
+                "role_membership",
+                lambda self: RoleMembership.objects.create(
+                    role=Role.objects.create(name=f"role-{uuid4().hex}", organization=self.organization),
+                    user=self.user,
+                ),
+            ),
+            (
+                "organization_membership",
+                lambda self: self._create_user("rbac+invalidation@posthog.com"),
+            ),
+        ]
+    )
+    def test_rbac_change_invalidates_org_cache(self, _name, mutate):
+        OrganizationSerializer(self.organization, context=self.context).get_teams(self.organization)
+        initial_version = _org_serializer_cache_version(str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            mutate(self)
+
+        after_version = _org_serializer_cache_version(str(self.organization.id))
+        assert after_version > initial_version
+
+    def test_serializer_without_request_bypasses_the_cache(self):
+        no_request_context = {"view": type("MockView", (), {"user_permissions": UserPermissions(self.user)})()}
+        serializer = OrganizationSerializer(self.organization, context=no_request_context)
+        with patch.object(serializer, "_fetch_visible_teams", wraps=serializer._fetch_visible_teams) as spy:
+            serializer.get_teams(self.organization)
+            serializer.get_teams(self.organization)
+        assert spy.call_count == 2
+
+    def test_get_member_count_caches_per_org(self):
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        with patch("posthog.api.organization._fetch_member_count", wraps=_fetch_member_count) as spy:
+            first = serializer.get_member_count(self.organization)
+            second = serializer.get_member_count(self.organization)
+        assert spy.call_count == 1
+        assert first == second == 1
+
+    @parameterized.expand(
+        [
+            (
+                "membership_create",
+                lambda self: self._create_user("invalidates-create@posthog.com"),
+                3,
+            ),
+            (
+                "membership_delete",
+                lambda self: OrganizationMembership.objects.filter(user=self._seeded_user).delete(),
+                1,
+            ),
+        ]
+    )
+    def test_get_member_count_invalidates_on_membership_change(self, _name, mutate, expected_after):
+        # Seed a second member so the delete path has something to remove and the
+        # baseline count is the same for both parameter cases.
+        self._seeded_user = self._create_user("invalidates-seed@posthog.com")
+        cache.clear()
+        baseline = OrganizationSerializer(self.organization, context=self.context).get_member_count(self.organization)
+        assert baseline == 2
+
+        with self.captureOnCommitCallbacks(execute=True):
+            mutate(self)
+
+        with patch("posthog.api.organization._fetch_member_count", wraps=_fetch_member_count) as spy:
+            after = OrganizationSerializer(
+                self.organization, context=self._fresh_context_for(self.user)
+            ).get_member_count(self.organization)
+        assert spy.call_count == 1
+        assert after == expected_after
 
 
 class TestOrganizationRbacMigrations(APIBaseTest):
@@ -691,17 +959,17 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
 
         feature_flag_access = FeatureFlagRoleAccess.objects.first()
-        assert feature_flag_access is None
+        self.assertIsNone(feature_flag_access)
 
         access_control = AccessControl.objects.get(resource="feature_flag")
-        assert access_control.access_level == "editor"
-        assert access_control.role == self.admin_role
-        assert access_control.resource == "feature_flag"
-        assert access_control.resource_id == str(feature_flag.id)
+        self.assertEqual(access_control.access_level, "editor")
+        self.assertEqual(access_control.role, self.admin_role)
+        self.assertEqual(access_control.resource, "feature_flag")
+        self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
         # Verify reporting calls
         mock_report_action.assert_any_call(
@@ -727,17 +995,17 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
 
         # Verify specific role access was migrated
-        assert FeatureFlagRoleAccess.objects.count() == 0
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
         access_control = AccessControl.objects.get(
             resource="feature_flag",
             resource_id=str(feature_flag.id),
             role=self.admin_role,
         )
-        assert access_control.access_level == "editor"
+        self.assertEqual(access_control.access_level, "editor")
 
         # Add verification of reporting calls at the end
         mock_report_action.assert_any_call(
@@ -783,8 +1051,8 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
 
         # Verify that inactive user's access was not migrated
         with self.assertRaises(AccessControl.DoesNotExist):
@@ -802,15 +1070,15 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         member_access = AccessControl.objects.get(
             organization_member=cast(OrganizationMembership, self.org_member.organization_memberships.first())
         )
-        assert member_access.access_level == "member"
-        assert member_access.resource == "project"
-        assert member_access.resource_id == str(team_with_access_control.id)
+        self.assertEqual(member_access.access_level, "member")
+        self.assertEqual(member_access.resource, "project")
+        self.assertEqual(member_access.resource_id, str(team_with_access_control.id))
 
         # Verify base team access control was created
         base_access = AccessControl.objects.get(team=team_with_access_control, organization_member__isnull=True)
-        assert base_access.access_level == "none"
-        assert base_access.resource == "project"
-        assert base_access.resource_id == str(team_with_access_control.id)
+        self.assertEqual(base_access.access_level, "none")
+        self.assertEqual(base_access.resource, "project")
+        self.assertEqual(base_access.resource_id, str(team_with_access_control.id))
 
         # Verify admin access control was created
         admin_access = AccessControl.objects.filter(
@@ -820,7 +1088,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             resource="project",
             resource_id=str(team_with_access_control.id),
         )
-        assert admin_access.count() == 0
+        self.assertEqual(admin_access.count(), 0)
 
         # Verify member access control was created
         member_access = AccessControl.objects.get(
@@ -830,11 +1098,11 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             resource="project",
             resource_id=str(team_with_access_control.id),
         )
-        assert member_access is not None
+        self.assertIsNotNone(member_access)
 
         # Check that the team access control has been disabled
         team_with_access_control.refresh_from_db()
-        assert not team_with_access_control.access_control
+        self.assertFalse(team_with_access_control.access_control)
 
         # Add verification of reporting calls at the end
         mock_report_action.assert_any_call(
@@ -849,7 +1117,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.client.force_login(self.member_user)
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_migrate_team_rbac_wrong_organization(self):
         self.admin_user = self._create_user("rbac_admin+4@posthog.com", level=OrganizationMembership.Level.ADMIN)
@@ -858,7 +1126,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         other_org = Organization.objects.create(name="Other Org")
 
         response = self.client.post(f"/api/organizations/{other_org.id}/migrate_access_control/")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("posthog.api.organization.report_organization_action")
     def test_migrate_both_feature_flags_and_team_rbac(self, mock_report_action):
@@ -903,20 +1171,20 @@ class TestOrganizationRbacMigrations(APIBaseTest):
 
         # Perform migration
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["status"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
 
         # Verify feature flag access controls
-        assert FeatureFlagRoleAccess.objects.count() == 0
-        assert AccessControl.objects.filter(resource="feature_flag").count() == 2
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
+        self.assertEqual(AccessControl.objects.filter(resource="feature_flag").count(), 2)
 
         for feature_flag in feature_flags:
             access_control = AccessControl.objects.get(resource="feature_flag", resource_id=str(feature_flag.id))
-            assert access_control.access_level == "editor"
-            assert access_control.role == self.admin_role
+            self.assertEqual(access_control.access_level, "editor")
+            self.assertEqual(access_control.role, self.admin_role)
 
         # Verify team access controls
-        assert ExplicitTeamMembership.objects.count() == 0
+        self.assertEqual(ExplicitTeamMembership.objects.count(), 0)
         base_access = AccessControl.objects.get(
             team=team_with_access_control,
             organization_member__isnull=True,
@@ -924,7 +1192,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             resource="project",
             resource_id=str(team_with_access_control.id),
         )
-        assert base_access is not None
+        self.assertIsNotNone(base_access)
 
         admin_access = AccessControl.objects.filter(
             team=team_with_access_control,
@@ -934,7 +1202,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             resource_id=str(team_with_access_control.id),
         )
         # Shouldn't exist
-        assert admin_access.count() == 0
+        self.assertEqual(admin_access.count(), 0)
 
         member_access = AccessControl.objects.get(
             team=team_with_access_control,
@@ -943,11 +1211,11 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             resource="project",
             resource_id=str(team_with_access_control.id),
         )
-        assert member_access is not None
+        self.assertIsNotNone(member_access)
 
         # Verify total number of access controls
         # 2 feature flags + 2 team access controls (base + member)
-        assert AccessControl.objects.count() == 4
+        self.assertEqual(AccessControl.objects.count(), 4)
 
         # Add verification of reporting calls at the end
         mock_report_action.assert_any_call(
@@ -965,8 +1233,8 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         with patch("posthog.api.organization.rbac_team_access_control_migration", side_effect=Exception("Test error")):
             response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
 
-            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-            assert response.json() == {"status": False, "error": "An internal error has occurred."}
+            self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            self.assertEqual(response.json(), {"status": False, "error": "An internal error has occurred."})
 
             # Verify error was reported
             mock_report_action.assert_any_call(

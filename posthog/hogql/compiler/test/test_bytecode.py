@@ -2,7 +2,7 @@ import pytest
 from posthog.test.base import BaseTest
 
 from posthog.hogql.compiler.bytecode import create_bytecode, execute_hog, to_bytecode
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_program
 
 from common.hogvm.python.operation import (
@@ -605,6 +605,12 @@ class TestBytecode(BaseTest):
         with self.assertRaises(QueryError) as e:
             execute_hog("globalVar.properties.bla := 1;")
         assert str(e.exception) == 'Variable "globalVar" not declared in this scope. Can not assign to globals.'
+
+    def test_bytecode_bare_throw(self):
+        # A bare `throw` is rejected at parse time; `throw <expr>` still compiles.
+        with self.assertRaises(SyntaxError):
+            execute_hog("throw", team=self.team)
+        create_bytecode(parse_program("throw Error('boom')"))
 
     def test_bytecode_execute(self):
         # Test a simple operations. The Hog execution itself is tested under common/hogvm/python/

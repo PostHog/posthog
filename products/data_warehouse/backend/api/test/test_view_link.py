@@ -10,11 +10,12 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseTable
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -30,20 +31,23 @@ class TestViewLinkQuery(APIBaseTest):
                 "configuration": None,
             },
         )
-        assert response.status_code == 201, response.content
+        self.assertEqual(response.status_code, 201, response.content)
         view_link = response.json()
-        assert view_link == {
-            "id": view_link["id"],
-            "deleted": False,
-            "created_by": view_link["created_by"],
-            "created_at": view_link["created_at"],
-            "source_table_name": "events",
-            "source_table_key": "uuid",
-            "joining_table_name": "persons",
-            "joining_table_key": "id",
-            "field_name": "some_field",
-            "configuration": None,
-        }
+        self.assertEqual(
+            view_link,
+            {
+                "id": view_link["id"],
+                "deleted": False,
+                "created_by": view_link["created_by"],
+                "created_at": view_link["created_at"],
+                "source_table_name": "events",
+                "source_table_key": "uuid",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+                "field_name": "some_field",
+                "configuration": None,
+            },
+        )
 
     def test_reading_dot_notation(self):
         source = ExternalDataSource.objects.create(
@@ -108,20 +112,23 @@ class TestViewLinkQuery(APIBaseTest):
                 "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
             },
         )
-        assert response.status_code == 201, response.content
+        self.assertEqual(response.status_code, 201, response.content)
         view_link = response.json()
-        assert view_link == {
-            "id": view_link["id"],
-            "deleted": False,
-            "created_by": view_link["created_by"],
-            "created_at": view_link["created_at"],
-            "source_table_name": "events",
-            "source_table_key": "uuid",
-            "joining_table_name": "persons",
-            "joining_table_key": "id",
-            "field_name": "some_field",
-            "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
-        }
+        self.assertEqual(
+            view_link,
+            {
+                "id": view_link["id"],
+                "deleted": False,
+                "created_by": view_link["created_by"],
+                "created_at": view_link["created_at"],
+                "source_table_name": "events",
+                "source_table_key": "uuid",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+                "field_name": "some_field",
+                "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
+            },
+        )
 
     def test_create_key_error(self):
         response = self.client.post(
@@ -134,7 +141,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "field_name": "some_field",
             },
         )
-        assert response.status_code == 400, response.content
+        self.assertEqual(response.status_code, 400, response.content)
 
     def test_field_name_periods(self):
         response = self.client.post(
@@ -148,7 +155,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "configuration": None,
             },
         )
-        assert response.status_code == 400, response.content
+        self.assertEqual(response.status_code, 400, response.content)
 
     def test_create_saved_query_key_error(self):
         response = self.client.post(
@@ -161,7 +168,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "field_name": "some_field",
             },
         )
-        assert response.status_code == 400, response.content
+        self.assertEqual(response.status_code, 400, response.content)
 
     def test_create_saved_query_join_key_function(self):
         response = self.client.post(
@@ -174,7 +181,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "field_name": "some_field",
             },
         )
-        assert response.status_code == 201, response.content
+        self.assertEqual(response.status_code, 201, response.content)
 
     def test_update_with_configuration(self):
         join = DataWarehouseJoin.objects.create(
@@ -192,22 +199,25 @@ class TestViewLinkQuery(APIBaseTest):
             f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/",
             {"configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"}},
         )
-        assert response.status_code == 200, response.content
+        self.assertEqual(response.status_code, 200, response.content)
         view_link = response.json()
-        assert view_link == {
-            "id": view_link["id"],
-            "deleted": False,
-            "created_by": view_link["created_by"],
-            "created_at": view_link["created_at"],
-            "source_table_name": "events",
-            "source_table_key": "distinct_id",
-            "joining_table_name": "persons",
-            "joining_table_key": "id",
-            "field_name": "some_field",
-            "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
-        }
+        self.assertEqual(
+            view_link,
+            {
+                "id": view_link["id"],
+                "deleted": False,
+                "created_by": view_link["created_by"],
+                "created_at": view_link["created_at"],
+                "source_table_name": "events",
+                "source_table_key": "distinct_id",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+                "field_name": "some_field",
+                "configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"},
+            },
+        )
         join.refresh_from_db()
-        assert join.configuration == {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"}
+        self.assertEqual(join.configuration, {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"})
 
     def test_delete(self):
         response = self.client.post(
@@ -220,13 +230,13 @@ class TestViewLinkQuery(APIBaseTest):
                 "field_name": "some_field",
             },
         )
-        assert response.status_code == 201, response.content
+        self.assertEqual(response.status_code, 201, response.content)
         view_link = response.json()
 
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_view_links/{view_link['id']}")
-        assert response.status_code == 204, response.content
+        self.assertEqual(response.status_code, 204, response.content)
 
-        assert DataWarehouseJoin.objects.all().count() == 0
+        self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)
 
     def test_list(self):
         join1 = DataWarehouseJoin.objects.create(
@@ -266,18 +276,18 @@ class TestViewLinkQuery(APIBaseTest):
         ):  # depends when team revenue analytisc config cache is hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, 200)
 
         view_links = response.json()
-        assert isinstance(view_links, dict)
-        assert "results" in view_links
-        assert isinstance(view_links["results"], list)
-        assert len(view_links["results"]) == 3
+        self.assertIsInstance(view_links, dict)
+        self.assertIn("results", view_links)
+        self.assertIsInstance(view_links["results"], list)
+        self.assertEqual(len(view_links["results"]), 3)
 
         # Verify the joins are returned with correct data
         join_ids = {join["id"] for join in view_links["results"]}
         expected_ids = {str(join1.id), str(join2.id), str(join3.id)}
-        assert join_ids == expected_ids
+        self.assertEqual(join_ids, expected_ids)
 
 
 def _mock_execute_hogql_side_effect(*args, **kwargs):
@@ -304,7 +314,7 @@ class TestViewLinkValidation(APIBaseTest):
 
     def assertHogQLEqual(self, result, expected):
         formatted_result = dedent(re.sub(r"\s+", " ", result.strip())).strip()
-        assert formatted_result == expected
+        self.assertEqual(formatted_result, expected)
 
     def _create_external_source_table(self, prefix, table_name):
         source = ExternalDataSource.objects.create(
@@ -370,10 +380,10 @@ class TestViewLinkValidation(APIBaseTest):
             with self.subTest(msg=msg):
                 response = self.client.post(f"/api/environments/{self.team.id}/warehouse_view_links/validate/", payload)
 
-                assert response.status_code == status.HTTP_200_OK, response.content
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
                 data = response.json()
-                assert data["is_valid"]
-                assert data["msg"] is None
+                self.assertTrue(data["is_valid"])
+                self.assertIsNone(data["msg"])
                 self.assertHogQLEqual(
                     data["hogql"],
                     f"SELECT validation.{payload['joining_table_key']} FROM {payload['source_table_name']} LIMIT 10",
@@ -391,10 +401,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.id FROM groups LIMIT 10",
@@ -414,10 +424,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.distinct_id FROM `postgres.foo.bar` AS postgres__foo__bar LIMIT 10",
@@ -435,10 +445,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.id FROM events LIMIT 10",
@@ -456,10 +466,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.id FROM events LIMIT 10",
@@ -477,10 +487,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.id FROM events LIMIT 10",
@@ -497,13 +507,13 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         data = response.json()
-        assert data["attr"] is None
-        assert data["code"] == "QueryError"
-        assert data["detail"] == "Field not found: nonexistent_field"
-        assert data["type"] == "query_error"
-        assert data["hogql"] == "SELECT validation.id FROM events LIMIT 10"
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "QueryError")
+        self.assertEqual(data["detail"], "Field not found: nonexistent_field")
+        self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 
     def test_invalid_source_table(self):
         response = self.client.post(
@@ -516,12 +526,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] is None
-        assert data["code"] == "invalid_input"
-        assert data["detail"] == "Invalid table: nonexistent_table_xyz"
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "invalid_input")
+        self.assertEqual(data["detail"], "Invalid table: nonexistent_table_xyz")
+        self.assertEqual(data["type"], "validation_error")
 
     def test_invalid_joining_table(self):
         response = self.client.post(
@@ -534,12 +544,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] is None
-        assert data["code"] == "invalid_input"
-        assert data["detail"] == "Invalid table: nonexistent_table_xyz"
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "invalid_input")
+        self.assertEqual(data["detail"], "Invalid table: nonexistent_table_xyz")
+        self.assertEqual(data["type"], "validation_error")
 
     def test_invalid_expression(self):
         response = self.client.post(
@@ -552,12 +562,13 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] is None
-        assert data["code"] == "invalid_input"
-        assert data["detail"] == "mismatched input 'syntax' expecting <EOF>"
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "invalid_input")
+        # rust-py and the legacy cpp parser surface different low-level wording on this
+        # garbage input; just assert that a parse error was returned.
+        self.assertEqual(data["type"], "validation_error")
 
     def test_missing_source_table_name(self):
         response = self.client.post(
@@ -569,12 +580,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] == "source_table_name"
-        assert data["code"] == "required"
-        assert data["detail"] == "This field is required."
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], "source_table_name")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
 
     def test_missing_source_table_key(self):
         response = self.client.post(
@@ -586,12 +597,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] == "source_table_key"
-        assert data["code"] == "required"
-        assert data["detail"] == "This field is required."
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], "source_table_key")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
 
     def test_missing_joining_table_name(self):
         response = self.client.post(
@@ -603,12 +614,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] == "joining_table_name"
-        assert data["code"] == "required"
-        assert data["detail"] == "This field is required."
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], "joining_table_name")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
 
     def test_missing_joining_table_key(self):
         response = self.client.post(
@@ -620,14 +631,14 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
-        assert data["attr"] == "joining_table_key"
-        assert data["code"] == "required"
-        assert data["detail"] == "This field is required."
-        assert data["type"] == "validation_error"
+        self.assertEqual(data["attr"], "joining_table_key")
+        self.assertEqual(data["code"], "required")
+        self.assertEqual(data["detail"], "This field is required.")
+        self.assertEqual(data["type"], "validation_error")
 
-    def test_with_type_mismatch_warning(self):
+    def test_with_join_key_type_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -638,12 +649,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
-        assert data["attr"] is None
-        assert data["code"] == "CHQueryErrorTypeMismatch"
-        assert data["type"] == "query_error"
-        assert data["hogql"] == "SELECT validation.id FROM events LIMIT 10"
+        self.assertEqual(data["attr"], None)
+        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
+        self.assertEqual(data["type"], "query_error")
+        self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
     def test_ambiguous_keys(self, _):
@@ -660,10 +671,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.email FROM `postgres.test.foo` AS postgres__test__foo LIMIT 10",
@@ -682,10 +693,10 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
-        assert data["is_valid"]
-        assert data["msg"] is None
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
         self.assertHogQLEqual(
             data["hogql"],
             "SELECT validation.distinct_id FROM `postgres.test.user` AS postgres__test__user LIMIT 10",

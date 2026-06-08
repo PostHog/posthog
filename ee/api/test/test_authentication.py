@@ -843,17 +843,15 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         self.details = {"email": "test@posthog.com"}
         self.sub = "google-oauth2|123456789"
 
+    def _mock_strategy(self, get_params: dict[str, str]) -> object:
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request_get = lambda: get_params
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+        return mock_strategy
+
     def test_auth_extra_arguments_without_email(self):
         """Test that auth_extra_arguments returns base arguments when no email is provided."""
-        # Mock strategy to return empty GET parameters
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -863,15 +861,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_with_email(self):
         """Test that auth_extra_arguments adds login_hint when email is provided."""
-        # Mock strategy to return email in GET parameters
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {"email": "test@posthog.com"}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({"email": "test@posthog.com"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -880,14 +870,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_reauth_does_not_force_select_account(self):
         """Test that reauth flow does not force account picker prompt."""
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {"reauth": "true"}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({"reauth": "true"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -895,14 +878,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
     def test_auth_extra_arguments_preserves_existing_prompt(self):
         """Test that auth_extra_arguments appends select_account to existing prompt values."""
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
             extra_args = self.google_oauth.auth_extra_arguments()

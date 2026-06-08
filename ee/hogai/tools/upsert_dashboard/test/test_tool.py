@@ -9,7 +9,9 @@ from parameterized import parameterized
 from posthog.schema import (
     ArtifactSource,
     AssistantHogQLQuery,
+    ChartDisplayType,
     DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
@@ -22,10 +24,10 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Insight
-
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
@@ -33,7 +35,6 @@ from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
 from ee.hogai.utils.types import AssistantState
-from ee.models.assistant import AgentArtifact, Conversation
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
 
@@ -547,6 +548,31 @@ class TestUpsertDashboardTool(BaseTest):
         assert insights[0].name == "Insight"
         assert insights[1].name == "Artifact Insight"
         assert insights[2].name == "Database Insight"
+
+    async def test_resolve_insights_creates_sql_insight_from_data_visualization_node(self):
+        sql_query = DataVisualizationNode(
+            source=HogQLQuery(query="SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day"),
+            display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+        )
+        content = VisualizationArtifactContent(
+            query=sql_query,
+            name="Daily event volume",
+            description="SQL-backed daily event count",
+        )
+        tool = self._create_tool()
+
+        insights = tool._resolve_insights([StateArtifactResult(content=content)])
+
+        self.assertEqual(len(insights), 1)
+        saved_query = insights[0].query
+        assert saved_query is not None
+        self.assertEqual(saved_query["kind"], "DataVisualizationNode")
+        self.assertEqual(saved_query["source"]["kind"], "HogQLQuery")
+        self.assertEqual(
+            saved_query["source"]["query"],
+            "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day",
+        )
+        self.assertEqual(saved_query["display"], "ActionsLineGraph")
 
     async def test_full_integration_positional_reordering(self):
         """

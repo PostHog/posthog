@@ -223,7 +223,8 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
 
     def test_alert_subscription_activity_logging(self):
         from posthog.models import User
-        from posthog.models.alert import AlertSubscription
+
+        from products.alerts.backend.models.alert import AlertSubscription
 
         alert = self.create_alert_configuration("Alert for subscription")
         other_user = User.objects.create_and_join(
@@ -248,7 +249,8 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
 
     def test_alert_subscription_deletion_logging(self):
         from posthog.models import User
-        from posthog.models.alert import AlertSubscription
+
+        from products.alerts.backend.models.alert import AlertSubscription
 
         alert = self.create_alert_configuration("Alert for deletion")
         other_user = User.objects.create_and_join(

@@ -24,6 +24,7 @@ products/
       apps.py
       models.py
       logic.py              # business logic
+      routes.py             # API routes: register_routes(routers), auto-discovered from INSTALLED_APPS
       migrations/
       facade/               # cross-product Python interface
         __init__.py
@@ -159,7 +160,7 @@ The lint command validates:
   - Register the backend as a Django app with an `AppConfig` that sets `label = "<name>"` (not `products.<name>`).
   - Modify `posthog/settings/web.py` and add your new product under `PRODUCTS_APPS`.
   - Modify `tach.toml` and add a new block for your product. We use `tach` to track cross-dependencies between python apps.
-  - Modify `posthog/api/__init__.py` and add your API routes as you normally would (e.g. `import products.early_access_features.backend.api as early_access_feature`)
+  - Add your API routes in `backend/routes.py` with a `register_routes(routers)` function (e.g. `routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])`). It is auto-discovered — once the product is in `PRODUCTS_APPS`, `posthog/api/__init__.py` finds and calls `register_routes(routers)` with no edit to core. See `posthog/api/routing.py:RouterRegistry` for the available router handles (`projects`/`environments`/`organizations`/`root`).
   - NOTE: we will automate some of these steps in the future, but for now, please do them manually.
 
 ## Adding or moving backend models and migrations
@@ -210,6 +211,20 @@ Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. I
 
 1. Add a route in `products/db_routing.yaml` (this repo)
 2. Ask `#team-infrastructure` to provision the database — they'll handle the cluster, credentials, and connection plumbing
+
+### Team scoping (required)
+
+Every model that stores tenant data **must** have a `team_id` field. This is PostHog's primary tenant isolation boundary — without it, there's no way to enforce that one team can't see another's data.
+
+For product databases, use `ProductTeamModel` as your base class. It provides `team_id` plus a fail-closed manager that raises `TeamScopeError` when queries run without team context. See `posthog/models/scoping/README.md` for the full API.
+
+```python
+from posthog.models.scoping.product_mixin import ProductTeamModel
+
+class MyModel(ProductTeamModel):
+    name = models.CharField(max_length=255)
+    # team_id inherited — BigIntegerField, indexed, no FK
+```
 
 ### Cross-database constraints
 

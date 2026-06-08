@@ -18,11 +18,11 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
         data_freshness_seconds: zod
@@ -48,8 +48,12 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
+        tags: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.
@@ -60,11 +64,11 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
         data_freshness_seconds: zod
@@ -90,8 +94,12 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
+        tags: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Update an existing endpoint.
@@ -102,11 +110,11 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe name. Must start with a letter, only letters\/numbers\/hyphens\/underscores, max 128 chars.'
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
         data_freshness_seconds: zod
@@ -132,8 +140,12 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
+        tags: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
     })
-    .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
+    .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
 /**
  * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
@@ -151,10 +163,10 @@ export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.obj
  */
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Get the last execution times in the past 6 months for multiple endpoints.
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
  */
 export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
     names: zod.array(zod.string()),

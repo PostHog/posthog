@@ -12,7 +12,8 @@ from django.utils import timezone
 import structlog
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
+
+from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -25,12 +26,26 @@ class SharingConfiguration(models.Model):
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
     recording = models.ForeignKey(
         "SessionRecording",
         related_name="sharing_configurations",
         on_delete=models.CASCADE,
         to_field="session_id",
+        null=True,
+        blank=True,
+    )
+    notebook = models.ForeignKey(
+        "notebooks.Notebook",
+        related_name="sharing_configurations",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    interviewee_context = models.ForeignKey(
+        "user_interviews.IntervieweeContext",
+        related_name="sharing_configurations",
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
     )
@@ -62,6 +77,8 @@ class SharingConfiguration(models.Model):
             dashboard=self.dashboard,
             insight=self.insight,
             recording=self.recording,
+            notebook=self.notebook,
+            interviewee_context=self.interviewee_context,
             enabled=self.enabled,
             settings=self.settings,
             password_required=self.password_required,
@@ -115,10 +132,10 @@ class SharingConfiguration(models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
 
-        if obj._meta.object_name == "Insight" and self.dashboard:
+        if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
             if comparison and comparison == obj:
                 return True
 
@@ -134,4 +151,21 @@ class SharingConfiguration(models.Model):
                 return []
             # Check whether this sharing configuration's dashboard contains this insight
             return list(self.dashboard.tiles.exclude(insight__deleted=True).values_list("insight__id", flat=True))
+        elif self.notebook:
+            # Recompute on every call so that edits to the notebook automatically grant/revoke access
+            # to the insights it embeds. Mirrors dashboard semantics.
+            from products.notebooks.backend.util import extract_referenced_insight_short_ids
+
+            if self.notebook.deleted:
+                return []
+            short_ids = extract_referenced_insight_short_ids(self.notebook.content)
+            if not short_ids:
+                return []
+            return list(
+                Insight.objects.filter(
+                    team=self.team,
+                    short_id__in=short_ids,
+                    deleted=False,
+                ).values_list("id", flat=True)
+            )
         return []

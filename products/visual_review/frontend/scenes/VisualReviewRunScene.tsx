@@ -15,8 +15,10 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -52,7 +54,10 @@ function SnapshotThumbnail({
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
-    const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
+    // True iff the SnapshotChangeBadge will actually render. Mirrors
+    // its visibility predicate so we don't show "hasDiff = true but
+    // empty chip area" for sub-display-floor noise rows.
+    const hasDiff = hasSnapshotChangeBadge(snapshot)
 
     const imgSrc = thumbnailSrc ?? fallbackSrc
 
@@ -88,13 +93,13 @@ function SnapshotThumbnail({
                     </span>
                 </>
             )}
-            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
+            <div className="w-[125px] h-[86px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {imgSrc ? (
                     <img
                         src={imgSrc}
                         alt=""
-                        width={104}
-                        height={72}
+                        width={125}
+                        height={86}
                         loading="lazy"
                         decoding="async"
                         className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
@@ -111,14 +116,9 @@ function SnapshotThumbnail({
                     </span>
                 )}
             </div>
-            <div className="flex items-center gap-1 max-w-[108px] w-full">
+            <div className="flex items-center gap-1 max-w-[130px] w-full">
                 {hasDiff ? (
-                    <span className="shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-warning-dark leading-none">
-                        {snapshot.diff_percentage! < 1
-                            ? snapshot.diff_percentage!.toFixed(1)
-                            : Math.round(snapshot.diff_percentage!)}
-                        %
-                    </span>
+                    <SnapshotChangeBadge snapshot={snapshot} size="small" />
                 ) : (
                     <SnapshotStatusIndicator
                         result={snapshot.result || 'unchanged'}
@@ -129,6 +129,32 @@ function SnapshotThumbnail({
                 )}
                 <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>{shortName}</span>
             </div>
+        </button>
+    )
+}
+
+function QuarantinedThumbnailsToggle({
+    hiddenCount,
+    isExpanded,
+    onClick,
+}: {
+    hiddenCount: number
+    isExpanded: boolean
+    onClick: () => void
+}): JSX.Element {
+    const label = isExpanded
+        ? 'Hide quarantined'
+        : `${hiddenCount} quarantined item${hiddenCount === 1 ? '' : 's'} hidden`
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-expanded={isExpanded}
+            data-attr="visual-review-toggle-quarantined-thumbnails"
+            className="flex flex-col items-center justify-center shrink-0 rounded p-1.5 w-[100px] h-full text-warning-dark border border-dashed border-warning hover:bg-warning/10 transition-colors"
+        >
+            <span className="text-[11px] font-semibold text-center leading-tight">{label}</span>
         </button>
     )
 }
@@ -162,7 +188,7 @@ function RunInProgressEmptyState({
             data-attr="visual-review-run-in-progress"
         >
             {isStale ? (
-                <LemonBanner type="warning" className="max-w-lg mb-4">
+                <LemonBanner type="warning" className="w-full max-w-lg mb-4">
                     The CI job hasn't reported back.{' '}
                     {ciJobUrl ? (
                         <Link to={ciJobUrl} target="_blank" className="font-semibold">
@@ -194,8 +220,9 @@ export function VisualReviewRunScene(): JSX.Element {
         toleratedHashesLoading,
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
+        showQuarantinedThumbnails,
         repoFullName,
-        isApproving,
+        isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
         isRunInProgress,
@@ -205,17 +232,29 @@ export function VisualReviewRunScene(): JSX.Element {
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
-        approveChanges,
+        finalizeRun,
         approveSnapshot,
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
         recomputeRun,
         markThumbnailFailed,
+        toggleQuarantinedThumbnails,
     } = useActions(visualReviewRunSceneLogic)
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
+
+    const quarantinedNavCount = navSnapshots.filter((s: SnapshotApi) =>
+        quarantinedIdentifierSet.has(s.identifier)
+    ).length
+    const isHiddenQuarantined = (s: SnapshotApi): boolean =>
+        quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
+    const visibleNavSnapshots = showQuarantinedThumbnails
+        ? navSnapshots
+        : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
+
     const currentIndex = selectedSnapshot
         ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
@@ -287,6 +326,8 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
+    const initialSnapshotsLoading = snapshotsLoading && snapshots.length === 0
+
     // Review summary (from loaded snapshots — paginated but covers actionable ones first)
     // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
@@ -306,6 +347,7 @@ export function VisualReviewRunScene(): JSX.Element {
     // Predict whether recompute would flip the gate — uses client-side quarantine set
     // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
     const allChangesResolved =
+        !initialSnapshotsLoading &&
         run.status === 'completed' &&
         !run.approved &&
         !run.is_stale &&
@@ -321,6 +363,15 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
+    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; the backend needs both the
+    // job ID and the workflow run ID (it binds the rerun to the originating run), wired in via
+    // `JOB_CHECK_RUN_ID` and `GITHUB_RUN_ID`. Older runs and forks without those env vars can't
+    // be re-triggered — don't offer the banner when the rerun would just error.
+    const ciRetriggerUnavailableReason =
+        !run.metadata?.github_check_run_id || !run.metadata?.github_run_id
+            ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
+            : undefined
+
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
             approveSnapshot(selectedSnapshot)
@@ -333,20 +384,19 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved &&
-                    !run.is_stale &&
-                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                    !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
                         <LemonButton
                             type="primary"
-                            onClick={approveChanges}
-                            loading={isApproving}
-                            data-attr="visual-review-commit-baseline"
+                            onClick={finalizeRun}
+                            loading={isFinalizing}
+                            data-attr="visual-review-finalize-run"
                         >
-                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
+                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
                         </LemonButton>
                     ) : undefined
                 }
             />
+            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">
@@ -359,7 +409,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && (
+            {allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -370,7 +420,8 @@ export function VisualReviewRunScene(): JSX.Element {
                         'data-attr': 'visual-review-recompute-run',
                     }}
                 >
-                    All changes are resolved — re-trigger to update the commit status and pass the gate.
+                    All changes are resolved by tolerating or quarantining — re-trigger to update the commit status and
+                    pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
                 </LemonBanner>
             )}
 
@@ -379,55 +430,70 @@ export function VisualReviewRunScene(): JSX.Element {
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
                     <div className="flex items-center justify-between px-3 pt-3 pb-2">
-                        {/* Review summary (left) — what humans decided */}
-                        <span className="text-xs text-muted flex items-center gap-1.5">
-                            <span className="font-semibold text-default">Review</span>
-                            {[
-                                reviewPending > 0 && (
-                                    <span key="pend">
-                                        <span className="font-semibold">{reviewPending}</span>
-                                        {hasMore ? '+' : ''} pending
-                                    </span>
-                                ),
-                                reviewApproved > 0 && (
-                                    <span key="appr" className="text-success">
-                                        {reviewApproved} approved
-                                    </span>
-                                ),
-                                reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
-                            ]
-                                .filter(Boolean)
-                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
-                        </span>
-                        {/* Diff summary (right) — what the system found */}
-                        <span className="text-xs text-muted flex items-center gap-1.5">
-                            <span className="font-semibold text-default">Diff</span>
-                            {[
-                                diffChanged > 0 && (
-                                    <span key="ch" className="text-warning-dark">
-                                        {diffChanged} changed
-                                    </span>
-                                ),
-                                diffNew > 0 && (
-                                    <span key="new" className="text-success">
-                                        {diffNew} added
-                                    </span>
-                                ),
-                                diffRemoved > 0 && (
-                                    <span key="rm" className="text-danger">
-                                        {diffRemoved} removed
-                                    </span>
-                                ),
-                                diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
-                            ]
-                                .filter(Boolean)
-                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
-                        </span>
+                        {initialSnapshotsLoading ? (
+                            <>
+                                <LemonSkeleton className="h-4 w-40" />
+                                <LemonSkeleton className="h-4 w-40" />
+                            </>
+                        ) : (
+                            <>
+                                {/* Review summary (left) — what humans decided */}
+                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                    <span className="font-semibold text-default">Review</span>
+                                    {[
+                                        reviewPending > 0 && (
+                                            <span key="pend">
+                                                <span className="font-semibold">{reviewPending}</span>
+                                                {hasMore ? '+' : ''} pending
+                                            </span>
+                                        ),
+                                        reviewApproved > 0 && (
+                                            <span key="appr" className="text-success">
+                                                {reviewApproved} approved
+                                            </span>
+                                        ),
+                                        reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                                {/* Diff summary (right) — what the system found */}
+                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                    <span className="font-semibold text-default">Diff</span>
+                                    {[
+                                        diffChanged > 0 && (
+                                            <span key="ch" className="text-warning-dark">
+                                                {diffChanged} changed
+                                            </span>
+                                        ),
+                                        diffNew > 0 && (
+                                            <span key="new" className="text-success">
+                                                {diffNew} added
+                                            </span>
+                                        ),
+                                        diffRemoved > 0 && (
+                                            <span key="rm" className="text-danger">
+                                                {diffRemoved} removed
+                                            </span>
+                                        ),
+                                        diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                            </>
+                        )}
                     </div>
 
                     {navSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
-                            {navSnapshots.map((snapshot: SnapshotApi) => {
+                            {visibleNavSnapshots.map((snapshot: SnapshotApi) => {
                                 const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
                                 return (
                                     <SnapshotThumbnail
@@ -446,6 +512,13 @@ export function VisualReviewRunScene(): JSX.Element {
                                     />
                                 )
                             })}
+                            {quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails) && (
+                                <QuarantinedThumbnailsToggle
+                                    hiddenCount={hiddenQuarantinedCount}
+                                    isExpanded={showQuarantinedThumbnails}
+                                    onClick={toggleQuarantinedThumbnails}
+                                />
+                            )}
                         </div>
                     )}
 
@@ -499,8 +572,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                         (!q.expires_at || new Date(q.expires_at) > new Date())
                                 ) ?? null
                             }
-                            onQuarantine={(reason, identifiers, expiresAt) =>
-                                quarantineSnapshot(reason, identifiers, expiresAt)
+                            onQuarantine={(reason, identifiers, expiresAt, sourceRunId) =>
+                                quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
@@ -514,7 +587,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                 run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
                             }
                             recomputeDisabledReason={
-                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
+                                ciRetriggerUnavailableReason ??
+                                (!allChangesResolved ? 'Re-trigger would not change the outcome' : undefined)
                             }
                         />
                     ) : snapshotsLoading ? (

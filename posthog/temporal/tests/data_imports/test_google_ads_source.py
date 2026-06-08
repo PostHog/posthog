@@ -1,5 +1,7 @@
 import os
+import sys
 import json
+import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -14,12 +16,15 @@ from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsIsMccAccountConfig, GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+from posthog.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
+)
+from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsTable,
     _search_as_arrow_tables,
     get_schemas,
+    google_ads_client,
     google_ads_source,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -411,7 +416,7 @@ class TestGoogleAdsSourceValidation:
             assert any("Please enter a valid Google Ads customer ID" in error for error in errors)
             assert is_valid is False
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_success(self, mock_client):
         mock_customer_service = mock.MagicMock()
         mock_customer_service.list_accessible_customers.return_value.resource_names = ["customers/1234567890"]
@@ -424,7 +429,7 @@ class TestGoogleAdsSourceValidation:
         assert is_valid is True
         assert error is None
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_invalid_customer_id(self, mock_client):
         mock_customer_service = mock.MagicMock()
         mock_customer_service.list_accessible_customers.return_value.resource_names = ["customers/9999999999"]
@@ -438,7 +443,7 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "is not correct" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_access_token_scope_insufficient(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
@@ -452,7 +457,7 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "Insufficient permissions" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_not_ads_user(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception(
             "NOT_ADS_USER: The Google account is not associated with any Ads accounts"
@@ -466,7 +471,7 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "not associated with any Google Ads accounts" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_generic_error(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception("Some unexpected error occurred")
 
@@ -478,7 +483,7 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "Error validating credentials" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_mcc_success(self, mock_client):
         mock_ga_service = mock.MagicMock()
         mock_response = [mock.MagicMock()]
@@ -499,7 +504,7 @@ class TestGoogleAdsSourceValidation:
         call_kwargs = mock_ga_service.search.call_args[1]
         assert call_kwargs["customer_id"] == "1234567890"
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_mcc_customer_not_found(self, mock_client):
         mock_ga_service = mock.MagicMock()
         mock_ga_service.search.side_effect = Exception("CUSTOMER_NOT_FOUND: Customer not found")
@@ -517,7 +522,7 @@ class TestGoogleAdsSourceValidation:
         assert error is not None
         assert "is not accessible" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client")
     def test_validate_credentials_mcc_permission_denied(self, mock_client):
         mock_ga_service = mock.MagicMock()
         mock_ga_service.search.side_effect = Exception("USER_PERMISSION_DENIED: User does not have permission")
@@ -534,3 +539,83 @@ class TestGoogleAdsSourceValidation:
         assert is_valid is False
         assert error is not None
         assert "is not accessible" in error
+
+
+class TestGoogleAdsClientStaleConnection:
+    """Regression tests for stale Postgres connections inside `google_ads_client`.
+
+    When an import streams rows for many minutes, the Django connection that the
+    Temporal worker thread holds can be dropped server-side. The next call into
+    `Integration.objects.get(...)` from `get_rows` then raises
+    `OperationalError: server closed the connection unexpectedly`. We close stale
+    connections before the ORM query so the next lookup grabs a fresh one.
+    """
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.Integration")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    def test_oauth_client_closes_stale_connections_before_integration_lookup(
+        self, mock_close_old_connections, mock_integration_model, mock_client_cls
+    ):
+        manager = mock.MagicMock()
+        manager.attach_mock(mock_close_old_connections, "close_old_connections")
+        manager.attach_mock(mock_integration_model.objects.get, "integration_get")
+
+        mock_integration = mock.MagicMock()
+        mock_integration.refresh_token = "fake-refresh-token"
+        mock_integration_model.objects.get.return_value = mock_integration
+
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=42)
+
+        google_ads_client(config, team_id=7)
+
+        mock_close_old_connections.assert_called_once_with()
+        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=7)
+        # Order matters: closing stale connections AFTER the failing query would
+        # not prevent the OperationalError we are guarding against.
+        call_order = [name for name, _, _ in manager.mock_calls]
+        assert call_order.index("close_old_connections") < call_order.index("integration_get")
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.service_account")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient")
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.close_old_connections")
+    def test_service_account_client_does_not_touch_django_connections(
+        self, mock_close_old_connections, mock_client_cls, mock_service_account
+    ):
+        config = GoogleAdsServiceAccountSourceConfig(
+            customer_id="1234567890",
+            private_key="pk",
+            private_key_id="pk_id",
+            client_email="sa@example.com",
+            token_uri="https://example.com",
+            developer_token="dev",
+        )
+
+        google_ads_client(config, team_id=7)
+
+        mock_close_old_connections.assert_not_called()
+
+
+# Runs in a clean interpreter — this test module imports the google-ads SDK itself, so we can't
+# inspect this process's sys.modules.
+_SDK_LEAK_CHECK = """
+import os, sys
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+SourceRegistry._ensure_loaded()
+print("\\n".join(sorted(m for m in sys.modules if m.startswith("google.ads"))))
+"""
+
+
+def test_source_registration_does_not_import_google_ads_sdk() -> None:
+    # google-ads has a circular module graph that is only safe to import single-threaded; importing
+    # it from concurrent worker threads deadlocks or duplicate-registers its protobuf descriptors.
+    # So registering sources (load_all_sources, which any sync triggers via SourceRegistry) must NOT
+    # import the SDK — it loads lazily only when a google-ads sync actually runs. This guards the
+    # split between configs.py (lightweight, registered) and google_ads.py (SDK, deferred).
+    result = subprocess.run([sys.executable, "-c", _SDK_LEAK_CHECK], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr[-2000:]
+    leaked = [m for m in result.stdout.splitlines() if m]
+    assert not leaked, f"google-ads SDK imported during source registration: {leaked[:5]}"

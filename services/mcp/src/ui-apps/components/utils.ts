@@ -22,9 +22,32 @@ export function formatPercent(value: number): string {
     return `${(value * 100).toFixed(1)}%`
 }
 
+/** Format a duration given in milliseconds as the two most-significant units (e.g. `1d 3h`, `34m 43s`). */
+export function formatDuration(ms: number): string {
+    if (!isFinite(ms) || ms <= 0) {
+        return '0s'
+    }
+    const totalSeconds = Math.round(ms / 1000)
+    const units: Array<[number, string]> = [
+        [Math.floor(totalSeconds / 86400), 'd'],
+        [Math.floor((totalSeconds % 86400) / 3600), 'h'],
+        [Math.floor((totalSeconds % 3600) / 60), 'm'],
+        [totalSeconds % 60, 's'],
+    ]
+    const parts = units.filter(([value]) => value > 0).map(([value, unit]) => `${value}${unit}`)
+    return parts.slice(0, 2).join(' ') || '0s'
+}
+
+// Only format strings that look like ISO dates — `new Date(...)` is permissive enough that
+// labels like "Day 1" silently parse to Jan 1 2001, mangling pre-formatted axis labels.
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/
+
 export function formatDate(dateStr: string): string {
+    if (!ISO_DATE_PREFIX.test(dateStr)) {
+        return dateStr
+    }
     const date = new Date(dateStr)
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
         return dateStr
     }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

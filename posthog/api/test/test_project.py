@@ -459,3 +459,148 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.project.refresh_from_db()
         assert self.project.name == "New Project Name"
+
+    def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
+        features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
+        if with_member_create_entitlement:
+            # members_can_create_projects is gated behind the invite-settings entitlement for now
+            features.append({"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"})
+        self.organization.available_product_features = features
+        self.organization.save()
+
+    def test_member_cannot_create_project_by_default(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
+    def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
+        # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
+        self._set_unlimited_projects(with_member_create_entitlement=False)
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
+    def test_member_can_create_project_when_org_allows(self):
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_member_cannot_set_admin_only_fields_when_creating_project(self):
+        # A member allowed to create projects must not be able to set admin-only team fields like
+        # receive_org_level_activity_logs, which would grant org-wide activity log access.
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post(
+                "/api/projects/", {"name": "Sneaky Project", "receive_org_level_activity_logs": True}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("receive_org_level_activity_logs", response.json()["detail"])
+        self.assertFalse(self.organization.teams.filter(receive_org_level_activity_logs=True).exists())
+
+    def test_admin_can_set_admin_only_fields_when_creating_project(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/", {"name": "Admin Project", "receive_org_level_activity_logs": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["receive_org_level_activity_logs"])
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    def test_admins_and_owners_can_always_create_project_when_members_blocked(self, _name, level):
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = False
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification") as mock_create_notification:
+            response = self.client.post("/api/projects/", {"name": f"{_name} Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Admins/owners are the recipients, never the trigger — creating their own project must not notify
+        mock_create_notification.assert_not_called()
+
+    @patch("posthog.api.project.create_notification")
+    def test_member_project_creation_notifies_org_admins(self, mock_create_notification):
+        from posthog.models import User
+
+        from products.notifications.backend.facade.api import NotificationType, TargetType
+
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Add an admin so we can confirm admins/owners are targeted individually by user_id
+        admin_user = User.objects.create_and_join(
+            self.organization, "admin2@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        expected_admin_ids = set(
+            self.organization.memberships.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
+                "user_id", flat=True
+            )
+        )
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # One USER-targeted notification per admin/owner, never the member creator
+        self.assertEqual(mock_create_notification.call_count, len(expected_admin_ids))
+        targeted_user_ids = set()
+        for call in mock_create_notification.call_args_list:
+            data = call[0][0]
+            self.assertEqual(data.notification_type, NotificationType.PROJECT_CREATED)
+            self.assertEqual(data.target_type, TargetType.USER)
+            targeted_user_ids.add(int(data.target_id))
+        self.assertEqual(targeted_user_ids, expected_admin_ids)
+        self.assertIn(admin_user.id, targeted_user_ids)
+        self.assertNotIn(self.user.id, targeted_user_ids)
+
+    @patch("posthog.api.project.create_notification")
+    def test_admin_project_creation_does_not_notify(self, mock_create_notification):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Admin Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_create_notification.assert_not_called()

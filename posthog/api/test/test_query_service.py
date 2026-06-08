@@ -16,23 +16,43 @@ from posthog.schema import (
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
     DatabaseSerializedFieldType,
+    DataVisualizationNode,
     HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
+    HogQLQuery,
 )
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.errors import ResolutionError
 
 from posthog.api.services.query import process_query_model
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestQueryService(APIBaseTest):
+    @patch("posthog.api.services.query.get_query_runner_or_none")
+    def test_data_visualization_node_surfaces_hogql_resolution_error_without_value_error_context(
+        self, mock_get_query_runner_or_none: MagicMock
+    ):
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT properties FROM events JOIN persons ON 1 = 1"))
+        runner = MagicMock()
+        runner.run.side_effect = ResolutionError("Ambiguous query. Found multiple sources for field: properties")
+        mock_get_query_runner_or_none.side_effect = [None, runner]
+
+        with self.assertRaises(ResolutionError) as context:
+            process_query_model(self.team, query)
+
+        self.assertIn("Ambiguous query. Found multiple sources for field: properties", str(context.exception))
+        self.assertIsNone(context.exception.__context__)
+
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.resolve_database_for_connection")
     def test_database_schema_query_filters_tables_to_selected_connection(
@@ -121,10 +141,10 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        assert isinstance(response, DatabaseSchemaQueryResponse)
-        assert set(response.tables.keys()) == {"selected_table", "selected_table_2"}
-        assert len(response.joins) == 1
-        assert response.joins[0].field_name == "selected_join"
+        self.assertIsInstance(response, DatabaseSchemaQueryResponse)
+        self.assertEqual(set(response.tables.keys()), {"selected_table", "selected_table_2"})
+        self.assertEqual(len(response.joins), 1)
+        self.assertEqual(response.joins[0].field_name, "selected_join")
         mock_filtered_join_queryset.filter.assert_called_once_with(
             source_table_name__in={"selected_table", "selected_table_2"},
             joining_table_name__in={"selected_table", "selected_table_2"},
@@ -305,7 +325,7 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        assert set(response.tables.keys()) == {"queriable_table"}
+        self.assertEqual(set(response.tables.keys()), {"queriable_table"})
         mock_filtered_join_queryset.filter.assert_called_once_with(
             source_table_name__in={"queriable_table"},
             joining_table_name__in={"queriable_table"},
@@ -346,9 +366,9 @@ class TestQueryService(APIBaseTest):
 
         def _mock_autocomplete(*args, **kwargs):
             database_arg = kwargs["database_arg"]
-            assert database_arg is not None
-            assert database_arg.has_table("events")
-            assert not database_arg.has_table("direct_table")
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("events"))
+            self.assertFalse(database_arg.has_table("direct_table"))
             return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
         mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
@@ -364,7 +384,7 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        assert response == HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.resolve_database_for_connection")
@@ -397,9 +417,9 @@ class TestQueryService(APIBaseTest):
 
         def _mock_autocomplete(*args, **kwargs):
             database_arg = kwargs["database_arg"]
-            assert database_arg is not None
-            assert database_arg.has_table("posthog_dashboard")
-            assert not database_arg.has_table("events")
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("posthog_dashboard"))
+            self.assertFalse(database_arg.has_table("events"))
             return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
         mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
@@ -416,9 +436,9 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        assert response == HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
-        assert mock_resolve_database_for_connection.call_args.kwargs["user"] is None
-        assert mock_get_hogql_autocomplete.call_args.kwargs["user"] is None
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], None)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.resolve_database_for_connection")
@@ -452,9 +472,9 @@ class TestQueryService(APIBaseTest):
 
         def _mock_autocomplete(*args, **kwargs):
             database_arg = kwargs["database_arg"]
-            assert database_arg is not None
-            assert database_arg.has_table("selected_table")
-            assert not database_arg.has_table("other_table")
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("selected_table"))
+            self.assertFalse(database_arg.has_table("other_table"))
             return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
         mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
@@ -471,9 +491,9 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        assert response == HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
-        assert mock_resolve_database_for_connection.call_args.kwargs["user"] is None
-        assert mock_get_hogql_autocomplete.call_args.kwargs["user"] is None
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
+        self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], None)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], None)
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.resolve_database_for_connection")
@@ -516,10 +536,10 @@ class TestQueryService(APIBaseTest):
 
         def _mock_autocomplete(*args, **kwargs):
             database_arg = kwargs["database_arg"]
-            assert database_arg is not None
-            assert database_arg.has_table("selected_table")
-            assert not database_arg.has_table("events")
-            assert database_arg.get_all_table_names() == ["selected_table"]
+            self.assertIsNotNone(database_arg)
+            self.assertTrue(database_arg.has_table("selected_table"))
+            self.assertFalse(database_arg.has_table("events"))
+            self.assertEqual(database_arg.get_all_table_names(), ["selected_table"])
             return HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
 
         mock_get_hogql_autocomplete.side_effect = _mock_autocomplete
@@ -536,7 +556,7 @@ class TestQueryService(APIBaseTest):
             ),
         )
 
-        assert response == HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
+        self.assertEqual(response, HogQLAutocompleteResponse(suggestions=[], incomplete_list=False))
 
     @patch("posthog.api.services.query.get_hogql_autocomplete")
     @patch("posthog.api.services.query.resolve_database_for_connection")
@@ -571,8 +591,8 @@ class TestQueryService(APIBaseTest):
             user=self.user,
         )
 
-        assert mock_resolve_database_for_connection.call_args.kwargs["user"] == self.user
-        assert mock_get_hogql_autocomplete.call_args.kwargs["user"] == self.user
+        self.assertEqual(mock_resolve_database_for_connection.call_args.kwargs["user"], self.user)
+        self.assertEqual(mock_get_hogql_autocomplete.call_args.kwargs["user"], self.user)
 
     @parameterized.expand(
         [
@@ -608,7 +628,7 @@ class TestQueryService(APIBaseTest):
         with self.assertRaises(ValidationError) as error:
             process_query_model(self.team, query)
 
-        assert cast(list[str], error.exception.detail)[0] == "Invalid connectionId for this team"
+        self.assertEqual(cast(list[str], error.exception.detail)[0], INVALID_CONNECTION_ID_ERROR)
 
     @parameterized.expand(
         [
@@ -643,7 +663,7 @@ class TestQueryService(APIBaseTest):
         with self.assertRaises(ValidationError) as error:
             process_query_model(self.team, query)
 
-        assert cast(list[str], error.exception.detail)[0] == "Invalid connectionId for this team"
+        self.assertEqual(cast(list[str], error.exception.detail)[0], INVALID_CONNECTION_ID_ERROR)
 
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.resolve_database_for_connection")
@@ -692,8 +712,8 @@ class TestQueryService(APIBaseTest):
 
         response = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
 
-        assert set(response.tables.keys()) == {"warehouse_table", "events"}
-        assert response.joins == []
+        self.assertEqual(set(response.tables.keys()), {"warehouse_table", "events"})
+        self.assertEqual(response.joins, [])
         mock_filtered_join_queryset.filter.assert_called_once_with(
             source_table_name__in={"warehouse_table", "events"},
             joining_table_name__in={"warehouse_table", "events"},
@@ -736,5 +756,5 @@ class TestQueryService(APIBaseTest):
 
         response = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
 
-        assert isinstance(response.tables["events"], DatabaseSchemaPostHogTable)
-        assert isinstance(response.tables["persons"], DatabaseSchemaPostHogTable)
+        self.assertIsInstance(response.tables["events"], DatabaseSchemaPostHogTable)
+        self.assertIsInstance(response.tables["persons"], DatabaseSchemaPostHogTable)

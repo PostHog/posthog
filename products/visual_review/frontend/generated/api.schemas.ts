@@ -37,7 +37,7 @@ export interface CreateRepoInputApi {
 /**
  * @nullable
  */
-export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
+export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null
 
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
@@ -52,8 +52,68 @@ export interface UserBasicInfoApi {
     email: string
 }
 
+export interface QuarantineSourceRunApi {
+    id: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+}
+
+export interface BaselineQuarantineSummaryApi {
+    created_by?: UserBasicInfoApi | null
+    source_run?: QuarantineSourceRunApi | null
+    id: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+}
+
+export interface BaselineEntryApi {
+    /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+    quarantine?: BaselineQuarantineSummaryApi | null
+    identifier: string
+    run_type: string
+    /** @nullable */
+    browser: string | null
+    /** @nullable */
+    thumbnail_hash: string | null
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    tolerate_count_30d: number
+    tolerate_count_90d: number
+    is_quarantined: boolean
+    last_run_at: string
+    baseline_change_count: number
+    /** @nullable */
+    recent_drift_avg: number | null
+}
+
+export type BaselineTotalsApiByRunType = { [key: string]: number }
+
+export interface BaselineTotalsApi {
+    by_run_type: BaselineTotalsApiByRunType
+    all_snapshots: number
+    recently_tolerated: number
+    frequently_tolerated: number
+    currently_quarantined: number
+}
+
+export interface BaselineOverviewApi {
+    entries: BaselineEntryApi[]
+    totals: BaselineTotalsApi
+    truncated: boolean
+    generated_at: string
+}
+
 export interface QuarantinedIdentifierEntryApi {
     created_by?: UserBasicInfoApi | null
+    /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+    source_run?: QuarantineSourceRunApi | null
     id: string
     identifier: string
     run_type: string
@@ -74,47 +134,23 @@ export interface PaginatedQuarantinedIdentifierEntryListApi {
 }
 
 export interface QuarantineInputApi {
-    /** @maxLength 512 */
+    /**
+     * Snapshot identifier to quarantine.
+     * @maxLength 512
+     */
     identifier: string
-    /** @maxLength 255 */
+    /**
+     * Why this snapshot is being quarantined.
+     * @maxLength 255
+     */
     reason: string
+    /**
+     * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+     * @nullable
+     */
+    source_run_id?: string | null
     /** @nullable */
     expires_at?: string | null
-}
-
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
-}
-
-export interface SnapshotHistoryEntryApi {
-    current_artifact?: ArtifactApi | null
-    run_id: string
-    snapshot_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-    /** @nullable */
-    pr_number?: number | null
-    /** @nullable */
-    diff_percentage?: number | null
-    review_state?: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
 }
 
 export interface RunSummaryApi {
@@ -161,6 +197,52 @@ export interface PaginatedRunListApi {
     /** @nullable */
     previous?: string | null
     results: RunApi[]
+}
+
+export interface ReviewStateCountsApi {
+    needs_review: number
+    clean: number
+    processing: number
+    stale: number
+}
+
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotHistoryEntryApi {
+    current_artifact?: ArtifactApi | null
+    run_id: string
+    snapshot_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+    /** @nullable */
+    diff_percentage?: number | null
+    review_state?: string
+    /** @nullable */
+    ssim_score?: number | null
+    change_kind?: string
+    size_mismatch?: boolean
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
 }
 
 export type CreateRunInputApiBaselineHashes = { [key: string]: string }
@@ -220,17 +302,25 @@ export interface AddSnapshotsResultApi {
 }
 
 export interface ApproveSnapshotInputApi {
+    /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
     identifier: string
+    /** The content hash of the new baseline image to record for this identifier. */
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
-    snapshots?: ApproveSnapshotInputApi[]
+    /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+    snapshots: ApproveSnapshotInputApi[]
+}
+
+export interface FinalizeRunRequestInputApi {
+    /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
+    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
     commit_to_github?: boolean
 }
 
-export interface AutoApproveResultApi {
+export interface FinalizeResultApi {
     run: RunApi
     baseline_content: string
 }
@@ -244,6 +334,22 @@ export interface RecomputeResultApi {
     ci_rerun_error?: string | null
 }
 
+export interface DiffClusterApi {
+    x: number
+    y: number
+    width: number
+    height: number
+    pixel_count: number
+    centroid_x: number
+    centroid_y: number
+}
+
+export interface ClusterSummaryApi {
+    items: DiffClusterApi[]
+    total: number
+    truncated: boolean
+}
+
 export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
@@ -251,7 +357,9 @@ export interface SnapshotApi {
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
     reviewed_by?: UserBasicInfoApi | null
+    cluster_summary?: ClusterSummaryApi | null
     id: string
+    run_id: string
     identifier: string
     result: string
     classification_reason: string
@@ -267,6 +375,10 @@ export interface SnapshotApi {
     tolerated_hash_id?: string | null
     is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
+    /** @nullable */
+    ssim_score?: number | null
+    change_kind?: string
+    size_mismatch?: boolean
 }
 
 export interface PaginatedSnapshotListApi {
@@ -276,9 +388,12 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+    /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    quarantined_count?: number
 }
 
 export interface MarkToleratedInputApi {
+    /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
     snapshot_id: string
 }
 
@@ -301,13 +416,6 @@ export interface PaginatedToleratedHashEntryListApi {
     /** @nullable */
     previous?: string | null
     results: ToleratedHashEntryApi[]
-}
-
-export interface ReviewStateCountsApi {
-    needs_review: number
-    clean: number
-    processing: number
-    stale: number
 }
 
 export type VisualReviewReposListParams = {
@@ -340,18 +448,7 @@ export type VisualReviewReposQuarantineListParams = {
     run_type?: string
 }
 
-export type VisualReviewReposSnapshotsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type VisualReviewRunsListParams = {
+export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -366,7 +463,64 @@ export type VisualReviewRunsListParams = {
     review_state?: string
 }
 
+export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsListParams = {
+    /**
+     * Filter by branch name
+     */
+    branch?: string
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number
+    /**
+     * Filter by review state
+     */
+    review_state?: string
+}
+
+export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean
     /**
      * Number of results to return per page.
      */

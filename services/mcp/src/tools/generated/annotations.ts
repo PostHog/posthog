@@ -10,6 +10,7 @@ import {
     AnnotationsPartialUpdateParams,
     AnnotationsRetrieveParams,
 } from '@/generated/annotations/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -18,6 +19,7 @@ const AnnotationCreateSchema = AnnotationsCreateBody.omit({
     dashboard_item: true,
     dashboard_id: true,
     deleted: true,
+    emoji: true,
 })
 
 const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Annotation> => ({
@@ -60,7 +62,9 @@ const annotationDelete = (): ToolBase<typeof AnnotationDeleteSchema, Schemas.Ann
     },
 })
 
-const AnnotationRetrieveSchema = AnnotationsRetrieveParams.omit({ project_id: true })
+const AnnotationRetrieveSchema = AnnotationsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, AnnotationsRetrieveParams.shape['id']),
+})
 
 const annotationRetrieve = (): ToolBase<typeof AnnotationRetrieveSchema, Schemas.Annotation> => ({
     name: 'annotation-retrieve',
@@ -99,8 +103,13 @@ const annotationsList = (): ToolBase<
 })
 
 const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
-    AnnotationsPartialUpdateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
-        .shape
+    AnnotationsPartialUpdateBody.omit({
+        creation_type: true,
+        dashboard_item: true,
+        dashboard_id: true,
+        deleted: true,
+        emoji: true,
+    }).shape
 )
 
 const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSchema, Schemas.Annotation> => ({

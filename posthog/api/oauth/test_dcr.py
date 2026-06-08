@@ -1,3 +1,6 @@
+import base64
+import hashlib
+
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -5,10 +8,11 @@ from django.test import override_settings
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel
 
 
 def generate_rsa_key() -> str:
@@ -380,3 +384,151 @@ class TestDynamicClientRegistration(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["client_name"] == "My Analytics Dashboard"
+
+    @parameterized.expand(
+        [
+            # (name, requested scope, expected app.scopes ceiling, expected echoed `scope` in 201 — None means omitted)
+            ("single_scope", "experiment:read", ["experiment:read"], "experiment:read"),
+            (
+                "multiple_scopes",
+                "experiment:read dashboard:write",
+                ["experiment:read", "dashboard:write"],
+                "experiment:read dashboard:write",
+            ),
+            (
+                "strips_privileged",
+                "experiment:read llm_gateway:read llm_gateway:write",
+                ["experiment:read"],
+                "experiment:read",
+            ),
+            ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"], "experiment:read"),
+            (
+                "strips_hidden",
+                "experiment:read metrics:read wizard_session:write",
+                ["experiment:read"],
+                "experiment:read",
+            ),
+            ("strips_unknown_junk", "experiment:read not_a_real:scope", ["experiment:read"], "experiment:read"),
+            (
+                "dedupes_preserving_order",
+                "experiment:read dashboard:read experiment:read",
+                ["experiment:read", "dashboard:read"],
+                "experiment:read dashboard:read",
+            ),
+            ("blank_string_yields_empty", "", [], None),
+            (
+                "extra_whitespace_ignored",
+                "  experiment:read   dashboard:read ",
+                ["experiment:read", "dashboard:read"],
+                "experiment:read dashboard:read",
+            ),
+        ]
+    )
+    def test_scope_registration_writes_filtered_ceiling(self, _name, scope, expected_scopes, expected_response_scope):
+        response = self.client.post(
+            "/oauth/register/",
+            {"redirect_uris": ["https://example.com/callback"], "scope": scope},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
+        self.assertEqual(app.scopes, expected_scopes)
+        if expected_response_scope is None:
+            self.assertNotIn("scope", response.json())
+        else:
+            self.assertEqual(response.json()["scope"], expected_response_scope)
+
+    @parameterized.expand(
+        [
+            ("only_privileged", "llm_gateway:read llm_gateway:write"),
+            ("only_internal_hidden_junk", "signal_scout_internal:write metrics:read not_a_real:scope"),
+        ]
+    )
+    def test_register_with_only_ungrantable_scopes_is_rejected(self, _name, scope):
+        response = self.client.post(
+            "/oauth/register/",
+            {"redirect_uris": ["https://example.com/callback"], "scope": scope},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+
+    def test_register_without_scope_leaves_ceiling_empty(self):
+        # Distinct from blank_string above: the `scope` key is absent entirely, exercising
+        # the `data.get("scope")` None branch rather than the empty-string branch.
+        response = self.client.post(
+            "/oauth/register/",
+            {"redirect_uris": ["https://example.com/callback"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
+        self.assertEqual(app.scopes, [])
+        self.assertNotIn("scope", response.json())
+
+    CODE_VERIFIER = "dcr_scope_test_verifier"
+
+    @property
+    def code_challenge(self) -> str:
+        digest = hashlib.sha256(self.CODE_VERIFIER.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
+
+    def _register_dcr_client(self, **extra) -> str:
+        body = {"redirect_uris": ["https://example.com/callback"], **extra}
+        response = self.client.post("/oauth/register/", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.json()["client_id"]
+
+    def _authorize_consent_post(self, client_id: str, scope: str):
+        """POST the consent form, mirroring TestOAuthAPI. Returns a JSON
+        `redirect_to` payload rather than rendering the consent template, so
+        the assertion doesn't depend on a built frontend. The dict is passed
+        directly (multipart) so empty scoped_* lists are omitted, not sent as
+        the literal "[]"."""
+        self.client.force_login(self.user)
+        body = {
+            "client_id": client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": scope,
+        }
+        return self.client.post("/oauth/authorize/", body)
+
+    def test_no_scope_dcr_client_resolves_to_unprivileged_default_at_authorize(self):
+        """Regression: a DCR client (Cursor, mcp-remote) that registers without
+        scope= must resolve to the broad UNPRIVILEGED default at /authorize, so
+        an unprivileged scope is granted (code issued, not invalid_scope)."""
+        client_id = self._register_dcr_client()
+        response = self._authorize_consent_post(client_id, "experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        self.assertIn("code=", redirect_to)
+
+    def test_no_scope_dcr_client_rejects_privileged_scope_at_authorize(self):
+        """The broad default excludes PRIVILEGED_SCOPES, so a no-ceiling DCR
+        client cannot obtain llm_gateway access at /authorize."""
+        client_id = self._register_dcr_client()
+        self.client.force_login(self.user)
+        response = self.client.get(
+            "/oauth/authorize/",
+            {
+                "client_id": client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "scope": "llm_gateway:read",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "state": "test123",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response.get("Location")
+        assert location
+        self.assertIn("error=invalid_scope", location)

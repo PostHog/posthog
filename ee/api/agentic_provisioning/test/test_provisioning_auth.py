@@ -370,7 +370,7 @@ class TestProvisioningAuthentication(APIBaseTest):
 
     # --- PAT scopes ---
 
-    def test_provisioned_pat_created(self):
+    def test_default_off_app_mints_no_provisioned_pat(self):
         from posthog.models.personal_api_key import PersonalAPIKey
 
         verifier, challenge = _pkce_pair()
@@ -414,8 +414,9 @@ class TestProvisioningAuthentication(APIBaseTest):
         from posthog.models.user import User
 
         user = User.objects.get(email=email)
+        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
-        assert pat is not None
+        assert pat is None
 
     # --- is_active kill switch ---
 
@@ -755,11 +756,8 @@ class TestCimdProvisioningAutoRegistration(APIBaseTest):
             cimd_metadata_url=CIMD_PROV_URL,
         )
         with patch(
-            "ee.api.agentic_provisioning.authentication.CIMD_PROVISIONING_DEFAULTS",
-            new_callable=lambda: MagicMock(
-                items=MagicMock(side_effect=RuntimeError("simulated DB error")),
-                keys=MagicMock(return_value=[]),
-            ),
+            "ee.api.agentic_provisioning.authentication.apply_provisioning_defaults",
+            side_effect=RuntimeError("simulated DB error"),
         ):
             _, challenge = _pkce_pair()
             res = self.client.post(

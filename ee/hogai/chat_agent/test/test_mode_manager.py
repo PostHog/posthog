@@ -255,6 +255,39 @@ class TestAgentToolkit(BaseTest):
                 assert "Switch to `plan` mode" not in system_prompt
                 assert "When to switch to plan mode" not in system_prompt
 
+    def test_prompt_builder_includes_slash_commands(self):
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        prompt_builder = ChatAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
+        system_prompt = prompt_builder._get_system_prompt()
+
+        self.assertIn("PostHog AI supports slash commands", system_prompt)
+        self.assertIn("`/usage`", system_prompt)
+        self.assertIn("Do not claim this command is fabricated", system_prompt)
+
+    async def test_plan_prompt_builder_includes_slash_commands(self):
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        prompt_builder = ChatAgentPlanPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
+
+        with (
+            patch.object(prompt_builder, "_get_billing_prompt", new=AsyncMock(return_value="")),
+            patch.object(prompt_builder, "_aget_core_memory_text", new=AsyncMock(return_value="")),
+            patch.object(context_manager, "get_group_names", new=AsyncMock(return_value=[])),
+            patch("ee.hogai.chat_agent.prompt_builder._get_default_tools_prompt", new=AsyncMock(return_value="")),
+            patch("ee.hogai.chat_agent.prompt_builder._get_modes_prompt", new=AsyncMock(return_value="")),
+            patch("ee.hogai.chat_agent.mode_manager.get_execution_mode_registry", return_value={}),
+        ):
+            messages = await prompt_builder.get_prompts(AssistantState(messages=[]), RunnableConfig(configurable={}))
+
+        system_prompt = "\n\n".join(str(message.content) for message in messages if isinstance(message, SystemMessage))
+
+        self.assertIn("PostHog AI supports slash commands", system_prompt)
+        self.assertIn("`/usage`", system_prompt)
+        self.assertIn("Do not claim this command is fabricated", system_prompt)
+
 
 class TestChatAgentModeManagerPlanMode(BaseTest):
     def test_plan_mode_sets_supermode_and_mode(self):

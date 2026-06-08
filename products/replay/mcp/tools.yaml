@@ -11,7 +11,13 @@ ui_apps:
     session-recording:
         type: detail
         view_prop: recording
+    session-summary:
+        type: detail
+        view_prop: data
 tools:
+    create-session-summaries-individually:
+        operation: create_session_summaries_individually
+        enabled: false
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
@@ -42,7 +48,12 @@ tools:
             errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be
             passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
             exists — session replay may not be enabled for that project or session. A 404 means no recording was
-            captured.
+            captured. If the user wants to understand what happened without watching the recording, offer to use
+            `session-recording-summarize` (note: very slow, ~5 minutes on average). If a recording is missing (404) or
+            the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`,
+            `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from
+            the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide
+            issues).
         ui_app: session-recording
     session-recording-playlist-create:
         operation: session_recording_playlists_create
@@ -132,6 +143,42 @@ tools:
     session-recording-playlists-update:
         operation: session_recording_playlists_update
         enabled: false
+    session-recording-summaries-list:
+        operation: single_session_summaries_list
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List session summaries
+        description: >
+            List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use
+            to discover which sessions have already been summarized and to filter for sessions with specific problems —
+            `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by
+            `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use
+            `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries
+            only; it does not trigger generation, so a session with no stored summary simply won't appear.
+    session-recording-summary-get:
+        operation: single_session_summaries_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{session_id}'
+        title: Get session summary
+        description: >
+            Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event).
+            Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion /
+            exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus
+            `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model,
+            whether visual confirmation was applied). 404 if no summary has been generated for the session yet — to
+            create one, use `session-recording-summarize` (slow, ~5 min) rather than this read endpoint.
     session-recordings-list:
         operation: session_recordings_list
         enabled: false
@@ -151,7 +198,6 @@ wrappers:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 2
         title: List session recordings
         description_file: ./prompts/query-session-recordings-list.md
         system_prompt_hint: Session replay metadata and activity

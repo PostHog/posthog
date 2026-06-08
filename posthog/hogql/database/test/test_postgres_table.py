@@ -1,6 +1,12 @@
+from functools import lru_cache
 from typing import Literal
 
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
+from django.urls import get_resolver
+
+from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -14,9 +20,43 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+
+from posthog.rbac.user_access_control import RESOURCE_INHERITANCE_MAP
+
+from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+_SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
+    name: node.table
+    for name, node in SystemTables().children.items()
+    if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
+}
+
+
+@lru_cache(maxsize=1)
+def _object_grant_scopes() -> frozenset[str]:
+    """Resources under which object-level access control grants can actually be stored,
+    i.e. every `scope_object` declared by an `AccessControlViewSetMixin` viewset. Loading
+    the full URLconf forces all viewsets (including product ones) to be imported and
+    registered as subclasses."""
+    _ = get_resolver().url_patterns
+
+    def all_subclasses(cls: type) -> set[type]:
+        subs: set[type] = set()
+        for sub in cls.__subclasses__():
+            subs.add(sub)
+            subs |= all_subclasses(sub)
+        return subs
+
+    scopes: set[str] = set()
+    for viewset in all_subclasses(AccessControlViewSetMixin):
+        scope = getattr(viewset, "scope_object", None)
+        if isinstance(scope, str) and scope != "INTERNAL":
+            scopes.add(scope)
+    return frozenset(scopes)
 
 
 class TestPostgresTable(BaseTest):
@@ -321,3 +361,32 @@ class TestPostgresTable(BaseTest):
             self._select("SELECT id FROM postgres_table LIMIT 10")
             == f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_15)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_16)s), 1)) LIMIT 10"
         )
+
+
+class TestSystemTableAccessScope(SimpleTestCase):
+    """A system table's `access_scope` must be the concrete resource under which object-level
+    access control grants are stored — never a pure umbrella parent.
+
+    Resource-level gating resolves an umbrella via RESOURCE_INHERITANCE_MAP, but object-level
+    deny lookups key directly off `access_scope` (`blocked_resource_ids_by_scope[access_scope]`).
+    If a table were scoped to an umbrella, those lookups would silently miss every grant stored
+    on the umbrella's children, leaking access-controlled objects through HogQL."""
+
+    @parameterized.expand(sorted(_SCOPED_SYSTEM_TABLES))
+    def test_access_scope_is_not_a_pure_umbrella(self, table_name: str) -> None:
+        access_scope = _SCOPED_SYSTEM_TABLES[table_name].access_scope
+
+        # A pure umbrella is a parent in the inheritance map that is never itself a
+        # `scope_object` — so object grants can only ever live on its children, not on it.
+        grant_scopes = _object_grant_scopes()
+        pure_umbrellas = {parent for parent in RESOURCE_INHERITANCE_MAP.values() if parent not in grant_scopes}
+
+        if access_scope in pure_umbrellas:
+            children = sorted(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == access_scope)
+            self.fail(
+                f"system.{table_name} has access_scope='{access_scope}', a pure umbrella resource "
+                f"that never stores object-level grants (they live on its children: "
+                f"{', '.join(children)}). Set access_scope to the concrete child resource this "
+                f"table's rows represent — resource-level gating still resolves the umbrella via "
+                f"RESOURCE_INHERITANCE_MAP."
+            )

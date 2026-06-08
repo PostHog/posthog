@@ -51,10 +51,16 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'getaddrinfo EAI_AGAIN',
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
+    'ECONNRESET', // Connection reset by peer, e.g. PgBouncer/PG closed an idle or in-flight connection
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
 ]
+
+export function isTransientPgError(err: unknown): boolean {
+    const message = (err as Error | undefined)?.message
+    return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
+}
 
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay

@@ -4,6 +4,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
+from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 
 
@@ -110,3 +111,32 @@ class TestMessageTemplatesAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
+
+    def test_cannot_bind_template_to_other_teams_message_category_via_patch(self):
+        """Regression: PATCH must not accept a MessageCategory pk owned by a different team."""
+        foreign_category = MessageCategory.objects.create(team=self.other_team, key="foreign-key", name="Foreign")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={"message_category": str(foreign_category.id)},
+            format="json",
+        )
+
+        # TeamScopedPrimaryKeyRelatedField restricts the queryset to the caller's
+        # team, so the foreign id is unknown — DRF returns 400.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.message_template.refresh_from_db()
+        assert self.message_template.message_category_id is None
+
+    def test_can_bind_template_to_own_teams_message_category(self):
+        own_category = MessageCategory.objects.create(team=self.team, key="own-key", name="Own")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={"message_category": str(own_category.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.message_template.refresh_from_db()
+        assert self.message_template.message_category_id == own_category.id

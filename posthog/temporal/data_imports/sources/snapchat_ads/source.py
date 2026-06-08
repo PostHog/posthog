@@ -14,23 +14,34 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SnapchatAdsSourceConfig
 from posthog.temporal.data_imports.sources.snapchat_ads.settings import SNAPCHAT_ADS_CONFIG
-from posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads import snapchat_ads_source
+from posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads import SnapchatResumeConfig, snapchat_ads_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
+class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNAPCHATADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Snapchat's Marketing API surfaces these as requests HTTPError "<code> Client Error".
+        # They're all permanent for a given config — a deleted/inaccessible ad account (404),
+        # revoked auth (401), or insufficient permissions (403) — so retrying cannot recover.
+        return {
+            "401 Client Error": "Snapchat Ads authentication failed. Please reconnect your Snapchat account.",
+            "403 Client Error": "Snapchat Ads access forbidden. Please check your account permissions.",
+            "404 Client Error": "Snapchat Ads resource not found. Please check that the ad account still exists and is accessible.",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -91,6 +102,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -108,7 +120,15 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: SnapchatAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SnapchatResumeConfig]:
+        return ResumableSourceManager[SnapchatResumeConfig](inputs, SnapchatResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: SnapchatAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SnapchatResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.snapchat_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -120,6 +140,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
