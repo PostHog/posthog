@@ -44,16 +44,16 @@ COPY services/agent-console/ services/agent-console/
 
 # `@posthog/quill` ships `main: "./dist/index.cjs"` — it needs a build
 # step before next can resolve the import (next's `transpilePackages`
-# still goes through `main`/`exports` resolution). Same approach as
-# services/mcp/scripts: `pnpm --filter '@posthog/quill' build` walks
-# the quill workspace.
-RUN pnpm --dir packages/quill -r \
-    --filter '@posthog/quill-tokens' \
-    --filter '@posthog/quill-primitives' \
-    --filter '@posthog/quill-components' \
-    --filter '@posthog/quill-blocks' \
-    --filter '@posthog/quill' \
-    build
+# still goes through `main`/`exports` resolution).
+#
+# `@posthog/quill...` (trailing `...`) selects quill + every workspace
+# package it depends on. agent-console doesn't depend on quill-charts
+# and `pnpm --filter '@posthog/agent-console...' install` doesn't
+# install charts' deps, so a glob like `@posthog/quill-*` would also
+# pick up charts and fail with tsc-can't-resolve at build time. The
+# `...` form excludes it naturally (quill itself doesn't depend on
+# charts) and stays correct if new quill subpackages get added.
+RUN pnpm --dir packages/quill -r --filter '@posthog/quill...' build
 
 WORKDIR /code/services/agent-console
 RUN pnpm run build
