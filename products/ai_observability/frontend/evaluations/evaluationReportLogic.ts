@@ -4,14 +4,15 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    llmAnalyticsEvaluationReportsCreate,
-    llmAnalyticsEvaluationReportsGenerateCreate,
-    llmAnalyticsEvaluationReportsList,
-    llmAnalyticsEvaluationReportsPartialUpdate,
-    llmAnalyticsEvaluationReportsRunsList,
-} from '../generated/api'
 import type { evaluationReportLogicType } from './evaluationReportLogicType'
+import {
+    createEvaluationReport,
+    generateEvaluationReport,
+    loadEvaluationReportRuns,
+    loadEvaluationReportsForEvaluation,
+    updateEvaluationReport,
+} from './evaluationReportsApi'
+import type { EvaluationReportCreatePayload } from './evaluationReportsApi'
 import type {
     EvaluationReport,
     EvaluationReportDeliveryTarget,
@@ -60,38 +61,6 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
 
-type EvaluationReportListParams = NonNullable<Parameters<typeof llmAnalyticsEvaluationReportsList>[1]> & {
-    evaluation: string
-}
-type EvaluationReportCreatePayload = Parameters<typeof llmAnalyticsEvaluationReportsCreate>[1]
-type EvaluationReportUpdatePayload = Partial<EvaluationReport>
-type GeneratedEvaluationReportUpdatePayload = NonNullable<
-    Parameters<typeof llmAnalyticsEvaluationReportsPartialUpdate>[2]
->
-
-const evaluationReportListParams = (evaluationId: string): EvaluationReportListParams => ({ evaluation: evaluationId })
-
-async function loadEvaluationReportsForEvaluation(
-    teamId: number | null,
-    evaluationId: string
-): Promise<EvaluationReport[]> {
-    const response = await llmAnalyticsEvaluationReportsList(String(teamId), evaluationReportListParams(evaluationId))
-    return (response?.results || []) as EvaluationReport[]
-}
-
-async function updateEvaluationReport(
-    teamId: number | null,
-    reportId: string,
-    data: EvaluationReportUpdatePayload
-): Promise<EvaluationReport> {
-    const report = await llmAnalyticsEvaluationReportsPartialUpdate(
-        String(teamId),
-        reportId,
-        data as GeneratedEvaluationReportUpdatePayload
-    )
-    return report as EvaluationReport
-}
-
 function draftFromReport(report: EvaluationReport): ReportConfigDraft {
     const emailTarget = report.delivery_targets.find((t) => t.type === 'email')
     const slackTarget = report.delivery_targets.find((t) => t.type === 'slack')
@@ -133,8 +102,8 @@ function buildReportUpdatePayload(
     draft: ReportConfigDraft,
     activeReport: EvaluationReport,
     targets: EvaluationReportDeliveryTarget[]
-): EvaluationReportUpdatePayload {
-    const data: EvaluationReportUpdatePayload = {
+): Partial<EvaluationReport> {
+    const data: Partial<EvaluationReport> = {
         frequency: draft.frequency,
         delivery_targets: targets,
         report_prompt_guidance: draft.reportPromptGuidance,
@@ -232,7 +201,7 @@ export async function persistReportDraft(
     }
 
     // No active report yet — create only if the draft has savable content.
-    await llmAnalyticsEvaluationReportsCreate(String(teamId), buildReportCreatePayload(draft, evaluationId, targets))
+    await createEvaluationReport(teamId, buildReportCreatePayload(draft, evaluationId, targets))
     return true
 }
 
@@ -356,10 +325,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
                         body.cooldown_minutes = params.cooldown_minutes
                     }
-                    const report = await llmAnalyticsEvaluationReportsCreate(String(values.currentTeamId), body)
-                    return [...values.reports, report as EvaluationReport]
+                    const report = await createEvaluationReport(values.currentTeamId, body)
+                    return [...values.reports, report]
                 },
-                updateReport: async ({ reportId, data }: { reportId: string; data: EvaluationReportUpdatePayload }) => {
+                updateReport: async ({ reportId, data }: { reportId: string; data: Partial<EvaluationReport> }) => {
                     const updated = await updateEvaluationReport(values.currentTeamId, reportId, data)
                     return values.reports.map((r) => (r.id === reportId ? updated : r))
                 },
@@ -387,10 +356,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             [] as EvaluationReportRun[],
             {
                 loadReportRuns: async (reportId: string) => {
-                    const response = await llmAnalyticsEvaluationReportsRunsList(String(values.currentTeamId), reportId)
-                    // The runs endpoint is paginated (DRF envelope); unwrap results so the
-                    // reducer gets an array rather than the {count, next, previous, results} object.
-                    return (response?.results || []) as EvaluationReportRun[]
+                    return await loadEvaluationReportRuns(values.currentTeamId, reportId)
                 },
             },
         ],
@@ -398,7 +364,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             null as null,
             {
                 generateReport: async (reportId: string) => {
-                    await llmAnalyticsEvaluationReportsGenerateCreate(String(values.currentTeamId), reportId)
+                    await generateEvaluationReport(values.currentTeamId, reportId)
                     return null
                 },
             },
