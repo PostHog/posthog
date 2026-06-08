@@ -142,9 +142,10 @@ export class KafkaConsumerV2 {
             'socket.timeout.ms': 30_000,
             'enable.partition.eof': this.config.enablePartitionEof ?? true,
             'statistics.interval.ms': STATISTICS_INTERVAL_MS,
-            // Newer librdkafka versions require this in the global config (the topic-config
-            // form passed to RdKafkaConsumer's second arg is silently ignored for assign-based
-            // consumers in some versions). See node-rdkafka issue #984.
+            // auto.offset.reset is a topic-level property and which form librdkafka honors
+            // varies by version (see node-rdkafka #984), so we set it in both: here as the
+            // global/default-topic-conf fallback, and explicitly in the topic config in
+            // createConsumer (the resolved value, including any override). Keep them in sync.
             ['auto.offset.reset' as keyof ConsumerGlobalConfig]: 'earliest' as never,
             ...getKafkaConfigFromEnv('CONSUMER'),
             ...rdKafkaOverrides,
