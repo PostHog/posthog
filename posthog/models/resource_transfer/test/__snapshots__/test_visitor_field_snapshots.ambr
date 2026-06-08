@@ -659,6 +659,7 @@
     'deleted',
     'end_date',
     'experimentmetricresult_set',
+    'experimentmetricsrecalculation_set',
     'experimenttimeseriesrecalculation_set',
     'experimenttosavedmetric_set',
     'exposure_cohort_id',
