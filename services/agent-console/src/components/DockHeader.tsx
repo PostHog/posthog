@@ -25,7 +25,7 @@ import {
     XIcon,
 } from 'lucide-react'
 
-import { describeContext, type ChatContext } from '@posthog/agent-chat'
+import type { ChatContext } from '@posthog/agent-chat'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -125,16 +125,16 @@ export function DockHeader({
     sessionHistory,
     onResumeSession,
 }: DockHeaderProps): React.ReactElement {
-    const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
+    const playgroundAgent = context.mode === 'playground' ? context.agent.name : null
     const previewRevisionId = context.mode === 'playground' ? context.previewRevisionId : undefined
-    const subDetail = subDetailFor(context)
+    const sessionLabel = sessionLabelFor(sessionId, sessionHistory)
 
     // Playground mode gets a strongly-tinted bar so it's impossible to
     // confuse "talking *to* the agent" with the ambient concierge chat.
     const containerClass = isPlayground
-        ? 'flex flex-col gap-1.5 border-b-2 border-primary bg-primary/10 px-4 py-2'
-        : 'flex flex-col gap-1.5 border-b border-border px-4 py-2'
+        ? 'flex flex-col gap-1.5 border-b-2 border-primary bg-primary/10 px-3 py-2'
+        : 'flex flex-col gap-1.5 border-b border-border px-3 py-2'
 
     return (
         // `data-dock-drag-handle` lets a host frame (e.g. the floating
@@ -142,11 +142,14 @@ export function DockHeader({
         // The host gates its mousedown handler on this attribute and
         // ignores clicks that bubble from interactive descendants.
         <div className={containerClass} data-dock-drag-handle="">
-            {/* ── Row 1: mode + status pills (left) · chrome controls (right) ── */}
+            {/* ── Row 1: mode pill (left) · config controls (right) ── */}
             <div className="flex items-center gap-2">
+                {/* Mode pill — same shape for both modes; colour + label tells
+                    you which one you're in. Dot is animated in playground
+                    (high-stakes mode) and quiet-green in concierge. */}
                 {isPlayground ? (
                     <span
-                        className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-foreground"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-primary-foreground"
                         aria-label="Playground mode"
                     >
                         <span
@@ -154,14 +157,20 @@ export function DockHeader({
                             aria-hidden
                         />
                         Playground
+                        {playgroundAgent ? (
+                            <span className="ml-0.5 font-normal opacity-90 normal-case tracking-normal">
+                                · {playgroundAgent}
+                            </span>
+                        ) : null}
                     </span>
                 ) : (
-                    <div className="flex items-center gap-2">
+                    <span
+                        className="inline-flex items-center gap-1.5 rounded-md bg-success/15 px-2 py-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-success-foreground"
+                        aria-label="Concierge mode"
+                    >
                         <span className="inline-flex h-1.5 w-1.5 rounded-full bg-success-foreground" aria-hidden />
-                        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            {mode}
-                        </span>
-                    </div>
+                        Concierge
+                    </span>
                 )}
                 {previewRevisionId ? (
                     <span
@@ -190,17 +199,6 @@ export function DockHeader({
                     {!isPlayground && onFollowingChange ? (
                         <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
                     ) : null}
-                    {!isPlayground &&
-                    sessionHistory &&
-                    sessionHistory.length > 0 &&
-                    (onResumeSession || onOpenSession) ? (
-                        <SessionHistoryMenu
-                            history={sessionHistory}
-                            currentSessionId={sessionId}
-                            onResume={onResumeSession}
-                            onOpenInSessionView={onOpenSession}
-                        />
-                    ) : null}
                     {onRenderMarkdownChange || onChangeDockMode || (sessionId && onOpenSession) ? (
                         <SettingsMenu
                             renderMarkdown={renderMarkdown ?? true}
@@ -215,71 +213,71 @@ export function DockHeader({
                 </div>
             </div>
 
-            {/* ── Row 2: primary action + subject (two lines: subject + on-context) ── */}
+            {/* ── Row 2: session label (left) · history + new / exit (right) ── */}
             <div className="flex items-center gap-2">
-                {!isPlayground && onNewSession ? (
-                    <button
-                        type="button"
-                        onClick={() => onNewSession()}
-                        disabled={busy}
-                        className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-card"
-                        aria-label="Start a new conversation"
-                        title="Clear the chat and start a fresh conversation"
-                    >
-                        <RotateCcwIcon className="h-3 w-3" />
-                        New
-                    </button>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                    <div
-                        className={
-                            'truncate text-sm ' + (isPlayground ? 'font-medium text-foreground' : 'text-foreground')
-                        }
-                        title={previewRevisionId ? `${subject} (preview revision)` : subject}
-                    >
-                        {subject}
-                    </div>
-                    {subDetail ? (
-                        <div className="truncate text-[0.6875rem] text-muted-foreground" title={subDetail}>
-                            {subDetail}
-                        </div>
+                <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={sessionLabel}>
+                    {sessionLabel}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                    {!isPlayground &&
+                    sessionHistory &&
+                    sessionHistory.length > 0 &&
+                    (onResumeSession || onOpenSession) ? (
+                        <SessionHistoryMenu
+                            history={sessionHistory}
+                            currentSessionId={sessionId}
+                            onResume={onResumeSession}
+                            onOpenInSessionView={onOpenSession}
+                        />
+                    ) : null}
+                    {!isPlayground && onNewSession ? (
+                        <button
+                            type="button"
+                            onClick={() => onNewSession()}
+                            disabled={busy}
+                            className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border bg-card px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-card disabled:hover:text-muted-foreground"
+                            aria-label="Start a new conversation"
+                            title="Clear the chat and start a fresh conversation"
+                        >
+                            <RotateCcwIcon className="h-3 w-3" />
+                            New
+                        </button>
+                    ) : null}
+                    {isPlayground ? (
+                        <button
+                            type="button"
+                            onClick={() => onExitPlayground?.()}
+                            className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border bg-card px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            aria-label="Exit playground"
+                        >
+                            <XIcon className="h-3 w-3" />
+                            Exit
+                        </button>
                     ) : null}
                 </div>
-                {isPlayground ? (
-                    <button
-                        type="button"
-                        onClick={() => onExitPlayground?.()}
-                        className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/20 hover:text-foreground"
-                        aria-label="Exit playground"
-                    >
-                        <XIcon className="h-3 w-3" />
-                        Exit
-                    </button>
-                ) : null}
             </div>
         </div>
     )
 }
 
 /**
- * Sub-line shown under the subject in the dock header — e.g. "on
- * release-concierge" so the user always knows which agent the
- * concierge is talking about, even when the page title is generic.
+ * Pick the best label for the current session. First-message snippet if
+ * the history has it; otherwise a relative "started Xm ago"; otherwise a
+ * neutral "New conversation" placeholder so the row never collapses.
  */
-function subDetailFor(context: ChatContext): string | null {
-    if (context.mode === 'playground') {
-        return null
+function sessionLabelFor(sessionId?: string, history?: SessionHistoryEntry[]): string {
+    if (!sessionId) {
+        return 'New conversation'
     }
-    const page = context.page
-    if (
-        page.kind === 'agent-bundle' ||
-        page.kind === 'agent-revisions' ||
-        page.kind === 'agent-sessions' ||
-        page.kind === 'agent-session'
-    ) {
-        return `on ${page.agent.name}`
+    const entry = history?.find((e) => e.id === sessionId)
+    if (entry?.firstMessage) {
+        return entry.firstMessage
     }
-    return null
+    if (entry?.lastTouchedAt) {
+        return `Started ${formatRelativeTime(entry.lastTouchedAt)}`
+    }
+    const short = sessionId.split('-').at(-1)?.slice(0, 8) ?? sessionId.slice(0, 8)
+    return `Session ${short}`
 }
 
 function shortRevisionId(id: string): string {
