@@ -40,7 +40,7 @@ export function createTestingPreTeamPreprocessingSubpipeline<
 
     return builder
         .pipe(createParseHeadersStep())
-        .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning']))
+        .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
         .pipe(createParseKafkaMessageStep())
         .pipe(createResolveTeamStep(teamManager))
         .pipe(createValidateHistoricalMigrationStep())

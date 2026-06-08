@@ -8,13 +8,13 @@ import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pip
 import { EventOutput, HeatmapsOutput } from './outputs'
 import { TestingAiEventSubpipelineInput, createTestingAiEventSubpipeline } from './testing-ai-event-subpipeline'
 import { TestingEventSubpipelineInput, createTestingEventSubpipeline } from './testing-event-subpipeline'
-import { TestingHeatmapSubpipelineInput, createTestingHeatmapSubpipeline } from './testing-heatmap-subpipeline'
 
-export type TestingPerDistinctIdPipelineInput = TestingEventSubpipelineInput &
-    TestingHeatmapSubpipelineInput &
-    TestingAiEventSubpipelineInput
+export type TestingPerDistinctIdPipelineInput = TestingEventSubpipelineInput & TestingAiEventSubpipelineInput
 
 export interface TestingPerDistinctIdPipelineConfig {
+    // The testing event subpipeline extracts scroll-depth heatmap data inline from
+    // regular events (e.g. $pageview), so this pipeline still produces HeatmapsOutput
+    // even though the dedicated $$heatmap branch has been removed.
     outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
     groupId: string
 }
@@ -24,10 +24,9 @@ export interface TestingPerDistinctIdPipelineContext {
     team: Team
 }
 
-type EventBranch = 'heatmap' | 'ai' | 'event'
+type EventBranch = 'ai' | 'event'
 
 const EVENT_BRANCH_MAP = new Map<string, EventBranch>([
-    ['$$heatmap', 'heatmap'],
     ...[...AI_EVENT_TYPES].map((t): [string, EventBranch] => [t, 'ai']),
 ])
 
@@ -45,11 +44,6 @@ export function createTestingPerDistinctIdPipeline<TInput extends TestingPerDist
         (e) =>
             e.branching<EventBranch, void>(classifyEvent, (branches) =>
                 branches
-                    .branch('heatmap', (b) =>
-                        createTestingHeatmapSubpipeline(b, {
-                            outputs,
-                        })
-                    )
                     .branch('ai', (b) =>
                         createTestingAiEventSubpipeline(b, {
                             outputs,
