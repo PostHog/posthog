@@ -67,6 +67,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    PulseScanConfig,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -240,6 +241,13 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+import {
+    PulseDigestDetail,
+    PulseDigestSummary,
+    PulseFindingType,
+    PulseSubscriptionType,
+    PulseWatchedCandidate,
+} from 'products/pulse/frontend/pulseTypes'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -697,6 +705,22 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
+    // # Pulse
+    public pulseDigests(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('pulse_digests')
+    }
+    public pulseDigest(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.pulseDigests(teamId).addPathComponent(id)
+    }
+    public pulseFindings(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('pulse_findings')
+    }
+    public pulseSubscriptions(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('pulse_subscriptions')
+    }
+    public pulseSubscription(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.pulseSubscriptions(teamId).addPathComponent(id)
+    }
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -2839,6 +2863,40 @@ const api = {
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
             return new ApiRequest().comment(id, teamId).withAction('reopen').create()
+        },
+    },
+
+    pulse: {
+        async listDigests(
+            url?: string
+        ): Promise<{ results: PulseDigestSummary[]; count: number; next: string | null }> {
+            // `url` follows the DRF `next` cursor when paging through older digests.
+            return url ? await api.get(url) : new ApiRequest().pulseDigests().get()
+        },
+        async getDigest(id: string): Promise<PulseDigestDetail> {
+            return new ApiRequest().pulseDigest(id).get()
+        },
+        async triggerScan(config?: Partial<PulseScanConfig>): Promise<{ workflow_id: string }> {
+            return new ApiRequest()
+                .pulseDigests()
+                .withAction('trigger_scan')
+                .create({ data: config ?? {} })
+        },
+        async listFindings(digestId?: string): Promise<{ results: PulseFindingType[]; count: number }> {
+            const req = new ApiRequest().pulseFindings()
+            return digestId ? req.withQueryString({ digest: digestId }).get() : req.get()
+        },
+        async currentSubscription(): Promise<PulseSubscriptionType> {
+            return new ApiRequest().pulseSubscriptions().withAction('current').get()
+        },
+        async watchedCandidates(): Promise<{ results: PulseWatchedCandidate[] }> {
+            return new ApiRequest().pulseSubscriptions().withAction('watched').get()
+        },
+        async createSubscription(data: Partial<PulseSubscriptionType>): Promise<PulseSubscriptionType> {
+            return new ApiRequest().pulseSubscriptions().create({ data })
+        },
+        async updateSubscription(id: string, data: Partial<PulseSubscriptionType>): Promise<PulseSubscriptionType> {
+            return new ApiRequest().pulseSubscription(id).update({ data })
         },
     },
 

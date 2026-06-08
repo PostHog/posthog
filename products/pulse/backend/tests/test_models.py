@@ -1,4 +1,6 @@
+import re
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from posthog.test.base import BaseTest
@@ -49,6 +51,19 @@ class TestPulseEnums:
 
     def test_custom_has_no_preset_entry(self):
         assert Sensitivity.CUSTOM not in SENSITIVITY_PRESETS
+
+    def test_frontend_sensitivity_presets_match_backend(self):
+        # Single cross-language drift guard: the frontend mirrors SENSITIVITY_PRESETS in utils.ts to
+        # apply thresholds locally. Assert the FE values equal the backend source of truth so the two
+        # can't silently diverge — independent literal tests on each side would not catch drift.
+        utils_ts = (Path(__file__).resolve().parents[2] / "frontend" / "utils.ts").read_text()
+        block = utils_ts.split("export const SENSITIVITY_PRESETS", 1)[1].split("\n}", 1)[0]
+        frontend = {}
+        for name, body in re.findall(r"(conservative|balanced|sensitive):\s*\{([^}]*)\}", block):
+            min_change = float(re.search(r"min_change_pct:\s*([\d.]+)", body).group(1))
+            robust_z = float(re.search(r"robust_z_threshold:\s*([\d.]+)", body).group(1))
+            frontend[name] = (min_change, robust_z)
+        assert frontend == {k.value: v for k, v in SENSITIVITY_PRESETS.items()}
 
 
 def _make_digest(test: BaseTest) -> PulseDigest:

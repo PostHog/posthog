@@ -136,6 +136,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    Pulse: () => import('../../products/pulse/frontend/Pulse'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
@@ -270,6 +271,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/metrics': ['Metrics', 'metrics'],
+    '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
@@ -744,6 +746,11 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
     },
+    Pulse: {
+        name: 'Pulse',
+        projectBased: true,
+        description: "Proactive insights surfaced by Max from your team's key metrics.",
+    },
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
@@ -1192,6 +1199,7 @@ export const productUrls = {
     insightQuickStart: (): string => '/insights/quick-start',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
+    pulse: (): string => '/pulse',
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -2033,6 +2041,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
+    },
+    {
+        path: 'Pulse',
+        intents: [ProductKey.MAX],
+        category: ProductItemCategory.ANALYTICS,
+        iconType: 'activity',
+        href: urls.pulse(),
+        flag: FEATURE_FLAGS.MAX_PULSE,
+        tags: ['beta'],
+        sceneKey: 'Pulse',
+        sceneKeys: ['Pulse'],
     },
     {
         path: 'Replay vision',
