@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.sources.workos.settings import ENDPOINTS, WOR
 from posthog.temporal.data_imports.sources.workos.workos import (
     WorkOSPaginator,
     WorkOSResumeConfig,
+    get_resource,
     validate_credentials,
     workos_source,
 )
@@ -136,6 +137,16 @@ class TestWorkOSEndpoints:
         assert set(ENDPOINTS) == set(WORKOS_ENDPOINTS)
         # Every endpoint partitions on the immutable created_at field.
         assert all(cfg.partition_key == "created_at" for cfg in WORKOS_ENDPOINTS.values())
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_resource_request_params_are_valid(self, endpoint: str) -> None:
+        # directory_users and directory_groups reject ``order=asc`` with a 422; every
+        # WorkOS list endpoint accepts ``order=desc`` (the WorkOS SDK default). Guard
+        # against regressing back to the rejected value on any endpoint.
+        params = get_resource(endpoint)["endpoint"]["params"]
+        assert params["order"] == "desc"
+        assert params["order"] != "asc"
+        assert params["limit"] == WORKOS_ENDPOINTS[endpoint].page_size
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_shape(self, endpoint: str) -> None:
