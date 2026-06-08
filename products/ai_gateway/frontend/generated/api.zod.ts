@@ -44,6 +44,18 @@ export const GatewaysPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Assign one of your own unassigned personal API keys to this gateway.
+
+An unbound key has no team boundary, so only its owner may assign it — hence
+the user filter (unlike bind_credential, which moves the team's already-bound keys).
+ */
+export const GatewaysAssignCredentialCreateBody = /* @__PURE__ */ zod.object({
+    credential_id: zod
+        .string()
+        .describe('Id of one of your own unassigned personal API keys to assign to this gateway.'),
+})
+
+/**
  * Reassign a credential to this gateway.
 
 Only credentials already bound to one of this team's gateways can be moved —

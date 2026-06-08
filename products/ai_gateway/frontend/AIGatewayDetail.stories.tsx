@@ -38,6 +38,11 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                // Literal path before :id/ so it isn't shadowed by the gateway-detail handler.
+                'api/projects/:team_id/gateways/assignable_credentials/': () => [
+                    200,
+                    [{ id: 'pak_unassigned', label: 'local dev key', last_used_at: null }],
+                ],
                 'api/projects/:team_id/gateways/': () => [200, { count: 1, results: [GATEWAY] }],
                 'api/projects/:team_id/gateways/:id/': () => [200, GATEWAY],
                 'api/projects/:team_id/gateways/:id/credentials/': () => [200, BOUND_CREDENTIALS],

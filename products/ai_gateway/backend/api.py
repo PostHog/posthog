@@ -24,6 +24,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 _CREDENTIAL_TYPE_PERSONAL_API_KEY = "personal_api_key"
 _CREDENTIAL_TYPE_OAUTH_APPLICATION = "oauth_application"
+# The literal scope the gateway requires — wildcards don't subsume it (RFC #1103).
+_GATEWAY_SCOPE = "llm_gateway:read"
 
 
 class GatewayManagementPermission(TeamMemberStrictManagementPermission):
@@ -35,17 +37,19 @@ class GatewayManagementPermission(TeamMemberStrictManagementPermission):
     gateway, so resolve the parent and check there — matching the resource's owner.
     """
 
+    # Assigning your own unbound key only touches that key (gated to the owner in
+    # the action), so it's member-level — unlike the admin-gated gateway mutations
+    # and the cross-gateway credential move.
+    member_level_actions = {"assignable_credentials", "assign_credential"}
+
     def has_permission(self, request: Request, view: APIView) -> bool:
         team = view.team  # type: ignore[attr-defined]
         canonical = team if team.parent_team_id is None else Team.objects.get(id=team.parent_team_id)
         level = view.user_permissions.team(canonical).effective_membership_level  # type: ignore[attr-defined]
         if level is None:
             return False
-        minimum = (
-            OrganizationMembership.Level.MEMBER
-            if request.method in SAFE_METHODS
-            else OrganizationMembership.Level.ADMIN
-        )
+        member_ok = request.method in SAFE_METHODS or getattr(view, "action", None) in self.member_level_actions
+        minimum = OrganizationMembership.Level.MEMBER if member_ok else OrganizationMembership.Level.ADMIN
         return level >= minimum
 
 
@@ -132,6 +136,20 @@ class BindCredentialSerializer(serializers.Serializer):
         help_text="Which kind of credential to reassign.",
     )
     credential_id = serializers.CharField(help_text="Id of the credential to reassign to this gateway.")
+
+
+class AssignableCredentialSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True, help_text="Personal API key id.")
+    label = serializers.CharField(read_only=True, help_text="The key's human-readable label.")  # type: ignore[assignment]
+    last_used_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the key was last used, if ever."
+    )
+
+
+class AssignCredentialSerializer(serializers.Serializer):
+    credential_id = serializers.CharField(
+        help_text="Id of one of your own unassigned personal API keys to assign to this gateway."
+    )
 
 
 class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -233,6 +251,49 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             self.request.user,
             "gateway credential bound",
             {"gateway_id": str(gateway.id), "slug": gateway.slug, "credential_type": credential_type},
+            team=self.team,
+        )
+        # Re-fetch through the annotated queryset so bound_credentials_count is fresh.
+        return Response(self.get_serializer(self.get_queryset().get(pk=gateway.pk)).data)
+
+    @extend_schema(responses=AssignableCredentialSerializer(many=True))
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def assignable_credentials(self, request: Request, **kwargs: object) -> Response:
+        """Your personal API keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet."""
+        keys = PersonalAPIKey.objects.filter(
+            user=request.user, gateway__isnull=True, scopes__contains=[_GATEWAY_SCOPE]
+        ).order_by("label")
+        return Response(AssignableCredentialSerializer(keys, many=True).data)
+
+    @extend_schema(request=AssignCredentialSerializer, responses=GatewaySerializer)
+    @action(detail=True, methods=["post"], url_path="assign_credential")
+    def assign_credential(self, request: Request, **kwargs: object) -> Response:
+        """Assign one of your own unassigned personal API keys to this gateway.
+
+        An unbound key has no team boundary, so only its owner may assign it — hence
+        the user filter (unlike bind_credential, which moves the team's already-bound keys)."""
+        gateway = self.get_object()
+        serializer = AssignCredentialSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        credential_id = serializer.validated_data["credential_id"]
+
+        key = PersonalAPIKey.objects.filter(
+            pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
+            user=request.user,
+            gateway__isnull=True,
+            scopes__contains=[_GATEWAY_SCOPE],
+        ).first()
+        if key is None:
+            raise ValidationError(
+                {"credential_id": "Key not found, not yours, already assigned, or missing the llm_gateway:read scope."}
+            )
+
+        key.gateway = gateway
+        key.save(update_fields=["gateway"])
+        report_user_action(
+            self.request.user,
+            "gateway credential assigned",
+            {"gateway_id": str(gateway.id), "slug": gateway.slug},
             team=self.team,
         )
         # Re-fetch through the annotated queryset so bound_credentials_count is fresh.

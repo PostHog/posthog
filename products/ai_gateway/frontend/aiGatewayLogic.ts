@@ -9,6 +9,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { aiGatewayLogicType } from './aiGatewayLogicType'
 import { fetchGatewayUsage, GatewayUsage } from './gatewayUsage'
 import {
+    gatewaysAssignableCredentialsList,
+    gatewaysAssignCredentialCreate,
     gatewaysBindCredentialCreate,
     gatewaysCreate,
     gatewaysCredentialsRetrieve,
@@ -16,7 +18,7 @@ import {
     gatewaysList,
     gatewaysPartialUpdate,
 } from './generated/api'
-import { GatewayApi, GatewayBoundCredentialsApi } from './generated/api.schemas'
+import { AssignableCredentialApi, GatewayApi, GatewayBoundCredentialsApi } from './generated/api.schemas'
 
 // Mirrors the backend GATEWAY_SLUG_PATTERN — lowercase, URL-safe, no leading/trailing separator.
 const SLUG_PATTERN = /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/
@@ -44,6 +46,7 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             fromGatewayId: string
             toGatewayId: string
         }) => payload,
+        assignCredential: (payload: { credentialId: string; gatewayId: string }) => payload,
     }),
     loaders(({ values }) => ({
         gateways: [
@@ -68,6 +71,14 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             {
                 // Project-wide usage across every gateway-attributed event.
                 loadUsage: async () => await fetchGatewayUsage(),
+            },
+        ],
+        assignableCredentials: [
+            [] as AssignableCredentialApi[],
+            {
+                // The requesting user's own llm_gateway:read keys not yet assigned to a gateway.
+                loadAssignableCredentials: async () =>
+                    await gatewaysAssignableCredentialsList(String(values.currentTeamId)),
             },
         ],
     })),
@@ -143,9 +154,24 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             actions.loadCredentials({ gatewayId: fromGatewayId })
             lemonToast.success('Credential moved')
         },
+        assignCredential: async ({ credentialId, gatewayId }) => {
+            try {
+                await gatewaysAssignCredentialCreate(String(values.currentTeamId), gatewayId, {
+                    credential_id: credentialId,
+                })
+            } catch {
+                lemonToast.error('Could not assign key')
+                return
+            }
+            actions.loadGateways()
+            actions.loadCredentials({ gatewayId })
+            actions.loadAssignableCredentials()
+            lemonToast.success('Key assigned')
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadGateways()
         actions.loadUsage()
+        actions.loadAssignableCredentials()
     }),
 ])

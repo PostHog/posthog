@@ -7,6 +7,7 @@ from posthog.models.gateway import DEFAULT_GATEWAY_SLUG, Gateway
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.ai_gateway.backend.api import GatewayManagementPermission
@@ -32,6 +33,16 @@ class TestGatewayAPI(APIBaseTest):
             secure_value=hash_key_value(generate_random_token_personal()),
             scopes=["llm_gateway:read"],
             gateway=gateway,
+        )
+
+    def _unbound_key(
+        self, label: str = "unbound", scopes: list[str] | None = None, user: User | None = None
+    ) -> PersonalAPIKey:
+        return PersonalAPIKey.objects.create(
+            label=label,
+            user=user or self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["llm_gateway:read"] if scopes is None else scopes,
         )
 
     def test_list_includes_auto_provisioned_gateway(self):
@@ -187,3 +198,49 @@ class TestGatewayAPI(APIBaseTest):
             {"credential_type": "personal_api_key", "credential_id": str(key.id)},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_assignable_credentials_lists_only_own_unbound_scoped_keys(self):
+        mine = self._unbound_key("mine")
+        self._unbound_key("no-scope", scopes=["feature_flag:read"])  # excluded: wrong scope
+        self._bind_key(self._gateway(), "already-bound")  # excluded: bound to a gateway
+        other = User.objects.create_and_join(self.organization, "other@example.com", "pw")
+        self._unbound_key("theirs", user=other)  # excluded: not the requesting user's
+
+        response = self.client.get(self._url("assignable_credentials/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([k["label"] for k in response.json()], ["mine"])
+        self.assertEqual(response.json()[0]["id"], str(mine.id))
+
+    def test_assign_credential_binds_own_unbound_key(self):
+        gateway = self._gateway()
+        key = self._unbound_key("mine")
+        response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        key.refresh_from_db()
+        self.assertEqual(key.gateway_id, gateway.id)
+
+    def test_assign_credential_rejects_other_users_key(self):
+        gateway = self._gateway()
+        other = User.objects.create_and_join(self.organization, "other2@example.com", "pw")
+        key = self._unbound_key("theirs", user=other)
+        response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        key.refresh_from_db()
+        self.assertIsNone(key.gateway_id)
+
+    def test_assign_credential_rejects_key_without_gateway_scope(self):
+        gateway = self._gateway()
+        key = self._unbound_key("no-scope", scopes=["feature_flag:read"])
+        response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_member_can_assign_own_key(self):
+        # Assigning your own key only touches that key, so it's member-level.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        gateway = self._gateway()
+        key = self._unbound_key("mine")
+        response = self.client.post(self._url(f"{gateway.id}/assign_credential/"), {"credential_id": str(key.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        key.refresh_from_db()
+        self.assertEqual(key.gateway_id, gateway.id)

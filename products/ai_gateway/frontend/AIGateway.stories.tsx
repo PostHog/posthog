@@ -50,6 +50,10 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/gateways/': () => [200, { count: GATEWAYS.length, results: GATEWAYS }],
                 'api/projects/:team_id/gateways/:id/credentials/': () => [200, BOUND_CREDENTIALS],
+                'api/projects/:team_id/gateways/assignable_credentials/': () => [
+                    200,
+                    [{ id: 'pak_unassigned', label: 'local dev key', last_used_at: null }],
+                ],
             },
             post: {
                 'api/environments/:team_id/query/': () => [
@@ -73,6 +77,7 @@ export const Empty: Story = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/gateways/': () => [200, { count: 0, results: [] }],
+                'api/projects/:team_id/gateways/assignable_credentials/': () => [200, []],
             },
         }),
     ],

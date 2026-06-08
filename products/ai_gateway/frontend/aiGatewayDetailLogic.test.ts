@@ -15,6 +15,8 @@ jest.mock('./generated/api', () => ({
     gatewaysPartialUpdate: jest.fn(),
     gatewaysDestroy: jest.fn(),
     gatewaysBindCredentialCreate: jest.fn(),
+    gatewaysAssignableCredentialsList: jest.fn().mockResolvedValue([]),
+    gatewaysAssignCredentialCreate: jest.fn(),
 }))
 
 const mockRetrieve = gatewaysRetrieve as jest.MockedFunction<typeof gatewaysRetrieve>

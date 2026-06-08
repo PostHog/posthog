@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AssignCredentialApi,
+    AssignableCredentialApi,
     BindCredentialApi,
     GatewayApi,
     GatewayBoundCredentialsApi,
@@ -136,6 +138,30 @@ export const gatewaysDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getGatewaysAssignCredentialCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/gateways/${id}/assign_credential/`
+}
+
+/**
+ * Assign one of your own unassigned personal API keys to this gateway.
+
+An unbound key has no team boundary, so only its owner may assign it — hence
+the user filter (unlike bind_credential, which moves the team's already-bound keys).
+ */
+export const gatewaysAssignCredentialCreate = async (
+    projectId: string,
+    id: string,
+    assignCredentialApi: AssignCredentialApi,
+    options?: RequestInit
+): Promise<GatewayApi> => {
+    return apiMutator<GatewayApi>(getGatewaysAssignCredentialCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(assignCredentialApi),
+    })
+}
+
 export const getGatewaysBindCredentialCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/gateways/${id}/bind_credential/`
 }
@@ -173,6 +199,23 @@ export const gatewaysCredentialsRetrieve = async (
     options?: RequestInit
 ): Promise<GatewayBoundCredentialsApi> => {
     return apiMutator<GatewayBoundCredentialsApi>(getGatewaysCredentialsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGatewaysAssignableCredentialsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/gateways/assignable_credentials/`
+}
+
+/**
+ * Your personal API keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet.
+ */
+export const gatewaysAssignableCredentialsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AssignableCredentialApi[]> => {
+    return apiMutator<AssignableCredentialApi[]>(getGatewaysAssignableCredentialsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

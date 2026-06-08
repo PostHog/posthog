@@ -101,6 +101,11 @@ export interface PatchedGatewayApi {
     readonly bound_credentials_count?: number
 }
 
+export interface AssignCredentialApi {
+    /** Id of one of your own unassigned personal API keys to assign to this gateway. */
+    credential_id: string
+}
+
 /**
  * * `personal_api_key` - personal_api_key
  * `oauth_application` - oauth_application
@@ -150,6 +155,18 @@ export interface GatewayBoundCredentialsApi {
     readonly personal_api_keys: readonly BoundPersonalAPIKeyApi[]
     /** OAuth applications bound to this gateway. */
     readonly oauth_applications: readonly BoundOAuthApplicationApi[]
+}
+
+export interface AssignableCredentialApi {
+    /** Personal API key id. */
+    readonly id: string
+    /** The key's human-readable label. */
+    readonly label: string
+    /**
+     * When the key was last used, if ever.
+     * @nullable
+     */
+    readonly last_used_at: string | null
 }
 
 export type GatewaysListParams = {

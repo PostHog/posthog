@@ -27,6 +27,39 @@ export const CREATE_KEY_URL = combineUrl(urls.settings('user-api-keys'), { prese
 // Lists the personal API keys and OAuth apps that attribute usage to a gateway,
 // each with a menu to reassign it to another of the team's gateways. Reads the
 // credentials lazily — callers must trigger loadCredentials({ gatewayId }) first.
+// Buttons to attribute a key to this gateway: assign one of your existing
+// unassigned keys, or create a new one pre-scoped for the gateway.
+function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
+    const { assignableCredentials } = useValues(aiGatewayLogic)
+    const { assignCredential } = useActions(aiGatewayLogic)
+
+    return (
+        <div className="flex items-center gap-2">
+            <LemonMenu
+                items={assignableCredentials.map((key) => ({
+                    label: key.label,
+                    onClick: () => assignCredential({ credentialId: key.id, gatewayId: gateway.id }),
+                }))}
+            >
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason={
+                        !assignableCredentials.length
+                            ? 'You have no unassigned personal API keys with the LLM gateway scope'
+                            : undefined
+                    }
+                >
+                    Assign existing key
+                </LemonButton>
+            </LemonMenu>
+            <LemonButton type="secondary" size="small" icon={<IconPlus />} to={CREATE_KEY_URL}>
+                Create personal API key
+            </LemonButton>
+        </div>
+    )
+}
+
 export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.Element {
     const { gateways, credentialsByGateway, credentialsByGatewayLoading } = useValues(aiGatewayLogic)
     const { moveCredential } = useActions(aiGatewayLogic)
@@ -63,10 +96,8 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
     if (!credentials.personal_api_keys.length && !credentials.oauth_applications.length) {
         return (
             <div className="flex items-center gap-3 px-4 py-2">
-                <span className="text-secondary">No credentials attribute usage to this gateway yet.</span>
-                <LemonButton type="secondary" size="small" icon={<IconPlus />} to={CREATE_KEY_URL}>
-                    Create personal API key
-                </LemonButton>
+                <span className="text-secondary">No keys attribute usage to this gateway yet.</span>
+                <AddKeyActions gateway={gateway} />
             </div>
         )
     }
@@ -93,6 +124,9 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
                 </div>
             ))}
             {credentialsByGatewayLoading && <Spinner />}
+            <div className="pt-1">
+                <AddKeyActions gateway={gateway} />
+            </div>
         </div>
     )
 }
