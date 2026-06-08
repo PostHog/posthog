@@ -228,8 +228,23 @@ the whole shape — too easy to overwrite something.
 
 ## Phase 6 — validate
 
-`agent-applications-revisions-validate-create`. Fix every error,
-read every warning.
+`agent-applications-revisions-validate-create`. Returns
+`{ ok, errors, warnings, resolved_natives }`. Fix every error before
+freeze — they block. Then walk every warning and decide what to do;
+they don't block but they're usually the bug.
+
+### Acting on warnings
+
+| Warning code             | What it means                                                                                                                                                          | What to do                                                                                                                                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `orphan_custom_tool_dir` | You wrote `tools/<id>/schema.json` (and probably `source.ts`) but no `spec.tools[]` entry references it. The runner won't load it; the model is blind to it.           | **Almost always:** patch the spec to add `{ kind: "custom", id: "<id>", path: "tools/<id>" }` via `agent-applications-revisions-partial-update`. Then re-validate. If the file is genuinely WIP and shouldn't be exposed yet, delete the directory before freeze. |
+| `orphan_skill_file`      | A `skills/.../SKILL.md` or `skills/foo.md` exists in the bundle but no `spec.skills[]` entry references it. The skill index won't include it; the model can't load it. | Patch the spec to add `{ id, path, description }` for the skill, OR delete the file. Re-validate.                                                                                                                                                                 |
+
+**Don't freeze with warnings unaddressed unless you've explicitly
+told the user why.** The orphan ones especially are usually a sign
+the spec drifted from the bundle — the most common authoring
+foot-gun. Ask the user "I see <X> is in the bundle but not in the
+spec — want me to wire it in?" before doing anything irreversible.
 
 ## Phase 7 — freeze + test
 

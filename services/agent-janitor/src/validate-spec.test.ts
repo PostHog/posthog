@@ -149,6 +149,127 @@ describe('validateRevisionBundle', () => {
         ])
     })
 
+    describe('orphan warnings (non-blocking)', () => {
+        it('flags a tools/<id>/ directory present in the bundle but not in spec.tools[]', async () => {
+            // The exact failure mode the concierge stumbles into when it
+            // writes the source.ts + schema.json but skips adding the
+            // {kind: "custom"} ref. We catch it before freeze so the user
+            // can either add the ref or delete the dir.
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'tools/incidentio-list-schedules/schema.json', '{}')
+            await bundles.write('rev1', 'tools/incidentio-list-schedules/source.ts', 'export default ...')
+            const report = await validateRevisionBundle(mkRev(), bundles)
+            // Errors stay empty — freeze isn't blocked.
+            expect(report.errors).toEqual([])
+            expect(report.ok).toBe(true)
+            expect(report.warnings).toEqual([
+                {
+                    code: 'orphan_custom_tool_dir',
+                    message: expect.stringContaining('tools/incidentio-list-schedules/'),
+                    pointer: 'tools/incidentio-list-schedules/',
+                },
+            ])
+        })
+
+        it('no warning when the orphan dir IS referenced by a custom tool spec entry', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'tools/my-tool/schema.json', '{}')
+            await bundles.write('rev1', 'tools/my-tool/source.ts', 'export default ...')
+            await bundles.write('rev1', 'tools/my-tool/compiled.js', 'module.exports = ...')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    tools: [{ kind: 'custom', id: 'my-tool', path: 'tools/my-tool' }],
+                }),
+                bundles
+            )
+            expect(report.warnings).toEqual([])
+        })
+
+        it('source.ts without a schema.json is NOT flagged (runner loads on schema, not source)', async () => {
+            // Mirrors the runner's loader semantics — a stray source.ts
+            // alone isn't a "tool", so it shouldn't get flagged. Otherwise
+            // every test fixture that drops a half-written source would
+            // spam warnings.
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'tools/in-progress/source.ts', 'export default ...')
+            const report = await validateRevisionBundle(mkRev(), bundles)
+            expect(report.warnings).toEqual([])
+        })
+
+        it('flags a SKILL.md present in the bundle but not in spec.skills[]', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'skills/research/SKILL.md', '# research')
+            const report = await validateRevisionBundle(mkRev(), bundles)
+            expect(report.errors).toEqual([])
+            expect(report.warnings).toEqual([
+                {
+                    code: 'orphan_skill_file',
+                    message: expect.stringContaining('skills/research/SKILL.md'),
+                    pointer: 'skills/research/SKILL.md',
+                },
+            ])
+        })
+
+        it('flags a flat skills/foo.md when not in spec.skills[]', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'skills/research.md', '# research')
+            const report = await validateRevisionBundle(mkRev(), bundles)
+            expect(report.warnings).toEqual([
+                {
+                    code: 'orphan_skill_file',
+                    message: expect.stringContaining('skills/research.md'),
+                    pointer: 'skills/research.md',
+                },
+            ])
+        })
+
+        it('does not flag a skill that IS referenced', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'skills/research.md', '# research')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    skills: [{ id: 'research', path: 'skills/research.md' }],
+                }),
+                bundles
+            )
+            expect(report.warnings).toEqual([])
+        })
+
+        it('warnings and errors coexist — an orphan tool dir + a missing skill report both', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            await bundles.write('rev1', 'tools/forgotten/schema.json', '{}')
+            await bundles.write('rev1', 'tools/forgotten/source.ts', 'export default ...')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    skills: [{ id: 'ghost', path: 'skills/missing.md' }],
+                }),
+                bundles
+            )
+            expect(report.errors).toEqual([
+                {
+                    code: 'missing_skill',
+                    message: expect.stringContaining('skills/missing.md'),
+                    pointer: 'spec.skills[0].path',
+                },
+            ])
+            expect(report.warnings).toEqual([
+                {
+                    code: 'orphan_custom_tool_dir',
+                    message: expect.stringContaining('tools/forgotten/'),
+                    pointer: 'tools/forgotten/',
+                },
+            ])
+            expect(report.ok).toBe(false)
+        })
+    })
+
     it('reports no_triggers when spec.triggers is empty', async () => {
         const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')

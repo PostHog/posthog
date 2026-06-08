@@ -33,6 +33,14 @@ export type ValidationCode =
     | 'unknown_cron_placeholder'
 
 /**
+ * Non-blocking soft signals — surface to the author before freeze, but the
+ * runner will still load the revision. Distinct from `errors` so the freeze
+ * gate stays explicit (`errors.length === 0`) and the concierge can act on
+ * warnings without conflating them with hard problems.
+ */
+export type ValidationWarningCode = 'orphan_custom_tool_dir' | 'orphan_skill_file'
+
+/**
  * Placeholder set authors can use inside `external_key` and `prompt` on a
  * cron trigger. Shared between freeze-time validation (here) and runtime
  * expansion (PR-3 of `cron-trigger-scheduler.md`). Anything outside this
@@ -63,17 +71,37 @@ export interface ValidationError {
     pointer: string
 }
 
+export interface ValidationWarning {
+    code: ValidationWarningCode
+    message: string
+    /** Bundle path the warning attaches to (e.g. "tools/incidentio-list-schedules/"). */
+    pointer: string
+}
+
 export interface ValidationReport {
     ok: boolean
     revision_id: string
     revision_state: AgentRevision['state']
     errors: ValidationError[]
+    /**
+     * Soft signals — the author probably wants to act on these before
+     * freezing, but the runner won't reject the revision. Currently:
+     *   - `orphan_custom_tool_dir`: a `tools/<id>/schema.json` exists in
+     *     the bundle but no `spec.tools[]` entry references it. Catches
+     *     the "wrote the tool source but forgot to add the spec ref"
+     *     bug that's the most common authoring foot-gun, especially
+     *     for AI authors.
+     *   - `orphan_skill_file`: a `skills/.../SKILL.md` exists in the
+     *     bundle but no `spec.skills[]` entry references it. Same shape.
+     */
+    warnings: ValidationWarning[]
     /** Native tool ids referenced by the spec that resolved fine. */
     resolved_natives: string[]
 }
 
 export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleStore): Promise<ValidationReport> {
     const errors: ValidationError[] = []
+    const warnings: ValidationWarning[] = []
     const resolvedNatives: string[] = []
 
     // An agent with no triggers has no surface to be invoked through — every
@@ -141,6 +169,56 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
                 code: 'missing_skill',
                 message: `skill "${skill.id}" path "${skill.path}" is not present in the bundle`,
                 pointer: `spec.skills[${i}].path`,
+            })
+        }
+    }
+
+    // Soft-warning pass over the bundle filesystem. Catches the "wrote the
+    // files but forgot the spec ref" foot-gun — most common authoring bug,
+    // especially for AI authors who skip the schema discovery loop for
+    // `kind: "custom"` and just write the directory. Doesn't block freeze;
+    // the concierge surfaces it before freeze + asks the user whether the
+    // orphan should be added to spec.tools[] or deleted.
+    //
+    // We list once and partition into the two checks (tools / skills) so the
+    // bundle store sees a single round-trip even when both shapes exist.
+    const entries = await bundle.list(rev.id)
+    const referencedCustomToolPaths = new Set(
+        rev.spec.tools
+            .filter((t): t is Extract<typeof t, { kind: 'custom' }> => t.kind === 'custom')
+            .map((t) => t.path.replace(/\/$/, ''))
+    )
+    const customToolDirs = new Set<string>()
+    for (const entry of entries) {
+        // `tools/<id>/schema.json` is the canonical marker for a custom tool
+        // directory — the runner loads on schema, not source, so a stray
+        // source.ts without a schema.json is not a tool. Mirror that here.
+        const match = entry.path.match(/^(tools\/[^/]+)\/schema\.json$/)
+        if (match) {
+            customToolDirs.add(match[1])
+        }
+    }
+    for (const dir of customToolDirs) {
+        if (!referencedCustomToolPaths.has(dir)) {
+            warnings.push({
+                code: 'orphan_custom_tool_dir',
+                message: `bundle contains "${dir}/" but no entry in spec.tools[] references it; either add { kind: "custom", id, path: "${dir}" } to spec.tools[] or delete the directory before freeze`,
+                pointer: `${dir}/`,
+            })
+        }
+    }
+
+    const referencedSkillPaths = new Set(rev.spec.skills.map((s) => s.path.replace(/\/$/, '')))
+    for (const entry of entries) {
+        // Same shape as the runner's skill loader: SKILL.md inside a
+        // directory under skills/, or a flat skills/foo.md file. Anything
+        // else under skills/ (notes, fixtures) is ignored.
+        const isSkillMd = /^skills\/[^/]+\/SKILL\.md$/.test(entry.path) || /^skills\/[^/]+\.md$/.test(entry.path)
+        if (isSkillMd && !referencedSkillPaths.has(entry.path)) {
+            warnings.push({
+                code: 'orphan_skill_file',
+                message: `bundle contains "${entry.path}" but no entry in spec.skills[] references it; either add a skill ref with this path, or delete the file before freeze`,
+                pointer: entry.path,
             })
         }
     }
@@ -220,6 +298,7 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         revision_id: rev.id,
         revision_state: rev.state,
         errors,
+        warnings,
         resolved_natives: resolvedNatives,
     }
 }
