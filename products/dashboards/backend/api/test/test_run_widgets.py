@@ -28,7 +28,10 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
-from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
+from products.dashboards.backend.widgets.error_tracking_list import (
+    run_error_tracking_list_widget,
+    validate_error_tracking_list_config,
+)
 from products.dashboards.backend.widgets.session_replay_list import (
     SESSION_REPLAY_ORDER_BY,
     run_session_replay_list_widget,
@@ -477,8 +480,6 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         mock_runner_cls.return_value.calculate.side_effect = calculate_side_effect
 
-        from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
-
         result = run_error_tracking_list_widget(self.team, {"limit": 1}, user=self.user, include_total_count=True)
 
         self.assertTrue(result["hasMore"])
@@ -528,8 +529,6 @@ class TestDashboardRunWidgets(APIBaseTest):
             )
 
         mock_runner_cls.return_value.calculate.side_effect = calculate_side_effect
-
-        from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
 
         result = run_error_tracking_list_widget(self.team, {"limit": 1}, user=self.user, include_total_count=True)
 
