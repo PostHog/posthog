@@ -681,7 +681,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
 
     def test_allows_action_with_required_scopes(self):
         """OAuth token can access endpoints that match its scopes"""
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         self.assertEqual(response.status_code, 200)
 
     def test_allows_custom_error_tracking_write_action(self):

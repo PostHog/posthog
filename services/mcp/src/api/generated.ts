@@ -21752,20 +21752,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    export type LocalEvaluationResponseGroupTypeMapping = {[key: string]: string};
-
-    /**
-     * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
-     */
-    export type LocalEvaluationResponseCohorts = { [key: string]: unknown };
-
-    export interface LocalEvaluationResponse {
-      flags: MinimalFeatureFlag[];
-      group_type_mapping: LocalEvaluationResponseGroupTypeMapping;
-      /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
-      cohorts: LocalEvaluationResponseCohorts;
-    }
-
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -48705,14 +48691,6 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
-    };
-
-    export type FeatureFlagsLocalEvaluationRetrieveParams = {
-    /**
-     * Include cohorts in response
-     * @nullable
-     */
-    send_cohorts?: boolean | null;
     };
 
     export type FeatureFlagsMyFlagsRetrieveParams = {

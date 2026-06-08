@@ -4,7 +4,6 @@ import re
 import copy
 import json
 import math
-import time
 import logging
 import functools
 from datetime import datetime, timedelta
@@ -18,7 +17,6 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
-from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
@@ -39,15 +37,9 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import (
-    JwtAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
+from posthog.constants import FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -71,8 +63,7 @@ from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
-from posthog.storage.hypercache import HyperCacheDependencyUnavailable
+from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
@@ -85,11 +76,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
-from products.feature_flags.backend.local_evaluation import (
-    DATABASE_FOR_LOCAL_EVALUATION,
-    _get_flag_properties_from_filters,
-    get_flags_response_if_none_match,
-)
+from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
@@ -274,52 +261,6 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "product_tours",
 )
 
-LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
-    "posthog_local_evaluation_request_total",
-    "Local evaluation API requests",
-    labelnames=["send_cohorts"],
-)
-
-LOCAL_EVALUATION_ETAG_COUNTER = Counter(
-    "posthog_local_evaluation_etag_total",
-    "Local evaluation ETag cache results",
-    labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
-)
-
-LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
-    "posthog_local_evaluation_secret_api_key_in_body_total",
-    "Local evaluation requests where secret_api_key was passed in request body instead of Authorization header",
-)
-
-LOCAL_EVALUATION_AUTH_COUNTER = Counter(
-    "posthog_local_evaluation_auth_total",
-    "Local evaluation requests by authentication method",
-    labelnames=["method"],  # "secret_api_key", "personal_api_key", "oauth", "jwt", "session", or "other"
-)
-
-LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER = Counter(
-    "posthog_local_evaluation_personal_api_key_source_total",
-    "Local evaluation requests authenticated via personal API key, by source",
-    labelnames=["source"],  # "header", "body", "query_string"
-)
-
-LOCAL_EVALUATION_DEPENDENCY_UNAVAILABLE_COUNTER = Counter(
-    "posthog_local_evaluation_dependency_unavailable_total",
-    "Local evaluation requests returning 503 because a flag dependency was unavailable on a cold cache",
-)
-
-_AUTH_METHOD_BY_CLASS: dict[type, str] = {
-    ProjectSecretAPIKeyAuthentication: "secret_api_key",
-    PersonalAPIKeyAuthentication: "personal_api_key",
-    OAuthAccessTokenAuthentication: "oauth",
-    JwtAuthentication: "jwt",
-    SessionAuthentication: "session",
-}
-
-
-def _classify_auth_method(authenticator: object | None) -> str:
-    return _AUTH_METHOD_BY_CLASS.get(type(authenticator), "other")
-
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
@@ -494,47 +435,6 @@ def check_flag_limits_for_team(
             f"Maximum of {count_limit:,} feature flags allowed per team. "
             f"Please delete unused flags or contact support to increase this limit."
         )
-
-
-def extract_etag_from_header(header_value: str | None) -> str | None:
-    """
-    Extract ETag value from an If-None-Match header.
-
-    Handles both strong ETags ("abc123") and weak ETags (W/"abc123") per RFC 7232.
-    Malformed weak ETags (ex. "W/abc123" where quotes are missing) are returned as-is.
-    Returns None if the header is empty or None.
-    """
-    if not header_value:
-        return None
-
-    etag = header_value.strip()
-    if etag.startswith('W/"'):
-        etag = etag[2:]  # Remove W/ prefix
-    etag = etag.strip('"')
-
-    return etag if etag else None
-
-
-class LocalEvaluationThrottle(BurstRateThrottle):
-    # Throttle class that's scoped just to the local evaluation endpoint.
-    # This makes the rate limit independent of other endpoints.
-    scope = "feature_flag_evaluations"
-    rate = "600/minute"
-
-    def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
-
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = LOCAL_EVAL_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
-
-        return super().allow_request(request, view)
 
 
 class RemoteConfigThrottle(BurstRateThrottle):
@@ -2102,22 +2002,6 @@ class MyFlagsQuerySerializer(serializers.Serializer):
     groups = GroupsJSONField()
 
 
-class LocalEvaluationQuerySerializer(serializers.Serializer):
-    send_cohorts = serializers.BooleanField(
-        required=False,
-        default=False,
-        allow_null=True,
-        help_text="Include cohorts in response",
-    )
-
-    def to_internal_value(self, data):
-        # Handle ?send_cohorts without a value (empty string) as True
-        if "send_cohorts" in data and data["send_cohorts"] == "":
-            data = data.copy()
-            data["send_cohorts"] = True
-        return super().to_internal_value(data)
-
-
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
     groups = GroupsJSONField()
@@ -2379,15 +2263,6 @@ class MyFlagsResponseSerializer(serializers.Serializer):
 
 class MyFlagsResponseListSerializer(serializers.ListSerializer):
     child = MyFlagsResponseSerializer()
-
-
-class LocalEvaluationResponseSerializer(serializers.Serializer):
-    flags: serializers.ListSerializer = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
-    group_type_mapping = serializers.DictField(child=serializers.CharField())
-    cohorts = serializers.DictField(
-        child=serializers.JSONField(),
-        help_text="Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).",
-    )
 
 
 class BulkKeysRequestSerializer(serializers.Serializer):
@@ -3445,210 +3320,6 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(eval_tag_count=0)
 
         return queryset
-
-    @validated_request(
-        query_serializer=LocalEvaluationQuerySerializer,
-        responses={
-            200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
-            402: OpenApiResponse(description="Payment required"),
-            500: OpenApiResponse(description="Internal server error"),
-            503: OpenApiResponse(description="Feature flag dependencies temporarily unavailable"),
-        },
-    )
-    @action(
-        methods=["GET"],
-        detail=False,
-        throttle_classes=[LocalEvaluationThrottle],
-        required_scopes=["feature_flag:read"],
-        authentication_classes=[
-            ProjectSecretAPIKeyAuthentication,
-        ],
-        permission_classes=[ProjectSecretAPITokenPermission],
-    )
-    def local_evaluation(self, request: request.Request, **kwargs) -> Response:
-        # **kwargs is required because DRF passes parent_lookup_project_id from nested router
-        start_time = time.time()
-        logger = logging.getLogger(__name__)
-
-        # Track if secret_api_key was passed in request body AND was the actual auth mechanism.
-        # If the header also has a phs_ token, the header wins and the body value is ignored,
-        # so Rust (header-only) would still authenticate fine — no need to count those.
-        auth_header = request.headers.get("authorization", "")
-        if (
-            request.data.get("secret_api_key")
-            and isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
-            and not re.match(r"^Bearer\s+phs_[a-zA-Z0-9]+$", auth_header)
-        ):
-            LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER.inc()
-
-        # Use validated boolean value from serializer
-        include_cohorts = request.validated_query_data.get("send_cohorts", False)
-
-        # Extract client ETag from If-None-Match header
-        client_etag = extract_etag_from_header(request.headers.get("If-None-Match"))
-
-        # Track send_cohorts parameter usage
-        LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
-
-        auth_method = _classify_auth_method(request.successful_authenticator)
-        LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
-
-        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            source = request.successful_authenticator.personal_api_key_source or "unknown"
-            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source).inc()
-
-        try:
-            # Check if team is quota limited for feature flags
-            if getattr(settings, "DECIDE_FEATURE_FLAG_QUOTA_CHECK", True):
-                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-                limited_tokens_flags = list_limited_team_attributes(
-                    QuotaResource.FEATURE_FLAG_REQUESTS,
-                    QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-                )
-                if self.team.api_token in limited_tokens_flags:
-                    return Response(
-                        {
-                            "type": "quota_limited",
-                            "detail": "You have exceeded your feature flag request quota",
-                            "code": "payment_required",
-                        },
-                        status=status.HTTP_402_PAYMENT_REQUIRED,
-                    )
-
-            logger.info(
-                "Starting local evaluation",
-                extra={
-                    "team_id": self.team.pk,
-                    "has_send_cohorts": include_cohorts,
-                },
-            )
-
-            response_data, etag, modified = get_flags_response_if_none_match(self.team, include_cohorts, client_etag)
-
-            # Track ETag effectiveness
-            result = "none" if not client_etag else ("hit" if not modified else "miss")
-            LOCAL_EVALUATION_ETAG_COUNTER.labels(result=result).inc()
-
-            # Return 304 Not Modified if client's ETag matches
-            if not modified and etag:
-                response = Response(status=status.HTTP_304_NOT_MODIFIED)
-                response["ETag"] = f'W/"{etag}"'
-                response["Cache-Control"] = "private, must-revalidate"
-                return response
-
-            if not response_data:
-                raise Exception("No response data")
-
-            flag_keys = [flag["key"] for flag in response_data["flags"]]
-
-            # Add request for analytics
-            if len(flag_keys) > 0 and not all(
-                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
-                or flag_key.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
-                for flag_key in flag_keys
-            ):
-                increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
-
-            response = Response(response_data)
-            if etag:
-                response["ETag"] = f'W/"{etag}"'
-                response["Cache-Control"] = "private, must-revalidate"
-            return response
-
-        except HyperCacheDependencyUnavailable:
-            # Cold cache during an upstream (persons DB) outage. Fail loud with a
-            # retryable 503 rather than a generic 500: SDKs treat 5xx as "retry / keep
-            # last-known config". The dependency layer already captured this (throttled),
-            # so re-capturing per request would flood Sentry during an outage.
-            LOCAL_EVALUATION_DEPENDENCY_UNAVAILABLE_COUNTER.inc()
-            duration = time.time() - start_time
-            logger.warning(
-                "Feature flag dependencies unavailable during local evaluation",
-                extra={"duration": duration, "team_id": self.team.pk},
-            )
-            response = Response(
-                {
-                    "type": "service_unavailable",
-                    "code": "flags_dependency_unavailable",
-                    "detail": "Feature flag dependencies are temporarily unavailable; retry shortly",
-                },
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-            response["Retry-After"] = "30"
-            return response
-        except Exception as e:
-            duration = time.time() - start_time
-            logger.error(
-                "Unexpected error in local evaluation",
-                extra={"duration": duration},
-                exc_info=True,
-            )
-            capture_exception(e)
-            return Response(
-                {
-                    "type": "server_error",
-                    "code": "unexpected_error",
-                    "detail": "An unexpected error occurred",
-                },
-                status=500,
-            )
-
-    def _handle_cached_response(self, cached_response: Optional[dict]) -> Optional[Response]:
-        """Handle cached response including analytics tracking."""
-        if cached_response is None:
-            return None
-
-        # Increment request count for analytics (exclude survey and product tour targeting flags)
-        if cached_response.get("flags") and not all(
-            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
-            or flag.get("key", "").startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
-            for flag in cached_response["flags"]
-        ):
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
-
-        return Response(cached_response)
-
-    def _build_cohort_properties_cache(self, cohorts, seen_cohorts_cache, feature_flag):
-        """
-        Builds a cache of cohort properties for a feature flag.
-
-        This is used to avoid duplicate queries for cohort properties.
-
-        Args:
-            cohorts: The cache of cohort properties.
-            seen_cohorts_cache: The cache of seen cohorts.
-            feature_flag: The feature flag to build the cache for.
-        """
-        logger = logging.getLogger(__name__)
-        cohort_ids = feature_flag.get_cohort_ids(
-            using_database=DATABASE_FOR_LOCAL_EVALUATION,
-            seen_cohorts_cache=seen_cohorts_cache,
-        )
-
-        for id in cohort_ids:
-            # don't duplicate queries for already added cohorts
-            if id not in cohorts:
-                if id in seen_cohorts_cache:
-                    cohort = seen_cohorts_cache[id]
-                else:
-                    cohort = (
-                        Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                        .filter(id=id, team__project_id=self.project_id, deleted=False)
-                        .first()
-                    )
-                    seen_cohorts_cache[id] = cohort or ""
-
-                if cohort and not cohort.is_static:
-                    try:
-                        cohorts[str(cohort.pk)] = cohort.properties.to_dict()
-                    except Exception:
-                        logger.error(
-                            "Error processing cohort properties",
-                            extra={"cohort_id": id},
-                            exc_info=True,
-                        )
-                        continue
 
     @validated_request(
         query_serializer=EvaluationReasonsQuerySerializer,
