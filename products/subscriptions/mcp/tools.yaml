@@ -34,8 +34,7 @@ tools:
             is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
             runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
 
-            Delivery is set by `target_type` — `email` or `slack`. (Insight and dashboard subscriptions also accept
-            `webhook`; prompt subscriptions do not.)
+            Delivery is set by `target_type` — `email` or `slack`.
 
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
             rejected.

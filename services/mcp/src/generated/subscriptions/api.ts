@@ -63,10 +63,7 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter by subscription resource: insight, dashboard export, or AI report.'),
     search: zod.string().optional().describe('A search term.'),
-    target_type: zod
-        .enum(['email', 'slack', 'webhook'])
-        .optional()
-        .describe('Filter by delivery channel (email, Slack, or webhook).'),
+    target_type: zod.enum(['email', 'slack']).optional().describe('Filter by delivery channel (email or Slack).'),
 })
 
 export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
@@ -110,16 +107,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
-            ),
+            .enum(['email', 'slack'])
+            .describe('* `email` - Email\n* `slack` - Slack')
+            .describe('Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack'),
         target_value: zod
             .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
+            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.'),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
@@ -231,18 +224,14 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
+            .enum(['email', 'slack'])
+            .describe('* `email` - Email\n* `slack` - Slack')
             .optional()
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
-            ),
+            .describe('Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack'),
         target_value: zod
             .string()
             .optional()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
+            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.'),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
