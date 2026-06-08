@@ -34,6 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries.base_query_utils import resolve_feature_flag_key
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -66,11 +67,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         feature_flag_key = self.query.feature_flag.get("key")
         if not isinstance(feature_flag_key, str) or not feature_flag_key:
             raise ValidationError("feature_flag key is required")
-        self.feature_flag_key: str = feature_flag_key
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
         self.exposure_criteria = self.query.exposure_criteria
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+        self.feature_flag_key: str = resolve_feature_flag_key(self.experiment.feature_flag)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
