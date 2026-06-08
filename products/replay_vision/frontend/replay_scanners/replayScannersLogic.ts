@@ -1,11 +1,9 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,8 +13,9 @@ import {
     visionScannersDestroy,
     visionScannersList,
     visionScannersPartialUpdate,
+    visionScannersStatsRetrieve,
 } from '../generated/api'
-import type { UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -32,10 +31,6 @@ import {
 
 // Filter fields whose change shifts the result set; auto-reset page unless the caller passes a new one.
 const FILTER_RESET_KEYS = ['search', 'enabledFilter', 'scannerTypeFilter', 'createdByFilter', 'sort'] as const
-
-export interface ReplayScannersLogicProps {
-    tabId: string
-}
 
 // Keep in sync with `SCANNER_ORDER_FIELDS` in products/replay_vision/backend/api/scanners.py.
 export const SORTABLE_COLUMN_KEYS = [
@@ -147,8 +142,6 @@ function parseSortParam(value: unknown): ScannersSorting | null {
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
-    props({} as ReplayScannersLogicProps),
-    tabAwareScene(),
 
     actions({
         loadScanners: true,
@@ -157,6 +150,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadCreators: true,
         loadCreatorsSuccess: (creators: UserBasicApi[]) => ({ creators }),
         loadCreatorsFailure: true,
+        loadScannerStats: true,
+        loadScannerStatsSuccess: (stats: ScannerStatsResponseApi) => ({ stats }),
+        loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         duplicateScanner: (id: string) => ({ id }),
@@ -222,12 +218,26 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadCreatorsSuccess: (_, { creators }) => creators,
             },
         ],
+        scannerStats: [
+            null as ScannerStatsResponseApi | null,
+            {
+                loadScannerStatsSuccess: (_, { stats }) => stats,
+            },
+        ],
         scannersLoading: [
             false,
             {
                 loadScanners: () => true,
                 loadScannersSuccess: () => false,
                 loadScannersFailure: () => false,
+            },
+        ],
+        scannerStatsLoading: [
+            false,
+            {
+                loadScannerStats: () => true,
+                loadScannerStatsSuccess: () => false,
+                loadScannerStatsFailure: () => false,
             },
         ],
         chartDateFrom: [
@@ -266,8 +276,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 )
                 const response = await visionScannersList(String(teamId), params)
                 actions.loadScannersSuccess(scannersFromApi(response.results ?? []), response.count ?? 0)
-            } catch (error) {
-                lemonToast.error(`Failed to load scanners: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadScannersFailure(String(error))
             }
         },
@@ -285,8 +295,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 await visionScannersDestroy(String(teamId), id)
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
-            } catch (error) {
-                lemonToast.error(`Failed to delete scanner: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -316,8 +326,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             try {
                 const response = await visionScannersCreate(String(teamId), scannerToApiBody(duplicate))
                 actions.duplicateScannerSuccess(scannerFromApi(response))
-            } catch (error) {
-                lemonToast.error(`Failed to duplicate scanner: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -334,14 +344,34 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        // Refetch after a delete or duplicate so the paginated page + count + creator dropdown stay accurate.
+        loadScannerStats: async (_, breakpoint) => {
+            // Debounce so a burst of mutations (rapid toggles, bulk delete) coalesces into one refetch.
+            await breakpoint(50)
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await visionScannersStatsRetrieve(String(teamId))
+                actions.loadScannerStatsSuccess(response)
+            } catch {
+                actions.loadScannerStatsFailure()
+            }
+        },
+
+        // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
+            actions.loadScannerStats()
         },
         duplicateScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
+            actions.loadScannerStats()
+        },
+        toggleScannerEnabledDone: () => {
+            actions.loadScannerStats()
         },
 
         toggleScannerEnabled: async ({ id }) => {
@@ -358,8 +388,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
                 actions.toggleScannerEnabledDone(id)
-            } catch (error) {
-                lemonToast.error(`Failed to ${scanner.enabled ? 'enable' : 'disable'} scanner: ${String(error)}`)
+            } catch (error: any) {
+                const verb = scanner.enabled ? 'enable' : 'disable'
+                lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertScannerEnabled(id)
             }
         },
@@ -397,7 +428,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         ],
     }),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
             const { filters } = values
             const sortParam =
@@ -426,7 +457,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values, cache }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         [urls.replayVision()]: (_, searchParams) => {
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
@@ -450,5 +481,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadCreators()
+        actions.loadScannerStats()
     }),
 ])

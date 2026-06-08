@@ -131,7 +131,9 @@ rules:
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
+                              |TeamWorkflowsConfig
                               |FileSystem
+                              |FileSystemFolderInstructions
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -174,6 +176,7 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |ObjectMediaPreview
+                              |ParserRecipe
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -364,7 +367,9 @@ rules:
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
+                        |TeamWorkflowsConfig
                         |FileSystem
+                        |FileSystemFolderInstructions
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -403,6 +408,7 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |ObjectMediaPreview
+                        |ParserRecipe
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey

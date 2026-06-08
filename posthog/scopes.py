@@ -39,6 +39,7 @@ APIScopeObject = Literal[
     "desktop_recording",
     "early_access_feature",
     "endpoint",
+    "engineering_analytics",
     "error_tracking",
     "evaluation",
     "element",

@@ -38,7 +38,7 @@ describe('useTaxonomicFilter', () => {
 
     afterEach(() => cleanup())
 
-    it('exposes groups in the consumer-requested order, with Recent + Pinned auto-injected', () => {
+    it('exposes groups in the consumer-requested order, with Recent/Pinned auto-injected', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({
@@ -50,8 +50,7 @@ describe('useTaxonomicFilter', () => {
                 }),
             { wrapper }
         )
-        // Recent + Pinned auto-inject at the start (no other meta groups
-        // requested, so they go in at index 0).
+        // Recent + Pinned auto-inject at the start; SuggestedFilters is NOT auto-injected.
         expect(result.current.groupTypes).toEqual([
             TaxonomicFilterGroupType.RecentFilters,
             TaxonomicFilterGroupType.PinnedFilters,
@@ -60,6 +59,50 @@ describe('useTaxonomicFilter', () => {
             TaxonomicFilterGroupType.PersonProperties,
         ])
         expect(result.current.groups.map((g) => g.type)).toEqual(result.current.groupTypes)
+    })
+
+    it.each([
+        {
+            name: 'never auto-injects SuggestedFilters for a multi-content picker',
+            requested: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+        },
+        {
+            name: 'never auto-injects SuggestedFilters for a single content group',
+            requested: [TaxonomicFilterGroupType.Events],
+        },
+        {
+            name: 'never auto-injects SuggestedFilters for a meta-only picker',
+            requested: [TaxonomicFilterGroupType.HogQLExpression],
+        },
+        {
+            name: 'never auto-injects SuggestedFilters when a mutually-exclusive pair collapses',
+            requested: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
+        },
+    ])('$name', ({ requested }) => {
+        const { result } = renderHook(() => useTaxonomicFilter({ taxonomicGroupTypes: requested }), { wrapper })
+        expect(result.current.groupTypes).not.toContain(TaxonomicFilterGroupType.SuggestedFilters)
+    })
+
+    it('initial groupType prop is respected', () => {
+        const { result } = renderHook(
+            () =>
+                useTaxonomicFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+                    groupType: TaxonomicFilterGroupType.Events,
+                }),
+            { wrapper }
+        )
+        expect(result.current.groupTypes).not.toContain(TaxonomicFilterGroupType.SuggestedFilters)
+        expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.Events)
+    })
+
+    it('defaults to the first non-meta group when SuggestedFilters is not present', () => {
+        const { result } = renderHook(
+            () => useTaxonomicFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] }),
+            { wrapper }
+        )
+        expect(result.current.groupTypes).not.toContain(TaxonomicFilterGroupType.SuggestedFilters)
+        expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.Events)
     })
 
     it('defaults activeGroupType to props.groupType when valid', () => {
@@ -291,7 +334,7 @@ describe('useTaxonomicFilter', () => {
         expect(onChange).toHaveBeenCalledWith(eventsGroup, 'pageview', fakeItem)
     })
 
-    it('searchPlaceholder composes label fragments from groups (incl. auto-injected Recent + Pinned)', () => {
+    it('searchPlaceholder composes label fragments from content groups only (Recent + Pinned excluded)', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({

@@ -54,11 +54,10 @@ const RESOURCE_TYPE = 'cohort'
 export interface CohortEditProps {
     id?: CohortType['id']
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
-    tabId: string
 }
 
-export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Element {
-    const logicProps = { id, tabId }
+export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
+    const logicProps = { id }
 
     const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
         if (!Array.isArray(record)) {
@@ -125,7 +124,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     if (cohort.deleted) {
         return (
             <div>
-                <CohortSceneMenuBar id={id} tabId={tabId} />
+                <CohortSceneMenuBar id={id} />
                 <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
                 <ScenePanel>
                     <ButtonPrimitive
@@ -145,8 +144,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     return (
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
-                <AddPersonToCohortModal id={id} tabId={tabId} />
-                <CohortSceneMenuBar id={id} tabId={tabId} />
+                <AddPersonToCohortModal id={id} />
+                <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
                     <ScenePanelInfoSection>

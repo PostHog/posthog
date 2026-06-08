@@ -100,7 +100,9 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
     search: zod
         .string()
         .optional()
-        .describe('Case-insensitive substring match across name, derived_name, description, and tag names.'),
+        .describe(
+            "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`."
+        ),
     short_id: zod.string().optional(),
     tags: zod
         .string()

@@ -449,6 +449,7 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -1684,6 +1685,12 @@ export type FunnelsFilter = {
      * @default true
      */
     showAnnotations?: boolean
+    /**
+     * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
+     * tail of the trend isn't dragged down by entrants who still have time to convert.
+     * @default false
+     */
+    hideIncompleteConversionWindowPeriods?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -2097,6 +2104,8 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponse
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
@@ -3070,6 +3079,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
     resourceFingerprint?: string
+    /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3190,6 +3201,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3387,7 +3400,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'inbox'
-    | 'sdk_doctor'
+    | 'sdk_health'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'
@@ -6192,7 +6205,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         statsTableName: 'campaign_performance_report',
         tableKeywords: ['campaigns'] as const,
         tableExclusions: ['performance'] as const,
-        defaultSources: ['bing', 'microsoft'] as const,
+        defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
         // no separate entity tables. The report embeds the entity columns, so it
