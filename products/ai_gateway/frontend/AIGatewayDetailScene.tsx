@@ -219,11 +219,6 @@ client.messages.create(
 
     return (
         <section className="flex flex-col gap-2">
-            <p className="text-secondary m-0">
-                Point any OpenAI- or Anthropic-compatible client at this gateway's base URL and authenticate with a key
-                assigned to it.
-            </p>
-            <CodeSnippet language={Language.Bash}>{gatewayBase}</CodeSnippet>
             <LemonSegmentedButton
                 size="small"
                 value={endpointProvider}
