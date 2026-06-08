@@ -238,9 +238,11 @@ whenever you:
 - **Switch a source's protocol** — e.g. swap REST for gRPC, add webhook support alongside the pull API,
   or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
 
-Keep the entries alphabetical within each table. If you add a partially-tracked source, also append a
-short "Notes on partially-tracked sources" entry explaining what blocks tracking (e.g. a vendor SDK with no
-session/interceptor seam).
+Keep the entries alphabetical within each table. The scaffolded list is one source per line (one bullet
+each, also alphabetical) so adding or removing a source only touches its own line and avoids conflicts with
+concurrent PRs — don't collapse it back into a comma-separated paragraph. If you add a partially-tracked
+source, also append a short "Notes on partially-tracked sources" entry explaining what blocks tracking
+(e.g. a vendor SDK with no session/interceptor seam).
 
 ## Required coding conventions
 
@@ -372,6 +374,28 @@ If the API issues OAuth scopes or per-resource access tokens, declare every scop
 
 - **OAuth sources:** set `requiredScopes` on `SourceFieldOauthConfig` (space-separated string, matches the OAuth `scope` parameter format). The frontend diffs it against the integration's granted scopes and warns the user with a Reconnect action when any are missing.
 - **Non-OAuth sources (PAT, API key):** there's no integration object to inspect, so list scopes in the `caption` instead. Captions render through `LemonMarkdown`, so backticks, bold, and links work.
+
+## Connection host fields (credential retargeting)
+
+If your source stores a secret (API token, password) and sends it to a host that the user configures in a
+**non-`host`** field, declare that field on the source class's `connection_host_fields` property (from the
+base source in `common/base.py`):
+
+```python
+@property
+def connection_host_fields(self) -> list[str]:
+    # `okta_domain` is where the stored API token is sent; retargeting it must re-require the token.
+    return ["okta_domain"]
+```
+
+The update serializer reads this list and forces the editor to re-enter the source's secrets whenever one of
+these fields changes. Without it, an org member could PATCH the host field to a server they control while the
+preserved (omitted) secret is reused — exfiltrating the credential. `host` and the SSH-tunnel target are
+already handled separately, so only sources whose connection target lives in a differently named field (e.g.
+Okta's `okta_domain`) need to override this. The default is `[]` (no extra fields).
+
+Pair this with `_is_host_safe` (see `## Outbound HTTP must go through the tracked transport`) at both
+source-create and sync time to block hosts resolving to internal/private IPs.
 
 ## Mixins
 

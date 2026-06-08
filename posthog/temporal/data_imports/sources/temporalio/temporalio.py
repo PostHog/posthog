@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import threading
 import dataclasses
+from collections.abc import Iterable
 from enum import StrEnum
 from queue import Queue
 from typing import Any, Optional
@@ -110,7 +111,10 @@ def _sanitize(obj):
 class FakeSettings:
     """Required to trick temporal.io client to think its reading from django settings"""
 
-    SECRET_KEY: str
+    TEMPORAL_SECRET_KEY: str | bytes
+    TEMPORAL_FALLBACK_SECRET_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list)
+    TEST: bool = False
+    DEBUG: bool = False
 
 
 async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:

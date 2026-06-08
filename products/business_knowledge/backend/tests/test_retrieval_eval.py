@@ -6,11 +6,20 @@ from posthog.test.base import BaseTest
 import yaml
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
+
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.logic import create_text_source
-from products.business_knowledge.backend.models import SourceStatus
+from products.business_knowledge.backend.models import KnowledgeDocument, SafetyVerdict, SourceStatus
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _mark_team_docs_safe(team_id: int) -> None:
+    # Text now starts `unknown` (classifier-gated); these retrieval tests aren't
+    # about safety, so clear the team's docs to SAFE to model a classified state.
+    with team_scope(team_id, canonical=True):
+        KnowledgeDocument.objects.filter(team_id=team_id).update(safety_verdict=SafetyVerdict.SAFE)
 
 
 def _load_eval_cases() -> list[tuple[str, str, bool]]:
@@ -39,6 +48,7 @@ class TestRetrievalEval(BaseTest):
                 name=entry["source_name"],
                 text=entry["text"],
             )
+        _mark_team_docs_safe(cls.team.id)
 
     @parameterized.expand(_load_eval_cases)
     def test_search(self, _label: str, query: str, expect_found: bool) -> None:
@@ -84,6 +94,7 @@ class TestRetrievalEval(BaseTest):
             text=text,
         )
         assert source.status == SourceStatus.READY
+        _mark_team_docs_safe(self.team.id)
 
         results = logic.search_knowledge(self.team.id, "zebrafish", limit=2)
         assert len({r.document_id for r in results}) == 1
@@ -98,3 +109,15 @@ class TestRetrievalEval(BaseTest):
         assert r.source_name == "Refund Policy"
         assert r.chunk_id is not None
         assert r.source_id is not None
+
+    def test_ranking_returns_most_relevant_source_first(self) -> None:
+        # A term that only appears in the onboarding doc must rank that doc's
+        # chunk first — FTS relevance ordering, not insertion order.
+        results = logic.search_knowledge(self.team.id, "tracking snippet")
+        assert len(results) > 0
+        assert results[0].source_name == "Onboarding Guide"
+
+    def test_stopword_only_query_returns_nothing(self) -> None:
+        # `english` config drops stopwords, so a query of only stopwords yields an
+        # empty tsquery and therefore no matches (rather than erroring).
+        assert logic.search_knowledge(self.team.id, "the and of") == []

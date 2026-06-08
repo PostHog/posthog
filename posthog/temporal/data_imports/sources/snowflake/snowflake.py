@@ -90,13 +90,12 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = incremental_type_to_operator(incremental_field_type)
+    quoted_field = _SNOWFLAKE_IDENTIFIER_QUOTER.quote(incremental_field)
     return (
-        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) {operator} %s ORDER BY IDENTIFIER(%s) ASC",
+        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {quoted_field} {operator} %s ORDER BY {quoted_field} ASC",
         (
             f"{database}.{schema}.{table_name}",
-            incremental_field,
             db_incremental_field_last_value,
-            incremental_field,
         ),
     )
 
@@ -447,7 +446,14 @@ class SnowflakeImplementation(
 
                     # We cant control the batch size from snowflake when using the arrow function
                     # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
-                    yield from streaming_cursor.fetch_arrow_batches()
+                    #
+                    # Force microsecond precision so every batch shares one timestamp unit.
+                    # Otherwise the connector picks the unit per batch from the data — `ns` for
+                    # values in the nanosecond range (~1677–2262) and `us` for anything outside it
+                    # (e.g. a `0001-01-01`/`9999-12-31` sentinel) — and the mixed units make
+                    # pyarrow fail to assemble the batches ("Schema at index N was different").
+                    # The pipeline normalizes timestamps to `us` downstream regardless.
+                    yield from streaming_cursor.fetch_arrow_batches(force_microsecond_precision=True)
 
         name = NamingConvention.normalize_identifier(table_name)
 

@@ -580,7 +580,7 @@ export const getVisualReviewRunsSnapshotsListUrl = (
 }
 
 /**
- * Get all snapshots for a run with diff results.
+ * Get a run's snapshots with diff results, excluding quarantined ones by default.
  */
 export const visualReviewRunsSnapshotsList = async (
     projectId: string,
