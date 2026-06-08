@@ -151,6 +151,7 @@ Per-type stories: `widgets/<product>/<Component>.stories.tsx` under **Widget typ
 - Meta `title` must be a **string literal** matching `DASHBOARD_WIDGET_GROUP_LABELS[groupId]` / `label` (CSF rejects dynamic titles)
 - Compose with `WidgetCard` + `WidgetCardHeader` + `WidgetCardBody` + catalog header metadata — see `ErrorTrackingWidget.stories.tsx`
 - Product setup state: Kea seed helpers live in `widgetCardStoryFixtures.tsx` (`withErrorTrackingProjectState`, etc.) — do not export decorators from `*.stories.tsx` (Storybook treats exports as stories)
+- Frozen dates: spread `widgetStorybookParameters` in story `parameters` and align fixture timestamps in `widgetOverviewStoryFixtures.ts` to `WIDGET_STORYBOOK_MOCK_DATE` so TZLabel / relative copy stays stable in visual review
 - Stack decorators carefully: story-level `withErrorTrackingProjectState(false)` must not be overridden by a meta decorator that seeds `true`
 
 ## Unknown / deploy-skew widget types
