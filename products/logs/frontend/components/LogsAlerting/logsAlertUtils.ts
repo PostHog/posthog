@@ -255,7 +255,7 @@ export function groupLogsAlertDestinations(
         } else if (typeof teamsUrl === 'string') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
             key = `teams:${teamsUrl}`
-            label = 'Microsoft Teams'
+            label = `Microsoft Teams ${teamsUrl}`
         } else if (typeof webhookUrl === 'string') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl}`

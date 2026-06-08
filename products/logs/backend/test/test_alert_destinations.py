@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
+    EventKind,
     _slack_to_teams_markdown,
     _teams_text,
 )
@@ -25,7 +26,7 @@ class TestSlackToTeamsMarkdown(SimpleTestCase):
 
 class TestTeamsText(SimpleTestCase):
     @parameterized.expand([(kind,) for kind in EVENT_KINDS])
-    def test_text_is_adaptive_card_markdown(self, kind: str) -> None:
+    def test_text_is_adaptive_card_markdown(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]
         text = _teams_text(spec)
         # Bold header, the action rendered as an inline markdown link, and no stray Slack-style single asterisks.

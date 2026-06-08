@@ -182,8 +182,9 @@ _SLACK_BOLD_RE = re.compile(r"\*([^*\n]+)\*")
 
 def _slack_to_teams_markdown(text: str) -> str:
     # Slack mrkdwn marks bold with *single asterisks*; Adaptive Card markdown uses **double**.
-    # Adaptive Card TextBlocks also need a blank line between paragraphs, so widen single newlines.
-    return _SLACK_BOLD_RE.sub(r"**\1**", text).replace("\n", "\n\n")
+    # Adaptive Card TextBlocks also need a blank line between paragraphs, so collapse any run of
+    # newlines into a single blank line (one widened, none doubled-up).
+    return re.sub(r"\n+", "\n\n", _SLACK_BOLD_RE.sub(r"**\1**", text))
 
 
 def _teams_text(spec: EventKindSpec) -> str:

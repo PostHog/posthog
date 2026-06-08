@@ -117,7 +117,7 @@ describe('logsAlertUtils', () => {
             expect(groups[0]).toMatchObject({
                 key: `teams:${teamsUrl}`,
                 type: 'teams',
-                label: 'Microsoft Teams',
+                label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
         })
