@@ -211,8 +211,9 @@ BASE = {"us": "https://metabase.prod-us.posthog.dev", "eu": "https://metabase.pr
 
 def _ch_literal(value: str) -> str:
     # query_id derives from the caller-supplied client_query_id, so it can contain a single quote.
-    # Escape for a ClickHouse single-quoted literal by doubling quotes; this keeps the generated SQL
-    # well-formed even though the link only opens the query in Metabase's editor (it is not auto-run).
+    # Escape for a ClickHouse single-quoted literal by doubling quotes. Treat this as required, not
+    # cosmetic: Metabase may execute the embedded native query on load, so an unescaped quote is a real
+    # injection vector, not just malformed SQL in an editor.
     return str(value).replace("'", "''")
 
 def query_link(query_id, event_date, region="us", database_id=43):
