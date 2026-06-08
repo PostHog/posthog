@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import type { QuickFilter } from '~/types'
 
 import { WIDGET_TILE_REFRESH_DEBOUNCE_MS } from './constants'
 import { isAllowedErrorTrackingWidgetFilter } from './error_tracking/constants'
-import { isAllowedSessionReplayWidgetFilter } from './session_replay/constants'
+
+const SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES = new Set([
+    '$browser',
+    '$os',
+    '$device_type',
+    '$geoip_country_code',
+    '$geoip_city_name',
+    '$current_url',
+    '$pathname',
+    '$host',
+    '$referring_domain',
+    '$lib',
+])
 
 export type WidgetFilterDefinitionsSetup = {
     /** Loads saved property-filter definitions for tile pickers (project Quick Filter records). */
@@ -15,7 +27,7 @@ export type WidgetFilterDefinitionsSetup = {
 
 export const sessionReplayWidgetFiltersSetup: WidgetFilterDefinitionsSetup = {
     context: QuickFilterContext.Dashboards,
-    isAllowed: isAllowedSessionReplayWidgetFilter,
+    isAllowed: (filter) => SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES.has(filter.property_name.trim().toLowerCase()),
 }
 
 export const errorTrackingWidgetFiltersSetup: WidgetFilterDefinitionsSetup = {
@@ -28,29 +40,13 @@ export function useWidgetTileConfigPersist(
 ): {
     persistConfigDebounced: (config: Record<string, unknown>) => void
     persistConfigNow: (config: Record<string, unknown>) => Promise<void>
-    isPersisting: boolean
 } {
-    const [isPersisting, setIsPersisting] = useState(false)
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const generationRef = useRef(0)
     const onUpdateConfigRef = useRef(onUpdateConfig)
     onUpdateConfigRef.current = onUpdateConfig
 
     const persistConfigNow = useCallback(async (config: Record<string, unknown>): Promise<void> => {
-        const save = onUpdateConfigRef.current
-        if (!save) {
-            return
-        }
-        generationRef.current += 1
-        const generation = generationRef.current
-        setIsPersisting(true)
-        try {
-            await save(config)
-        } finally {
-            if (generation === generationRef.current) {
-                setIsPersisting(false)
-            }
-        }
+        await onUpdateConfigRef.current?.(config)
     }, [])
 
     const persistConfigDebounced = useCallback(
@@ -77,5 +73,5 @@ export function useWidgetTileConfigPersist(
         }
     }, [])
 
-    return { persistConfigDebounced, persistConfigNow, isPersisting }
+    return { persistConfigDebounced, persistConfigNow }
 }

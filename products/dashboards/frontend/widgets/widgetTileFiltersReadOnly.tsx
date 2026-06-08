@@ -1,31 +1,10 @@
 import type { ReactNode } from 'react'
 import { useMemo } from 'react'
 
-import type { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import type { QuickFilter } from '~/types'
 
-import {
-    AssigneeIconDisplay,
-    AssigneeLabelDisplay,
-} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
-import { LabelIndicator, StatusIndicator } from 'products/error_tracking/frontend/components/Indicators'
-import type { ErrorTrackingStatusSelectValue } from 'products/error_tracking/frontend/components/IssueFilters/Status'
-
-import {
-    WIDGET_DATE_RANGE_SELECT_OPTIONS,
-    type WidgetDateFromValue,
-    type WidgetFilterConfigRecord,
-} from '../widget_types/configSchemas'
-
-export function isWidgetTileFiltersReadOnly(
-    onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
-): boolean {
-    return !onUpdateConfig
-}
-
-export function widgetDateRangeLabel(dateFrom: WidgetDateFromValue): string {
-    return WIDGET_DATE_RANGE_SELECT_OPTIONS.find((option) => option.value === dateFrom)?.label ?? dateFrom
-}
+import type { WidgetFilterConfigRecord } from '../widget_types/configSchemas'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../widget_types/configSchemas'
 
 export function WidgetTileFiltersBar({ children, dataAttr }: { children: ReactNode; dataAttr: string }): JSX.Element {
     return (
@@ -39,51 +18,13 @@ export function WidgetTileFiltersBar({ children, dataAttr }: { children: ReactNo
     )
 }
 
-export function WidgetTileFilterReadOnlyValue({
-    children,
-    className,
-}: {
-    children: ReactNode
-    className?: string
-}): JSX.Element {
-    return <span className={className ?? 'inline-flex items-center gap-1.5 text-xs text-primary'}>{children}</span>
+export function WidgetTileFilterReadOnlyValue({ children }: { children: ReactNode }): JSX.Element {
+    return <span className="inline-flex items-center gap-1.5 text-xs text-primary">{children}</span>
 }
 
 export function WidgetDateRangeReadOnlyValue({ dateFrom }: { dateFrom: WidgetDateFromValue }): JSX.Element {
-    return <WidgetTileFilterReadOnlyValue>{widgetDateRangeLabel(dateFrom)}</WidgetTileFilterReadOnlyValue>
-}
-
-export function ErrorTrackingStatusReadOnlyValue({ status }: { status: ErrorTrackingStatusSelectValue }): JSX.Element {
-    if (status === 'all') {
-        return (
-            <WidgetTileFilterReadOnlyValue>
-                <LabelIndicator intent="muted" label="All" size="small" />
-            </WidgetTileFilterReadOnlyValue>
-        )
-    }
-    return (
-        <WidgetTileFilterReadOnlyValue>
-            <StatusIndicator status={status} size="small" />
-        </WidgetTileFilterReadOnlyValue>
-    )
-}
-
-export function ErrorTrackingAssigneeReadOnlyValue({
-    assignee,
-}: {
-    assignee: ErrorTrackingIssue['assignee']
-}): JSX.Element {
-    return (
-        <WidgetTileFilterReadOnlyValue>
-            <AssigneeIconDisplay assignee={assignee} size="small" />
-            <AssigneeLabelDisplay
-                assignee={assignee}
-                placeholder="Any assignee"
-                size="small"
-                className="text-primary"
-            />
-        </WidgetTileFilterReadOnlyValue>
-    )
+    const label = WIDGET_DATE_RANGE_SELECT_OPTIONS.find((option) => option.value === dateFrom)?.label ?? dateFrom
+    return <WidgetTileFilterReadOnlyValue>{label}</WidgetTileFilterReadOnlyValue>
 }
 
 function widgetFilterReadOnlyLabel(

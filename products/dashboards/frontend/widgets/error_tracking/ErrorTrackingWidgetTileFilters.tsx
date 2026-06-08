@@ -18,9 +18,6 @@ import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
 import { errorTrackingWidgetFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
-    ErrorTrackingAssigneeReadOnlyValue,
-    ErrorTrackingStatusReadOnlyValue,
-    isWidgetTileFiltersReadOnly,
     WidgetDateRangeReadOnlyValue,
     WidgetPropertyFiltersReadOnlyValues,
     WidgetTileFiltersBar,
@@ -29,6 +26,10 @@ import {
     patchErrorTrackingWidgetFilterFields,
     parseErrorTrackingWidgetConfig,
 } from './errorTrackingWidgetConfigValidation'
+import {
+    ErrorTrackingAssigneeReadOnlyValue,
+    ErrorTrackingStatusReadOnlyValue,
+} from './ErrorTrackingWidgetTileFiltersReadOnly'
 
 export type ErrorTrackingWidgetTileFiltersProps = DashboardWidgetTileFiltersProps
 
@@ -36,6 +37,7 @@ export function ErrorTrackingWidgetTileFilters({
     config,
     onUpdateConfig,
     disabledReason,
+    canMutateErrorTrackingIssues = false,
 }: ErrorTrackingWidgetTileFiltersProps): JSX.Element {
     const { context: filterDefinitionsContext, isAllowed } = errorTrackingWidgetFiltersSetup
     const parsed = parseErrorTrackingWidgetConfig(config)
@@ -54,11 +56,10 @@ export function ErrorTrackingWidgetTileFilters({
 
     const configRef = useRef(config)
     configRef.current = config
-    const { persistConfigDebounced, persistConfigNow, isPersisting } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
 
-    const controlDisabledReason = disabledReason ?? (isPersisting ? 'Updating…' : undefined)
+    const controlDisabledReason = disabledReason
     const canUpdate = !!onUpdateConfig && !controlDisabledReason
-    const readOnly = isWidgetTileFiltersReadOnly(onUpdateConfig)
 
     const applyPatch = async (patch: Parameters<typeof patchErrorTrackingWidgetFilterFields>[1]): Promise<void> => {
         const nextConfig = patchErrorTrackingWidgetFilterFields(configRef.current, patch)
@@ -76,7 +77,7 @@ export function ErrorTrackingWidgetTileFilters({
         persistConfigDebounced(nextConfig)
     }
 
-    if (readOnly) {
+    if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="error-tracking-widget-tile-filters-readonly">
                 <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
@@ -114,12 +115,16 @@ export function ErrorTrackingWidgetTileFilters({
                     void applyPatch({ status: value })
                 }}
             />
-            <ErrorTrackingAssigneeSelectButton
-                assignee={assignee}
-                onChange={(value: ErrorTrackingIssue['assignee']) => {
-                    void applyPatch({ assignee: value ?? null })
-                }}
-            />
+            {canMutateErrorTrackingIssues ? (
+                <ErrorTrackingAssigneeSelectButton
+                    assignee={assignee}
+                    onChange={(value: ErrorTrackingIssue['assignee']) => {
+                        void applyPatch({ assignee: value ?? null })
+                    }}
+                />
+            ) : (
+                <ErrorTrackingAssigneeReadOnlyValue assignee={assignee} />
+            )}
             {filterDefinitions.length > 0 ? (
                 <WidgetPropertyFiltersSection
                     filterDefinitions={filterDefinitions}

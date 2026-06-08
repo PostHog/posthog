@@ -30,31 +30,3 @@ export function getDashboardWidgetFetchDisplayError(error: string | null | undef
 
     return DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE
 }
-
-export type WidgetListCountNoun = {
-    singular: string
-    plural: string
-}
-
-export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue', plural: 'issues' }
-export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
-
-export function formatWidgetListCountFooter(
-    shown: number,
-    totalCount: number | undefined,
-    totalCountCapped?: boolean,
-    noun: WidgetListCountNoun = WIDGET_LIST_COUNT_ISSUES,
-    hasMore?: boolean
-): string {
-    const label = shown === 1 && totalCount === 1 && !totalCountCapped ? noun.singular : noun.plural
-
-    if (totalCount === undefined) {
-        if (hasMore && shown > 0) {
-            return `${shown}+ ${shown === 1 ? noun.singular : noun.plural}`
-        }
-        return `${shown} ${shown === 1 ? noun.singular : noun.plural}`
-    }
-
-    const totalLabel = totalCountCapped ? `${totalCount}+` : String(totalCount)
-    return `${shown} of ${totalLabel} ${label}`
-}

@@ -10,7 +10,6 @@ import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
 import { sessionReplayWidgetFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
-    isWidgetTileFiltersReadOnly,
     WidgetDateRangeReadOnlyValue,
     WidgetPropertyFiltersReadOnlyValues,
     WidgetTileFiltersBar,
@@ -42,11 +41,10 @@ export function SessionReplayWidgetTileFilters({
 
     const configRef = useRef(config)
     configRef.current = config
-    const { persistConfigDebounced, persistConfigNow, isPersisting } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
 
-    const controlDisabledReason = disabledReason ?? (isPersisting ? 'Updating…' : undefined)
+    const controlDisabledReason = disabledReason
     const canUpdate = !!onUpdateConfig && !controlDisabledReason
-    const readOnly = isWidgetTileFiltersReadOnly(onUpdateConfig)
 
     const applyDateFrom = async (value: WidgetDateFromValue): Promise<void> => {
         const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, { dateFrom: value })
@@ -64,7 +62,7 @@ export function SessionReplayWidgetTileFilters({
         persistConfigDebounced(nextConfig)
     }
 
-    if (readOnly) {
+    if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters-readonly">
                 <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />

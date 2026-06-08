@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { ApiError } from 'lib/api-error'
-
 import {
     errorTrackingWidgetConfigSchema,
     errorTrackingWidgetFormSchema,
@@ -9,7 +7,13 @@ import {
     type ErrorTrackingWidgetFormStatus,
 } from '../../widget_types/configSchemas'
 import type { StoredWidgetFilter } from '../../widget_types/configSchemas'
-import { fieldErrorsFromZodError, parseWidgetConfig, type WidgetListFormInput } from '../widgetConfigValidation'
+import {
+    fieldErrorsFromZodError,
+    parseWidgetConfig,
+    parseWidgetConfigApiError,
+    type WidgetListFormInput,
+} from '../widgetConfigValidation'
+
 type ErrorTrackingWidgetFormField = keyof z.infer<typeof errorTrackingWidgetFormSchema>
 
 export type ErrorTrackingWidgetFieldErrors = Partial<Record<ErrorTrackingWidgetFormField, string>>
@@ -17,6 +21,8 @@ export type ErrorTrackingWidgetFieldErrors = Partial<Record<ErrorTrackingWidgetF
 export type ErrorTrackingWidgetFormInput = WidgetListFormInput & {
     orderDirection: ErrorTrackingWidgetConfig['orderDirection']
 }
+
+const errorTrackingConfigDefaults = errorTrackingWidgetConfigSchema.parse({})
 
 export function parseErrorTrackingWidgetConfig(config: Record<string, unknown>): ErrorTrackingWidgetConfig {
     return parseWidgetConfig(errorTrackingWidgetConfigSchema, config)
@@ -36,7 +42,7 @@ export function patchErrorTrackingWidgetFilterFields(
     return errorTrackingWidgetConfigSchema.parse({
         ...base,
         dateRange: { date_from: patch.dateFrom ?? base.dateRange?.date_from ?? '-7d' },
-        status: patch.status ?? base.status ?? 'active',
+        status: patch.status ?? base.status ?? errorTrackingConfigDefaults.status,
         assignee: patch.assignee !== undefined ? (patch.assignee ?? undefined) : base.assignee,
         widgetFilters: patch.widgetFilters ?? base.widgetFilters ?? {},
     })
@@ -67,10 +73,8 @@ export function validateErrorTrackingWidgetConfigInput(input: {
     const parsed = errorTrackingWidgetFormSchema.safeParse({
         limit: input.limit,
         orderBy: input.orderBy,
-        orderDirection: input.orderDirection,
         dateFrom: input.baseConfig.dateRange?.date_from ?? '-7d',
         filterTestAccounts: input.filterTestAccounts,
-        status: input.baseConfig.status ?? 'active',
     })
 
     if (!parsed.success) {
@@ -79,7 +83,13 @@ export function validateErrorTrackingWidgetConfigInput(input: {
 
     return {
         success: true,
-        config: buildErrorTrackingWidgetConfig(parsed.data, input.baseConfig),
+        config: buildErrorTrackingWidgetConfig(
+            {
+                ...parsed.data,
+                orderDirection: input.orderDirection as ErrorTrackingWidgetConfig['orderDirection'],
+            },
+            input.baseConfig
+        ),
     }
 }
 
@@ -87,26 +97,11 @@ export function parseErrorTrackingWidgetConfigApiError(
     error: unknown,
     config: Record<string, unknown>
 ): ErrorTrackingWidgetFieldErrors | null {
-    if (!(error instanceof ApiError)) {
-        return null
-    }
-
-    const parsedConfig = errorTrackingWidgetConfigSchema.safeParse(config)
-    if (parsedConfig.success) {
-        return null
-    }
-
-    const parsedForm = errorTrackingWidgetFormSchema.safeParse({
-        limit: (config.limit as number) ?? 0,
-        orderBy: (config.orderBy as string) ?? 'occurrences',
-        orderDirection: (config.orderDirection as ErrorTrackingWidgetConfig['orderDirection']) ?? 'DESC',
-        dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
-        filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
-        status: (config.status as ErrorTrackingWidgetFormStatus) ?? 'active',
+    return parseWidgetConfigApiError({
+        error,
+        config,
+        configSchema: errorTrackingWidgetConfigSchema,
+        formSchema: errorTrackingWidgetFormSchema,
+        defaultOrderBy: errorTrackingConfigDefaults.orderBy,
     })
-    if (!parsedForm.success) {
-        return fieldErrorsFromZodError(parsedForm.error)
-    }
-
-    return fieldErrorsFromZodError(parsedConfig.error)
 }
