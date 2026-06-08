@@ -47,7 +47,13 @@ COPY services/agent-console/ services/agent-console/
 # still goes through `main`/`exports` resolution). Same approach as
 # services/mcp/scripts: `pnpm --filter '@posthog/quill' build` walks
 # the quill workspace.
-RUN pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+RUN pnpm --dir packages/quill -r \
+    --filter '@posthog/quill-tokens' \
+    --filter '@posthog/quill-primitives' \
+    --filter '@posthog/quill-components' \
+    --filter '@posthog/quill-blocks' \
+    --filter '@posthog/quill' \
+    build
 
 WORKDIR /code/services/agent-console
 RUN pnpm run build
