@@ -71,6 +71,7 @@ class TestOAuthApplicationAdmin(BaseTest):
         self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
         message_user.assert_called_once()
 
+    @freeze_time("2026-01-01 00:00:00")
     def test_revoke_all_sessions_without_confirm_renders_page_and_keeps_tokens(self):
         app = OAuthApplication.objects.create(
             name="Revoke Confirm App",
