@@ -63,6 +63,7 @@
     "devDependencies": {
         "@parcel/packager-ts": "catalog:",
         "@parcel/transformer-typescript-types": "catalog:",
+        "@playwright/test": "catalog:",
         "@types/uuid": "^11.0.0",
         "@typescript/native-preview": "7.0.0-dev.20260421.2",
         "markdownlint-cli2": "^0.18.1",

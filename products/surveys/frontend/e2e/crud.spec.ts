@@ -1,7 +1,6 @@
+import { randomString } from '@playwright-utils'
+import { expect, test } from '@playwright-utils/playwright-test-base'
 import { Page } from '@playwright/test'
-
-import { randomString } from '../../utils'
-import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
     // Only archived surveys (or drafts) expose the "Delete permanently" action.
