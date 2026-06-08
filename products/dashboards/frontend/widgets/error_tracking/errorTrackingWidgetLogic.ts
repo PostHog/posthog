@@ -3,6 +3,7 @@ import { connect, kea, key, listeners, path, props } from 'kea'
 import { issueActionsLogic } from 'products/error_tracking/frontend/components/IssueActions/issueActionsLogic'
 
 import type { WidgetIssueMetadataDelta } from './applyWidgetIssueMetadataChange'
+import type { errorTrackingWidgetLogicType } from './errorTrackingWidgetLogicType'
 
 export type ErrorTrackingWidgetLogicProps = {
     tileId: number
@@ -12,7 +13,7 @@ export type ErrorTrackingWidgetLogicProps = {
 
 const ISSUE_METADATA_MUTATIONS = new Set(['updateIssueStatus', 'updateIssueAssignee'])
 
-export const errorTrackingWidgetLogic = kea([
+export const errorTrackingWidgetLogic = kea<errorTrackingWidgetLogicType>([
     path(['products', 'dashboards', 'widgets', 'error_tracking', 'errorTrackingWidgetLogic']),
     key((props) => String(props.tileId)),
 
