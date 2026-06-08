@@ -196,11 +196,13 @@ def prepare_ast_for_printing(
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
-        # Logical lowering + ClickHouse physical optimization. Runs AFTER both PropertySwapper passes: any scalar cast
-        # already wraps the property, so lowering replaces the inner PropertyType Field with JSONFieldAccess, then the
-        # physical passes substitute the materialized-column / skip-index / property-group forms. The within_non_hogql_query
+        # The two passes that replaced the printer's old property handling, in order. Both run AFTER the PropertySwapper
+        # passes, so any scalar cast already wraps the property. (1) Lowering replaces every blob `PropertyType` Field with
+        # a `JSONFieldAccess` — a plain "read these keys from this blob", no decision about how. (2) The physical passes
+        # then pick the source: each `JSONFieldAccess` backed by a materialized / skip-index / property-group column is
+        # rewritten to read that column; the rest survive and print as the raw JSON extract. The within_non_hogql_query
         # (lightweight-DELETE) path runs through here too: lowering + the physical pass mark their column fields
-        # `unqualified` so the printer drops the table prefix the mutation analyzer rejects (§8.4).
+        # `unqualified` so the printer drops the table prefix the mutation analyzer rejects.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
         with context.timings.measure("clickhouse_physical_passes"):

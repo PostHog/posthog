@@ -10,8 +10,8 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
     Single source of truth shared by the ClickHouse printer (which JSONDropKeys-wraps the blob) and the property
     lowering / physical passes (which decline the materialized-column substitution for a restricted property, leaving
     the JSON-blob read the printer then scrubs to ''). Under-detecting here leaks the materialized value (PII); over-
-    detecting only costs a mat-column optimization — so this is the security boundary (see PRINTER_REARCHITECTURE.md
-    §8.5) and must never be reimplemented elsewhere.
+    detecting only costs a mat-column optimization — so this is the security boundary and must never be reimplemented
+    elsewhere.
     """
     if not context.restricted_properties:
         return set()

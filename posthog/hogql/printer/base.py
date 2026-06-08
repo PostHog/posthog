@@ -1244,10 +1244,12 @@ class BasePrinter(Visitor[str]):
         return field_sql
 
     def visit_property_type(self, type: ast.PropertyType):
-        # After logical lowering, JSON-blob property reads are `JSONFieldAccess` nodes, so a `PropertyType` reaching the
-        # printer is one lowering deliberately leaves alone: a person/group property projected through a joined subquery,
-        # or (in the ClickHouse printer override) a data-warehouse struct column. The printer no longer makes any
-        # physical-column decision — that moved to `logical_property_lowering` + the ClickHouse physical passes.
+        # After lowering, a blob property read is a `JSONFieldAccess`. A `PropertyType` still reaching the printer is the
+        # leftover OUTER reference to a person/group property that `resolve_lazy_tables` pulled into a join subquery: the
+        # JSON extract now lives inside that subquery (and was lowered there), so this outer node is just an
+        # `alias.column` read of the subquery's result — nothing to lower. (Plus, in the ClickHouse override, a
+        # data-warehouse struct column.) The printer makes no physical-column decision — that moved to
+        # `logical_property_lowering` + the ClickHouse physical passes.
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
@@ -1258,7 +1260,7 @@ class BasePrinter(Visitor[str]):
         # dialect's syntax (ClickHouse JSONExtractRaw + null/quote scrub via the base helper; Postgres/DuckDB override
         # `_unsafe_json_extract_trim_quotes`/`_json_property_args` for `->`/`->>`). This reuses the exact helper the
         # legacy ``visit_property_type`` blob fallback uses just above, so a lowered read prints identically to master.
-        # No physical-column decision happens here — that is the whole point of the rearchitecture.
+        # No physical-column decision happens here.
         return self._unsafe_json_extract_trim_quotes(self.visit(node.expr), self._json_property_args(node.keys))
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:

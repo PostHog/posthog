@@ -946,16 +946,25 @@ class Tuple(Expr):
 
 @dataclass(kw_only=True, slots=True)
 class JSONFieldAccess(Expr):
-    """The dialect-neutral logical form of a `properties.X` read after logical lowering.
+    """The lowered form of a `properties.X` read: "extract this key path from this JSON blob."
 
-    Extract the key path `keys` from the JSON source `expr` (a JSON blob column such as `events.properties`). Each
-    printer renders it in its own JSON syntax via `visit_jsonfield_access` — ClickHouse `JSONExtractRaw(...)` + null/quote
-    scrubbing, Postgres/DuckDB `->`/`->>` — and makes **no physical-column decision**: that is the whole point of the
-    printer rearchitecture (see `PRINTER_REARCHITECTURE.md` §4.4, §12.2). The ClickHouse materialized-column /
-    skip-index / property-group passes rewrite this node to a concrete column read *before* printing when one exists;
-    if none does, the node prints as the raw-blob extract. `keys` mirrors a `PropertyType.chain`: string object keys and
-    integer array indices, passed through untyped so each dialect's `_json_property_args` handles them as it already
-    does for the legacy `visit_property_type` blob fallback.
+    This is what a JSON-blob property read becomes after logical lowering. The contrast that matters is with
+    `PropertyType`, the read's *type* before lowering. A `PropertyType` means "this is an unresolved property — nobody has
+    turned it into anything concrete yet." A `JSONFieldAccess` is that property **lowered to its concrete pieces**: `expr`
+    is the blob column (e.g. `events.properties`), `keys` is the path into it, and the node's own type is the value type of
+    the read — a nullable String. It has dropped the "I'm an unresolved property" meaning (it carries *no* `PropertyType`),
+    so nothing downstream mistakes it for one and re-runs property logic on it.
+
+    It does **not** decide where the value ultimately comes from. Lowering produces a `JSONFieldAccess` for *every* blob
+    property — a materialized one and a raw one look identical at this stage. On ClickHouse, the next pass (the
+    materialized-column / property-group / skip-index physical passes) may rewrite this node to a concrete column read — a
+    faster source of the *same* value — when a backing column exists. Raw JSON is only the **default rendering if nothing
+    rewrites it**: each printer renders a surviving node mechanically in its own JSON syntax via `visit_jsonfield_access`
+    (ClickHouse `JSONExtractRaw` + null/quote scrub; Postgres/DuckDB `->`/`->>`) and makes no physical-column decision —
+    that is the whole point of this split. For the warehouse dialects there is no second pass, so the node always renders
+    as the extract. `keys` mirrors a `PropertyType.chain` —
+    string object keys and integer array indices, passed through untyped so each dialect's `_json_property_args` handles
+    them just like the legacy `visit_property_type` blob fallback did.
     """
 
     expr: Expr
@@ -974,7 +983,7 @@ class Constant(Expr):
     # Unset (None) by default, like `type`: a ClickHouse-printer rendering hint, not part of the logical AST, so the
     # "skip None" AST serializers (Hog compilers, `pretty_dataclasses` snapshots) leave it out. Set to True only for the
     # fixed sentinels the ClickHouse physical passes emit (the nullIf ''/'null' scrub literals and the quote-trim regex),
-    # so the lowered SQL matches the printer's hand-built inline strings (§8.7).
+    # so the lowered SQL matches the printer's hand-built inline strings.
     inline: bool | None = None
 
 

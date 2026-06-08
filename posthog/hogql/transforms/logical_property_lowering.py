@@ -1,16 +1,18 @@
-"""Logical property lowering: `properties.X` (a `PropertyType`) → the dialect-neutral `JSONFieldAccess` node.
+"""Logical property lowering: `properties.X` (a `Field` typed as `PropertyType`) → the `JSONFieldAccess` node.
 
-This is the schema-driven, dialect-agnostic "logical lowering" of the printer rearchitecture (see
-`posthog/hogql/PRINTER_REARCHITECTURE.md` §4.4, §12.2-12.3). After it runs, a JSON-blob property *value* read is an
-ordinary typed expression (`JSONFieldAccess`) that each printer renders mechanically in its own JSON syntax — the
-printer no longer resolves the property to a physical column. ClickHouse's materialized-column / skip-index /
-property-group passes (added later) rewrite the node to a concrete column read *before* printing when one exists.
+This is the first of the two passes that replaced the printer's old property handling. It does one thing: turn every
+JSON-blob property read into a plain "read this key path from this blob" node (`JSONFieldAccess`). It makes **no decision
+about how** to read the property — it does not look at materialized columns. That keeps it schema-driven and
+dialect-agnostic: after it runs, each printer renders the node mechanically in its own JSON syntax, and the property is no
+longer something the printer has to resolve. On ClickHouse, the *second* pass (the materialized-column / property-group /
+skip-index physical passes) runs next and rewrites the node to a concrete column read when a backing column exists; for
+the warehouse dialects there is no second pass, so this lowering is the whole story.
 
 What it deliberately does NOT touch (left to the printer or a later pass, to keep this pass minimal and behavior-
 preserving):
 
 - Struct / array (data-warehouse) columns — different access syntax; only `StringJSONDatabaseField` sources lower here.
-- `joined_subquery` refs — a repointed person/group property prints as `alias.field`, not a property read (§8.11).
+- `joined_subquery` refs — a repointed person/group property prints as `alias.field`, not a property read.
 - The scalar cast — for ClickHouse it is applied by `PropertySwapper` *around* the property before this pass runs, so
   the cast `Call` simply ends up wrapping the `JSONFieldAccess` and is preserved automatically.
 - Access control (restricted-key drop) — the `JSONFieldAccess.expr` is the blob `Field`, which the ClickHouse printer
@@ -31,7 +33,7 @@ class LogicalPropertyLowering(CloningVisitor):
     """Replaces JSON-blob `properties.X` Field reads with `JSONFieldAccess`. Descends every position (CloningVisitor)."""
 
     def __init__(self, context: HogQLContext) -> None:
-        # §8.6: the lowered AST is printed directly after this pass, so keep resolved types rather than clearing them.
+        # The lowered AST is printed directly after this pass, so keep resolved types rather than clearing them.
         super().__init__(clear_types=False)
         self.context = context
 
@@ -44,7 +46,7 @@ class LogicalPropertyLowering(CloningVisitor):
         # `FieldAliasType` whose `.type` is the original `PropertyType`. When we lower the inner Field to a
         # `JSONFieldAccess`, that wrapper's type must stop pointing at the `PropertyType` too — otherwise the printer's
         # `resolve_field_type` unwraps the `FieldAliasType` back to the `PropertyType` and routes the operand into its
-        # property-decision code (defeating the deletion gate, §4.4/§12.5). Repoint it at the lowered value type. This
+        # property-decision code (defeating the deletion gate). Repoint it at the lowered value type. This
         # only rewrites the alias-type wrapper; printing reads `expr` + `alias`, not the wrapper's inner type, so output
         # is unchanged.
         lowered = super().visit_alias(node)
@@ -87,7 +89,7 @@ class LogicalPropertyLowering(CloningVisitor):
             replace(base_field_type, unqualified=True) if self.context.within_non_hogql_query else base_field_type
         )
 
-        # §4.4: the node carries its *value* type (the raw JSON-extract result, a nullable String), NOT the original
+        # The node carries its *value* type (the raw JSON-extract result, a nullable String), NOT the original
         # `PropertyType`. Carrying the `PropertyType` would make the node mean "this is still a property access" (the
         # ambient-meaning smell) — and would route a lowered comparison operand back into the printer's property-decision
         # code via `resolve_field_type`, defeating the deletion gate. Everything a downstream pass needs (table, field,
@@ -106,6 +108,6 @@ def lower_property_access(node: _T_AST, context: HogQLContext) -> _T_AST:
 
     On that path the lowered reads carry `unqualified=True` on their source field (and the ClickHouse physical pass marks
     the synthetic materialized-column fields the same way), so the printer drops the table prefix the lightweight-DELETE
-    mutation analyzer rejects (§8.4).
+    mutation analyzer rejects.
     """
     return cast(_T_AST, LogicalPropertyLowering(context).visit(node))

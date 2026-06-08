@@ -1,10 +1,10 @@
-"""Execution test for the ``within_non_hogql_query`` lightweight-DELETE-mutation path (printer rearchitecture, §8.4).
+"""Execution test for the ``within_non_hogql_query`` lightweight-DELETE-mutation path.
 
-This is the genuinely missing net the design doc calls out. ``compile_hogql_predicate`` (the data-deletion entry point)
+This is the genuinely missing test coverage. ``compile_hogql_predicate`` (the data-deletion entry point)
 compiles a HogQL property predicate into a ClickHouse fragment with ``within_non_hogql_query=True``, which the deletion
 DAG splices into a lightweight ``DELETE FROM sharded_events WHERE …`` mutation. That path is high-volume in
 production. The dags tests (``posthog/dags/tests/test_data_deletion_requests.py``) already run the full
-``compile_hogql_predicate`` → delete flow, but only over an *unmaterialized* property — none exercise the part §8.4 is
+``compile_hogql_predicate`` → delete flow, but only over an *unmaterialized* property — none exercise the part this test is
 actually about: a predicate that references a **materialized column**, which the lightweight-delete expression analyzer
 requires to be **unqualified** (it rejects ``sharded_events.mat_$browser`` even when the column exists on every replica).
 
@@ -55,7 +55,7 @@ class _PredicateObj:
 
 # Functions a ClickHouse lightweight-delete mutation expression analyzer accepts: plain scalar functions. The compiled
 # fragment for a property predicate must use only these (no aggregates, no table-qualified columns, no window/array
-# higher-order forms). This is the allow-list the §8.4 form constraint cares about.
+# higher-order forms). This is the allow-list the form constraint cares about.
 _MUTATION_SAFE_FUNCTIONS = frozenset(
     {
         "equals",
@@ -99,7 +99,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
     def _assert_unqualified_and_mutation_safe(self, sql: str, mat_column_name: str) -> None:
         sql_lower = sql.lower()
 
-        # §8.4: unqualified — the lightweight-delete mutation analyzer rejects table-qualified column references.
+        # Unqualified — the lightweight-delete mutation analyzer rejects table-qualified column references.
         assert f"events.{mat_column_name.lower()}" not in sql_lower, f"mat column must be unqualified, got: {sql}"
         assert "events." not in sql_lower, f"fragment must carry no table prefix at all, got: {sql}"
         assert "sharded_events." not in sql_lower, f"fragment must carry no table prefix at all, got: {sql}"
@@ -124,7 +124,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
     def test_within_non_hogql_predicate_stays_unqualified_with_materialized_column(self) -> None:
         # within_non_hogql_query queries run through lowering + the physical pass like any other: the synthetic
         # materialized-column field is marked `unqualified`, so the printer drops the table prefix and the
-        # lightweight-delete mutation analyzer accepts the bare column (§8.4).
+        # lightweight-delete mutation analyzer accepts the bare column.
         self.addCleanup(cleanup_materialized_columns)
         with materialized("events", "$browser", is_nullable=False):
             mat_name = self._materialized_column_name("events", "$browser")
@@ -199,7 +199,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
             with materialized("events", "$browser", is_nullable=False):
                 seed()
                 sql, params = compile_hogql_predicate(_PredicateObj(self.team.pk, "properties.$browser = 'Chrome'"))
-                # The materialized fragment must be unqualified or the mutation analyzer rejects it (§8.4).
+                # The materialized fragment must be unqualified or the mutation analyzer rejects it.
                 self._assert_unqualified_and_mutation_safe(sql, self._materialized_column_name("events", "$browser"))
                 self._run_and_assert_delete(sql, params, other_team)
         else:
