@@ -1066,6 +1066,10 @@ def lint_spec_consistency_hook(result, generator, request, public):
 
 
 def custom_postprocessing_hook(result, generator, request, public):
+    from products.dashboards.backend.widget_specs.pydantic_openapi import inject_widget_spec_pydantic_components
+
+    result = inject_widget_spec_pydantic_components(result)
+
     all_tags = []
     paths: dict[str, dict] = {}
 
