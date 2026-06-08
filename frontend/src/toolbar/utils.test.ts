@@ -1,6 +1,69 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { webcrypto } from 'node:crypto'
+
+import {
+    asNonEmptyString,
+    CryptoUnsupportedError,
+    generatePKCE,
+    joinWithUiHost,
+    slashDotDataAttrUnescape,
+} from './utils'
 
 describe('utils', () => {
+    describe('generatePKCE', () => {
+        const originalSecureCtx = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+        const originalCrypto = Object.getOwnPropertyDescriptor(window, 'crypto')
+
+        const setSecureContext = (value: boolean): void => {
+            Object.defineProperty(window, 'isSecureContext', { value, configurable: true, writable: true })
+        }
+
+        const setCrypto = (value: unknown): void => {
+            Object.defineProperty(window, 'crypto', { value, configurable: true, writable: true })
+        }
+
+        afterEach(() => {
+            if (originalSecureCtx) {
+                Object.defineProperty(window, 'isSecureContext', originalSecureCtx)
+            }
+            if (originalCrypto) {
+                Object.defineProperty(window, 'crypto', originalCrypto)
+            }
+        })
+
+        it('returns a verifier and challenge in a secure context with usable SubtleCrypto', async () => {
+            setSecureContext(true)
+            setCrypto(webcrypto)
+            const { verifier, challenge } = await generatePKCE()
+            expect(typeof verifier).toBe('string')
+            expect(verifier.length).toBeGreaterThan(0)
+            expect(typeof challenge).toBe('string')
+            expect(challenge.length).toBeGreaterThan(0)
+            // base64url: no padding or non-url-safe characters
+            expect(verifier).not.toMatch(/[+/=]/)
+            expect(challenge).not.toMatch(/[+/=]/)
+        })
+
+        it('throws CryptoUnsupportedError in a non-secure context', async () => {
+            setSecureContext(false)
+            setCrypto(webcrypto)
+            await expect(generatePKCE()).rejects.toBeInstanceOf(CryptoUnsupportedError)
+        })
+
+        it('throws CryptoUnsupportedError when crypto.subtle is undefined (non-secure context shape)', async () => {
+            setSecureContext(true)
+            // Secure contexts gate `crypto.subtle`; some runtimes expose `crypto` without it.
+            setCrypto({ getRandomValues: webcrypto.getRandomValues.bind(webcrypto) })
+            await expect(generatePKCE()).rejects.toBeInstanceOf(CryptoUnsupportedError)
+        })
+
+        it('throws CryptoUnsupportedError when SubtleCrypto.digest is not callable', async () => {
+            setSecureContext(true)
+            // Simulate a partial WebCrypto shim (e.g. React Native Web) where digest is missing.
+            setCrypto({ getRandomValues: webcrypto.getRandomValues.bind(webcrypto), subtle: {} })
+            await expect(generatePKCE()).rejects.toBeInstanceOf(CryptoUnsupportedError)
+        })
+    })
+
     describe('asNonEmptyString', () => {
         const testCases: Array<{ input: unknown; expected: string | null }> = [
             { input: 'hello', expected: 'hello' },

@@ -12,6 +12,7 @@ import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import {
     asNonEmptyString,
     cleanToolbarAuthHash,
+    CryptoUnsupportedError,
     generatePKCE,
     LOCALSTORAGE_KEY,
     OAUTH_LOCALSTORAGE_KEY,
@@ -248,8 +249,15 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 verifier = pkce.verifier
                 challenge = pkce.challenge
             } catch (e) {
-                captureToolbarException(e, 'pkce_generation')
-                lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
+                // A known-unsupported runtime (non-secure context, or a partial WebCrypto
+                // shim) is expected — surface guidance to the user but don't report it as a
+                // tracked exception, since it's environment-driven noise we can't fix.
+                if (!(e instanceof CryptoUnsupportedError)) {
+                    captureToolbarException(e, 'pkce_generation')
+                }
+                lemonToast.error(
+                    'Failed to start authentication. Ensure you are on a secure (HTTPS) page in a supported browser.'
+                )
                 actions.setAuthStatus('idle')
                 return
             }

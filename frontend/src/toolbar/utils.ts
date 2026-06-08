@@ -93,7 +93,22 @@ export function cleanToolbarAuthHash(): void {
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
+/** Thrown by {@link generatePKCE} when the runtime lacks a usable SubtleCrypto implementation. */
+export class CryptoUnsupportedError extends Error {
+    constructor(message = 'WebCrypto SubtleCrypto.digest is unavailable in this context') {
+        super(message)
+        this.name = 'CryptoUnsupportedError'
+    }
+}
+
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+    // SubtleCrypto is only exposed in secure contexts (HTTPS or localhost), and some
+    // runtimes (e.g. React Native Web shims) provide a partial `crypto.subtle` whose
+    // `digest` is not callable. Feature-detect both so the failure is a typed sentinel
+    // rather than an opaque TypeError that pollutes error tracking.
+    if (!window.isSecureContext || typeof window.crypto?.subtle?.digest !== 'function') {
+        throw new CryptoUnsupportedError()
+    }
     const bytes = new Uint8Array(48)
     crypto.getRandomValues(bytes)
     const verifier = btoa(String.fromCharCode(...bytes))
