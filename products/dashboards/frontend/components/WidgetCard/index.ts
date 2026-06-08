@@ -8,7 +8,6 @@ export {
     WidgetListCount,
     WidgetCardSharedPlaceholderBody,
     type WidgetCardSharedPlaceholderCopy,
-    WidgetListCount,
     WIDGET_LIST_COUNT_ISSUES,
     WIDGET_LIST_COUNT_RECORDINGS,
     WidgetLoadingState,
