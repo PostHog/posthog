@@ -4270,6 +4270,18 @@ snapshots:
         hash: v1.k794b7964.33000cd287cce76314b2d6a8005a0ed406396a50f43e18656a2ec8d33d33cc2b.rxsuAyw0uMSA4ouh1IhJClwrFxRGgOuKSvA5gpLxKk0
     scenes-app-ai-observability-trace--without-content--light:
         hash: v1.k794b7964.925af22228dd96b4c1bef5ccd9db87cacdbb8a9d9764f6845dbcf28cd510b73c._WVyYZM7SRur33YhrFxOYMN0NurSDNzWONIuDn5bsMw
+    scenes-app-aigateway--empty--dark:
+        hash: v1.k794b7964.ae76b272a970ce91b02aa4c3b9dea9ada5f13d8a2fc12119c774b390bc2ce403._Xybw0QjcZclP-w7QhF0xir0MorzTgKh9UPEYNqLAx0
+    scenes-app-aigateway--empty--light:
+        hash: v1.k794b7964.e6ec0e2590043ae76c220c4bcee25ea0fc5a74ba6d63685fb1aed7891b64e987.xWTHws779f1_PcyikWEGawQFRUsG0mfVlG7expx9oHM
+    scenes-app-aigateway--list-page--dark:
+        hash: v1.k794b7964.ba7fe93c2c05a1309b9967be8b1d0fcf10325e3cffcc9af91e42cf6fa10018b4.B0MsLgqB6PG29D_PLahQSwD6Uw06dWvVr8x21OsJxfQ
+    scenes-app-aigateway--list-page--light:
+        hash: v1.k794b7964.7f62c3cb5949f766d502e3f75596666bbc2a65f8c44690466b2ef720d532360c.adKkw4i0vVY0pmEY-UZkkJXo4j9KpOpUq2SF9cO8aj4
+    scenes-app-aigatewaydetail--detail--dark:
+        hash: v1.k794b7964.e38a12dff7a1516defe71d4bbfb489b7ef9bc1fbfd9b7c89418f842fc2018924.0YRfavp--I5U150rkCqTsTJIgqsKL2ZGSRBm_cBW6lE
+    scenes-app-aigatewaydetail--detail--light:
+        hash: v1.k794b7964.2fa4ac403511ff928f2aa738f6bf75609317a16cc2160fcf3d510b7565e2d00b.Sw_H5mnumMTf4IJrrW84H4bQ--sxGboyoduZ3Q-l2tk
     scenes-app-annotations--annotations--dark:
         hash: v1.k794b7964.839aa1c77337bde89878542d449c58c1080ddc767ff1c52ba73dc06683d5f797.VhGpyYpvz4Xkk8Kd7Y-_xPXGjLQ7lj_BXLfuTP5KSC4
     scenes-app-annotations--annotations--light:
