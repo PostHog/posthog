@@ -11,10 +11,13 @@ import structlog
 import temporalio.client
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.tasks.backend.models import TaskRun as TaskRunModel
 from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -45,6 +48,7 @@ class RelaySandboxEventsInput:
 
 
 @activity.defn
+@close_db_connections
 async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     """Long-running activity that relays SSE events from a sandbox agent to a Redis stream.
 
@@ -189,9 +193,6 @@ async def _background_heartbeat(
             return  # stop_event was set
         except TimeoutError:
             activity.heartbeat()
-            # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT
-
             now = time.monotonic()
             if (
                 workflow_handle is not None

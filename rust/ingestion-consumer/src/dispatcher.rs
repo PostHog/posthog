@@ -67,6 +67,82 @@ impl PinTable {
     }
 }
 
+struct MessageGroup {
+    routing_key: String,
+    messages: Vec<SerializedKafkaMessage>,
+}
+
+struct WorkerSubBatchBuilder {
+    messages: Vec<SerializedKafkaMessage>,
+    routing_keys: Vec<String>,
+}
+
+impl WorkerSubBatchBuilder {
+    fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    fn message_count(&self) -> usize {
+        self.messages.len()
+    }
+}
+
+#[derive(Default)]
+struct WorkerAssignments {
+    by_worker: HashMap<usize, WorkerSubBatchBuilder>,
+    provisional_in_flight: Vec<usize>,
+}
+
+impl WorkerAssignments {
+    fn new(worker_count: usize) -> Self {
+        Self {
+            by_worker: HashMap::new(),
+            provisional_in_flight: vec![0; worker_count],
+        }
+    }
+
+    fn provisional_in_flight(&self) -> &[usize] {
+        &self.provisional_in_flight
+    }
+
+    fn add_group(&mut self, worker_idx: usize, group: MessageGroup) {
+        let builder = self
+            .by_worker
+            .entry(worker_idx)
+            .or_insert_with(|| WorkerSubBatchBuilder {
+                messages: Vec::new(),
+                routing_keys: Vec::new(),
+            });
+
+        if builder.is_empty() {
+            self.provisional_in_flight[worker_idx] =
+                self.provisional_in_flight[worker_idx].saturating_add(1);
+        }
+
+        builder.messages.extend(group.messages);
+        builder.routing_keys.push(group.routing_key);
+    }
+
+    fn routed_counts(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.by_worker
+            .iter()
+            .filter(|(_, builder)| !builder.is_empty())
+            .map(|(&worker_idx, builder)| (worker_idx, builder.message_count()))
+    }
+
+    fn into_sub_batches(self) -> Vec<SubBatch> {
+        self.by_worker
+            .into_iter()
+            .filter(|(_, builder)| !builder.is_empty())
+            .map(|(worker_idx, builder)| SubBatch {
+                worker_idx,
+                messages: builder.messages,
+                routing_keys: builder.routing_keys,
+            })
+            .collect()
+    }
+}
+
 /// Routes batches to Node.js workers with sticky per-distinct_id assignment.
 ///
 /// **Assignment** (`assign`): groups messages by `token:distinct_id`, honors
@@ -116,123 +192,83 @@ impl Dispatcher {
                 .increment(evictions as u64);
         }
 
-        // Group messages by routing key, preserving insertion order for
-        // deterministic bin-packing behaviour in tests.
-        let mut key_groups: HashMap<String, Vec<SerializedKafkaMessage>> = HashMap::new();
-        let mut missing_headers = 0u64;
+        let GroupedMessages {
+            groups: key_groups,
+            missing_header_count,
+        } = group_messages_by_routing_key(messages);
 
-        for msg in messages {
-            let key = routing_key(&msg);
-            let key = if key == ":" {
-                missing_headers += 1;
-                // Both headers absent: use partition+offset as a synthetic unique key so
-                // these messages spread across workers instead of all pinning to one.
-                format!(":{}:{}", msg.partition, msg.offset)
-            } else {
-                key
-            };
-            key_groups.entry(key).or_default().push(msg);
-        }
-
-        if missing_headers > 0 {
+        if missing_header_count > 0 {
             counter!("ingestion_consumer_dispatcher_missing_routing_headers_total")
-                .increment(missing_headers);
+                .increment(missing_header_count);
         }
 
         histogram!("ingestion_consumer_distinct_ids_per_batch").record(key_groups.len() as f64);
 
-        // Worker index → (messages, routing_keys). Collects all messages that
-        // will form one sub-batch per worker.
-        let mut worker_msgs: HashMap<usize, (Vec<SerializedKafkaMessage>, Vec<String>)> =
-            HashMap::new();
-
-        // Tracks how many new sub-batches we're about to add to each worker in
-        // this assign call, used for provisional bin-packing load. At most 1
-        // per worker per call because all assignments to the same worker merge
-        // into a single sub-batch.
         let worker_count = table.in_flight.len();
-        let mut provisional = vec![0usize; worker_count];
+        let mut assignments = WorkerAssignments::new(worker_count);
 
-        let mut unassigned: Vec<(String, Vec<SerializedKafkaMessage>)> = Vec::new();
+        let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
 
-        for (key, msgs) in key_groups {
-            match table.pins.get_mut(&key) {
+        for group in key_groups {
+            match table.pins.get_mut(&group.routing_key) {
                 Some(pin) if !self.registry.is_dead(pin.worker_idx) => {
                     // Existing live pin — honor it.
                     pin.ref_count += 1;
                     let worker_idx = pin.worker_idx;
-                    let entry = worker_msgs.entry(worker_idx).or_default();
-                    if entry.0.is_empty() {
-                        provisional[worker_idx] = provisional[worker_idx].saturating_add(1);
-                    }
-                    entry.0.extend(msgs);
-                    entry.1.push(key);
+                    assignments.add_group(worker_idx, group);
                 }
                 _ => {
                     // No pin or pinned to a dead worker — drop stale entry and
                     // queue for bin-packing.
-                    table.pins.remove(&key);
-                    unassigned.push((key, msgs));
+                    table.pins.remove(&group.routing_key);
+                    unpinned_groups.push(group);
                 }
             }
         }
 
         // Largest-first bin-pack: assign the biggest key-groups first so
         // heavy hitters drive the load distribution.
-        unassigned.sort_unstable_by(|a, b| b.1.len().cmp(&a.1.len()));
+        unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
 
-        for (key, msgs) in unassigned {
-            let Some(worker_idx) = table.least_loaded_healthy(&self.registry, &provisional) else {
+        for group in unpinned_groups {
+            let Some(worker_idx) =
+                table.least_loaded_healthy(&self.registry, assignments.provisional_in_flight())
+            else {
                 // All workers unhealthy — this key cannot be assigned.
                 counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
-                    .increment(msgs.len() as u64);
+                    .increment(group.messages.len() as u64);
                 continue;
             };
 
             table.pins.insert(
-                key.clone(),
+                group.routing_key.clone(),
                 Pin {
                     worker_idx,
                     ref_count: 1,
                 },
             );
 
-            let entry = worker_msgs.entry(worker_idx).or_default();
-            if entry.0.is_empty() {
-                provisional[worker_idx] = provisional[worker_idx].saturating_add(1);
-            }
-            entry.0.extend(msgs);
-            entry.1.push(key);
+            assignments.add_group(worker_idx, group);
         }
 
         // Increment in-flight counters for workers that got messages.
-        for (&worker_idx, (msgs, _)) in &worker_msgs {
-            if !msgs.is_empty() {
-                table.in_flight[worker_idx] = table.in_flight[worker_idx].saturating_add(1);
-                counter!(
-                    "ingestion_consumer_dispatcher_sub_batches_assigned_total",
-                    "worker" => worker_idx.to_string(),
-                )
-                .increment(1);
-                counter!(
-                    "ingestion_consumer_dispatcher_messages_routed_total",
-                    "worker" => worker_idx.to_string(),
-                )
-                .increment(msgs.len() as u64);
-            }
+        for (worker_idx, message_count) in assignments.routed_counts() {
+            table.in_flight[worker_idx] = table.in_flight[worker_idx].saturating_add(1);
+            counter!(
+                "ingestion_consumer_dispatcher_sub_batches_assigned_total",
+                "worker" => worker_idx.to_string(),
+            )
+            .increment(1);
+            counter!(
+                "ingestion_consumer_dispatcher_messages_routed_total",
+                "worker" => worker_idx.to_string(),
+            )
+            .increment(message_count as u64);
         }
 
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
 
-        worker_msgs
-            .into_iter()
-            .filter(|(_, (msgs, _))| !msgs.is_empty())
-            .map(|(worker_idx, (messages, routing_keys))| SubBatch {
-                worker_idx,
-                messages,
-                routing_keys,
-            })
-            .collect()
+        assignments.into_sub_batches()
     }
 
     /// Call after a sub-batch resolves (ACK or DLQ). Decrements the worker's
@@ -279,19 +315,45 @@ impl Dispatcher {
     }
 }
 
+struct GroupedMessages {
+    groups: Vec<MessageGroup>,
+    missing_header_count: u64,
+}
+
+fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
+    let mut grouped_messages: HashMap<String, Vec<SerializedKafkaMessage>> = HashMap::new();
+    let mut missing_header_count = 0u64;
+
+    for message in messages {
+        let routing_key = routing_key(&message).unwrap_or_else(|| {
+            missing_header_count += 1;
+            // Use a synthetic unique key so messages missing routing headers spread
+            // across workers instead of all pinning to one shared fallback key.
+            format!(":{}:{}", message.partition, message.offset)
+        });
+        grouped_messages
+            .entry(routing_key)
+            .or_default()
+            .push(message);
+    }
+
+    GroupedMessages {
+        groups: grouped_messages
+            .into_iter()
+            .map(|(routing_key, messages)| MessageGroup {
+                routing_key,
+                messages,
+            })
+            .collect(),
+        missing_header_count,
+    }
+}
+
 /// Extract the routing key from a message's `token` and `distinct_id` headers.
-fn routing_key(message: &SerializedKafkaMessage) -> String {
-    let token = message
-        .headers
-        .get("token")
-        .map(|s| s.as_str())
-        .unwrap_or("");
-    let distinct_id = message
-        .headers
-        .get("distinct_id")
-        .map(|s| s.as_str())
-        .unwrap_or("");
-    format!("{token}:{distinct_id}")
+fn routing_key(message: &SerializedKafkaMessage) -> Option<String> {
+    let token = message.headers.get("token")?;
+    let distinct_id = message.headers.get("distinct_id")?;
+    Some(format!("{token}:{distinct_id}"))
 }
 
 #[cfg(test)]
@@ -324,6 +386,18 @@ mod tests {
         specs.iter().map(|(t, d)| make_msg(t, d)).collect()
     }
 
+    fn make_msg_with_headers(headers: HashMap<String, String>) -> SerializedKafkaMessage {
+        SerializedKafkaMessage {
+            topic: "test".to_string(),
+            partition: 7,
+            offset: 42,
+            timestamp: 0,
+            key: None,
+            value: None,
+            headers,
+        }
+    }
+
     /// Registry with N healthy workers and no cooldown. `dead_declaration` is
     /// very short so tests can drive a worker to dead quickly.
     fn healthy_registry(n: usize) -> Arc<WorkerRegistry> {
@@ -348,21 +422,78 @@ mod tests {
     #[test]
     fn test_routing_key_format() {
         let msg = make_msg("tok", "user-1");
-        assert_eq!(routing_key(&msg), "tok:user-1");
+        assert_eq!(routing_key(&msg), Some("tok:user-1".to_string()));
     }
 
     #[test]
     fn test_routing_key_missing_headers() {
-        let msg = SerializedKafkaMessage {
-            topic: "t".to_string(),
-            partition: 0,
-            offset: 0,
-            timestamp: 0,
-            key: None,
-            value: None,
-            headers: HashMap::new(),
-        };
-        assert_eq!(routing_key(&msg), ":");
+        assert_eq!(routing_key(&make_msg_with_headers(HashMap::new())), None);
+    }
+
+    #[test]
+    fn test_routing_key_requires_token_and_distinct_id() {
+        let mut headers = HashMap::new();
+        headers.insert("token".to_string(), "tok".to_string());
+
+        assert_eq!(routing_key(&make_msg_with_headers(headers)), None);
+    }
+
+    #[test]
+    fn test_group_messages_by_routing_key_uses_synthetic_key_for_missing_headers() {
+        let grouped = group_messages_by_routing_key(vec![make_msg_with_headers(HashMap::new())]);
+
+        assert_eq!(grouped.missing_header_count, 1);
+        assert_eq!(grouped.groups.len(), 1);
+        assert_eq!(grouped.groups[0].routing_key, ":7:42");
+        assert_eq!(grouped.groups[0].messages.len(), 1);
+    }
+
+    #[test]
+    fn test_group_messages_by_routing_key_groups_same_routing_key() {
+        let grouped =
+            group_messages_by_routing_key(make_msgs(&[("tok", "user-1"), ("tok", "user-1")]));
+
+        assert_eq!(grouped.missing_header_count, 0);
+        assert_eq!(grouped.groups.len(), 1);
+        assert_eq!(grouped.groups[0].routing_key, "tok:user-1");
+        assert_eq!(grouped.groups[0].messages.len(), 2);
+    }
+
+    // ---- worker assignments ----
+
+    #[test]
+    fn test_worker_assignments_merges_groups_for_same_worker() {
+        let mut assignments = WorkerAssignments::new(2);
+
+        assignments.add_group(
+            1,
+            MessageGroup {
+                routing_key: "tok:user-1".to_string(),
+                messages: make_msgs(&[("tok", "user-1")]),
+            },
+        );
+        assignments.add_group(
+            1,
+            MessageGroup {
+                routing_key: "tok:user-2".to_string(),
+                messages: make_msgs(&[("tok", "user-2")]),
+            },
+        );
+
+        assert_eq!(assignments.provisional_in_flight(), &[0, 1]);
+        assert_eq!(
+            assignments.routed_counts().collect::<Vec<_>>(),
+            vec![(1, 2)]
+        );
+
+        let sub_batches = assignments.into_sub_batches();
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(sub_batches[0].worker_idx, 1);
+        assert_eq!(sub_batches[0].messages.len(), 2);
+        assert_eq!(
+            sub_batches[0].routing_keys,
+            vec!["tok:user-1".to_string(), "tok:user-2".to_string()]
+        );
     }
 
     // ---- basic assignment ----

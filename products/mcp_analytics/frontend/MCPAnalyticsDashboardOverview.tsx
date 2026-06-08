@@ -1,10 +1,15 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconBolt } from '@posthog/icons'
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
 
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { buildTheme } from 'lib/charts/utils/theme'
+import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import claudeLogo from './harness-logos/claude.svg'
 import cursorLogo from './harness-logos/cursor.svg'
@@ -37,28 +42,21 @@ export function HarnessPill({ category, title }: { category: string; title?: str
     )
 }
 
-type TileColor = 'blue' | 'red' | 'green'
-
 interface TileSpec {
     label: string
     metric: KPIMetric
     href: string
     format: (n: number) => string
-    color: TileColor
+    /** Sparkline color, picked from the shared data-viz palette (theme.colors). */
+    color: string
     loading: boolean
-}
-
-const COLOR_STROKE: Record<TileColor, string> = {
-    blue: '#185FA5',
-    red: '#A32D2D',
-    green: '#0F6E56',
 }
 
 function formatNumber(n: number): string {
     if (!isFinite(n)) {
         return '—'
     }
-    return humanFriendlyNumber(Math.round(n))
+    return humanFriendlyLargeNumber(n)
 }
 
 function formatPercent(n: number): string {
@@ -78,65 +76,37 @@ function formatMs(n: number): string {
     return humanFriendlyDuration(n / 1000, { secondsPrecision: 1 })
 }
 
-function Sparkline({ values, stroke }: { values: number[]; stroke: string }): JSX.Element {
-    const width = 60
-    const height = 18
-    if (values.length === 0) {
-        return <svg width={width} height={height} aria-hidden />
-    }
-    const max = Math.max(...values, 1)
-    const min = Math.min(...values, 0)
-    const range = max - min || 1
-    const stepX = values.length > 1 ? width / (values.length - 1) : width
-    const points = values
-        .map((v, i) => {
-            const x = i * stepX
-            const y = height - ((v - min) / range) * height
-            return `${x.toFixed(1)},${y.toFixed(1)}`
-        })
-        .join(' ')
-    return (
-        <svg width={width} height={height} aria-hidden>
-            <polyline fill="none" stroke={stroke} strokeWidth="1.2" points={points} />
-        </svg>
-    )
-}
+function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
+    const { metric } = tile
+    const hasSparkline = metric.sparkline.length > 0
+    const hasComparison = metric.deltaPct !== null
 
-function DeltaPill({ metric }: { metric: KPIMetric }): JSX.Element {
-    if (metric.deltaPct === null) {
-        return <span className="text-[11px] font-medium text-secondary">—</span>
-    }
-    const rounded = Math.round(metric.deltaPct)
-    if (rounded === 0) {
-        return <span className="text-[11px] font-medium text-secondary">0%</span>
-    }
-    const isUp = rounded > 0
-    const isGood = isUp ? metric.goodDirection === 'up' : metric.goodDirection === 'down'
-    const colorClass = isGood ? 'text-success' : 'text-danger'
-    const arrow = isUp ? '↑' : '↓'
-    return (
-        <span className={`text-[11px] font-medium ${colorClass}`}>
-            {arrow} {Math.abs(rounded)}%
-        </span>
-    )
-}
-
-function KPITile({ tile }: { tile: TileSpec }): JSX.Element {
     return (
         <Link
             to={tile.href}
-            className="flex flex-col gap-1 rounded-md bg-surface-secondary px-3.5 py-3 transition-colors hover:bg-surface-tertiary"
+            subtle
+            className="flex flex-col rounded-lg border border-primary bg-surface-primary px-3.5 py-3 shadow-sm transition-all hover:border-secondary hover:shadow-md"
         >
-            <div className="text-[11px] text-secondary">{tile.label}</div>
             {tile.loading ? (
-                <LemonSkeleton className="h-5 w-16" />
+                <div className="flex flex-col gap-2">
+                    <LemonSkeleton className="h-3 w-16" />
+                    <LemonSkeleton className="h-7 w-20" />
+                </div>
             ) : (
-                <div className="text-xl font-medium leading-tight">{tile.format(tile.metric.value)}</div>
+                <MetricCard
+                    className="text-primary"
+                    title={tile.label}
+                    value={metric.value}
+                    data={hasSparkline ? metric.sparkline : undefined}
+                    theme={theme}
+                    color={tile.color}
+                    goodDirection={metric.goodDirection}
+                    formatValue={tile.format}
+                    subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
+                    sparklineHeight={50}
+                    sparklineClassName="mt-3 -mx-3.5 -mb-3"
+                />
             )}
-            <div className="mt-1 flex items-center justify-between">
-                <Sparkline values={tile.metric.sparkline} stroke={COLOR_STROKE[tile.color]} />
-                <DeltaPill metric={tile.metric} />
-            </div>
         </Link>
     )
 }
@@ -154,6 +124,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRawRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     const tiles: TileSpec[] = [
         {
@@ -161,7 +134,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.sessions,
             href: urls.mcpAnalyticsSessions(),
             format: formatNumber,
-            color: 'blue',
+            color: theme.colors[0], // --data-color-1 (blue)
             loading: kpisLoading,
         },
         {
@@ -169,7 +142,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.toolCalls,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatNumber,
-            color: 'blue',
+            color: theme.colors[0], // --data-color-1 (blue)
             loading: kpisLoading,
         },
         {
@@ -177,7 +150,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.errorRatePct,
             href: urls.mcpAnalyticsSessions(),
             format: formatPercent,
-            color: 'red',
+            color: theme.colors[4], // --data-color-5 (red)
             loading: kpisLoading,
         },
         {
@@ -185,7 +158,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.p95LatencyMs,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatMs,
-            color: 'blue',
+            color: theme.colors[0], // --data-color-1 (blue)
             loading: kpisLoading,
         },
         {
@@ -193,7 +166,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: intentClusterCount,
             href: urls.mcpAnalyticsIntentClustering(),
             format: formatNumber,
-            color: 'green',
+            color: theme.colors[6], // --data-color-7 (green)
             loading: false,
         },
     ]
@@ -204,7 +177,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <Block kicker="Health" question="Is the MCP healthy right now?">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                     {tiles.map((tile) => (
-                        <KPITile key={tile.label} tile={tile} />
+                        <KPITile key={tile.label} tile={tile} theme={theme} />
                     ))}
                 </div>
             </Block>
@@ -229,12 +202,9 @@ function BrandingStrip(): JSX.Element {
                     <IconBolt className="h-3 w-3" />
                 </span>
                 <span className="text-[13px] font-medium">PostHog for Agents</span>
-                <span
-                    className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{ background: '#E6F1FB', color: '#0C447C' }}
-                >
-                    Preview
-                </span>
+                <LemonTag type="completion" size="small">
+                    Alpha
+                </LemonTag>
             </div>
             <span className="text-[11px] text-tertiary">Last 7 days</span>
         </div>
@@ -276,9 +246,9 @@ function errorBucket(pct: number): ErrorBucket {
 }
 
 const ERROR_PILL_CLASS: Record<ErrorBucket, string> = {
-    green: 'text-[#27500A] bg-[#EAF3DE]',
-    amber: 'text-[#633806] bg-[#FAEEDA]',
-    red: 'text-[#791F1F] bg-[#FCEBEB]',
+    green: 'text-success bg-fill-success-highlight',
+    amber: 'text-warning bg-fill-warning-highlight',
+    red: 'text-error bg-fill-error-highlight',
 }
 
 function ErrorRatePill({ pct }: { pct: number }): JSX.Element {
@@ -292,11 +262,28 @@ function ErrorRatePill({ pct }: { pct: number }): JSX.Element {
     )
 }
 
+const VOLUME_COLOR = 'var(--data-color-1)'
+const ERROR_COLOR = 'var(--data-color-5)'
+
+function VolumeBar({ totalPct, errorPct, title }: { totalPct: number; errorPct: number; title: string }): JSX.Element {
+    const errorStartPct = (Math.max(totalPct - errorPct, 0) / (totalPct || 1)) * 100
+    return (
+        <div className="relative h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary" title={title}>
+            <div
+                className="h-full opacity-40"
+                style={{
+                    width: `${totalPct}%`,
+                    background: `linear-gradient(to right, ${VOLUME_COLOR} ${errorStartPct}%, ${ERROR_COLOR} ${errorStartPct}%)`,
+                }}
+            />
+        </div>
+    )
+}
+
 function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: number; isLast: boolean }): JSX.Element {
     const callsPct = maxVolume ? (row.total_calls / maxVolume) * 100 : 0
     const errorsPct = maxVolume ? (row.errors / maxVolume) * 100 : 0
-    const successPct = Math.max(callsPct - errorsPct, 0)
-    const nameClass = row.error_rate_pct > 5 ? 'text-[#791F1F]' : 'text-primary'
+    const nameClass = row.error_rate_pct > 5 ? 'text-error' : 'text-primary'
     return (
         <div
             className="grid items-center gap-2.5 py-1.5"
@@ -312,13 +299,11 @@ function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: numb
             >
                 {row.tool}
             </Link>
-            <div
-                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
+            <VolumeBar
+                totalPct={callsPct}
+                errorPct={errorsPct}
                 title={`${row.total_calls} calls · ${row.errors} errors`}
-            >
-                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
-                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
-            </div>
+            />
             <ErrorRatePill pct={row.error_rate_pct} />
             <span className="text-right font-mono text-xs text-primary">
                 {row.p95_duration_ms ? `${Math.round(row.p95_duration_ms)}ms` : '—'}
@@ -349,9 +334,9 @@ function ToolReliabilityMatrix({
             >
                 <span>Tool</span>
                 <span>
-                    <span className="text-[#185FA5]">Calls</span>
+                    <span style={{ color: VOLUME_COLOR }}>Calls</span>
                     <span className="mx-1">·</span>
-                    <span className="text-[#A32D2D]">errors</span>
+                    <span style={{ color: ERROR_COLOR }}>errors</span>
                 </span>
                 <span>Err</span>
                 <span className="text-right">p95</span>
@@ -397,9 +382,9 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
             >
                 <span>Harness</span>
                 <span>
-                    <span className="text-[#185FA5]">Calls</span>
+                    <span style={{ color: VOLUME_COLOR }}>Calls</span>
                     <span className="mx-1">·</span>
-                    <span className="text-[#A32D2D]">errors</span>
+                    <span style={{ color: ERROR_COLOR }}>errors</span>
                 </span>
                 <span>Err</span>
                 <span className="text-right">Share</span>
@@ -416,7 +401,6 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
                 rows.map((row, i) => {
                     const callsPct = maxCalls ? (row.total_calls / maxCalls) * 100 : 0
                     const errorsPct = maxCalls ? (row.errors / maxCalls) * 100 : 0
-                    const successPct = Math.max(callsPct - errorsPct, 0)
                     const share = totalCalls ? (row.total_calls / totalCalls) * 100 : 0
                     const tooltip = row.raw_clients.slice(0, 8).join(', ')
                     return (
@@ -430,13 +414,11 @@ function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: bool
                             }}
                         >
                             <HarnessPill category={row.category} title={tooltip} />
-                            <div
-                                className="relative flex h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary"
+                            <VolumeBar
+                                totalPct={callsPct}
+                                errorPct={errorsPct}
                                 title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
-                            >
-                                <div className="h-full bg-[#B5D4F4]" style={{ width: `${successPct}%` }} />
-                                <div className="h-full bg-[#F09595]" style={{ width: `${errorsPct}%` }} />
-                            </div>
+                            />
                             <ErrorRatePill pct={row.error_rate_pct} />
                             <span className="text-right font-mono text-xs text-primary">
                                 {share.toFixed(share >= 10 ? 0 : 1)}%
@@ -469,7 +451,7 @@ function formatDuration(seconds: number): string {
 function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     if (errorRatePct >= 100) {
         return (
-            <span className="inline-flex h-[14px] items-center rounded-[3px] bg-[#FCEBEB] px-1.5 text-[10px] font-medium text-[#791F1F]">
+            <span className="inline-flex h-[14px] items-center rounded-[3px] bg-fill-error-highlight px-1.5 text-[10px] font-medium text-error">
                 100% err
             </span>
         )
@@ -485,7 +467,7 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
         )
     }
     return (
-        <span className="inline-flex h-[14px] items-center rounded-[3px] bg-[#EAF3DE] px-1.5 text-[10px] font-medium text-[#27500A]">
+        <span className="inline-flex h-[14px] items-center rounded-[3px] bg-fill-success-highlight px-1.5 text-[10px] font-medium text-success">
             Success
         </span>
     )

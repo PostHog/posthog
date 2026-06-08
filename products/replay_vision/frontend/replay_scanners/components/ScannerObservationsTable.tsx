@@ -1,160 +1,141 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconRewindPlay } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerType, ObservationStatus, ReplayObservation } from '../types'
+import { FilterPill } from '../../components/FilterPill'
+import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
+import type { ReplayObservationApi } from '../../generated/api.schemas'
+import {
+    OBSERVATIONS_PAGE_SIZE,
+    ObservationStatusValue,
+    ObservationTriggeredByValue,
+    ObservationVerdictValue,
+    replayScannerLogic,
+} from '../replayScannerLogic'
+import { ScannerOverview } from './ScannerOverview'
 
-function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
-    if (status === 'succeeded') {
-        return <LemonTag type="success">Succeeded</LemonTag>
+const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
+    { value: 'succeeded', label: 'Succeeded' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'ineligible', label: 'Ineligible' },
+    { value: 'running', label: 'Running' },
+    { value: 'pending', label: 'Pending' },
+]
+
+const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string }[] = [
+    { value: 'on_demand', label: 'On demand' },
+    { value: 'schedule', label: 'Schedule' },
+]
+
+const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
+    { value: 'yes', label: 'Yes' },
+    { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
+]
+
+// Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
+const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
+
+function versionTag(
+    obsVersion: number | null | undefined,
+    currentVersion: number | null | undefined
+): { type: LemonTagType; label: string; tooltip: string } | null {
+    if (obsVersion == null) {
+        return null
     }
-    if (status === 'failed') {
-        return <LemonTag type="danger">Failed</LemonTag>
+    const label = `v${obsVersion}`
+    if (currentVersion == null) {
+        return { type: 'muted', label, tooltip: `Ran with scanner version ${obsVersion}` }
     }
-    if (status === 'running') {
-        return (
-            <LemonTag type="warning">
-                <Spinner className="mr-1" /> Running
-            </LemonTag>
-        )
-    }
-    return <LemonTag type="default">Pending</LemonTag>
+    const age = Math.max(0, currentVersion - obsVersion)
+    const type = VERSION_TAG_TYPES[Math.min(age, VERSION_TAG_TYPES.length - 1)]
+    const tooltip =
+        age === 0 ? `Current version (v${currentVersion})` : `${age} version(s) behind current (v${currentVersion})`
+    return { type, label, tooltip }
 }
 
-function ResultPreview({
-    scannerType,
-    observation,
-}: {
-    scannerType: ScannerType
-    observation: ReplayObservation
-}): JSX.Element {
-    if (observation.status === 'failed') {
-        return (
-            <Tooltip title={observation.error_reason || 'Unknown error'}>
-                <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {observation.error_reason || 'Failed'}
-                </span>
-            </Tooltip>
-        )
-    }
-    if (observation.status !== 'succeeded' || !observation.result) {
-        return <span className="text-muted text-sm">—</span>
-    }
-    const r = observation.result
-    if (scannerType === 'monitor') {
-        const verdict = Boolean(r.verdict)
-        return (
-            <div className="flex flex-col gap-1 max-w-md">
-                <LemonTag type={verdict ? 'success' : 'default'}>{verdict ? 'Yes' : 'No'}</LemonTag>
-                {typeof r.reasoning === 'string' && <span className="text-muted text-xs truncate">{r.reasoning}</span>}
-            </div>
-        )
-    }
-    if (scannerType === 'summarizer') {
-        return (
-            <div className="flex flex-col max-w-md">
-                {typeof r.title === 'string' && <span className="font-semibold text-sm truncate">{r.title}</span>}
-                {typeof r.summary === 'string' && <span className="text-muted text-xs line-clamp-2">{r.summary}</span>}
-            </div>
-        )
-    }
-    if (scannerType === 'classifier') {
-        const tags = Array.isArray(r.tags) ? (r.tags as string[]) : []
-        return (
-            <div className="flex flex-wrap gap-1 max-w-md">
-                {tags.length === 0 ? (
-                    <span className="text-muted text-sm">No tags</span>
-                ) : (
-                    tags.map((t) => (
-                        <LemonTag key={t} type="option">
-                            {t}
-                        </LemonTag>
-                    ))
-                )}
-            </div>
-        )
-    }
-    if (scannerType === 'scorer') {
-        const score = typeof r.score === 'number' ? r.score : null
-        const label = typeof r.label === 'string' ? r.label : null
-        return (
-            <div className="flex items-baseline gap-2">
-                <span className="font-semibold text-lg tabular-nums">{score ?? '—'}</span>
-                {label && <span className="text-muted text-xs">{label}</span>}
-            </div>
-        )
-    }
-    if (scannerType === 'indexer') {
-        const keywords = Array.isArray(r.keywords) ? (r.keywords as string[]) : []
-        return (
-            <div className="flex flex-col max-w-md">
-                {typeof r.summary === 'string' && <span className="text-sm truncate">{r.summary}</span>}
-                {keywords.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                        {keywords.slice(0, 5).map((k) => (
-                            <LemonTag key={k} type="option" size="small">
-                                {k}
-                            </LemonTag>
-                        ))}
-                        {keywords.length > 5 && <span className="text-muted text-xs">+{keywords.length - 5}</span>}
-                    </div>
-                )}
-            </div>
-        )
-    }
-    return <span className="text-muted text-sm">—</span>
-}
+export function ScannerObservationsTable({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
+    const {
+        observations,
+        observationsLoading,
+        hasObservationsInFlight,
+        observationsPage,
+        observationsTotal,
+        observationsSort,
+        observationStatusFilter,
+        observationTriggeredByFilter,
+        observationVerdictFilter,
+        observationTagFilter,
+        hasActiveObservationFilters,
+        availableTags,
+        observationStats,
+        scanner,
+    } = useValues(logic)
+    const {
+        loadObservations,
+        setObservationsPage,
+        setObservationsSort,
+        setObservationStatusFilter,
+        setObservationTriggeredByFilter,
+        setObservationVerdictFilter,
+        setObservationTagFilter,
+        clearObservationFilters,
+    } = useActions(logic)
+    const scannerType = scanner?.scanner_type
+    const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
 
-export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const logic = replayScannerLogic({ id: scannerId, tabId })
-    const { scanner, observations, observationsLoading } = useValues(logic)
-    const { loadObservations } = useActions(logic)
-
-    if (!scanner) {
-        return <div className="text-muted">Loading…</div>
-    }
-
-    const stats = observations.reduce(
-        (acc, o) => {
-            acc.total += 1
-            if (o.status === 'succeeded') {
-                acc.succeeded += 1
-            } else if (o.status === 'failed') {
-                acc.failed += 1
-            } else {
-                acc.running += 1
-            }
-            return acc
-        },
-        { total: 0, succeeded: 0, failed: 0, running: 0 }
-    )
-    const successRate = stats.total > 0 ? Math.round((stats.succeeded / stats.total) * 100) : null
-
-    const columns: LemonTableColumns<ReplayObservation> = [
+    const columns: LemonTableColumns<ReplayObservationApi> = [
         {
             title: 'Session',
             key: 'session',
+            width: 300,
             render: (_, obs) => (
-                <Link to={urls.replaySingle(obs.session_id)} className="font-mono text-xs text-primary">
-                    {obs.session_id.slice(0, 12)}…
+                <Link
+                    to={urls.replayVisionObservation(obs.id)}
+                    className="font-mono text-xs text-primary truncate block"
+                >
+                    {obs.session_id}
                 </Link>
             ),
         },
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <StatusTag status={obs.status} />,
+            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
         },
         {
             title: 'Result',
             key: 'result',
-            render: (_, obs) => <ResultPreview scannerType={scanner.scanner_type} observation={obs} />,
+            render: (_, obs) => (
+                <div className="min-w-[18rem] max-w-xl">
+                    <ObservationResultSummary observation={obs} />
+                </div>
+            ),
+            sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
+        },
+        {
+            title: 'Version',
+            key: 'version',
+            render: (_, obs) => {
+                const tag = versionTag(obs.scanner_snapshot?.scanner_version, scanner?.scanner_version)
+                if (!tag) {
+                    return <span className="text-muted">—</span>
+                }
+                return (
+                    <Tooltip title={tag.tooltip}>
+                        <LemonTag type={tag.type} className="font-mono">
+                            {tag.label}
+                        </LemonTag>
+                    </Tooltip>
+                )
+            },
+            sorter: true,
         },
         {
             title: 'Triggered by',
@@ -166,74 +147,150 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
             ),
         },
         {
-            title: 'Model',
-            key: 'model',
-            render: (_, obs) => <span className="font-mono text-xs text-muted">{obs.model_used || '—'}</span>,
-        },
-        {
             title: 'Created',
             key: 'created_at',
             render: (_, obs) => <TZLabel time={obs.created_at} />,
-            sorter: (a, b) => a.created_at.localeCompare(b.created_at),
+            sorter: true,
+        },
+        {
+            title: '',
+            key: 'actions',
+            width: 1,
+            render: (_, obs) => (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconRewindPlay />}
+                    to={urls.replaySingle(obs.session_id)}
+                    className="whitespace-nowrap"
+                >
+                    View recording
+                </LemonButton>
+            ),
         },
     ]
 
     return (
-        <div className="space-y-4 max-w-6xl">
+        <div className="space-y-4">
+            <ScannerOverview scannerId={scannerId} />
             <div className="flex items-start justify-between gap-4">
                 <p className="text-muted text-sm m-0">
-                    Past applications of this scanner to session recordings. Each row is one observation.
+                    Past observations made by this scanner. Each row is one observation.
                 </p>
                 <div className="flex items-center gap-4">
-                    {stats.total > 0 && (
+                    {observationStats.total > 0 && (
                         <div className="flex gap-4 text-sm">
                             <div className="text-center">
-                                <div className="font-semibold text-lg">{stats.total}</div>
+                                <div className="font-semibold text-lg">{observationStats.total}</div>
                                 <div className="text-muted">Total</div>
                             </div>
-                            {successRate !== null && (
+                            {observationStats.successRate !== null && (
                                 <div className="text-center">
-                                    <div className="font-semibold text-lg text-success">{successRate}%</div>
+                                    <div className="font-semibold text-lg text-success">
+                                        {observationStats.successRate}%
+                                    </div>
                                     <div className="text-muted">Success rate</div>
                                 </div>
                             )}
-                            {stats.failed > 0 && (
+                            {observationStats.failed > 0 && (
                                 <div className="text-center">
-                                    <div className="font-semibold text-lg text-danger">{stats.failed}</div>
+                                    <div className="font-semibold text-lg text-danger">{observationStats.failed}</div>
                                     <div className="text-muted">Failed</div>
                                 </div>
                             )}
-                            {stats.running > 0 && (
+                            {observationStats.ineligible > 0 && (
                                 <div className="text-center">
-                                    <div className="font-semibold text-lg">{stats.running}</div>
+                                    <div className="font-semibold text-lg">{observationStats.ineligible}</div>
+                                    <div className="text-muted">Ineligible</div>
+                                </div>
+                            )}
+                            {observationStats.inFlight > 0 && (
+                                <div className="text-center">
+                                    <div className="font-semibold text-lg">{observationStats.inFlight}</div>
                                     <div className="text-muted">In flight</div>
                                 </div>
                             )}
                         </div>
                     )}
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        onClick={() => loadObservations()}
-                        loading={observationsLoading}
+                    <Tooltip
+                        title={
+                            hasObservationsInFlight
+                                ? 'Auto-refreshing while observations are in flight'
+                                : 'Refresh observations'
+                        }
                     >
-                        Refresh
-                    </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => loadObservations()}
+                            loading={observationsLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </Tooltip>
                 </div>
             </div>
+            {(observationStats.total > 0 || hasActiveObservationFilters) && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <FilterPill<ObservationStatusValue>
+                        label="Status"
+                        options={STATUS_OPTIONS}
+                        value={observationStatusFilter}
+                        onChange={setObservationStatusFilter}
+                    />
+                    <FilterPill<ObservationTriggeredByValue>
+                        label="Triggered by"
+                        options={TRIGGERED_BY_OPTIONS}
+                        value={observationTriggeredByFilter}
+                        onChange={setObservationTriggeredByFilter}
+                    />
+                    {scannerType === 'monitor' && (
+                        <FilterPill<ObservationVerdictValue>
+                            label="Verdict"
+                            options={VERDICT_OPTIONS}
+                            value={observationVerdictFilter}
+                            onChange={setObservationVerdictFilter}
+                        />
+                    )}
+                    {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
+                        <FilterPill<string>
+                            label="Tag"
+                            options={tagFilterOptions}
+                            value={observationTagFilter}
+                            onChange={setObservationTagFilter}
+                        />
+                    )}
+                    {hasActiveObservationFilters && (
+                        <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
+                            Clear filters
+                        </LemonButton>
+                    )}
+                </div>
+            )}
             <LemonTable
                 columns={columns}
                 dataSource={observations}
                 loading={observationsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 50 }}
+                pagination={{
+                    controlled: true,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    currentPage: observationsPage,
+                    entryCount: observationsTotal,
+                    onForward: () => setObservationsPage(observationsPage + 1),
+                    onBackward: () => setObservationsPage(observationsPage - 1),
+                }}
+                sorting={observationsSort}
+                onSort={(next) => setObservationsSort(next)}
+                useURLForSorting={false}
                 nouns={['observation', 'observations']}
                 emptyState={
-                    <span className="text-muted">
-                        No observations yet. Once this scanner runs against matching recordings, results will appear
-                        here.
-                    </span>
+                    <div className="p-6 text-center text-muted">
+                        {hasActiveObservationFilters
+                            ? 'No observations match your filters.'
+                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
+                    </div>
                 }
             />
         </div>

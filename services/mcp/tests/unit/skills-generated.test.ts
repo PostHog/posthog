@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { getToolByName } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/llm_analytics'
+import { GENERATED_TOOLS } from '@/tools/generated/ai_observability'
 import type { Context } from '@/tools/types'
 
 function createContext(requestReturnValue: unknown): { context: Context; requestMock: ReturnType<typeof vi.fn> } {
@@ -36,7 +36,7 @@ describe('Generated llma-skill-* tools', () => {
 
         expect(requestMock).toHaveBeenCalledWith({
             method: 'POST',
-            path: '/api/environments/17/llm_skills/name/skills-store/archive/',
+            path: '/api/projects/17/llm_skills/name/skills-store/archive/',
         })
         expect(result).toBeUndefined()
     })

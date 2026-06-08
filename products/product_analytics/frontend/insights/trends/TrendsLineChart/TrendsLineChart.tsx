@@ -1,9 +1,16 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
+import type {
+    PointClickData,
+    Series,
+    TimeSeriesLineChartConfig,
+    TooltipConfig,
+    TooltipContext,
+} from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
-import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -128,6 +135,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                xAxisLabel: trendsFilter?.xAxisLabel,
+                yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,
@@ -150,6 +159,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             interval,
             timezone,
             currentPeriodResult?.days,
+            trendsFilter?.xAxisLabel,
+            trendsFilter?.yAxisLabel,
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,
@@ -257,7 +268,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (

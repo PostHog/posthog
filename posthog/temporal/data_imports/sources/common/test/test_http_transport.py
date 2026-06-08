@@ -9,6 +9,7 @@ from urllib3.util.retry import Retry
 from posthog.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
+    _NoRedirectSession,
     make_tracked_adapter,
     make_tracked_session,
 )
@@ -68,6 +69,38 @@ def test_make_tracked_session_honors_custom_retry():
     assert adapter.max_retries.backoff_factor == 2.0
 
 
+def test_make_tracked_session_allows_redirects_by_default():
+    session = make_tracked_session()
+    assert not isinstance(session, _NoRedirectSession)
+
+
+def test_make_tracked_session_can_disable_redirects():
+    session = make_tracked_session(allow_redirects=False)
+    assert isinstance(session, _NoRedirectSession)
+    # Tracked adapters must still be mounted on the no-redirect session.
+    assert isinstance(session.get_adapter("https://example.com/"), TrackedHTTPAdapter)
+
+
+def test_no_redirect_session_does_not_follow_redirects(mock_record):
+    # Even when a caller invokes send() without allow_redirects (as RESTClient does),
+    # a 3xx must be returned as-is rather than transparently followed to its target.
+    session = make_tracked_session(allow_redirects=False)
+    prepared = session.prepare_request(requests.Request("GET", "https://acme.example.com/"))
+
+    redirect = Response()
+    redirect.status_code = 302
+    redirect.headers["Location"] = "https://169.254.169.254/"
+    redirect._content = b""
+    redirect.url = "https://acme.example.com/"
+
+    with patch.object(HTTPAdapter, "send", return_value=redirect) as adapter_send:
+        response = session.send(prepared)
+
+    assert response.status_code == 302
+    # A single dispatch: the redirect target is never fetched.
+    assert adapter_send.call_count == 1
+
+
 def test_make_tracked_session_merges_headers():
     session = make_tracked_session(headers={"X-Source": "stripe", "User-Agent": "posthog/test"})
 
@@ -81,6 +114,24 @@ def test_make_tracked_adapter_with_none_retry_uses_default():
 
     # Should equal the DEFAULT_RETRY total
     assert adapter.max_retries.total == DEFAULT_RETRY.total
+
+
+def test_send_forwards_redact_values_to_record(mock_record, fake_http_send):
+    session = make_tracked_session(redact_values=("sk_live_secret",))
+
+    with fake_http_send(_fake_response(status_code=200, body=b"ok")):
+        session.get("https://api.example.com/v1/ok")
+
+    assert mock_record.call_args.kwargs["redact_values"] == ("sk_live_secret",)
+
+
+def test_send_defaults_redact_values_to_empty(mock_record, fake_http_send):
+    session = make_tracked_session()
+
+    with fake_http_send(_fake_response(status_code=200, body=b"ok")):
+        session.get("https://api.example.com/v1/ok")
+
+    assert mock_record.call_args.kwargs["redact_values"] == ()
 
 
 def test_send_records_request_for_2xx(mock_record, fake_http_send):

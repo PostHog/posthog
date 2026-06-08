@@ -19,7 +19,7 @@ import {
     IconShare,
     IconScreen,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -28,11 +28,13 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
+import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -946,6 +948,34 @@ function InternalDataTableVisualization(
     )
 }
 
+const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+    if (!warnings || warnings.length === 0) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-sync-warnings">
+            <div className="font-semibold mb-1">
+                Some warehouse sources used by this query are out of date — results may not reflect current data
+            </div>
+            <ul className="list-disc pl-5 space-y-1">
+                {warnings.map((warning, index) => (
+                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
+                        {warning.message}
+                        {warning.source_id && (
+                            <>
+                                {' '}
+                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
+                                    Manage source
+                                </Link>
+                            </>
+                        )}
+                    </li>
+                ))}
+            </ul>
+        </LemonBanner>
+    )
+}
+
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     const error = queryCancelled
         ? 'The query was cancelled'
@@ -1055,7 +1085,8 @@ const Content = ({
         }
 
         return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t overflow-auto">
+                <SyncWarningsBanner warnings={response?.warnings} />
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}
@@ -1110,6 +1141,7 @@ const Content = ({
     if (activeTab === OutputTab.Results) {
         return (
             <TabScroller data-attr="sql-editor-output-pane-results">
+                <SyncWarningsBanner warnings={response?.warnings} />
                 <DataGrid
                     className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
                     columns={columns}

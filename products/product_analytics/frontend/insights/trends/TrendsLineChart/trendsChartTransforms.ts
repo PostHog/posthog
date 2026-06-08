@@ -1,4 +1,4 @@
-import { DEFAULT_Y_AXIS_ID, movingAverageKey } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, movingAverageKey, normalizeAxisLabel } from '@posthog/quill-charts'
 import type {
     ConfidenceIntervalConfig,
     MovingAverageConfig,
@@ -6,7 +6,8 @@ import type {
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
-} from 'lib/hog-charts'
+} from '@posthog/quill-charts'
+
 import { ciRanges } from 'lib/statistics'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
@@ -176,6 +177,8 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     interval?: IntervalType | null
     timezone?: string
     allDays?: string[]
+    xAxisLabel?: string | null
+    yAxisLabel?: string | null
     goalLines?: SchemaGoalLine[] | null
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
@@ -212,11 +215,15 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     })
     return {
         xAxis: {
+            label: normalizeAxisLabel(opts.xAxisLabel),
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
         },
-        yAxis,
+        yAxis: {
+            ...yAxis,
+            label: normalizeAxisLabel(opts.yAxisLabel),
+        },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         ...derivedConfigs,

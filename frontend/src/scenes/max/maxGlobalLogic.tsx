@@ -10,14 +10,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
+import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
+
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
@@ -80,6 +83,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['currentOrganization'],
             sceneLogic,
             ['sceneId', 'sceneConfig'],
+            teamLogic,
+            ['currentTeamIdStrict'],
             featureFlagLogic,
             ['featureFlags'],
             sidePanelStateLogic,
@@ -94,6 +99,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+        deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
         dismissDataProcessing: true,
     }),
@@ -184,9 +190,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 actions.openSidePanel(SidePanelTab.Max)
             }
             if (conversationId) {
-                let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+                let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
                 if (!logic) {
-                    logic = maxLogic({ tabId: 'sidepanel' })
+                    logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
                     logic.mount() // we're never unmounting this
                 }
                 logic.actions.openConversation(conversationId)
@@ -194,6 +200,22 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
+        },
+        deleteConversation: async ({ id }) => {
+            try {
+                await conversationsDestroy(String(values.currentTeamIdStrict), id)
+                if (values.currentConversationId === id) {
+                    router.actions.push(urls.aiHistory())
+                }
+                for (const logic of maxLogic.findAllMounted()) {
+                    if (logic.values.conversationId === id) {
+                        logic.actions.startNewConversation()
+                    }
+                }
+                actions.loadConversationHistory()
+            } catch {
+                lemonToast.error('Failed to delete chat')
+            }
         },
     })),
     afterMount(({ actions }) => {

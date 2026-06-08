@@ -49,7 +49,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
@@ -64,7 +63,6 @@ from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -95,6 +93,7 @@ from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
 from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
@@ -3691,11 +3690,8 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert len(files.get("Contents", [])) == 1
 
-    # Run the pipeline again with webhook feature flag enabled
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # Run the pipeline again to ingest the webhook parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -3885,11 +3881,8 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # Verify offsets were committed
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
-    # 6. Run the import pipeline with webhook feature flag enabled to ingest the parquet
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # 6. Run the import pipeline to ingest the parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 

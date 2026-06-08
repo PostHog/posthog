@@ -7,12 +7,17 @@ import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructi
 const realisticGroupTypes: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
 ]
+// `tools` mirrors production: the full tool set, query-* included (the domain
+// extractor collapses them into the single `query` domain). `queryTools` below
+// is the parallel catalog projection with hints.
 const realisticTools = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'query-trends', category: 'Query wrappers' },
+    { name: 'query-funnel', category: 'Query wrappers' },
 ]
 const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
@@ -33,35 +38,10 @@ const fullCtx: InstructionsContext = {
 }
 
 describe('InstructionsFormatter', () => {
-    describe('buildV1Instructions', () => {
-        it('returns the legacy section content when no metadata is supplied', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildV1Instructions()
-            expect(result).toContain('helpful assistant that can query PostHog API')
-            expect(result).toContain("'docs-search' tool")
-        })
-
-        it('appends metadata to the legacy section when provided', () => {
-            const formatter = new InstructionsFormatter()
-            const metadata = 'You are currently in project "Test".'
-            const result = formatter.buildV1Instructions(metadata)
-            expect(result).toContain('helpful assistant that can query PostHog API')
-            expect(result).toContain('You are currently in project "Test".')
-            const legacyIdx = result.indexOf('helpful assistant')
-            const metaIdx = result.indexOf('You are currently')
-            expect(legacyIdx).toBeLessThan(metaIdx)
-        })
-
-        it('treats an empty metadata string as no metadata', () => {
-            const formatter = new InstructionsFormatter()
-            expect(formatter.buildV1Instructions('')).toBe(formatter.buildV1Instructions())
-        })
-    })
-
-    describe('buildV2Instructions', () => {
+    describe('buildToolsInstructions', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildV2Instructions(fullCtx)
+            const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Project timezone: America/New_York.')
@@ -77,7 +57,7 @@ describe('InstructionsFormatter', () => {
 
         it('renders the basic functionality, retrieving data, and examples sections', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildV2Instructions(fullCtx)
+            const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Retrieving data')
             expect(result).toContain('### Examples')
@@ -85,7 +65,7 @@ describe('InstructionsFormatter', () => {
 
         it('does not leak any CLI-only sections (tools mode is not exec mode)', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildV2Instructions(fullCtx)
+            const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).not.toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).not.toContain('Using the `posthog` tool')
             expect(result).not.toContain('CLI-style command string')
@@ -93,7 +73,7 @@ describe('InstructionsFormatter', () => {
 
         it('omits placeholders cleanly when context fields are undefined', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildV2Instructions({ guidelines: 'rules' })
+            const result = formatter.buildToolsInstructions({ guidelines: 'rules' })
             expect(result).not.toContain('{guidelines}')
             expect(result).not.toContain('{defined_groups}')
             expect(result).not.toContain('{tool_domains}')
@@ -103,11 +83,11 @@ describe('InstructionsFormatter', () => {
 
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
-            const withFeedback = formatter.buildV2Instructions(fullCtx)
+            const withFeedback = formatter.buildToolsInstructions(fullCtx)
             expect(withFeedback).toContain('### Sharing feedback on this MCP server')
 
             for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
-                const result = formatter.buildV2Instructions({ ...fullCtx, featureFlags })
+                const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
                 expect(result).not.toContain('### Sharing feedback on this MCP server')
             }
         })
@@ -117,8 +97,9 @@ describe('InstructionsFormatter', () => {
         it('renders the compact instructions section with placeholders resolved', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecInstructions(fullCtx)
-            expect(result).toContain('dashboard|execute-sql|feature-flag')
-            expect(result).toContain('funnel|trends')
+            // query-* tools surface as the single `query` domain, not a separate catalog line
+            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            expect(result).not.toContain('query-*:')
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).not.toMatch(
@@ -196,12 +177,13 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('- `query-trends` — time series')
         })
 
-        it('strips env-context, tool-domain list, and query-tool catalog when stripEnvContext is true', () => {
+        it('strips env-context and tool-domain list but keeps the query-tool catalog when stripEnvContext is true', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: true })
             expect(result).not.toContain("The user's name is Jane Doe")
             expect(result).not.toContain('Defined group types: organization')
-            expect(result).not.toContain('- `query-trends` — time series')
+            // The query catalog stays on the exec command reference even when env is stripped.
+            expect(result).toContain('- `query-trends` — time series')
             // The bullet for the `dashboard` domain would clash with in-prose mentions,
             // so anchor on the list-prefix newline pattern to avoid false positives.
             expect(result).not.toContain('\n- dashboard\n')
@@ -223,10 +205,11 @@ describe('InstructionsFormatter', () => {
     })
 
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
-    // `instructions` field, four pieces move out of the `command` description and into
-    // `instructions`: tool domains, available query tools, user preferences (timezone/name
-    // via `{metadata}`), and defined group types. Codex (no `instructions` support) keeps
-    // today's behavior: empty `instructions`, everything inlined in the `command` description.
+    // `instructions` field, env-context moves out of the `command` description and into
+    // `instructions`: tool domains (including the `query` domain), user preferences
+    // (timezone/name via `{metadata}`), and defined group types. The query-tool catalog
+    // stays on the `command` description. Codex (no `instructions` support) keeps today's
+    // behavior: empty `instructions`, everything inlined in the `command` description.
     describe('exec mode wiring', () => {
         it.each([
             { name: 'supportsInstructions=true (Claude Code etc.)', supportsInstructions: true },
@@ -240,15 +223,17 @@ describe('InstructionsFormatter', () => {
 
             expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
             expect(commandReference).toContain('### Basic functionality')
+            // the query catalog always lives on the command reference, both modes
+            expect(commandReference).toContain('- `query-trends` — time series')
 
             if (supportsInstructions) {
-                expect(instructions).toContain('funnel|trends')
+                // queries surface in instructions only as the `query` tool domain
+                expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
+                expect(instructions).not.toContain('- `query-trends` — time series')
                 expect(instructions).toContain("The user's name is Jane Doe")
-                expect(instructions).toContain('dashboard|execute-sql|feature-flag')
                 expect(instructions).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain("The user's name is Jane Doe")
                 expect(commandReference).not.toContain('Defined group types: organization')
-                expect(commandReference).not.toContain('- `query-trends` — time series')
                 expect(commandReference).not.toContain('\n- dashboard\n')
             } else {
                 expect(instructions).toBe('')

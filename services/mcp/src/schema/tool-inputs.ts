@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
+import { PropertyFilter } from './query'
 
 export const ExternalDataJobsAfterSchema = z
     .string()
@@ -157,12 +157,12 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .min(1)
         .describe(
-            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
         ),
     sentiment: z
-        .enum(['positive', 'negative', 'mixed'])
+        .enum(['negative', 'mixed'])
         .describe(
-            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
         ),
     category: z
         .enum([
@@ -194,13 +194,13 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+            'Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user\'s task or data.'
         ),
     suggested_improvement: z
         .string()
         .optional()
         .describe(
-            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
         ),
     user_request: z
         .string()
@@ -208,7 +208,12 @@ export const FeedbackSubmitSchema = z.object({
         .describe(
             'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
         ),
-    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+        ),
 })
 
 export const ExperimentResultsGetSchema = z.object({
@@ -445,13 +450,6 @@ export const ExperimentCreateSchema = z.object({
         ),
 })
 
-export const InsightGenerateHogQLFromQuestionSchema = z.object({
-    question: z
-        .string()
-        .max(1000)
-        .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
-})
-
 export const InsightQueryInputSchema = z.object({
     insightId: z.string().describe('The insight ID or short_id to run.'),
     output_format: z
@@ -475,7 +473,7 @@ export const InsightQueryInputSchema = z.object({
         ),
 })
 
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
@@ -485,12 +483,6 @@ export const OrganizationSetActiveSchema = z.object({
 })
 
 export const ProjectGetAllSchema = z.object({})
-
-export const ProjectEventDefinitionsSchema = z.object({
-    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
@@ -515,82 +507,11 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
-export const ProjectPropertyDefinitionsInputSchema = z.object({
-    type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
-    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
-
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
 export const SurveyResponseCountsSchema = z.object({})
-
-const QueryRunQuerySchema = z.discriminatedUnion('kind', [
-    InsightVizNodeSchema,
-    DataVisualizationNodeSchema,
-    HogQLQuerySchema,
-])
-
-export const QueryRunInputSchema = z.object({
-    query: QueryRunQuerySchema,
-})
-
-export const HogQLSchemaInputSchema = z.object({
-    connectionId: z
-        .string()
-        .optional()
-        .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
-        ),
-})
-
-export const QueryValidateInputSchema = z.object({
-    query: z
-        .string()
-        .min(1)
-        .describe(
-            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
-        ),
-    language: z
-        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
-        .default('hogQL')
-        .describe(
-            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
-        ),
-    connectionId: z
-        .string()
-        .optional()
-        .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
-        ),
-})
-
-// Entity Search
-export const EntitySearchSchema = z.object({
-    query: z.string().min(1).describe('Search query to find entities by name or description'),
-    entities: z
-        .array(
-            z.enum([
-                'insight',
-                'dashboard',
-                'experiment',
-                'feature_flag',
-                'notebook',
-                'action',
-                'cohort',
-                'event_definition',
-                'survey',
-            ])
-        )
-        .optional()
-        .describe(
-            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
-        ),
-})
 
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({
@@ -606,6 +527,12 @@ export const ExecuteSQLSchema = z.object({
         .default(true)
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
