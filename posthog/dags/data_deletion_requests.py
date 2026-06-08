@@ -1,7 +1,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.conf import settings as django_settings
 
@@ -19,9 +19,9 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     compile_hogql_predicate,
-    event_match_params,
-    event_match_sql_fragment,
+    event_removal_where,
     jsonhas_expr,
+    verify_queued_request,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.bulk_delete import (
@@ -125,27 +125,6 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
     if ctx.person_properties:
         params.update(_property_filter_params(ctx.person_properties, prefix="pp_"))
     return params
-
-
-_EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
-
-
-def _event_removal_where(obj) -> tuple[str, dict]:
-    """Full WHERE predicate + params for event-removal queries.
-
-    Combines the mandatory team/timestamp bounds, the events filter (skipped
-    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
-    compiled HogQL fragment uses unqualified column references, so the result
-    is safe to splice into queries against either the Distributed ``events``
-    proxy or the local ``sharded_events`` MergeTree.
-    """
-    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
-    params = event_match_params(obj)
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
-    if hogql_sql:
-        parts.append(f"AND ({hogql_sql})")
-        params.update(hogql_values)
-    return " ".join(p for p in parts if p), params
 
 
 def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
@@ -395,7 +374,7 @@ def _run_immediate_event_deletion(
         context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
         shard_start = time.monotonic()
 
-        predicate, parameters = _event_removal_where(deletion_request)
+        predicate, parameters = event_removal_where(deletion_request)
         runner = LightweightDeleteMutationRunner(
             table=table,
             predicate=predicate,
@@ -423,7 +402,7 @@ def _queue_events_for_deferred_deletion(
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = _event_removal_where(deletion_request)
+    predicate, params = event_removal_where(deletion_request)
     # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
     insert_sql = (
         f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
@@ -1148,69 +1127,71 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 
 
 # ---------------------------------------------------------------------------
-# Verifier sensor: promotes QUEUED → COMPLETED once events are gone
+# Verify-queued sweep job: promotes recently-QUEUED requests once events are gone
 # ---------------------------------------------------------------------------
 
 
-def _count_remaining_matching_events(request: DataDeletionRequest) -> int:
-    from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.client.connection import ClickHouseUser
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.clickhouse.workload import Workload
+class VerifyQueuedConfig(dagster.Config):
+    lookback_days: int = pydantic.Field(
+        default=28,
+        description="Only verify QUEUED requests created within this many days. Bounds the sweep so a "
+        "permanently stuck request isn't re-checked forever.",
+    )
 
-    predicate, params = _event_removal_where(request)
-    with tags_context(
-        product=Product.INTERNAL,
-        feature=Feature.DATA_DELETION,
-        team_id=request.team_id,
-        workload=Workload.OFFLINE,
-        query_type="data_deletion_request_verify_queued",
-    ):
-        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
-        result = sync_execute(
-            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
-            params,
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-    return int(result[0][0]) if result else 0
+
+@dagster.op(tags=OWNER_TAG)
+def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, config: VerifyQueuedConfig) -> None:
+    """Verify recently-QUEUED deletion requests and promote those whose events are gone."""
+    from django.utils import timezone
+
+    cutoff = timezone.now() - timedelta(days=config.lookback_days)
+    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED, created_at__gte=cutoff)
+    promoted = 0
+    still_queued = 0
+    for request in queued:
+        try:
+            outcome = verify_queued_request(request)
+        except Exception as exc:
+            context.log.warning(f"Could not verify deletion request {request.pk}: {exc}")
+            still_queued += 1
+            continue
+        if outcome.promoted:
+            promoted += 1
+            context.log.info(f"Deletion request {request.pk} promoted QUEUED → COMPLETED.")
+        else:
+            still_queued += 1
+            context.log.info(f"Deletion request {request.pk}: {outcome.remaining} matching events remain, kept QUEUED.")
+    context.add_output_metadata(
+        {
+            "promoted": dagster.MetadataValue.int(promoted),
+            "still_queued": dagster.MetadataValue.int(still_queued),
+            "lookback_days": dagster.MetadataValue.int(config.lookback_days),
+        }
+    )
+    context.log.info(f"verify_queued_deletion_requests: {promoted} promoted, {still_queued} kept queued.")
+
+
+@dagster.job(tags=OWNER_TAG)
+def verify_queued_deletion_requests_job():
+    verify_queued_deletion_requests_op()
+
+
+# ---------------------------------------------------------------------------
+# Verifier sensor: launches the sweep job after each deletes_job SUCCESS
+# ---------------------------------------------------------------------------
 
 
 @dagster.run_status_sensor(
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[deletes_job],
+    request_job=verify_queued_deletion_requests_job,
     default_status=dagster.DefaultSensorStatus.STOPPED,
     minimum_interval_seconds=60,
 )
 def verify_queued_deletion_requests(context: dagster.RunStatusSensorContext):
-    """Promote QUEUED deletion requests to COMPLETED once their events are gone.
+    """Launch the verify-queued sweep after each deletes_job SUCCESS (the weekend drain).
 
-    Fires after each deletes_job SUCCESS.
+    deletes_job runs after the Saturday-night squash, so this fires once the adhoc-event
+    deletion drain has completed. The sweep logic lives in verify_queued_deletion_requests_job.
     """
-    from django.utils import timezone
-
-    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED)
-    promoted = 0
-    for request in queued:
-        try:
-            remaining = _count_remaining_matching_events(request)
-        except Exception as exc:
-            context.log.warning(f"Could not verify deletion request {request.pk}: {exc}")
-            continue
-
-        if remaining > 0:
-            context.log.info(
-                f"Deletion request {request.pk}: {remaining} matching events remain, keeping status QUEUED."
-            )
-            continue
-
-        updated = DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
-            status=RequestStatus.COMPLETED, updated_at=timezone.now()
-        )
-        if updated:
-            promoted += 1
-            context.log.info(f"Deletion request {request.pk} promoted QUEUED → COMPLETED.")
-
-    context.log.info(f"verify_queued_deletion_requests: {promoted} request(s) promoted this cycle.")
+    return dagster.RunRequest(run_key=context.dagster_run.run_id)

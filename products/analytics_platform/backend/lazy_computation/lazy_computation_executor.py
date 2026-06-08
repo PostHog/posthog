@@ -320,6 +320,10 @@ class LazyComputationTable(StrEnum):
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
+    # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
