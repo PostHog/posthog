@@ -173,7 +173,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -230,7 +230,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -531,7 +531,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -572,7 +572,7 @@ class TestRunEvaluationWorkflow:
         }
 
         with patch("posthog.temporal.ai_observability.run_evaluation.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_evaluation.capture_internal_routed") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 

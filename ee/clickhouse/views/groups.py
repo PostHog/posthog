@@ -13,13 +13,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
-from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -281,7 +280,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -289,15 +288,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
                 properties=properties,
                 process_person_profile=False,
-            ).raise_for_status()
-        except HTTPError as error:
+                team=self.team,
+            )
+            result.raise_for_status()
+        except CaptureRoutedError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
                     "detail": "capture_http_error",
                     "type": "capture_http_error",
                 },
-                status_code=error.response.status_code,
+                status_code=error.status_code or 502,
             )
         except Exception:
             raise TriggerGroupIdentifyException(
@@ -629,18 +630,19 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                resp = capture_internal(
+                routed_result = capture_internal_routed(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
                     distinct_id=team_uuid_as_distinct_id,
                     timestamp=timestamp,
                     properties=properties,
-                    process_person_profile=False,  # don't process person profile
+                    process_person_profile=False,
+                    team=self.team,
                 )
-                resp.raise_for_status()
+                routed_result.raise_for_status()
 
-            except HTTPError as e:
+            except CaptureRoutedError as e:
                 return response.Response(
                     {
                         "attr": "$unset",
@@ -648,7 +650,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         "detail": "capture_http_error",
                         "type": "capture_http_error",
                     },
-                    status=e.response.status_code,
+                    status=e.status_code or 502,
                 )
             except Exception:
                 return response.Response(

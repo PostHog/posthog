@@ -15,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.api.llm_prompt_serializers import (
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
@@ -192,7 +192,7 @@ class LLMPromptViewSet(
     def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
         if not settings.TEST:
             try:
-                capture_internal(
+                capture_internal_routed(
                     token=self.team.api_token,
                     event_name=PROMPT_FETCHED_EVENT,
                     event_source=PROMPT_FETCHED_EVENT_SOURCE,
@@ -205,6 +205,7 @@ class LLMPromptViewSet(
                         "prompt_is_latest": prompt["is_latest"],
                         "prompt_first_version_created_at": prompt["first_version_created_at"],
                     },
+                    team=self.team,
                 )
             except Exception as err:
                 capture_exception(err)

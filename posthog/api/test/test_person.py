@@ -999,7 +999,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1020,9 +1020,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$set": {"foo": "bar"},
             },
             process_person_profile=True,
+            team=self.team,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1043,9 +1044,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$unset": ["foo"],
             },
             process_person_profile=True,
+            team=self.team,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1066,9 +1068,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$set": {"foo": "bar"},
             },
             process_person_profile=True,
+            team=self.team,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1089,9 +1092,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$unset": ["foo"],
             },
             process_person_profile=True,
+            team=self.team,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_person_property_with_null_value(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1117,6 +1121,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$set": {"foo": None},
             },
             process_person_profile=True,
+            team=self.team,
         )
 
     def test_update_person_property_missing_value_returns_400(self) -> None:

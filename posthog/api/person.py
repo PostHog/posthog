@@ -19,7 +19,6 @@ from drf_spectacular.utils import (
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
-from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -33,7 +32,7 @@ from posthog.schema import ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -904,7 +903,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         try:
-            resp = capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
@@ -912,27 +911,26 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 properties=properties,
                 process_person_profile=True,
+                team=self.team,
             )
-            resp.raise_for_status()
+            result.raise_for_status()
 
-        # HTTP error - if applicable, thrown after retires are exhausted
-        except HTTPError as he:
+        except CaptureRoutedError as cre:
             logger.warning(
                 "delete_person_property.capture_http_error",
                 team_id=self.team_id,
                 person_uuid=str(person.uuid),
                 property_key=request.data.get("$unset"),
-                status_code=he.response.status_code,
+                status_code=cre.status_code,
             )
             return response.Response(
                 {
                     "success": False,
                     "detail": "Unable to delete property",
                 },
-                status=he.response.status_code,
+                status=cre.status_code or 502,
             )
 
-        # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
         except Exception:
             logger.exception(
                 "delete_person_property.capture_error",
@@ -1077,7 +1075,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         try:
-            resp = capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
@@ -1085,8 +1083,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 properties=properties,
                 process_person_profile=True,
+                team=self.team,
             )
-            resp.raise_for_status()
+            result.raise_for_status()
 
         # Failures in this codepath (old and new) are ignored here
         except Exception:
