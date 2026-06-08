@@ -49,6 +49,17 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
+// Shared URLs persisted a single role id (e.g. `csm: 7`) before the filters
+// became multi-select. Coerce any scalar (or malformed value) from the view
+// hash into a `number[]` so restoring a legacy link can't poison the array
+// (a stray number breaks the `.length`/`.map` the filters now rely on).
+function normalizeRoleFilter(value: unknown): RoleFilterValue {
+    if (Array.isArray(value)) {
+        return value.filter((entry): entry is number => typeof entry === 'number')
+    }
+    return typeof value === 'number' ? [value] : []
+}
+
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
 export type AccountFilterType = 'tag' | 'csm' | 'account_executive' | 'account_owner' | 'unassigned_only'
@@ -555,17 +566,17 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAllRolesUnassigned(unassigned)
             }
 
-            const csm = view.csm ?? []
+            const csm = normalizeRoleFilter(view.csm)
             if (!objectsEqual(csm, values.csmFilter)) {
                 actions.setCsmFilter(csm)
             }
 
-            const accountExecutive = view.accountExecutive ?? []
+            const accountExecutive = normalizeRoleFilter(view.accountExecutive)
             if (!objectsEqual(accountExecutive, values.accountExecutiveFilter)) {
                 actions.setAccountExecutiveFilter(accountExecutive)
             }
 
-            const accountOwner = view.accountOwner ?? []
+            const accountOwner = normalizeRoleFilter(view.accountOwner)
             if (!objectsEqual(accountOwner, values.accountOwnerFilter)) {
                 actions.setAccountOwnerFilter(accountOwner)
             }

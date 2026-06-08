@@ -271,6 +271,15 @@ describe('accountsLogic', () => {
             expect(logic.values.tileFilter).toEqual(tileFilter)
         })
 
+        it('coerces a legacy single-number role id from an old shared URL into an array', async () => {
+            // URLs shared before the filters became multi-select stored e.g. `csm: 7`.
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { csm: 7, accountExecutive: 9 } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.csmFilter).toEqual([7])
+            expect(logic.values.accountExecutiveFilter).toEqual([9])
+        })
+
         it('restores columns and shields them from a late saved column config', async () => {
             router.actions.push(
                 urls.customerAnalyticsAccounts(),
