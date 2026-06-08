@@ -537,6 +537,38 @@ def test_verify_queued_request_keeps_status_when_events_remain(cluster: Clickhou
     cluster.any_host(_truncate_writable_events).result()
 
 
+@pytest.mark.django_db
+def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseCluster):
+    from django.utils import timezone
+
+    from posthog.dags.data_deletion_requests import verify_queued_deletion_requests_job
+
+    now = datetime.now()
+    common = {
+        "team_id": VERIFY_TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "start_time": now - timedelta(days=7),
+        "end_time": now + timedelta(minutes=1),
+        "status": RequestStatus.QUEUED,
+        "execution_mode": ExecutionMode.DEFERRED,
+    }
+    cluster.any_host(_truncate_writable_events).result()  # no matching events → remaining 0
+
+    recent = DataDeletionRequest.objects.create(**common)
+    old = DataDeletionRequest.objects.create(**common)
+    # created_at uses auto_now_add, so push `old` outside the default 28-day window via update().
+    DataDeletionRequest.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
+
+    result = verify_queued_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    recent.refresh_from_db()
+    old.refresh_from_db()
+    assert recent.status == RequestStatus.COMPLETED
+    assert old.status == RequestStatus.QUEUED
+
+
 # ---------------------------------------------------------------------------
 # Property removal tests
 # ---------------------------------------------------------------------------

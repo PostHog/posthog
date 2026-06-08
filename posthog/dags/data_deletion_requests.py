@@ -1,7 +1,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.conf import settings as django_settings
 
@@ -22,6 +22,7 @@ from posthog.models.data_deletion_request import (
     count_remaining_matching_events,
     event_removal_where,
     jsonhas_expr,
+    verify_queued_request,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.bulk_delete import (
@@ -1127,7 +1128,57 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 
 
 # ---------------------------------------------------------------------------
-# Verifier sensor: promotes QUEUED → COMPLETED once events are gone
+# Verify-queued sweep job: promotes recently-QUEUED requests once events are gone
+# ---------------------------------------------------------------------------
+
+
+class VerifyQueuedConfig(dagster.Config):
+    lookback_days: int = pydantic.Field(
+        default=28,
+        description="Only verify QUEUED requests created within this many days. Bounds the sweep so a "
+        "permanently stuck request isn't re-checked forever.",
+    )
+
+
+@dagster.op(tags=OWNER_TAG)
+def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, config: VerifyQueuedConfig) -> None:
+    """Verify recently-QUEUED deletion requests and promote those whose events are gone."""
+    from django.utils import timezone
+
+    cutoff = timezone.now() - timedelta(days=config.lookback_days)
+    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED, created_at__gte=cutoff)
+    promoted = 0
+    still_queued = 0
+    for request in queued:
+        try:
+            outcome = verify_queued_request(request)
+        except Exception as exc:
+            context.log.warning(f"Could not verify deletion request {request.pk}: {exc}")
+            still_queued += 1
+            continue
+        if outcome.promoted:
+            promoted += 1
+            context.log.info(f"Deletion request {request.pk} promoted QUEUED → COMPLETED.")
+        else:
+            still_queued += 1
+            context.log.info(f"Deletion request {request.pk}: {outcome.remaining} matching events remain, kept QUEUED.")
+    context.add_output_metadata(
+        {
+            "promoted": dagster.MetadataValue.int(promoted),
+            "still_queued": dagster.MetadataValue.int(still_queued),
+            "lookback_days": dagster.MetadataValue.int(config.lookback_days),
+        }
+    )
+    context.log.info(f"verify_queued_deletion_requests: {promoted} promoted, {still_queued} kept queued.")
+
+
+@dagster.job(tags=OWNER_TAG)
+def verify_queued_deletion_requests_job():
+    verify_queued_deletion_requests_op()
+
+
+# ---------------------------------------------------------------------------
+# Verifier sensor: launches the sweep job after each deletes_job SUCCESS
 # ---------------------------------------------------------------------------
 
 
