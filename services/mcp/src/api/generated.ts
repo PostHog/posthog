@@ -21703,6 +21703,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `burst` - burst
+    * `sustained` - sustained
+     */
+    export type LimitTypeEnum = typeof LimitTypeEnum[keyof typeof LimitTypeEnum];
+
+
+    export const LimitTypeEnum = {
+      Burst: 'burst',
+      Sustained: 'sustained',
+    } as const;
+
+    /**
      * Typed output for view set `list`.
      */
     export interface ListOutput {
@@ -40097,6 +40109,15 @@ export namespace Schemas {
       attr?: string;
       /** Artifact ids that could not be resolved for the run */
       missing_artifact_ids?: string[];
+      /** Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)
+
+      * `burst` - burst
+      * `sustained` - sustained */
+      limit_type?: LimitTypeEnum;
+      /** ISO 8601 timestamp when the hit usage limit resets, when known */
+      reset_at?: string;
+      /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
+      is_pro?: boolean;
     }
 
     export interface TaskRunRelayMessageRequest {
