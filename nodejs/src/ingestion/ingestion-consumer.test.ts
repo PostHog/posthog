@@ -566,7 +566,7 @@ describe('IngestionConsumer', () => {
     })
 
     describe('dropping events', () => {
-        it('should drop $exception events', async () => {
+        it('should DLQ $exception events (wrong consumer)', async () => {
             const messages = createKafkaMessages([
                 createEvent({
                     event: '$exception',
@@ -579,7 +579,23 @@ describe('IngestionConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
             expect(
                 mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_dlq_test')
-            ).toHaveLength(0)
+            ).toHaveLength(1)
+        })
+
+        it('should DLQ $$client_ingestion_warning events (wrong consumer)', async () => {
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$$client_ingestion_warning',
+                    properties: { $$client_ingestion_warning_message: 'test' },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+            expect(
+                mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_dlq_test')
+            ).toHaveLength(1)
         })
 
         it('should capture ingestion warning for $groupidentify with too long $group_key', async () => {
@@ -1137,15 +1153,6 @@ describe('IngestionConsumer', () => {
                         timestamp: DateTime.now().plus({ minutes: 3 }).toISO(),
                     }),
                     // Snapshot should contain update2 and update3 but not update1
-                ],
-            ],
-            [
-                'client ingestion warning',
-                () => [
-                    createEvent({
-                        event: '$$client_ingestion_warning',
-                        properties: { $$client_ingestion_warning_message: 'test' },
-                    }),
                 ],
             ],
             [

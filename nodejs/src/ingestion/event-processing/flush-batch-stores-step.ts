@@ -57,7 +57,7 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             // Create Kafka produce promises for all person/group store updates
             const producePromises = createProducePromises(personsStoreMessages, outputs)
 
-            return ok({ elements: input.elements, batchContext: input.batchContext }, producePromises)
+            return ok(input, producePromises)
         } catch (error) {
             // If flush fails, the error will bubble up and fail the entire batch
             // This maintains the existing behavior where flush errors are fatal
