@@ -6,6 +6,7 @@ All ORM access, chunking, quota enforcement, and search queries.
 
 import uuid
 import datetime
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
@@ -1832,16 +1833,30 @@ def _embeddable_documents_qs() -> QuerySet[KnowledgeDocument]:
     )
 
 
-def _load_chunks_to_embed(team_id: int, document_id: UUID) -> list[ChunkToEmbed]:
-    return [
-        ChunkToEmbed(chunk_id=chunk_id, content=content)
-        for chunk_id, content in (
-            KnowledgeChunk.objects.unscoped()
-            .filter(team_id=team_id, document_id=document_id)
-            .order_by("ordinal")
-            .values_list("id", "content")
-        )
-    ]
+def _chunks_to_embed_by_document(document_ids: list[UUID]) -> dict[UUID, list[ChunkToEmbed]]:
+    """Load chunk content for many docs in ONE query, grouped by document_id and
+    ordered by ordinal within each doc. Avoids an N+1 (one query per pending
+    doc). Cross-team."""
+    by_doc: dict[UUID, list[ChunkToEmbed]] = defaultdict(list)
+    for document_id, chunk_id, content in (
+        KnowledgeChunk.objects.unscoped()
+        .filter(document_id__in=document_ids)
+        .order_by("document_id", "ordinal")
+        .values_list("document_id", "id", "content")
+    ):
+        by_doc[document_id].append(ChunkToEmbed(chunk_id=chunk_id, content=content))
+    return by_doc
+
+
+def _chunk_ids_by_document(document_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+    """Load chunk ids for many docs in ONE query, grouped by document_id. Avoids
+    an N+1 in reconciliation. Cross-team."""
+    by_doc: dict[UUID, list[UUID]] = defaultdict(list)
+    for document_id, chunk_id in (
+        KnowledgeChunk.objects.unscoped().filter(document_id__in=document_ids).values_list("document_id", "id")
+    ):
+        by_doc[document_id].append(chunk_id)
+    return by_doc
 
 
 def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP) -> list[DocumentToEmbed]:
@@ -1860,12 +1875,13 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
         .filter(embeddings_emitted_at__isnull=True)
         .values_list("team_id", "id", "created_at")[:limit]
     )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, _created_at in rows])
     return [
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
             timestamp=created_at,
-            chunks=_load_chunks_to_embed(team_id, document_id),
+            chunks=chunks_by_doc.get(document_id, []),
         )
         for team_id, document_id, created_at in rows
     ]
@@ -1895,15 +1911,12 @@ def list_documents_for_embedding_reconciliation(
         .order_by("embeddings_emitted_at")
         .values_list("team_id", "id")[:limit]
     )
+    chunk_ids_by_doc = _chunk_ids_by_document([document_id for _team_id, document_id in rows])
     return [
         EmittedDocument(
             team_id=team_id,
             document_id=document_id,
-            chunk_ids=list(
-                KnowledgeChunk.objects.unscoped()
-                .filter(team_id=team_id, document_id=document_id)
-                .values_list("id", flat=True)
-            ),
+            chunk_ids=chunk_ids_by_doc.get(document_id, []),
         )
         for team_id, document_id in rows
     ]
