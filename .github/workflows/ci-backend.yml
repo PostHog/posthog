@@ -69,7 +69,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -302,7 +302,7 @@ jobs:
 
     detect-snapshot-mode:
         name: Detect snapshot mode
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -1588,7 +1588,7 @@ jobs:
             always() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -2135,7 +2135,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
