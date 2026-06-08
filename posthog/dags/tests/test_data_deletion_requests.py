@@ -33,7 +33,6 @@ from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionM
 from posthog.models.person import Person
 
 TEAM_ID = 99999
-VERIFY_TEAM_ID = 77777
 
 
 def _insert_events(events: list[tuple], client: Client) -> None:
@@ -514,11 +513,11 @@ def test_verify_queued_request_keeps_status_when_events_remain(cluster: Clickhou
 
     now = datetime.now()
     cluster.any_host(_truncate_writable_events).result()
-    remaining_events = [(VERIFY_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(3)]
+    remaining_events = [(DEFERRED_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(3)]
     cluster.any_host(partial(_insert_events, remaining_events)).result()
 
     request = DataDeletionRequest.objects.create(
-        team_id=VERIFY_TEAM_ID,
+        team_id=DEFERRED_TEAM_ID,
         request_type=RequestType.EVENT_REMOVAL,
         events=["$pageview"],
         start_time=now - timedelta(days=7),
@@ -545,7 +544,7 @@ def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseC
 
     now = datetime.now()
     common = {
-        "team_id": VERIFY_TEAM_ID,
+        "team_id": DEFERRED_TEAM_ID,
         "request_type": RequestType.EVENT_REMOVAL,
         "events": ["$pageview"],
         "start_time": now - timedelta(days=7),
