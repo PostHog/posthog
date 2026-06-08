@@ -77,13 +77,13 @@ from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_e
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 

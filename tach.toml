@@ -34,6 +34,7 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.actions",
     "products.alerts",
@@ -63,6 +64,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.cohorts",
     "ee",
     "products.access_control",
     "products.analytics_platform",
@@ -121,6 +123,7 @@ layer = "modules"
 [[modules]]
 path = "products.actions"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.cdp",
     "products.experiments",
@@ -158,10 +161,20 @@ layer = "modules"
 [[modules]]
 path = "products.cdp"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
     "products.batch_exports",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.cohorts"
+depends_on = [
+    "products.actions",
+    "ee",
+    "posthog",
 ]
 layer = "modules"
 
@@ -255,6 +268,7 @@ layer = "modules"
 [[modules]]
 path = "products.error_tracking"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.cdp",
@@ -272,6 +286,7 @@ layer = "modules"
 [[modules]]
 path = "products.experiments"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -290,6 +305,7 @@ layer = "modules"
 [[modules]]
 path = "products.feature_flags"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.dashboards",
@@ -326,6 +342,7 @@ layer = "modules"
 [[modules]]
 path = "products.ai_observability"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.dashboards",
@@ -445,6 +462,7 @@ layer = "modules"
 [[modules]]
 path = "products.product_analytics"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -494,6 +512,7 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.actions",
     "products.ai_observability",
@@ -526,6 +545,7 @@ layer = "modules"
 [[modules]]
 path = "products.surveys"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -608,6 +628,7 @@ layer = "modules"
 [[modules]]
 path = "products.web_analytics"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -618,6 +639,7 @@ layer = "modules"
 [[modules]]
 path = "products.workflows"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",

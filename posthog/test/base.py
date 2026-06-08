@@ -86,7 +86,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_MV_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,
@@ -198,6 +197,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (

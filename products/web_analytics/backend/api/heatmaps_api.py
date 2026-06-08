@@ -28,7 +28,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.models import Cohort, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -39,6 +39,7 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot

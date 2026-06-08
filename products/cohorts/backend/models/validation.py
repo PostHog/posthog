@@ -4,7 +4,7 @@ import structlog
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.cohort.cohort import CohortType
+from products.cohorts.backend.models.cohort import CohortType
 
 logger = structlog.get_logger(__name__)
 
@@ -184,7 +184,7 @@ class CohortTypeValidationSerializer(serializers.Serializer):
             raise ValidationError("Circular cohort reference detected")
 
         # Get the referenced cohort
-        from posthog.models.cohort.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         try:
             referenced_cohort = Cohort.objects.get(id=cohort_id, team_id=self.team_id)

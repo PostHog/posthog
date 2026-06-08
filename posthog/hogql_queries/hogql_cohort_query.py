@@ -47,7 +47,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Cohort, Filter, Property, Team
+from posthog.models import Filter, Property, Team
 from posthog.models.property import PropertyGroup
 from posthog.queries.cohort_query import CohortQuery
 from posthog.queries.foss_cohort_query import (
@@ -57,6 +57,8 @@ from posthog.queries.foss_cohort_query import (
     validate_interval,
 )
 from posthog.types import AnyPropertyFilter
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestWrapperCohortQuery(CohortQuery):

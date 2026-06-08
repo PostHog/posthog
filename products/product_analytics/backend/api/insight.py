@@ -100,7 +100,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import Cohort, Filter, User
+from posthog.models import Filter, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -138,6 +138,7 @@ from posthog.utils import (
 )
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.api.insight_metadata import generate_insight_metadata

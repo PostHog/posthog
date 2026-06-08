@@ -20,12 +20,12 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (

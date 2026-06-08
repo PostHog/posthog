@@ -88,6 +88,7 @@ PRODUCTS_APPS = [
     "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
     "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
     "products.replay.backend.apps.ReplayConfig",
+    "products.cohorts.backend.apps.CohortsConfig",
 ]
 
 INSTALLED_APPS = [

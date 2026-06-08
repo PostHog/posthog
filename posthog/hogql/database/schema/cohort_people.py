@@ -24,7 +24,7 @@ COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
 def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], project_id: int):
     from posthog.hogql import ast
 
-    from posthog.models import Cohort
+    from products.cohorts.backend.models.cohort import Cohort
 
     cohort_tuples = list(
         Cohort.objects.filter(is_static=False, team__project_id=project_id, deleted=False)

@@ -46,7 +46,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
     feature_flag = models.ForeignKey("feature_flags.FeatureFlag", blank=False, on_delete=models.RESTRICT)
-    exposure_cohort = models.ForeignKey("posthog.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
+    exposure_cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
     holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
 
     start_date = models.DateTimeField(null=True, blank=True)

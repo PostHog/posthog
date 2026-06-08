@@ -9,7 +9,6 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
@@ -93,9 +92,6 @@ __all__ = [
     "AsyncMigration",
     "AsyncMigrationError",
     "CIMDVerificationToken",
-    "Cohort",
-    "CohortPeople",
-    "CohortCalculationHistory",
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",

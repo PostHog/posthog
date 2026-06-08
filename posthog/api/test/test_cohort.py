@@ -28,8 +28,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
@@ -42,6 +40,7 @@ from posthog.tasks.calculate_cohort import (
 )
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -127,7 +126,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         "posthog.tasks.calculate_cohort.calculate_cohort_ch.delay",
         side_effect=calculate_cohort_ch,
     )
-    @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
+    @patch("products.cohorts.backend.models.util.sync_execute", side_effect=sync_execute)
     def test_creating_update_and_calculating(
         self, patch_sync_execute, patch_calculate_cohort, patch_capture, patch_on_commit
     ):
@@ -217,7 +216,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         "posthog.tasks.calculate_cohort.calculate_cohort_ch.delay",
         side_effect=calculate_cohort_ch,
     )
-    @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
+    @patch("products.cohorts.backend.models.util.sync_execute", side_effect=sync_execute)
     def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture, patch_on_commit):
         materialize("person", "favorite_number", table_column="properties")
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
@@ -4329,8 +4328,9 @@ email@example.org,
         Test that removal succeeds when person exists in ClickHouse but not PostgreSQL.
         This simulates the CH/PG sync issue where data exists in CH but not PG.
         """
-        from posthog.models.cohort.util import insert_static_cohort
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+
+        from products.cohorts.backend.models.util import insert_static_cohort
 
         static_cohort = Cohort.objects.create(
             team=self.team,
@@ -4402,7 +4402,7 @@ email@example.org,
         assert response.json()["success"] is True
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    @patch("posthog.models.cohort.dependencies._on_cohort_changed")
+    @patch("products.cohorts.backend.models.dependencies._on_cohort_changed")
     @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
     def test_cohort_update_recalculated_after_caching(
         self,
@@ -5132,8 +5132,8 @@ email@example.org,
 
     def test_cohort_last_error_message_from_calculation_history(self):
         """Test that API returns friendly error message from failed calculation"""
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
-        from posthog.models.cohort.util import CohortErrorCode
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -5160,8 +5160,8 @@ email@example.org,
 
     def test_cohort_last_error_message_in_list_view(self):
         """Test that list view includes last_error_message via annotation"""
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
-        from posthog.models.cohort.util import CohortErrorCode
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -5189,7 +5189,7 @@ email@example.org,
 
     def test_cohort_last_error_message_none_when_successful(self):
         """Test that successful cohorts return None for last_error_message"""
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -5215,8 +5215,8 @@ email@example.org,
 
     def test_cohort_last_error_message_uses_most_recent_failure(self):
         """Test that only the most recent failed calculation's error is returned"""
-        from posthog.models.cohort.calculation_history import CohortCalculationHistory
-        from posthog.models.cohort.util import CohortErrorCode
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
 
         cohort = Cohort.objects.create(
             team=self.team,

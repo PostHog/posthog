@@ -26,9 +26,6 @@ from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -39,6 +36,9 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import format_filter_query
 
 
 def get_person_ids_by_cohort_id(
@@ -572,7 +572,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 3)
 
     def test_insert_cohort_hogql_query_with_distinct_id(self):
-        from posthog.models.cohort.util import insert_cohort_query_actors_into_ch
+        from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["user1"])
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["user2"])

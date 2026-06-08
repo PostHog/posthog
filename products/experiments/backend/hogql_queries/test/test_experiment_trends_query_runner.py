@@ -31,12 +31,12 @@ from posthog.schema import (
 )
 
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from products.experiments.backend.hogql_queries.types import ExperimentMetricType
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout

@@ -12,9 +12,11 @@ from unittest import mock
 from parameterized import parameterized_class
 from rest_framework import status
 
-from posthog.models import Cohort, Organization, Person, Team
+from posthog.models import Organization, Person, Team
 from posthog.models.person import PersonDistinctId
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
+
+from products.cohorts.backend.models.cohort import Cohort
 
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 

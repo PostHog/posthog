@@ -7,8 +7,6 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses, prop_filter_json_extract
@@ -17,6 +15,8 @@ from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import format_static_cohort_query, get_count_operator, get_entity_query
 
 Relative_Date = tuple[int, OperatorInterval]
 Event = tuple[str, Union[str, int]]

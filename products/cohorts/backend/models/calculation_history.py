@@ -12,7 +12,7 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    cohort = models.ForeignKey("posthog.Cohort", on_delete=models.CASCADE)
+    cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE)
 
     # Calculation metadata
     filters = models.JSONField(help_text="Cohort filters/properties at time of calculation")

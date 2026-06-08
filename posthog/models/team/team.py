@@ -89,7 +89,7 @@ class TeamManager(models.Manager):
         team = cast("Team", self.create(**kwargs))
 
         # Create internal/test users cohort and set test_account_filters to exclude it
-        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+        from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 
         initiating_user_email = initiating_user.email if initiating_user else None
         test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=initiating_user_email)

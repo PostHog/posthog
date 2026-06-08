@@ -8,9 +8,10 @@ from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 from structlog import get_logger
 
-from posthog.models.cohort.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
 from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week

@@ -111,7 +111,6 @@ from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_MV_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,
@@ -247,6 +246,7 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
     WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL,
 )
 
+from products.cohorts.backend.models.sql import CREATE_COHORTPEOPLE_TABLE_SQL
 from products.error_tracking.backend.embedding import (
     DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL,
     DOCUMENT_EMBEDDINGS_MV_SQL,

@@ -36,17 +36,6 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models import Filter, Team
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
-from posthog.models.cohort.dependencies import get_cohort_dependents
-from posthog.models.cohort.sql import (
-    CALCULATE_COHORT_PEOPLE_SQL,
-    GET_COHORT_SIZE_SQL,
-    GET_COHORTS_BY_PERSON_UUID,
-    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
-    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
-    RECALCULATE_COHORT_BY_ID,
-)
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
@@ -58,6 +47,17 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.dependencies import get_cohort_dependents
+from products.cohorts.backend.models.sql import (
+    CALCULATE_COHORT_PEOPLE_SQL,
+    GET_COHORT_SIZE_SQL,
+    GET_COHORTS_BY_PERSON_UUID,
+    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
+    RECALCULATE_COHORT_BY_ID,
+)
 
 if TYPE_CHECKING:
     from posthog.personhog_client import ReadConsistency
@@ -1145,8 +1145,9 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
         return {}
 
     # Local import to avoid circulars (cohort → person via CohortPeople FK).
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
     from posthog.models.person.person import READ_DB_FOR_PERSONS
+
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     # Scope cohort_ids to the team via Cohort on the default DB before querying
     # either the personhog RPC or the persons-DB CohortPeople table. Neither
@@ -1213,9 +1214,10 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     Routes through personhog when the gate is enabled, falling back to a Django
     ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
     """
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
     from posthog.models.person.person import READ_DB_FOR_PERSONS
     from posthog.models.person.util import _personhog_routed
+
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     # Validate cohort ownership on the default DB before querying the persons DB
     # or the personhog RPC — neither downstream path enforces team isolation
@@ -1279,8 +1281,9 @@ def insert_cohort_members(
     if not person_ids:
         return 0
 
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
     from posthog.models.person import Person
+
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
@@ -1331,8 +1334,9 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
     ORM DELETE against ``posthog_cohortpeople`` (on the persons DB) otherwise.
     Returns ``True`` if a row was deleted, ``False`` otherwise.
     """
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
     from posthog.models.person.util import _personhog_routed
+
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return False
@@ -1392,7 +1396,7 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
     if not cohort_ids:
         return 0
 
-    from posthog.models.cohort.cohort import CohortPeople
+    from products.cohorts.backend.models.cohort import CohortPeople
 
     def orm_fn() -> int:
         from django.db import router
@@ -1437,8 +1441,9 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
     (e.g. after inserting or deleting cohort members) to avoid stale counts
     from replication lag (ORM) or eventual consistency (personhog).
     """
-    from posthog.models.cohort.cohort import Cohort, CohortPeople
     from posthog.models.person.util import _personhog_routed
+
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0

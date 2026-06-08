@@ -25,11 +25,13 @@ from rest_framework import status
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
+from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
