@@ -41,6 +41,7 @@ describe('bot-detection.template', () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
+                    $lib: 'web',
                     $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
                 },
             },
@@ -85,6 +86,7 @@ describe('bot-detection.template', () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
+                    $lib: 'web',
                     $raw_user_agent: 'Some-CRAWLER-Agent/1.0',
                 },
             },
@@ -145,6 +147,7 @@ describe('bot-detection.template', () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
+                    $lib: 'web',
                     $ip: '5.39.1.225',
                     $raw_user_agent:
                         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -225,19 +228,19 @@ describe('bot-detection.template', () => {
     })
 
     it.each([
-        ['posthog-python', 'python-httpx'],
-        ['posthog-node', 'axios/1.4.0'],
-        ['posthog-webhook', 'okhttp/4.10.0'],
-        ['posthog-ios', 'CFNetwork/1410.0.3'],
-    ])('should skip PostHog-curated bot UA list when $lib=%s (non-browser SDK)', async (lib, ua) => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {
-                    $lib: lib,
-                    $raw_user_agent: ua,
-                },
-            },
-        })
+        ['posthog-python', 'python-httpx', 'posthog-python'],
+        ['posthog-node', 'axios/1.4.0', 'posthog-node'],
+        ['posthog-webhook', 'okhttp/4.10.0', 'posthog-webhook'],
+        ['posthog-ios', 'CFNetwork/1410.0.3', 'posthog-ios'],
+        // Some server-side capture paths (e.g. certain AI SDK paths) send no $lib at all.
+        // A real browser always identifies as web/js, so absent $lib is non-browser too.
+        ['(missing)', 'python-httpx', undefined],
+    ])('should skip PostHog-curated bot UA list when $lib=%s (non-browser source)', async (_label, ua, lib) => {
+        const properties: Record<string, string> = { $raw_user_agent: ua }
+        if (lib !== undefined) {
+            properties.$lib = lib
+        }
+        mockGlobals = tester.createGlobals({ event: { properties } })
 
         const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
@@ -311,18 +314,15 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeFalsy()
     })
 
-    it.each([
-        ['web', 'web' as string | undefined],
-        ['js', 'js' as string | undefined],
-        ['(missing)', undefined as string | undefined],
-    ])('should still filter known bot UA when $lib=%s (browser or unknown source)', async (_label, lib) => {
-        const properties: Record<string, string> = {
-            $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        }
-        if (lib !== undefined) {
-            properties.$lib = lib
-        }
-        mockGlobals = tester.createGlobals({ event: { properties } })
+    it.each([['web'], ['js']])('should still filter known bot UA when $lib=%s (browser SDK)', async (lib) => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: lib,
+                    $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                },
+            },
+        })
 
         const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
