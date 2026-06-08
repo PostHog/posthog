@@ -3,21 +3,27 @@ Thin HTTP client for the agent-janitor service. The Django API uses this to
 proxy bundle reads/writes through to the node side, which is the layer that
 actually owns BundleStore (FS in dev, S3 in prod).
 
-Auth is a single shared secret carried in `x-internal-secret`. Endpoints are
-documented in services/agent-janitor/src/server.ts.
+Auth is a short-lived, audience-bound HS256 JWT minted per call and sent as
+`x-internal-secret`. Signed with `settings.AGENT_INTERNAL_SIGNING_KEY` (the
+same key Django uses for any future ingress preview tokens, scoped by `aud`).
+Endpoints are documented in services/agent-janitor/src/server.ts.
 
-Configured via two env vars:
+Configured via one env var:
     AGENT_JANITOR_URL          base URL (default: http://localhost:3031)
-    AGENT_JANITOR_SECRET       value sent as `x-internal-secret`
 """
 
 from __future__ import annotations
 
 import os
 import logging
+from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
+
 import requests
+
+from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +40,22 @@ class JanitorClientError(Exception):
 
 
 class JanitorClient:
-    def __init__(self, base_url: str | None = None, secret: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
         # Default matches `bin/mprocs.yaml`'s janitor `PORT=${AGENT_JANITOR_PORT:-3031}`.
         # Keep these two in lockstep — Django + janitor must agree on the URL
         # for the bundle proxy to work in dev without explicit env wiring.
         self.base_url = (base_url or os.environ.get("AGENT_JANITOR_URL") or "http://localhost:3031").rstrip("/")
-        self.secret = secret if secret is not None else os.environ.get("AGENT_JANITOR_SECRET", "")
         self.timeout = timeout
 
     def _headers(self) -> dict[str, str]:
         h = {"content-type": "application/json"}
-        if self.secret:
-            h["x-internal-secret"] = self.secret
+        if settings.AGENT_INTERNAL_SIGNING_KEY:
+            token = encode_agent_internal_jwt(
+                {"sub": "django"},
+                timedelta(seconds=60),
+                AgentInternalAudience.JANITOR_RPC,
+            )
+            h["x-internal-secret"] = token
         return h
 
     def _call(self, method: str, path: str, **kwargs: Any) -> Any:

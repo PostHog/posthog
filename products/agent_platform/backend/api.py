@@ -1441,17 +1441,21 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not revision.bundle_sha256:
             raise ValidationError("Revision has no frozen bundle (bundle_sha256 is null).")
 
-        application = revision.application
-        # Demote whatever's currently live, if anything different.
-        previously_live = application.live_revision
-        if previously_live and previously_live.id != revision.id:
-            previously_live.state = "archived"
-            previously_live.save(update_fields=["state", "updated_at"])
-
-        revision.state = "live"
-        revision.save(update_fields=["state", "updated_at"])
-        application.live_revision = revision
-        application.save(update_fields=["live_revision", "updated_at"])
+        # All three writes — demote previous live, set this live, point the
+        # application — must succeed or fail together. select_for_update on
+        # the application row serializes concurrent promotes so two callers
+        # can't both archive the same predecessor or land both revisions in
+        # state="live" with the application pointing at only one.
+        with transaction.atomic():
+            application = AgentApplication.objects.select_for_update().get(pk=revision.application_id)
+            previously_live = application.live_revision
+            if previously_live and previously_live.id != revision.id:
+                previously_live.state = "archived"
+                previously_live.save(update_fields=["state", "updated_at"])
+            revision.state = "live"
+            revision.save(update_fields=["state", "updated_at"])
+            application.live_revision = revision
+            application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "live"})
 
     @extend_schema(request=None)
@@ -1463,12 +1467,16 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision: AgentRevision = self.get_object()
         if revision.state == "archived":
             return Response({"ok": True, "no_op": True})
-        application = revision.application
-        revision.state = "archived"
-        revision.save(update_fields=["state", "updated_at"])
-        if application.live_revision_id == revision.id:
-            application.live_revision = None
-            application.save(update_fields=["live_revision", "updated_at"])
+        # Same atomic+lock shape as promote — without it, a concurrent
+        # promote could read the pre-archive `live_revision` and overwrite
+        # our clear, leaving the application pointed at an archived row.
+        with transaction.atomic():
+            application = AgentApplication.objects.select_for_update().get(pk=revision.application_id)
+            revision.state = "archived"
+            revision.save(update_fields=["state", "updated_at"])
+            if application.live_revision_id == revision.id:
+                application.live_revision = None
+                application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "archived"})
 
     # ── Bundle proxy actions ───────────────────────────────────────────────
@@ -1798,7 +1806,17 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             bundle_uri=source.bundle_uri,  # same bundle root; janitor scopes by revision_id
             spec=source.spec,
         )
-        self._call(_janitor().clone_from, str(draft.id), source_id)
+        # The janitor clone is the side effect that gives the row meaning —
+        # without it, the draft is an empty pointer. If it fails, drop the
+        # row so retries don't accumulate orphans. We can't wrap in
+        # transaction.atomic() because the HTTP call is the failure mode
+        # we're guarding against; the row is committed first, then cleaned
+        # up explicitly on error.
+        try:
+            self._call(_janitor().clone_from, str(draft.id), source_id)
+        except Exception:
+            draft.delete()
+            raise
         return Response(
             {
                 "revision": AgentRevisionSerializer(draft).data,

@@ -17,7 +17,9 @@ making non-trivial changes.
 - [janitor_client.py](backend/janitor_client.py) — thin HTTP client into the
   janitor for bundle reads/writes and the native_tools listing. **Django
   never touches the bundle filesystem directly** — always proxy through
-  here. Auth is `x-internal-secret` (`AGENT_JANITOR_SECRET` ↔ `INTERNAL_SECRET`).
+  here. Auth is `x-internal-secret`: a short-lived `aud=agent-janitor.rpc`
+  HS256 JWT signed with `AGENT_INTERNAL_SIGNING_KEY` (same key the node
+  side verifies against).
 
 ## Rules of engagement
 
