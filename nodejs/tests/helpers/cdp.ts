@@ -20,14 +20,21 @@ import { PersonReadRepository } from '../../src/worker/ingestion/persons/reposit
  * slot at it so the routing layer doesn't try to open a second connection.
  * Defaults to the in-memory mock for unit tests; e2e tests should pass a real
  * producer so messages actually flow through Kafka.
+ *
+ * `warpstreamCyclotronProducer` optionally overrides the WARPSTREAM_CYCLOTRON
+ * slot — used by the rerun tests where the cyclotron Warpstream cluster is a
+ * different broker (`warpstream:19092`) than the shared Redpanda used by every
+ * other output. Without this split, lifecycle rows produced in tests land on
+ * Redpanda but the CH MV consumes from Warpstream, and nothing arrives.
  */
 function buildTestCdpProducerRegistry(
-    kafkaProducer: KafkaProducerWrapper = mockProducer
+    kafkaProducer: KafkaProducerWrapper = mockProducer,
+    warpstreamCyclotronProducer: KafkaProducerWrapper = kafkaProducer
 ): KafkaProducerRegistry<CdpProducerName> {
     return new KafkaProducerRegistry<CdpProducerName>({
         [WARPSTREAM_INGESTION_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CALCULATED_EVENTS_PRODUCER]: kafkaProducer,
-        [WARPSTREAM_CYCLOTRON_PRODUCER]: kafkaProducer,
+        [WARPSTREAM_CYCLOTRON_PRODUCER]: warpstreamCyclotronProducer,
         [WAREHOUSE_PRODUCER]: kafkaProducer,
     })
 }
@@ -49,14 +56,18 @@ const noopPersonReadRepository: PersonReadRepository = {
     fetchDistinctIdsForPersons: () => Promise.resolve({}),
 }
 
-export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWrapper): CdpConsumerBaseDeps {
+export function createCdpConsumerDeps(
+    hub: Hub,
+    kafkaProducer?: KafkaProducerWrapper,
+    warpstreamCyclotronProducer?: KafkaProducerWrapper
+): CdpConsumerBaseDeps {
     return {
         postgres: hub.postgres,
         pubSub: hub.pubSub,
         encryptedFields: hub.encryptedFields,
         teamManager: hub.teamManager,
         integrationManager: hub.integrationManager,
-        cdpProducerRegistry: buildTestCdpProducerRegistry(kafkaProducer),
+        cdpProducerRegistry: buildTestCdpProducerRegistry(kafkaProducer, warpstreamCyclotronProducer),
         internalCaptureService: new InternalCaptureService(hub),
         personRepository: noopPersonReadRepository,
         geoipService: hub.geoipService,

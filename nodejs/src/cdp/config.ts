@@ -221,7 +221,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
-        HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL: '',
+        // Dev points at the local Warpstream Agent's HTTP port (`warpstream:18080`
+        // — see docker-compose.dev.yml). Test mirrors dev so the rerun integration
+        // tests resolve globals via the real `/v1/kafka/fetch` endpoint instead of
+        // a mock. Prod stays empty until the env var is wired explicitly.
+        HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL: isDevEnv() || isTestEnv() ? 'http://warpstream:18080' : '',
         HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME: '',
         HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD: '',
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the

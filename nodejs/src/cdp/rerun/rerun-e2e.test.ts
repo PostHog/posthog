@@ -9,7 +9,7 @@ import { Pool } from 'pg'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { consumeAllMessagesByOffset, ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
@@ -52,7 +52,14 @@ interface PersistedRow {
  * know the MV is live.
  */
 const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promise<void> => {
-    const producer = await ActualKafkaProducerWrapper.create(undefined)
+    // Produce against the cyclotron Warpstream cluster — that's where the
+    // hog_invocation_results MV consumes from (see the `warpstream_cyclotron`
+    // named collection in docker/clickhouse/config.d/default.xml). Going through
+    // the default producer would write to Redpanda and never land.
+    const producer = await ActualKafkaProducerWrapper.createWithConfig(undefined, {
+        'metadata.broker.list':
+            process.env.KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST ?? 'warpstream:19092',
+    })
     const probeTeamId = -999_999
     try {
         await waitForExpect(async () => {
@@ -121,6 +128,7 @@ describe('CDP hog invocation rerun e2e', () => {
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
+    let warpstreamProducer: KafkaProducerWrapper
     let team: Team
     let fnFetch: HogFunctionType
     let globals: HogFunctionInvocationGlobals
@@ -160,6 +168,13 @@ describe('CDP hog invocation rerun e2e', () => {
 
         hub = await createHub()
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        // The cyclotron Warpstream cluster (the `warpstream_cyclotron` CH named
+        // collection + the WARPSTREAM_CYCLOTRON producer slot) is a different
+        // broker than Redpanda in dev/test — point a producer at it so lifecycle
+        // rows actually flow through the same path the prod stack uses.
+        warpstreamProducer = await ActualKafkaProducerWrapper.createWithConfig(hub.KAFKA_CLIENT_RACK, {
+            'metadata.broker.list': hub.KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST,
+        })
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
 
         team = await getFirstTeam(hub.postgres)
@@ -223,7 +238,10 @@ describe('CDP hog invocation rerun e2e', () => {
         kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
-        cdpDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), personRepository: mockPersonRepo }
+        cdpDeps = {
+            ...createCdpConsumerDeps(hub, kafkaProducer, warpstreamProducer),
+            personRepository: mockPersonRepo,
+        }
 
         eventsConsumer = new CdpEventsConsumer(hub, cdpDeps, {
             hogQueue: kafkaQueue,
@@ -264,6 +282,7 @@ describe('CDP hog invocation rerun e2e', () => {
             rerunManager?.disconnect().catch(() => undefined),
         ])
         await kafkaProducer?.disconnect()
+        await warpstreamProducer?.disconnect()
         await closeHub(hub)
         await nodeAssertPool.end()
         mockProducerObserver?.resetKafkaProducer()
@@ -337,23 +356,20 @@ describe('CDP hog invocation rerun e2e', () => {
 
         // ── 3. Rerun worker drains the wrapper job ────────────────────────────────
         // The globals aren't in ClickHouse — the worker fetches them by reference
-        // from the results topic. In prod that's Warpstream's HTTP endpoint; here
-        // we inject a fetcher that round-trips through the test Kafka by
-        // (partition, offset), proving the CH `_offset`/`_partition` match the
-        // real message coordinates end-to-end.
-        const globalsFetcher = {
-            fetchRecords: async (topic: string, refs: { partition: number; offset: number }[]) => {
-                const all = await consumeAllMessagesByOffset(topic)
-                const out = new Map<string, Buffer>()
-                for (const ref of refs) {
-                    const value = all.get(`${ref.partition}:${ref.offset}`)
-                    if (value) {
-                        out.set(`${ref.partition}:${ref.offset}`, value)
-                    }
-                }
-                return out
+        // from the results topic via Warpstream's HTTP endpoint. Inject a real
+        // `WarpstreamHttpFetchService` wired to the un-mocked `internalFetch`
+        // (the test's request.mock.ts jest-mocks the module by default — that
+        // mock returns empty responses, defeating any "real fetch" through the
+        // default-built fetcher). This proves the in-prod HTTP path end-to-end.
+        const realInternalFetch = jest.requireActual('../../utils/request').internalFetch
+        const globalsFetcher = new WarpstreamHttpFetchService(
+            {
+                url: hub.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL,
+                username: hub.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME,
+                password: hub.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD,
             },
-        } as unknown as WarpstreamHttpFetchService
+            realInternalFetch
+        )
 
         rerunWorker = new CdpRerunWorkerConsumer(
             { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },

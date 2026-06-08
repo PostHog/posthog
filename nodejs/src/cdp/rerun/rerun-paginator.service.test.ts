@@ -6,7 +6,7 @@ import { DateTime } from 'luxon'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { consumeAllMessagesByOffset, ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { KAFKA_HOG_INVOCATION_RESULTS } from '../../config/kafka-topics'
@@ -15,6 +15,7 @@ import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { UUIDT } from '../../utils/utils'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
+import { getDefaultKafkaWarpstreamCyclotronProducerEnvConfig } from '../outputs/producers'
 import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
@@ -47,6 +48,7 @@ describe('RerunPaginatorService integration', () => {
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
+    let warpstreamProducer: KafkaProducerWrapper
     let team: Team
     let clickhouse: Clickhouse
     let hogFunction: HogFunctionType
@@ -134,6 +136,60 @@ describe('RerunPaginatorService integration', () => {
         await resetKafka()
         await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
+
+        // Prime the cyclotron-Warpstream Kafka engine attachment: produce a probe
+        // row through the warpstream-bound producer until ClickHouse's MV picks it
+        // up. Without this the first test's seed can race the consumer's first
+        // attach (especially on a freshly-recreated `warpstream` container) and
+        // miss its 30s waitForExpect window.
+        const primingProducer = await ActualKafkaProducerWrapper.createWithConfig(undefined, {
+            'metadata.broker.list':
+                getDefaultKafkaWarpstreamCyclotronProducerEnvConfig()
+                    .KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST,
+        })
+        const probeTeamId = -999_998
+        try {
+            await waitForExpect(async () => {
+                await primingProducer.queueMessages({
+                    topic: KAFKA_HOG_INVOCATION_RESULTS,
+                    messages: [
+                        {
+                            key: 'paginator-probe',
+                            value: JSON.stringify({
+                                team_id: probeTeamId,
+                                function_kind: 'hog_function',
+                                function_id: 'probe',
+                                invocation_id: 'probe',
+                                parent_run_id: '',
+                                status: 'running',
+                                attempts: 0,
+                                is_retry: 0,
+                                scheduled_at: DateTime.utc().toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'"),
+                                started_at: null,
+                                finished_at: null,
+                                duration_ms: null,
+                                error_kind: '',
+                                error_message: '',
+                                event_uuid: '',
+                                distinct_id: '',
+                                person_id: '',
+                                invocation_globals: '{}',
+                                version: String(BigInt(Date.now()) * 1000n),
+                                is_deleted: 0,
+                            }),
+                        },
+                    ],
+                })
+                await primingProducer.flush()
+                const result = await clickhouse.query<{ c: number }>(
+                    `SELECT count() AS c FROM hog_invocation_results WHERE team_id = ${probeTeamId}`
+                )
+                expect(Number(result[0]?.c ?? 0)).toBeGreaterThan(0)
+            }, 30_000)
+        } finally {
+            await primingProducer.disconnect()
+        }
+        await clickhouse.truncate('hog_invocation_results_data')
     })
 
     beforeEach(async () => {
@@ -143,10 +199,16 @@ describe('RerunPaginatorService integration', () => {
 
         hub = await createHub()
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        // hog_invocation_results lives on the cyclotron Warpstream cluster (see the
+        // `warpstream_cyclotron` named collection in CH). Seed through a producer
+        // pointed at the local Warpstream Agent so the MV actually sees the rows.
+        warpstreamProducer = await ActualKafkaProducerWrapper.createWithConfig(hub.KAFKA_CLIENT_RACK, {
+            'metadata.broker.list': hub.KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST,
+        })
         team = await getFirstTeam(hub.postgres)
 
-        // Real seeding path: outputs → kafka → MV → CH.
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        // Real seeding path: outputs → kafka (warpstream for cyclotron) → MV → CH.
+        const deps = createCdpConsumerDeps(hub, kafkaProducer, warpstreamProducer)
         const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, {
             ...hub,
             HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
@@ -196,24 +258,15 @@ describe('RerunPaginatorService integration', () => {
         } as unknown as jest.Mocked<HogFunctionMonitoringService>
 
         // The globals aren't stored in ClickHouse — they're fetched by reference
-        // from the results topic. In production that's Warpstream's HTTP fetch
-        // endpoint; here we round-trip through the test Kafka by (partition,
-        // offset), which proves the CH `_offset`/`_partition` line up with the
-        // real Kafka coordinates of each lifecycle message.
-        const globalsFetcher = {
-            fetchRecords: async (topic: string, refs: { partition: number; offset: number }[]) => {
-                const all = await consumeAllMessagesByOffset(topic)
-                const out = new Map<string, Buffer>()
-                for (const ref of refs) {
-                    const key = `${ref.partition}:${ref.offset}`
-                    const value = all.get(key)
-                    if (value) {
-                        out.set(key, value)
-                    }
-                }
-                return out
-            },
-        } as unknown as WarpstreamHttpFetchService
+        // from the results topic via Warpstream's HTTP fetch endpoint. The test
+        // env defaults `HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL` at the local
+        // dev/CI Warpstream Agent (see docker-compose.dev.yml), so this is the
+        // production code path — no fake fetcher.
+        const globalsFetcher = new WarpstreamHttpFetchService({
+            url: hub.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_URL,
+            username: hub.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_USERNAME,
+            password: hub.HOG_INVOCATION_RESULTS_WARPSTREAM_HTTP_PASSWORD,
+        })
 
         paginator = new RerunPaginatorService(
             chClient,
@@ -230,6 +283,7 @@ describe('RerunPaginatorService integration', () => {
 
     afterEach(async () => {
         await kafkaProducer?.disconnect().catch(() => undefined)
+        await warpstreamProducer?.disconnect().catch(() => undefined)
         await closeHub(hub)
     })
 

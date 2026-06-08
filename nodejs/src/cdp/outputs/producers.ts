@@ -6,6 +6,7 @@
  * `WARPSTREAM_INGESTION_PRODUCER` ↔ `KAFKA_WARPSTREAM_INGESTION_PRODUCER_*`).
  */
 import { AllowedConfigKey } from '../../ingestion/outputs/kafka-producer-config'
+import { isDevEnv, isTestEnv } from '../../utils/env-utils'
 
 /** Targets the shared Warpstream cluster used by ingestion. Current default for CDP. */
 export const WARPSTREAM_INGESTION_PRODUCER = 'WARPSTREAM_INGESTION_PRODUCER' as const
@@ -303,7 +304,12 @@ export type KafkaWarpstreamCyclotronProducerEnvConfig = {
 export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarpstreamCyclotronProducerEnvConfig {
     return {
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_CLIENT_ID: '',
-        KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST: '',
+        // Dev + test point the cyclotron producer at the local Warpstream Agent (see
+        // docker-compose.dev.yml). The CH `warpstream_cyclotron` named collection
+        // is wired to the same broker so the `hog_invocation_results` MV consumes
+        // from Warpstream too — same shape as prod's MSK/Warpstream split. Prod
+        // stays driven by env vars.
+        KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_BROKER_LIST: isDevEnv() || isTestEnv() ? 'warpstream:19092' : '',
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_SECURITY_PROTOCOL: '',
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_COMPRESSION_CODEC: '',
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_LINGER_MS: '',

@@ -180,6 +180,12 @@ services:
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
             KAFKA_HOSTS: 'kafka:9092'
+            # The `warpstream_cyclotron` named collection (see config.d/default.xml)
+            # reads this — keeps prod's Warpstream/Redpanda split modelled locally.
+            # Defaults to Redpanda so Hobby and other inherited compose files keep
+            # consuming from the same broker as everything else; dev overrides it to
+            # point at the local Warpstream agent.
+            KAFKA_WARPSTREAM_CYCLOTRON_HOSTS: '${KAFKA_WARPSTREAM_CYCLOTRON_HOSTS:-kafka:9092}'
         healthcheck:
             test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1'] # nosemgrep: trailofbits.generic.wget-unencrypted-url.wget-unencrypted-url
             interval: 3s

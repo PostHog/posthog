@@ -200,7 +200,7 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal warpstream" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -267,8 +267,10 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack, Warpstream
+              # `warpstream` is the local Warpstream Agent that the CDP cyclotron path
+              # consumes/produces against in tests (see docker-compose.dev.yml).
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack warpstream -d --wait
 
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
@@ -344,6 +346,11 @@ jobs:
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
+                  # Opt the WarpstreamHttpFetchService live integration test in: with
+                  # `warpstream` brought up above + the /etc/hosts entry, the test can
+                  # exercise the real /v1/kafka/fetch endpoint instead of staying skipped.
+                  WARPSTREAM_LIVE_AGENT_URL: 'http://warpstream:18080'
+                  WARPSTREAM_LIVE_KAFKA_BROKERS: 'warpstream:19092'
               run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Test postgres-parity (isolated DB)

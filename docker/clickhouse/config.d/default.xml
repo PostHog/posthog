@@ -94,7 +94,13 @@
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_shared>
         <warpstream_cyclotron>
-            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+            <!-- Split from KAFKA_HOSTS so dev can route the cyclotron Warpstream
+                 cluster at a real Warpstream Agent (see docker-compose.dev.yml's
+                 `warpstream` service) and have the CH MV consume `hog_invocation_results`
+                 from it — same shape as prod, where this is its own VC. Hobby and
+                 other inheritors leave the env unset; base.yml defaults it back to
+                 the shared Redpanda. -->
+            <kafka_broker_list from_env="KAFKA_WARPSTREAM_CYCLOTRON_HOSTS"/>
         </warpstream_cyclotron>
     </named_collections>
 
