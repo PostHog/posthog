@@ -523,12 +523,12 @@ docker:
         click: hogli_commands.devenv.cli:docker_services_up
         description: Start Docker services based on your intent config
     docker:services:down:
-        cmd: docker compose -f docker-compose.dev.yml down
+        cmd: docker compose -f docker-compose.dev.yml --profile "*" down --remove-orphans
         description: Stop Docker infrastructure services
         services:
             - docker
     docker:services:remove:
-        cmd: docker compose -f docker-compose.dev.yml down -v
+        cmd: docker compose -f docker-compose.dev.yml --profile "*" down -v --remove-orphans
         description: Stop Docker infrastructure services and remove all volumes (complete
             wipe)
         services:
