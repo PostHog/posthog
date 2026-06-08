@@ -20596,6 +20596,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /** Every transcript AI event for the session, ordered by trace then timestamp. */
@@ -37686,6 +37688,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
