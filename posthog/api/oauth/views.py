@@ -49,7 +49,14 @@ from posthog.helpers.impersonation import get_original_user_from_session, is_imp
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import OIDC_SCOPES, UNPRIVILEGED_SCOPES, downgrade_scopes_to_read_only, get_oauth_scopes_supported
+from posthog.scopes import (
+    ALWAYS_ALLOWED_SCOPES,
+    downgrade_scopes_to_read_only,
+    effective_ceiling,
+    get_oauth_scopes_supported,
+    narrow_scopes_to_ceiling,
+    scopes_within_ceiling,
+)
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -298,6 +305,34 @@ class OAuthValidator(OAuth2Validator):
         request.client = app
         return request.client
 
+    # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
+    # authorization must go through the interactive login + consent prompt — we never issue a
+    # token without showing UI. oauthlib gates `prompt=none` on two validators in sequence
+    # (validate_silent_login then validate_silent_authorization); neither the base class nor
+    # django-oauth-toolkit implements them, so both default to NotImplementedError -> 500. We
+    # override both so that every `prompt=none` request is instead rejected with a
+    # spec-compliant OIDC error, forcing the client into the normal interactive flow.
+
+    def validate_silent_login(self, request) -> bool:
+        # First gate. We don't authorize silently regardless, but reporting real login state
+        # here yields the correct rejection error: a logged-out user gets `login_required`,
+        # while a logged-in user passes this gate and is rejected by validate_silent_authorization
+        # below with `consent_required`.
+        user = getattr(request, "user", None)
+        return bool(user and getattr(user, "is_authenticated", False))
+
+    def validate_silent_authorization(self, request) -> bool:
+        # Second gate — the one that actually disables silent authentication. Always False, so
+        # oauthlib raises `consent_required` for any authenticated `prompt=none` request instead
+        # of completing the grant (or crashing with NotImplementedError -> 500).
+        #
+        # This gate is only reached when the user is authenticated, which is precisely the
+        # silent-auth case `prompt=none` is meant to enable: oauthlib attaches request.user via
+        # credentials only in create_authorization_response (POST allow, first-party auto-grant,
+        # auto-approval), not in validate_authorization_request. Overriding validate_silent_login
+        # alone would leave the 500 in place for exactly that case.
+        return False
+
     def validate_client_id(self, client_id, request, *args, **kwargs):
         """
         Validate client_id, supporting CIMD URL-form client_ids.
@@ -359,43 +394,22 @@ class OAuthValidator(OAuth2Validator):
 
         return False
 
-    # OIDC + introspection are accepted independently of the per-app ceiling.
-    # They are identity / token-management scopes, not resource permissions.
-    _ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
-
     def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
         """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
 
-        Resolution:
-        - empty / omitted `scope=` -> grant the effective ceiling (mutate
-          `request.scopes` so oauthlib's default-resolution doesn't fall back
-          to just ["openid"] from DEFAULT_SCOPES).
-        - any subset of `effective_scopes` plus the always-allowed (OIDC,
-          introspection) -> grant as requested.
-        - any value outside that union (including `*` when the app has an
-          explicit ceiling) -> reject. oauthlib turns the False return into
-          `InvalidScopeError` / RFC 6749 `error=invalid_scope`.
-
-        Empty `application.scopes` resolves to UNPRIVILEGED_SCOPES (the broad
-        default), and `*` is accepted in that mode so existing clients (the
-        PostHog Code CLI today) keep working until wildcard retirement.
+        Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
+        and the hand-rolled provisioning mint paths share one implementation. The
+        only `/authorize`-specific bit kept here is mutating `request.scopes` when
+        the client omits `scope=`, so oauthlib doesn't fall back to just `["openid"]`
+        from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
+        PostHog Code CLI) but not on the provisioning paths — see the flag.
         """
         app_scopes = getattr(client, "scopes", None) or []
-        has_ceiling = bool(app_scopes)
-        effective = frozenset(app_scopes) if has_ceiling else UNPRIVILEGED_SCOPES
-
         requested = set(scopes or [])
         if not requested:
-            request.scopes = sorted(effective | self._ALWAYS_ALLOWED_SCOPES)
+            request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
             return True
-
-        to_check = requested - self._ALWAYS_ALLOWED_SCOPES
-        if not to_check:
-            return True
-
-        if has_ceiling:
-            return "*" not in to_check and to_check.issubset(effective)
-        return to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
+        return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
         """Cap refreshed scopes at the application's current ceiling.
@@ -428,23 +442,15 @@ class OAuthValidator(OAuth2Validator):
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
 
-        app_scopes = set(getattr(application, "scopes", None) or [])
-        if not app_scopes:
-            return original_list
-
-        original_set = set(original_list)
-        if "*" in original_set:
-            return original_list
-
-        narrowed = (original_set & app_scopes) | (original_set & self._ALWAYS_ALLOWED_SCOPES)
-        if not narrowed:
+        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "scopes", None) or [])
+        if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
             raise InvalidGrantError(
                 description="Token scopes are no longer within the application's allowed scopes; re-authorize.",
                 request=request,
             )
-        return sorted(narrowed)
+        return narrowed
 
     def rotate_refresh_token(self, request) -> bool:
         """
@@ -687,6 +693,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return [IsAuthenticated()]
         return []
 
+    @staticmethod
+    def _registration_type(application: OAuthApplication) -> str:
+        if application.is_cimd_client:
+            return "cimd"
+        return "dcr" if application.is_dcr_client else "manual"
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -731,7 +743,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Track OAuth authorization attempts with the authenticated user
-        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        registration_type = self._registration_type(application)
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_requested",
@@ -894,6 +906,22 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         error details or providing an error response
         """
         redirect, error_response = super().error_response(error, **kwargs)
+
+        # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
+        if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
+            distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None) or application.client_id
+            posthoganalytics.capture(
+                distinct_id=str(distinct_id),
+                event="oauth_authorization_rejected",
+                properties={
+                    "reason": "invalid_scope",
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": self._registration_type(application),
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                },
+            )
 
         if redirect:
             if no_redirect:

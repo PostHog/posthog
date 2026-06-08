@@ -9,12 +9,19 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
+from posthog.hogql.observability import (
+    collect_hogql_sql_shape,
+    collect_hogql_type_coverage,
+    create_hogql_type_observability,
+    emit_hogql_type_observability,
+)
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -50,20 +57,42 @@ def prepare_and_print_ast(
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> tuple[str, _T_AST | None]:
-    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
-    if prepared_ast is None:
-        return "", None
-    return (
-        print_prepared_ast(
-            node=prepared_ast,
-            context=context,
-            dialect=dialect,
-            stack=stack,
-            settings=settings,
-            pretty=pretty,
-        ),
-        prepared_ast,
+    previous_type_observability = context.type_observability
+    context.type_observability = create_hogql_type_observability(
+        dialect=dialect,
+        source=context.observability_source,
     )
+    try:
+        prepared_ast = prepare_ast_for_printing(
+            node=node, context=context, dialect=dialect, stack=stack, settings=settings
+        )
+        if prepared_ast is None:
+            if context.type_observability is not None:
+                context.type_observability.result = "empty"
+            return "", None
+
+        collect_hogql_type_coverage(prepared_ast, context.type_observability)
+        collect_hogql_sql_shape(prepared_ast, context.type_observability)
+
+        return (
+            print_prepared_ast(
+                node=prepared_ast,
+                context=context,
+                dialect=dialect,
+                stack=stack,
+                settings=settings,
+                pretty=pretty,
+            ),
+            prepared_ast,
+        )
+    except Exception:
+        if context.type_observability is not None:
+            context.type_observability.result = "error"
+            context.type_observability.record_unknown("inference_exception")
+        raise
+    finally:
+        emit_hogql_type_observability(context.type_observability)
+        context.type_observability = previous_type_observability
 
 
 def prepare_ast_for_printing(
@@ -147,6 +176,10 @@ def prepare_ast_for_printing(
 
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        if events_pushdown_enabled(context.modifiers):
+            with context.timings.measure("events_predicate_pushdown"):
+                node = apply_events_predicate_pushdown(node, context)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(

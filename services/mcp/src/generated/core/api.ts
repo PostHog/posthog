@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -267,6 +267,105 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DesktopFileSystemListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemCreateBodyTypeMax = 100
+
+export const desktopFileSystemCreateBodyRefMax = 100
+
+export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Return the latest non-deleted instructions for this folder.
+ */
+export const DesktopFileSystemInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const DesktopFileSystemInstructionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
+        .optional()
+        .describe(
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
+        ),
+})
+
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -301,7 +400,6 @@ export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const subscriptionsCreateBodyIntervalMin = -2147483648
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -349,10 +447,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsCreateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsCreateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod
@@ -425,7 +524,6 @@ export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const subscriptionsPartialUpdateBodyIntervalMin = -2147483648
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -476,10 +574,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsPartialUpdateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsPartialUpdateBodyIntervalMax)
             .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod

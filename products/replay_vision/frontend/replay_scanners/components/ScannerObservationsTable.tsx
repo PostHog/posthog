@@ -10,8 +10,8 @@ import { urls } from 'scenes/urls'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
-import { readScore, readVerdict } from '../../utils/observation'
 import {
+    OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
@@ -38,38 +38,6 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
-// Nulls (no model output) sort last regardless of direction.
-function compareByScore(a: ReplayObservationApi, b: ReplayObservationApi): number {
-    const sa = readScore(a)
-    const sb = readScore(b)
-    if (sa === null || sb === null) {
-        return sa === sb ? 0 : sa === null ? 1 : -1
-    }
-    return sa - sb
-}
-
-function compareByVerdict(a: ReplayObservationApi, b: ReplayObservationApi): number {
-    const va = readVerdict(a)
-    const vb = readVerdict(b)
-    if (va === vb) {
-        return 0
-    }
-    if (va === null || vb === null) {
-        return va === null ? 1 : -1
-    }
-    return va ? -1 : 1
-}
-
-// Rows with no snapshot (rendered as "—") sort last regardless of direction, matching compareByScore/Verdict.
-function compareByVersion(a: ReplayObservationApi, b: ReplayObservationApi): number {
-    const va = a.scanner_snapshot?.scanner_version ?? null
-    const vb = b.scanner_snapshot?.scanner_version ?? null
-    if (va === null || vb === null) {
-        return va === vb ? 0 : va === null ? 1 : -1
-    }
-    return va - vb
-}
-
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
 const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
 
@@ -91,12 +59,15 @@ function versionTag(
     return { type, label, tooltip }
 }
 
-export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const logic = replayScannerLogic({ id: scannerId, tabId })
+export function ScannerObservationsTable({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
     const {
+        observations,
         observationsLoading,
         hasObservationsInFlight,
-        filteredObservations,
+        observationsPage,
+        observationsTotal,
+        observationsSort,
         observationStatusFilter,
         observationTriggeredByFilter,
         observationVerdictFilter,
@@ -108,6 +79,8 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
     } = useValues(logic)
     const {
         loadObservations,
+        setObservationsPage,
+        setObservationsSort,
         setObservationStatusFilter,
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
@@ -134,7 +107,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} />,
+            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
         },
         {
             title: 'Result',
@@ -144,8 +117,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     <ObservationResultSummary observation={obs} />
                 </div>
             ),
-            sorter:
-                scannerType === 'scorer' ? compareByScore : scannerType === 'monitor' ? compareByVerdict : undefined,
+            sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },
         {
             title: 'Version',
@@ -163,7 +135,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     </Tooltip>
                 )
             },
-            sorter: compareByVersion,
+            sorter: true,
         },
         {
             title: 'Triggered by',
@@ -178,7 +150,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
             title: 'Created',
             key: 'created_at',
             render: (_, obs) => <TZLabel time={obs.created_at} />,
-            sorter: (a, b) => a.created_at.localeCompare(b.created_at),
+            sorter: true,
         },
         {
             title: '',
@@ -200,10 +172,10 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
 
     return (
         <div className="space-y-4">
-            <ScannerOverview scannerId={scannerId} tabId={tabId} />
+            <ScannerOverview scannerId={scannerId} />
             <div className="flex items-start justify-between gap-4">
                 <p className="text-muted text-sm m-0">
-                    Past applications of this scanner to session recordings. Each row is one observation.
+                    Past observations made by this scanner. Each row is one observation.
                 </p>
                 <div className="flex items-center gap-4">
                     {observationStats.total > 0 && (
@@ -259,7 +231,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     </Tooltip>
                 </div>
             </div>
-            {observationStats.total > 0 && (
+            {(observationStats.total > 0 || hasActiveObservationFilters) && (
                 <div className="flex flex-wrap items-center gap-2">
                     <FilterPill<ObservationStatusValue>
                         label="Status"
@@ -298,10 +270,20 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
             )}
             <LemonTable
                 columns={columns}
-                dataSource={filteredObservations}
+                dataSource={observations}
                 loading={observationsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 50 }}
+                pagination={{
+                    controlled: true,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    currentPage: observationsPage,
+                    entryCount: observationsTotal,
+                    onForward: () => setObservationsPage(observationsPage + 1),
+                    onBackward: () => setObservationsPage(observationsPage - 1),
+                }}
+                sorting={observationsSort}
+                onSort={(next) => setObservationsSort(next)}
+                useURLForSorting={false}
                 nouns={['observation', 'observations']}
                 emptyState={
                     <div className="p-6 text-center text-muted">

@@ -16,7 +16,9 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
+        "fast-deep-equal": "*",
         "react": "*",
         "typescript": "*"
     }

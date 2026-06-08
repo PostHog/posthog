@@ -2,11 +2,22 @@ import os
 import json
 from contextlib import suppress
 
+from posthog.settings.access import SECRET_KEY
 from posthog.settings.utils import get_from_env, get_list
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
+
+# Encryption keys for remote-config feature flag payloads, kept separate from
+# Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
+# An ordered list: the first key encrypts new payloads, every key can decrypt. That
+# is what lets us rotate without a hard cutover: prepend a new key, re-encrypt existing
+# payloads (manage.py reencrypt_flag_payloads), then drop the old key. Defaults to
+# [SECRET_KEY] so self-hosted installs, which encrypt flag payloads with SECRET_KEY,
+# keep working with no configuration. An empty or unset value floors to [SECRET_KEY]
+# so a key is always present.
+FLAGS_SECRET_KEYS: list[str] = get_list(os.getenv("FLAGS_SECRET_KEYS", "")) or [SECRET_KEY]
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
@@ -99,3 +110,6 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Team ID for the local-evaluation canary. Unset disables the canary task.
+FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)
