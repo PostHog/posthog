@@ -190,25 +190,23 @@ class TestQuotaGrants(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.monthly_quota == MONTHLY_OBSERVATION_QUOTA
 
-    def test_full_clean_rejects_past_expires_at(self) -> None:
+    @parameterized.expand(
+        [
+            ("past_expires_at", 500, timedelta(seconds=-1), "expires_at"),
+            ("amount_zero", 0, timedelta(days=10), "amount"),
+            ("amount_above_cap", 10_000_000, timedelta(days=10), "amount"),
+        ]
+    )
+    def test_full_clean_rejects(self, _name: str, amount: int, expires_offset: timedelta, expected_field: str) -> None:
+        # timezone.now() resolves inside the test body so we don't freeze it at import time.
         grant = ReplayQuotaGrant(
             organization=self.organization,
-            amount=500,
-            expires_at=timezone.now() - timedelta(seconds=1),
+            amount=amount,
+            expires_at=timezone.now() + expires_offset,
         )
         with self.assertRaises(ValidationError) as cm:
             grant.full_clean()
-        assert "expires_at" in cm.exception.message_dict
-
-    def test_full_clean_rejects_amount_above_cap(self) -> None:
-        grant = ReplayQuotaGrant(
-            organization=self.organization,
-            amount=10_000_000,  # one zero too many
-            expires_at=timezone.now() + timedelta(days=10),
-        )
-        with self.assertRaises(ValidationError) as cm:
-            grant.full_clean()
-        assert "amount" in cm.exception.message_dict
+        assert expected_field in cm.exception.message_dict
 
     def test_grant_pushes_exhaustion_back(self) -> None:
         with patch("products.replay_vision.backend.quota.MONTHLY_OBSERVATION_QUOTA", 2):

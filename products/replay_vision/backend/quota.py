@@ -34,9 +34,13 @@ class QuotaSnapshot:
         return self.usage_this_month >= self.monthly_quota
 
 
+def next_month_start(now: datetime) -> datetime:
+    """First moment (UTC) of the calendar month following the month containing `now`."""
+    return start_of_month(now) + relativedelta(months=1)
+
+
 def _current_month_bounds(now: datetime) -> tuple[datetime, datetime]:
-    period_start = start_of_month(now)
-    return period_start, period_start + relativedelta(months=1)
+    return start_of_month(now), next_month_start(now)
 
 
 def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:

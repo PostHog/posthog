@@ -4,16 +4,8 @@ from typing import Any
 from django.contrib import admin
 from django.http import HttpRequest
 
-from dateutil.relativedelta import relativedelta
-
-from posthog.date_util import start_of_month
-
 from products.replay_vision.backend.models import ReplayObservation, ReplayQuotaGrant, ReplayScanner
-
-
-def _default_grant_expiry() -> datetime:
-    """First moment of next month (UTC) — matches `compute_quota_snapshot`'s period boundary."""
-    return start_of_month(datetime.now(UTC)) + relativedelta(months=1)
+from products.replay_vision.backend.quota import next_month_start
 
 
 @admin.register(ReplayScanner)
@@ -60,8 +52,8 @@ class ReplayQuotaGrantAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "granted_at")
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
-        initial = super().get_changeform_initial_data(request)
+        initial: dict[str, Any] = super().get_changeform_initial_data(request)
         # Pre-fill but don't force — admins can clear either field on the add form.
-        initial.setdefault("expires_at", _default_grant_expiry())
-        initial.setdefault("granted_by", request.user.pk)
+        initial.setdefault("expires_at", next_month_start(datetime.now(UTC)).isoformat())
+        initial.setdefault("granted_by", str(request.user.pk))
         return initial
