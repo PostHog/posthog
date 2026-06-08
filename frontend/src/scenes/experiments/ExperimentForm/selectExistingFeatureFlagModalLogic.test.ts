@@ -98,8 +98,8 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: (req) => {
                     const url = new URL(req.url, 'http://localhost')
                     const search = url.searchParams.get('search')
-                    const limit = parseInt(url.searchParams.get('limit') || '100')
-                    const offset = parseInt(url.searchParams.get('offset') || '0')
+                    const limit = parseInt(url.searchParams.get('limit') || '100', 10)
+                    const offset = parseInt(url.searchParams.get('offset') || '0', 10)
 
                     const filteredFlags = search
                         ? mockFeatureFlags.filter((flag) => flag.key.toLowerCase().includes(search.toLowerCase()))
