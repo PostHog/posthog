@@ -149,6 +149,9 @@ tools:
             — `deleted` is not settable here.
         exclude_params:
             - deleted
+            - next_delivery_date
+            - resource_name
+            - insight_short_id
             - invite_message
             - summary_enabled
             - summary_prompt_guide
