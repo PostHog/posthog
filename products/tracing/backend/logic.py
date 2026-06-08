@@ -481,7 +481,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes}
             FROM posthog.trace_spans
-            WHERE {filters} AND {root_filter} AND trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
