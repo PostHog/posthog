@@ -32,6 +32,8 @@ export type RichMarkdownEditorProps = {
     renderPreview?: (markdown: string) => JSX.Element
     /** When true, focuses the editor once the ProseMirror view is mounted (default false to avoid stealing focus). */
     autoFocus?: boolean
+    /** Show the image upload button (default true). Set false when the extension set has no image node. */
+    showImageUpload?: boolean
 }
 
 export function RichMarkdownEditor({
@@ -46,6 +48,7 @@ export function RichMarkdownEditor({
     docToMarkdown,
     renderPreview,
     autoFocus = false,
+    showImageUpload = true,
 }: RichMarkdownEditorProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<'write' | 'preview' | 'markdown'>('write')
     const [linkUrl, setLinkUrl] = useState('')
@@ -155,6 +158,7 @@ export function RichMarkdownEditor({
                                         editor={editor}
                                         alternativeDropTargetRef={dropRef}
                                         emojiPopoverDataAttr="rich-markdown-editor-emoji-popover"
+                                        showImageUpload={showImageUpload}
                                     />
                                 </div>
                                 <div className="flex shrink-0 items-center border-l border-primary pl-2">

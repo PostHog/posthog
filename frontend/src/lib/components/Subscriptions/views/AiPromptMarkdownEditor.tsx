@@ -69,6 +69,7 @@ export function AiPromptMarkdownEditor({
             extensions={AI_PROMPT_EDITOR_EXTENSIONS}
             markdownToDoc={markdownToDoc}
             docToMarkdown={docToMarkdown}
+            showImageUpload={false}
         />
     )
 }
