@@ -473,7 +473,8 @@ class ExperimentQueryRunner(QueryRunner):
         # Metric types migrated to the metric-event breakdown injector. Others fall back to the
         # old BreakdownInjector until they migrate (then BreakdownInjector is deleted).
         migrated_metric = isinstance(
-            self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRetentionMetric
+            self.metric,
+            ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRetentionMetric | ExperimentRatioMetric,
         )
         if breakdowns and migrated_metric and self._metric_event_breakdowns_enabled():
             breakdown_injector = MetricBreakdownInjector(breakdowns, self.metric)

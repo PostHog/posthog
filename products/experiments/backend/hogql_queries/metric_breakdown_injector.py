@@ -447,3 +447,63 @@ class MetricBreakdownInjector:
                     entity_metrics_cte.expr.group_by.append(ast.Field(chain=["start_events", alias]))
 
         self._inject_final_breakdown_columns(query, aliases)
+
+    def inject_ratio_breakdown_columns(self, query: ast.SelectQuery, winsorized: bool = False) -> None:
+        """Inject breakdown columns into a ratio query.
+
+        Ratio is ``Σnumerator / Σdenominator`` over two separate event streams, pre-aggregated
+        per entity before joining exposures. To keep one experiment unit = one breakdown bucket
+        (so per-breakdown rows sum to the overall), the whole user is attributed by their
+        **numerator event** — read off ``numerator_events``, first-touch via ``argMin`` over the
+        numerator timestamp in ``numerator_agg``, then carried through ``entity_metrics``.
+
+        When ``winsorized`` the query has ``percentiles`` and ``winsorized_entity_metrics`` CTEs;
+        per-breakdown-group thresholds are preserved (not changed).
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+        final_cte_name = "winsorized_entity_metrics" if winsorized else "entity_metrics"
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="")
+
+        # Read the breakdown off the numerator event.
+        if query.ctes and "numerator_events" in query.ctes:
+            numerator_events_cte = query.ctes["numerator_events"]
+            if isinstance(numerator_events_cte, ast.CTE) and isinstance(numerator_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    numerator_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # First-touch attribute per entity in numerator_agg (it groups by entity).
+        if query.ctes and "numerator_agg" in query.ctes:
+            numerator_agg_cte = query.ctes["numerator_agg"]
+            if isinstance(numerator_agg_cte, ast.CTE) and isinstance(numerator_agg_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    numerator_agg_cte.expr.select.append(
+                        ast.Alias(
+                            alias=alias,
+                            expr=ast.Call(
+                                name="argMin",
+                                args=[
+                                    ast.Field(chain=["numerator_events", alias]),
+                                    ast.Field(chain=["numerator_events", "timestamp"]),
+                                ],
+                            ),
+                        )
+                    )
+
+        # Carry the attributed breakdown into entity_metrics (which aggregates with any()).
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(
+                            alias=alias, expr=ast.Call(name="any", args=[ast.Field(chain=["numerator_agg", alias])])
+                        )
+                    )
+
+        # Winsorization carry-through (percentiles + winsorized_entity_metrics) reuses the mean helper.
+        self._inject_winsorization_breakdown_columns(query, aliases, final_cte_name)
+
+        self._inject_final_breakdown_columns(query, aliases, final_cte_name=final_cte_name)

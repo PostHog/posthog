@@ -10,6 +10,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentRatioMetric,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     StartHandling,
@@ -141,6 +142,55 @@ def _retention_query() -> ast.SelectQuery:
     query.ctes = {
         "start_events": ast.CTE(name="start_events", expr=se, cte_type="subquery"),
         "completion_events": ast.CTE(name="completion_events", expr=ce, cte_type="subquery"),
+        "entity_metrics": ast.CTE(name="entity_metrics", expr=em, cte_type="subquery"),
+    }
+    return query
+
+
+def _ratio_metric(breakdown_limit=None):
+    return ExperimentRatioMetric(
+        numerator=EventsNode(event="purchase"),
+        denominator=EventsNode(event="pageview"),
+        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=breakdown_limit),
+    )
+
+
+def _dw_ratio_metric():
+    return ExperimentRatioMetric(
+        numerator=ExperimentDataWarehouseNode(
+            table_name="orders",
+            events_join_key="properties.$user_id",
+            data_warehouse_join_key="userid",
+            timestamp_field="ds",
+            math=ExperimentMetricMathType.SUM,
+            math_property="amount",
+        ),
+        denominator=EventsNode(event="pageview"),
+        breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="plan", type=BreakdownType.DATA_WAREHOUSE)]),
+    )
+
+
+def _ratio_query() -> ast.SelectQuery:
+    # Stand-in for the ratio shape: numerator_events -> numerator_agg -> entity_metrics
+    # (denominator side omitted; the breakdown attaches to the numerator side).
+    query = parse_select("SELECT variant FROM entity_metrics")
+    assert isinstance(query, ast.SelectQuery)
+    ne = parse_select("SELECT entity_id, timestamp, value FROM events")
+    na = parse_select(
+        "SELECT exposures.entity_id AS entity_id, sum(value) AS value "
+        "FROM numerator_events JOIN exposures ON exposures.entity_id = numerator_events.entity_id "
+        "GROUP BY exposures.entity_id"
+    )
+    em = parse_select(
+        "SELECT exposures.variant AS variant, exposures.entity_id AS entity_id, "
+        "any(numerator_agg.value) AS numerator_value "
+        "FROM exposures LEFT JOIN numerator_agg ON exposures.entity_id = numerator_agg.entity_id "
+        "GROUP BY exposures.variant, exposures.entity_id"
+    )
+    assert isinstance(ne, ast.SelectQuery) and isinstance(na, ast.SelectQuery) and isinstance(em, ast.SelectQuery)
+    query.ctes = {
+        "numerator_events": ast.CTE(name="numerator_events", expr=ne, cte_type="subquery"),
+        "numerator_agg": ast.CTE(name="numerator_agg", expr=na, cte_type="subquery"),
         "entity_metrics": ast.CTE(name="entity_metrics", expr=em, cte_type="subquery"),
     }
     return query
@@ -340,6 +390,85 @@ class TestMetricBreakdownInjectorMean:
         bd = next(c for c in me_cte.expr.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
         # A DW breakdown is a direct warehouse column (the metric_events CTE reads FROM the warehouse
         # table), so it must read bare `plan`, NOT be wrapped in an event `properties` chain.
+        coalesce_call = bd.expr
+        assert isinstance(coalesce_call, ast.Call) and coalesce_call.name == "coalesce"
+        to_string = coalesce_call.args[0]
+        assert isinstance(to_string, ast.Call) and to_string.name == "toString"
+        field = to_string.args[0]
+        assert isinstance(field, ast.Field)
+        assert field.chain == ["plan"]
+
+
+class TestMetricBreakdownInjectorRatio:
+    def test_breakdown_read_from_numerator_event(self):
+        metric = _ratio_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _ratio_query()
+
+        injector.inject_ratio_breakdown_columns(query)
+
+        assert query.ctes is not None
+        ne_cte = query.ctes["numerator_events"]
+        assert isinstance(ne_cte, ast.CTE) and isinstance(ne_cte.expr, ast.SelectQuery)
+        ne_aliases = [c.alias for c in ne_cte.expr.select if isinstance(c, ast.Alias)]
+        assert "breakdown_value_1" in ne_aliases
+
+    def test_numerator_agg_first_touch_argmin(self):
+        metric = _ratio_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _ratio_query()
+
+        injector.inject_ratio_breakdown_columns(query)
+
+        assert query.ctes is not None
+        na_cte = query.ctes["numerator_agg"]
+        assert isinstance(na_cte, ast.CTE) and isinstance(na_cte.expr, ast.SelectQuery)
+        bd = next(c for c in na_cte.expr.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        # numerator_agg groups by entity, so first-touch via argMin over the numerator event timestamp.
+        assert isinstance(bd.expr, ast.Call)
+        assert bd.expr.name == "argMin"
+        assert bd.expr.args[1] == ast.Field(chain=["numerator_events", "timestamp"])
+
+    def test_entity_metrics_carries_breakdown_from_numerator_agg(self):
+        metric = _ratio_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _ratio_query()
+
+        injector.inject_ratio_breakdown_columns(query)
+
+        expr = _entity_metrics_aliases(query)["breakdown_value_1"]
+        assert isinstance(expr, ast.Call)
+        # any(numerator_agg.breakdown_value_1) — carried through the entity_metrics aggregation.
+        assert expr.name == "any"
+        assert expr.args[0] == ast.Field(chain=["numerator_agg", "breakdown_value_1"])
+
+    def test_final_select_applies_top_n_other_limit(self):
+        metric = _ratio_metric(breakdown_limit=3)
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _ratio_query()
+
+        injector.inject_ratio_breakdown_columns(query)
+
+        final_alias = next(c for c in query.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        assert isinstance(final_alias.expr, ast.Call)
+        assert final_alias.expr.name == "if"
+        other = final_alias.expr.args[2]
+        assert isinstance(other, ast.Constant)
+        assert other.value == "$$_posthog_breakdown_other_$$"
+
+    def test_data_warehouse_breakdown_reads_warehouse_column(self):
+        metric = _dw_ratio_metric()
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _ratio_query()
+
+        injector.inject_ratio_breakdown_columns(query)
+
+        assert query.ctes is not None
+        ne_cte = query.ctes["numerator_events"]
+        assert isinstance(ne_cte, ast.CTE) and isinstance(ne_cte.expr, ast.SelectQuery)
+        bd = next(c for c in ne_cte.expr.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        # A DW breakdown is a direct warehouse column (numerator_events reads FROM the warehouse
+        # table), so it must read bare `plan`, NOT be wrapped in a properties chain.
         coalesce_call = bd.expr
         assert isinstance(coalesce_call, ast.Call) and coalesce_call.name == "coalesce"
         to_string = coalesce_call.args[0]
