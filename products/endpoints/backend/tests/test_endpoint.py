@@ -94,60 +94,36 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "test_query")
 
-    def test_create_response_includes_display_name(self):
-        data = {
-            "name": "test_query",
-            "display_name": "My Test Query",
-            "query": self.sample_hogql_query,
-        }
+    @parameterized.expand(
+        [
+            (
+                "name_and_display_name",
+                {"name": "test_query", "display_name": "My Test Query"},
+                "test_query",
+                "My Test Query",
+            ),
+            ("display_name_only_derives_slug", {"display_name": "My Test Query"}, "my-test-query", "My Test Query"),
+            (
+                "explicit_slug_overrides_derived",
+                {"name": "custom-slug", "display_name": "My Test Query"},
+                "custom-slug",
+                "My Test Query",
+            ),
+            ("name_only_defaults_display_name", {"name": "test_query"}, "test_query", "test_query"),
+        ]
+    )
+    def test_create_resolves_name_and_display_name(self, _name, fields, expected_name, expected_display_name):
+        data = {**fields, "query": self.sample_hogql_query}
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
-        self.assertEqual("test_query", response_data["name"])
-        self.assertEqual("My Test Query", response_data["display_name"])
+        self.assertEqual(expected_name, response_data["name"])
+        self.assertEqual(expected_display_name, response_data["display_name"])
 
-        endpoint = Endpoint.objects.get(name="test_query", team=self.team)
-        self.assertEqual(endpoint.display_name, "My Test Query")
-
-    def test_create_derives_slug_from_display_name(self):
-        data = {
-            "display_name": "My Test Query",
-            "query": self.sample_hogql_query,
-        }
-
-        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        response_data = response.json()
-        self.assertEqual("my-test-query", response_data["name"])
-        self.assertEqual("My Test Query", response_data["display_name"])
-
-    def test_create_with_explicit_slug_overrides_derived_slug(self):
-        data = {
-            "name": "custom-slug",
-            "display_name": "My Test Query",
-            "query": self.sample_hogql_query,
-        }
-
-        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        response_data = response.json()
-        self.assertEqual("custom-slug", response_data["name"])
-        self.assertEqual("My Test Query", response_data["display_name"])
-
-    def test_create_name_only_defaults_display_name_to_name(self):
-        data = {
-            "name": "test_query",
-            "query": self.sample_hogql_query,
-        }
-
-        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        self.assertEqual("test_query", response.json()["display_name"])
+        endpoint = Endpoint.objects.get(name=expected_name, team=self.team)
+        self.assertEqual(endpoint.display_name, expected_display_name)
 
     def test_create_with_invalid_derived_slug_returns_error(self):
         # A display name starting with a digit slugifies to a slug that violates ENDPOINT_NAME_REGEX.
