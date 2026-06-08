@@ -163,6 +163,10 @@ async def maybe_autostart_implementation_task(
     if task_user is None:
         return
 
+    base_branch = None
+    if repository and team_config:
+        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
         title=title,
@@ -172,6 +176,7 @@ async def maybe_autostart_implementation_task(
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,
+        branch=base_branch,
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
         interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR

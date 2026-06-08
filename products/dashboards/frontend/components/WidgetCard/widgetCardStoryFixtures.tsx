@@ -16,6 +16,14 @@ import { WidgetCardContent } from './WidgetCardBody'
 export const TILE_WIDTH = 560
 export const TILE_HEIGHT = 480
 
+/** Freeze Storybook/VR "now" — keeps relative dates stable. Matches fixture timestamps in widgetOverviewStoryFixtures. */
+export const WIDGET_STORYBOOK_MOCK_DATE = '2026-05-26T10:00:00'
+
+/** Spread into story `parameters` so `withMockDate` pins TZLabel / relative copy in VR snapshots. */
+export const widgetStorybookParameters = {
+    mockDate: WIDGET_STORYBOOK_MOCK_DATE,
+} as const
+
 export function WidgetTileFrame({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div

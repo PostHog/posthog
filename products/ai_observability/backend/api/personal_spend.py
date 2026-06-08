@@ -33,7 +33,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
@@ -633,7 +633,7 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
         # in the existing per-product Prometheus + cost-attribution dashboards alongside the
         # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
-        with tags_context(product=Product.LLM_ANALYTICS):
+        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
             summary = _fetch_summary(team, email, from_dt, to_dt, product)
             by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
             scoped = summary["scoped_cost_usd"] or 0.0
