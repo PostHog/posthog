@@ -19,10 +19,10 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
 import {
-    addTrackingToEmail,
-    decodeHtmlEntitiesInHref,
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
+    addTrackingToEmail,
+    decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
