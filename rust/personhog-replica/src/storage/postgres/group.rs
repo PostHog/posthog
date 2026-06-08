@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
@@ -18,11 +18,13 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Option<Group>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_group".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -63,11 +65,13 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_groups".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -105,6 +109,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "get_groups".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -123,11 +128,13 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "get_groups_batch".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -165,6 +172,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "get_groups_batch".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             groups.len() as f64,
         );
@@ -188,6 +196,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -196,6 +205,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -226,6 +236,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_team_id".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -243,6 +254,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -251,6 +263,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -283,6 +296,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_team_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -296,6 +310,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -304,6 +319,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -334,6 +350,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_project_id".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -351,6 +368,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -359,6 +377,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -389,6 +408,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_project_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -401,6 +421,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<(i64, i64)>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -409,6 +430,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -434,6 +456,7 @@ impl GroupStorage for PostgresStorage {
                     "count_group_type_mappings".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -448,6 +471,7 @@ impl GroupStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Option<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -456,6 +480,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -497,11 +522,13 @@ impl GroupStorage for PostgresStorage {
         include_properties: bool,
     ) -> StorageResult<(Vec<Group>, bool)> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "list_groups".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -570,6 +597,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "list_groups".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             groups.len() as f64,
         );
@@ -590,10 +618,12 @@ impl GroupStorage for PostgresStorage {
         created_at: DateTime<Utc>,
     ) -> StorageResult<Group> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "create_group".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -635,10 +665,12 @@ impl GroupStorage for PostgresStorage {
         created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StorageResult<Option<Group>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "update_group".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -692,6 +724,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -699,6 +732,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -730,6 +764,7 @@ impl GroupStorage for PostgresStorage {
                 ),
                 ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );
@@ -752,6 +787,7 @@ impl GroupStorage for PostgresStorage {
         default_columns: Option<&[String]>,
     ) -> StorageResult<Option<GroupTypeMapping>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -759,6 +795,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -825,6 +862,7 @@ impl GroupStorage for PostgresStorage {
         group_type_index: i32,
     ) -> StorageResult<bool> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -832,6 +870,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -861,6 +900,7 @@ impl GroupStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -868,6 +908,7 @@ impl GroupStorage for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -899,6 +940,7 @@ impl GroupStorage for PostgresStorage {
                 ),
                 ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );

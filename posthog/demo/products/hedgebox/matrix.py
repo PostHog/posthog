@@ -1788,6 +1788,7 @@ class HedgeboxMatrix(Matrix):
                     client_type=OAuthApplication.CLIENT_PUBLIC,
                     authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                     algorithm="RS256",
+                    is_first_party=True,
                 )
             except (IntegrityError, ValidationError):
                 pass

@@ -17,7 +17,7 @@ describe('logsSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = logsSceneLogic({ tabId: 'test-tab' })
+        logic = logsSceneLogic()
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()

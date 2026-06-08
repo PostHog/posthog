@@ -5,7 +5,7 @@ import { List } from 'react-window'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
-import { metricNamePickerLogic, MetricNamePickerLogicProps } from './metricNamePickerLogic'
+import { metricNamePickerLogic } from './metricNamePickerLogic'
 
 const ROW_HEIGHT = 44
 const MAX_DROPDOWN_HEIGHT = 320
@@ -52,8 +52,6 @@ export interface MetricNameFilterProps {
     /** Currently selected metric name (empty string when nothing is picked). */
     value: string
     onChange: (name: string) => void
-    /** Per-tab keying so picker state doesn't leak across tabs. */
-    tabId: string
     /** Placeholder shown on the trigger when no metric is picked. */
     placeholder?: string
 }
@@ -61,13 +59,10 @@ export interface MetricNameFilterProps {
 export const MetricNameFilter = ({
     value,
     onChange,
-    tabId,
     placeholder = 'Pick a metric',
 }: MetricNameFilterProps): JSX.Element => {
-    const logicProps: MetricNamePickerLogicProps = { tabId }
-
     return (
-        <BindLogic logic={metricNamePickerLogic} props={logicProps}>
+        <BindLogic logic={metricNamePickerLogic} props={{}}>
             <MetricNameFilterInner value={value} onChange={onChange} placeholder={placeholder} />
         </BindLogic>
     )

@@ -701,6 +701,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
             return ["hog_flow:read", "person:read"]
+        # A test invocation resolves the event's $groups into real group properties server-side, so a
+        # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
+        # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
+        # running tests while editing is unaffected.
+        if self.action == "invocations":
+            return ["hog_flow:write", "group:read"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:

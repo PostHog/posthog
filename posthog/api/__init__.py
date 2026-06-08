@@ -13,7 +13,7 @@ from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
-from posthog.api.sdk_doctor import SdkDoctorViewSet
+from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
@@ -24,13 +24,13 @@ from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
-from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.exports.backend.api import exports
+from products.managed_migrations.backend.api.batch_imports import BatchImportViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
-from ee.api.session_summaries import SessionGroupSummaryViewSet
+from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -61,6 +61,7 @@ from . import (
     organization_integration,
     organization_invite,
     organization_member,
+    organization_personal_api_key,
     personal_api_key,
     project_secret_api_key,
     proxy_record,
@@ -157,7 +158,7 @@ def register_legacy_dual_route_team_nested_viewset(
 
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
-projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
+projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,
@@ -415,6 +416,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"personal_api_keys",
+    organization_personal_api_key.OrganizationPersonalAPIKeyViewSet,
+    "organization_personal_api_keys",
+    ["organization_id"],
+)
+organizations_router.register(
     r"cimd_verification_tokens",
     cimd_verification_token.CIMDVerificationTokenViewSet,
     "organization_cimd_verification_tokens",
@@ -667,6 +674,12 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(
+    r"single_session_summaries",
+    SingleSessionSummaryViewSet,
+    "project_single_session_summaries",
+    ["project_id"],
+)
 
 register_legacy_dual_route_team_nested_viewset(
     r"quick_filters",

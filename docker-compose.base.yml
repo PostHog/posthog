@@ -62,6 +62,10 @@ services:
                         path /flags
                         path /flags/
                         path /flags/*
+                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
+                        path /api/feature_flag/local_evaluation
+                        path /api/feature_flag/local_evaluation/
+                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {
@@ -508,7 +512,6 @@ services:
         environment:
             PLUGIN_SERVER_MODE: 'ingestion-errortracking'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CDP_REDIS_HOST: redis7

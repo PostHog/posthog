@@ -37,12 +37,18 @@ function OverviewPanel({
     )
 }
 
-function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { monitorStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { monitorStats, hasActiveObservationFilters } = useValues(replayScannerLogic({ id: scannerId }))
     const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
     const total = yesTotal + noTotal + inconclusiveTotal
     if (total === 0) {
-        return null
+        return (
+            <OverviewPanel title="Verdict mix">
+                <div className="text-muted text-sm">
+                    {hasActiveObservationFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
+                </div>
+            </OverviewPanel>
+        )
     }
     const yesPct = Math.round((yesTotal / total) * 100)
     const noPct = Math.round((noTotal / total) * 100)
@@ -77,15 +83,23 @@ function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: strin
     )
 }
 
-function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scanner, classifierTagStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
-    const { fixedRanked, freeformRanked, totalWithTags } = classifierTagStats
+function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner, classifierTagStats, hasActiveObservationFilters } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
+    const { fixedRanked, freeformRanked } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
     // "disabled" copy while the config is still loading.
-    if (totalWithTags === 0 || !scanner || scanner.scanner_type !== 'classifier') {
+    if (!scanner || scanner.scanner_type !== 'classifier') {
         return null
     }
     const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
+    const fixedEmpty = hasActiveObservationFilters
+        ? 'No fixed-vocabulary tags match the current filter.'
+        : 'No fixed-vocabulary tags emitted yet.'
+    const freeformEmpty = hasActiveObservationFilters
+        ? 'No freeform tags match the current filter.'
+        : 'No freeform tags emitted yet.'
 
     const renderRanked = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
         if (ranked.length === 0) {
@@ -110,7 +124,7 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary">
-                {renderRanked(fixedRanked, 'No fixed-vocabulary tags emitted yet.')}
+                {renderRanked(fixedRanked, fixedEmpty)}
             </OverviewPanel>
 
             <OverviewPanel
@@ -119,7 +133,7 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
                 disabled={!freeformAllowed}
             >
                 {freeformAllowed ? (
-                    renderRanked(freeformRanked, 'No freeform tags emitted yet.')
+                    renderRanked(freeformRanked, freeformEmpty)
                 ) : (
                     <div className="text-muted text-sm">
                         Freeform tags are disabled for this scanner — the model can only pick from your configured
@@ -131,14 +145,24 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
     )
 }
 
-function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores, scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scorerSummary, scorerHistogram, hasActiveObservationFilters } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const theme = useMemo(() => buildTheme(), [])
     if (!scorerSummary || !scorerHistogram) {
-        return null
+        return (
+            <OverviewPanel title="Score distribution">
+                <div className="text-muted text-sm">
+                    {hasActiveObservationFilters
+                        ? 'No scored observations match the current filter.'
+                        : 'No scored observations yet.'}
+                </div>
+            </OverviewPanel>
+        )
     }
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
+        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`}>
             <div className="h-40 flex flex-col">
                 <BarChart
                     labels={scorerHistogram.labels}
@@ -157,8 +181,8 @@ function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string
     )
 }
 
-export function ScannerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scanner, coverageStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner, coverageStats } = useValues(replayScannerLogic({ id: scannerId }))
     if (!scanner) {
         return null
     }
@@ -166,11 +190,11 @@ export function ScannerOverview({ scannerId, tabId }: { scannerId: string; tabId
     // Summarizer panel deferred to the Max chat follow-up.
     const typeOverview =
         scannerType === 'monitor' ? (
-            <MonitorOverview scannerId={scannerId} tabId={tabId} />
+            <MonitorOverview scannerId={scannerId} />
         ) : scannerType === 'classifier' ? (
-            <ClassifierOverview scannerId={scannerId} tabId={tabId} />
+            <ClassifierOverview scannerId={scannerId} />
         ) : scannerType === 'scorer' ? (
-            <ScorerOverview scannerId={scannerId} tabId={tabId} />
+            <ScorerOverview scannerId={scannerId} />
         ) : null
     if (!typeOverview && scannerType !== 'summarizer') {
         return null
@@ -189,7 +213,7 @@ export function ScannerOverview({ scannerId, tabId }: { scannerId: string; tabId
                     <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
                 </div>
             )}
-            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} tabId={tabId} />}
+            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
             {typeOverview}
         </div>
     )

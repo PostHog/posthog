@@ -93,7 +93,7 @@ class TestProcessRunDiffs:
         process_diffs(create_result.run_id)
 
         # Snapshot should remain unchanged
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.UNCHANGED
 
@@ -113,7 +113,7 @@ class TestProcessRunDiffs:
         # Process - should skip new snapshot (no baseline to diff against)
         process_diffs(create_result.run_id)
 
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
 

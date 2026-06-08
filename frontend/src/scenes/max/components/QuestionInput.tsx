@@ -144,7 +144,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { question, tabId: maxTabId } = useValues(maxLogic)
+    const { question, panelId: maxPanelId } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
@@ -166,7 +166,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
         useActions(maxThreadLogic)
-    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: maxTabId }))
+    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ panelId: maxPanelId }))
     // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
     // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
     // Keep the legacy items-start layout when the flag is off so existing screenshots
@@ -282,7 +282,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                     >
                         {handsFreeActive ? (
-                            <HandsFreeSurface tabId={maxTabId} />
+                            <HandsFreeSurface panelId={maxPanelId} />
                         ) : (
                             <SlashCommandAutocomplete
                                 visible={showAutocomplete}
@@ -411,7 +411,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <HandsFreeButton tabId={maxTabId} />
+                        <HandsFreeButton panelId={maxPanelId} />
                         {!handsFreeActive && (
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"

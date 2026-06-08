@@ -1,4 +1,3 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,9 +26,6 @@ describe('featureFlagTemplatesSceneLogic', () => {
             { name: 'sets template to blank', template: 'blank' as const },
             { name: 'resets template to null', template: null },
         ])('$name', async ({ template }) => {
-            enabledFeaturesLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.FEATURE_FLAGS_V2]: true,
-            })
             logic = featureFlagTemplatesSceneLogic()
             logic.mount()
 
@@ -47,9 +43,7 @@ describe('featureFlagTemplatesSceneLogic', () => {
             { name: 'false when feature flag is off', flagValue: false, expected: false },
             { name: 'false when feature flag is absent', flagValue: undefined, expected: false },
         ])('$name', async ({ flagValue, expected }) => {
-            const flags: Record<string, boolean> = {
-                [FEATURE_FLAGS.FEATURE_FLAGS_V2]: true,
-            }
+            const flags: Record<string, boolean> = {}
             if (flagValue !== undefined) {
                 flags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS] = flagValue
             }
@@ -59,35 +53,6 @@ describe('featureFlagTemplatesSceneLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 intentsEnabled: expected,
-            })
-        })
-    })
-
-    describe('afterMount redirect', () => {
-        it('redirects to new flag page when V2 is disabled', async () => {
-            enabledFeaturesLogic.actions.setFeatureFlags([], {})
-            logic = featureFlagTemplatesSceneLogic()
-            logic.mount()
-
-            await expectLogic(router).toMatchValues({
-                location: expect.objectContaining({
-                    pathname: expect.stringContaining('/feature_flags/new'),
-                }),
-            })
-        })
-
-        it('does not redirect when V2 is enabled', async () => {
-            enabledFeaturesLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.FEATURE_FLAGS_V2]: true,
-            })
-            const currentPath = router.values.location.pathname
-            logic = featureFlagTemplatesSceneLogic()
-            logic.mount()
-
-            await expectLogic(router).toMatchValues({
-                location: expect.objectContaining({
-                    pathname: currentPath,
-                }),
             })
         })
     })

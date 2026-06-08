@@ -195,6 +195,12 @@ class BatchQueue:
         batches that are unprocessed (NULL status) or ``waiting_retry`` with
         backoff met are treated as siblings that will be returned alongside
         in the same poll and processed sequentially by the consumer.
+
+        In-flight schema gating: a batch is also excluded if its
+        ``(team_id, schema_id)`` already has an ``executing`` batch (i.e. the
+        per-schema advisory lock is held by the pod processing it). This keeps a
+        schema's other queued runs from consuming the ``LIMIT`` window ahead of
+        the advisory-lock filter and starving other schemas' claimable work.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -244,6 +250,15 @@ class BatchQueue:
                             JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
                             WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s2.job_state = 'failed'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_busy
+                            JOIN {STATUS_VIEW} s_busy ON b_busy.id = s_busy.batch_id
+                            WHERE b_busy.team_id = b.team_id
+                                AND b_busy.schema_id = b.schema_id
+                                AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s_busy.job_state = 'executing'
                         )
                     ORDER BY b.created_at ASC, b.batch_index ASC
                     LIMIT %(limit)s
