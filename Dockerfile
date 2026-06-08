@@ -62,22 +62,31 @@ ARG COMMIT_HASH
 
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 
+# Upload sourcemaps to error tracking, recording whether it GENUINELY succeeded so the later strip
+# only deletes the .map files when an uploaded copy exists. The build never fails on a sourcemap
+# problem (missing secret, CLI download / network / auth failure): in that case the status is
+# "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
+# which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    ( \
-        if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
-            apt-get update && \
-            apt-get install -y --no-install-recommends ca-certificates curl && \
-            curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
-            export PATH="/root/.posthog:$PATH" && \
-            export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-            export POSTHOG_CLI_ENV_ID=2 && \
-            posthog-cli --no-fail sourcemap process \
-                --directory /code/frontend/dist \
-                --public-path-prefix /static \
-                --project posthog \
-                --version "${COMMIT_HASH:-unknown}"; \
-        fi \
-    ) || true && \
+    if ( \
+        [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends ca-certificates curl && \
+        curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+        export PATH="/root/.posthog:$PATH" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+        export POSTHOG_CLI_ENV_ID=2 && \
+        posthog-cli sourcemap process \
+            --directory /code/frontend/dist \
+            --public-path-prefix /static \
+            --project posthog \
+            --version "${COMMIT_HASH:-unknown}" \
+    ); then \
+        echo uploaded > /tmp/.sourcemaps-status; \
+    else \
+        echo "WARNING: sourcemaps not uploaded (no secret or upload failed); .map files will be retained in the image" >&2; \
+        echo retained > /tmp/.sourcemaps-status; \
+    fi && \
     touch /tmp/.sourcemaps-processed
 
 
@@ -168,11 +177,17 @@ COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/p
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
-# Strip JS sourcemaps from the artifacts that ship in the final image. They are uploaded to
-# PostHog error tracking by the isolated sourcemap-upload stage (which reads frontend-build,
-# untouched), and nothing reads .map files at runtime — they are ~2.8GB of dead weight otherwise.
-# Done here (not in the final stage) so the bytes never enter the COPYed layers.
-RUN find /code/staticfiles /code/frontend/dist -name '*.map' -delete
+# Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image — but ONLY when the
+# isolated sourcemap-upload stage confirmed a real upload to error tracking (status "uploaded"). If the
+# upload failed or no secret was provided, the .map files are kept so the only remaining copy isn't
+# lost. Done here (not in the final stage) so the bytes never enter the COPYed layers.
+COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
+RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
+        echo "sourcemaps uploaded — stripping .map files from the image"; \
+        find /code/staticfiles /code/frontend/dist -name '*.map' -delete; \
+    else \
+        echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
+    fi
 
 
 
@@ -372,6 +387,10 @@ COPY --chown=posthog:posthog products products/
 # Validate browser dependencies
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+# Build-time smoke test: prove the system Chromium actually launches through Playwright and renders a
+# page (the heatmap path uses executable_path=$CHROME_BIN). A missing shared lib or broken chromium
+# fails the build here instead of silently at runtime now that no Playwright browser is bundled.
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path='/usr/bin/chromium', args=['--no-sandbox','--disable-gpu','--disable-dev-shm-usage']); pg=b.new_page(); pg.set_content('<h1>ok</h1>'); assert pg.screenshot(), 'empty screenshot'; b.close(); p.stop(); print('chromium launch smoke test OK')"
 
 # Setup ENV.
 ENV NODE_ENV=production \

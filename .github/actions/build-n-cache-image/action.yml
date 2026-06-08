@@ -30,10 +30,6 @@ inputs:
         required: false
         default: 'false'
         description: Whether to disable caching on the docker depot build
-    platforms:
-        required: false
-        default: 'linux/amd64'
-        description: Target platforms. Defaults to amd64 only — this CI image is consumed by amd64 jobs (ci-hobby). The CD build (container-images-cd.yml) builds multi-arch for prod separately.
 
 outputs:
     tag:
@@ -104,7 +100,7 @@ runs:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
               tags: ${{ steps.emit.outputs.tag }}
-              platforms: ${{ inputs.platforms }}
+              platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
               push: ${{ inputs.push-image }}
