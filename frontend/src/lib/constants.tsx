@@ -365,6 +365,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_DRILL_DOWN: 'marketing-analytics-drill-down', // owner: @jabahamondes  #team-web-analytics
     MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN: 'marketing-analytics-extended-drill-down', // owner: @jabahamondes  #team-web-analytics
+    MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
@@ -458,7 +459,6 @@ export const FEATURE_FLAGS = {
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
-    REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
@@ -495,7 +495,6 @@ export const FEATURE_FLAGS = {
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
-    UNIFIED_HEALTH_PAGE: 'unified-health-page', // owner: @jordanm-posthog #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
@@ -505,20 +504,17 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FOCUS_MODE: 'web-analytics-focus-mode', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_CITY_BREAKDOWN: 'web-analytics-live-city-breakdown', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_EDIT_LAYOUT: 'web-analytics-live-edit-layout', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_FILTERS: 'web-analytics-live-filters', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN: 'web-analytics-live-person-drilldown', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
+    WEB_ANALYTICS_METRIC_CARDS: 'web-analytics-metric-cards', // owner: #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_SESSION_PROPERTY_CHARTS: 'web-analytics-session-property-charts', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_SHARE_NUDGE: 'web-analytics-share-nudge', // owner: @pauldambra #team-web-analytics multivariate=control,banner,prompt,button
     WEB_ANALYTICS_TILE_HEADER_V2: 'web-analytics-tile-header-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics

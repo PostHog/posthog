@@ -702,6 +702,7 @@ tools:
             - metrics
             - metrics_secondary
             - stats_config
+            - exposure_criteria
             - holdout_id
             - conclusion
             - conclusion_comment

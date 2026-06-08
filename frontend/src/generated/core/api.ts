@@ -14,6 +14,7 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    DesktopFileSystemInstructionsVersionsListParams,
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
     DesktopPersistedFolderListParams,
@@ -26,6 +27,8 @@ import type {
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
+    FolderInstructionsApi,
+    FolderInstructionsPublishApi,
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
@@ -41,6 +44,7 @@ import type {
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
     PaginatedFileSystemShortcutListApi,
+    PaginatedFolderInstructionsVersionListApi,
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationOAuthApplicationListApi,
@@ -52,6 +56,7 @@ import type {
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedFileSystemShortcutApi,
+    PatchedFolderInstructionsPublishApi,
     PatchedOrganizationDomainApi,
     PatchedPersistedFolderApi,
     PatchedProjectBackwardCompatApi,
@@ -997,6 +1002,8 @@ export const getDesktopFileSystemListUrl = (projectId: string, params?: DesktopF
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemList = async (
     projectId: string,
@@ -1016,6 +1023,8 @@ export const getDesktopFileSystemCreateUrl = (projectId: string) => {
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemCreate = async (
     projectId: string,
@@ -1037,6 +1046,8 @@ export const getDesktopFileSystemRetrieveUrl = (projectId: string, id: string) =
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemRetrieve = async (
     projectId: string,
@@ -1056,6 +1067,8 @@ export const getDesktopFileSystemUpdateUrl = (projectId: string, id: string) => 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUpdate = async (
     projectId: string,
@@ -1078,6 +1091,8 @@ export const getDesktopFileSystemPartialUpdateUrl = (projectId: string, id: stri
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemPartialUpdate = async (
     projectId: string,
@@ -1100,6 +1115,8 @@ export const getDesktopFileSystemDestroyUrl = (projectId: string, id: string) =>
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopFileSystemDestroyUrl(projectId, id), {
@@ -1129,6 +1146,122 @@ export const desktopFileSystemCountCreate = async (
     })
 }
 
+export const getDesktopFileSystemInstructionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Return the latest non-deleted instructions for this folder.
+ */
+export const desktopFileSystemInstructionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FolderInstructionsApi> => {
+    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemInstructionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsUpdate = async (
+    projectId: string,
+    id: string,
+    folderInstructionsPublishApi: FolderInstructionsPublishApi,
+    options?: RequestInit
+): Promise<FolderInstructionsApi> => {
+    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(folderInstructionsPublishApi),
+    })
+}
+
+export const getDesktopFileSystemInstructionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedFolderInstructionsPublishApi?: PatchedFolderInstructionsPublishApi,
+    options?: RequestInit
+): Promise<FolderInstructionsApi> => {
+    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedFolderInstructionsPublishApi),
+    })
+}
+
+export const getDesktopFileSystemInstructionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Soft-delete every version of this folder's instructions.
+ */
+export const desktopFileSystemInstructionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDesktopFileSystemInstructionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDesktopFileSystemInstructionsVersionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: DesktopFileSystemInstructionsVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/desktop_file_system/${id}/instructions/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/desktop_file_system/${id}/instructions/versions/`
+}
+
+/**
+ * List the version history for this folder's instructions, newest first.
+ */
+export const desktopFileSystemInstructionsVersionsList = async (
+    projectId: string,
+    id: string,
+    params?: DesktopFileSystemInstructionsVersionsListParams,
+    options?: RequestInit
+): Promise<PaginatedFolderInstructionsVersionListApi> => {
+    return apiMutator<PaginatedFolderInstructionsVersionListApi>(
+        getDesktopFileSystemInstructionsVersionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getDesktopFileSystemLinkCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/desktop_file_system/${id}/link/`
 }
@@ -1136,6 +1269,8 @@ export const getDesktopFileSystemLinkCreateUrl = (projectId: string, id: string)
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLinkCreate = async (
     projectId: string,
@@ -1158,6 +1293,8 @@ export const getDesktopFileSystemMoveCreateUrl = (projectId: string, id: string)
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemMoveCreate = async (
     projectId: string,
@@ -1200,6 +1337,8 @@ export const getDesktopFileSystemLogViewRetrieveUrl = (projectId: string) => {
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopFileSystemLogViewRetrieveUrl(projectId), {
@@ -1215,6 +1354,8 @@ export const getDesktopFileSystemLogViewCreateUrl = (projectId: string) => {
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewCreate = async (
     projectId: string,
@@ -1236,6 +1377,8 @@ export const getDesktopFileSystemUndoDeleteCreateUrl = (projectId: string) => {
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUndoDeleteCreate = async (
     projectId: string,
@@ -1257,6 +1400,8 @@ export const getDesktopFileSystemUnfiledRetrieveUrl = (projectId: string) => {
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUnfiledRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopFileSystemUnfiledRetrieveUrl(projectId), {

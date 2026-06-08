@@ -30,7 +30,6 @@ import type { subscriptionSceneLogicType } from './subscriptionSceneLogicType'
 
 export type SubscriptionSceneLogicProps = {
     id: string
-    tabId?: string
 }
 
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
@@ -48,7 +47,7 @@ function parseCursorFromPaginationUrl(url: string | null | undefined): string | 
 
 export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
     props({} as SubscriptionSceneLogicProps),
-    key(({ id, tabId }) => `${tabId ?? ''}-${id}`),
+    key(({ id }) => id),
     path((key) => ['scenes', 'subscriptions', 'subscriptionSceneLogic', key]),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],

@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -55,20 +55,11 @@ function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'
     }
 }
 
-export interface TracingDataLogicProps {
-    tabId?: string
-}
-
 export const tracingDataLogic = kea<tracingDataLogicType>([
-    props({} as TracingDataLogicProps),
-    key((p) => p.tabId ?? 'default'),
-    path((tabId) => ['products', 'tracing', 'frontend', 'tracingDataLogic', tabId]),
+    path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
 
-    connect((p: TracingDataLogicProps) => ({
-        values: [
-            tracingFiltersLogic({ tabId: p.tabId }),
-            ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs'],
-        ],
+    connect(() => ({
+        values: [tracingFiltersLogic(), ['filters', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
     })),
 
     actions({

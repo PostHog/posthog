@@ -1,4 +1,6 @@
+import time
 import datetime as dt
+import threading
 import dataclasses
 import collections.abc
 from typing import Any
@@ -6,6 +8,8 @@ from urllib.parse import quote
 
 from django.conf import settings
 
+import requests
+import structlog
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
@@ -16,6 +20,8 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_adapt
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSearchConsoleSourceConfig
 from posthog.temporal.data_imports.sources.google_search_console.settings import SEARCH_ANALYTICS_SCHEMAS
+
+logger = structlog.get_logger(__name__)
 
 GSC_API_BASE = "https://searchconsole.googleapis.com/webmasters/v3"
 
@@ -47,6 +53,48 @@ ROW_LIMIT = 25000
 
 HISTORY_DAYS = 16 * 30  # Google retains ~16 months of Search Analytics data
 FRESHNESS_LAG_DAYS = 3  # GSC publishes data with a 2-3 day lag
+
+# Search Analytics is rate-limited at 1,200 QPM per site and per user, plus a
+# per-second (QPS) burst cap. Paginating day-by-day across ~16 months of history
+# fires requests back-to-back and trips the QPS cap, which Google reports as an
+# HTTP 403 (not 429) with domain `usageLimits`. These are transient — back off
+# and retry rather than failing the whole job.
+# Quotas: https://developers.google.com/webmaster-tools/limits#qps-quota
+QUOTA_ERROR_REASONS = frozenset({"quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded"})
+# dailyLimitExceeded resets at midnight, so let Temporal retry the activity instead of blocking inline.
+DAILY_QUOTA_REASONS = frozenset({"dailyLimitExceeded"})
+QUOTA_MAX_RETRIES = 5
+QUOTA_BACKOFF_BASE_SECONDS = 2.0  # exponential: ~2, 4, 8, 16, 32s — QPS windows reset within seconds
+
+# Proactive client-side throttle to stay under the per-site QPS burst cap before
+# Google rejects us. Spaces consecutive requests to the same property; the limit
+# is 1,200 QPM (20 QPS) but we leave headroom for the undocumented per-second
+# burst cap. Per-process only — across workers the reactive backoff above and
+# Temporal's activity retry handle the remainder.
+MAX_REQUESTS_PER_SECOND_PER_SITE = 5.0
+_MIN_REQUEST_INTERVAL_SECONDS = 1.0 / MAX_REQUESTS_PER_SECOND_PER_SITE
+_throttle_lock = threading.Lock()
+_next_request_at: dict[str, float] = {}
+
+
+def _throttle(site_url: str) -> None:
+    """Block until this site's next request slot, spacing calls under the QPS cap."""
+    with _throttle_lock:
+        now = time.monotonic()
+        scheduled = max(now, _next_request_at.get(site_url, 0.0))
+        _next_request_at[site_url] = scheduled + _MIN_REQUEST_INTERVAL_SECONDS
+        wait = scheduled - now
+    if wait > 0:
+        time.sleep(wait)
+
+
+class GoogleSearchConsoleQuotaExceededError(Exception):
+    """Raised when Search Analytics quota stays exhausted after in-line retries.
+
+    Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
+    the activity later (the resumable source picks up from the last saved date),
+    which is the right recovery for the longer 10-minute / daily load quotas.
+    """
 
 
 @dataclasses.dataclass
@@ -82,6 +130,46 @@ def list_sites(session: AuthorizedSession) -> list[dict[str, Any]]:
     return response.json().get("siteEntry", [])
 
 
+def _is_quota_error(response: requests.Response) -> bool:
+    """Whether a failed response is a transient rate-limit/quota error worth retrying.
+
+    Google reports Search Analytics QPS/QPM exhaustion as a 403 with
+    `error.errors[].domain == "usageLimits"` (not a 429), which is why the
+    generic 403-is-fatal handling misfires. A genuine permission failure uses
+    domain `global` with reason `forbidden`/`insufficientPermissions`.
+    """
+    if response.status_code == 429:
+        return True
+    if response.status_code != 403:
+        return False
+    try:
+        errors = response.json().get("error", {}).get("errors", [])
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return any(e.get("domain") == "usageLimits" or e.get("reason") in QUOTA_ERROR_REASONS for e in errors)
+
+
+def _is_daily_quota_error(response: requests.Response) -> bool:
+    if response.status_code != 403:
+        return False
+    try:
+        errors = response.json().get("error", {}).get("errors", [])
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return any(e.get("reason") in DAILY_QUOTA_REASONS for e in errors)
+
+
+def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
+    """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return float(retry_after)
+        except ValueError:
+            pass
+    return QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+
+
 def _query_search_analytics(
     session: AuthorizedSession,
     site_url: str,
@@ -99,12 +187,44 @@ def _query_search_analytics(
         "startRow": start_row,
         "dataState": "final",
     }
-    response = session.post(
-        f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/searchAnalytics/query",
-        json=body,
-    )
-    response.raise_for_status()
-    return response.json().get("rows", [])
+    url = f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/searchAnalytics/query"
+
+    for attempt in range(QUOTA_MAX_RETRIES + 1):
+        _throttle(site_url)
+        response = session.post(url, json=body)
+        if response.ok:
+            return response.json().get("rows", [])
+
+        # Surface Google's real reason (e.g. usageLimits/quotaExceeded vs forbidden) —
+        # raise_for_status() discards the body where that distinction lives.
+        logger.warning(
+            "GSC searchAnalytics.query failed",
+            site_url=site_url,
+            status_code=response.status_code,
+            body=response.text,
+        )
+
+        if _is_daily_quota_error(response):
+            raise GoogleSearchConsoleQuotaExceededError(
+                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
+            )
+
+        if not _is_quota_error(response):
+            # Permission / other errors are fatal — let the HTTPError bubble up so
+            # `get_non_retryable_errors` can match "403 Client Error" / "401 Client Error".
+            response.raise_for_status()
+
+        if attempt == QUOTA_MAX_RETRIES:
+            raise GoogleSearchConsoleQuotaExceededError(
+                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+            )
+
+        wait = _quota_backoff_seconds(response, attempt)
+        logger.warning("GSC quota exceeded, backing off", site_url=site_url, attempt=attempt, wait_seconds=wait)
+        time.sleep(wait)
+
+    # Unreachable: the loop either returns, raises for status, or raises the quota error.
+    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted")
 
 
 def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
