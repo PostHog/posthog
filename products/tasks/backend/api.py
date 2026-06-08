@@ -2787,13 +2787,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def stream(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         stream_key = get_task_run_stream_key(str(task_run.id))
+        stream_created_at = task_run.created_at
         last_event_id = request.headers.get("Last-Event-ID")
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
         origin_product = origin_product_label(task_run)
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
-            redis_stream = TaskRunRedisStream(stream_key)
+            redis_stream = TaskRunRedisStream(stream_key, stream_created_at)
             connection_started_at = asyncio.get_running_loop().time()
             # Default to client_disconnect: any exit that isn't an explicit
             # completion/error/unavailable is the client (or proxy) going away.

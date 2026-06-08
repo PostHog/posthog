@@ -1,6 +1,7 @@
 import json
 import asyncio
 import importlib
+from datetime import datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -196,7 +197,7 @@ class TestRelaySandboxEventsCancellation:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str) -> None:
+            def __init__(self, stream_key: str, created_at: datetime | None = None) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -213,7 +214,9 @@ class TestRelaySandboxEventsCancellation:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)))
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123)), created_at=datetime(2026, 1, 1)
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise asyncio.CancelledError
@@ -510,7 +513,7 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str) -> None:
+            def __init__(self, stream_key: str, created_at: datetime | None = None) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -527,7 +530,9 @@ class TestRelaySandboxEventsErrorHandling:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)))
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123)), created_at=datetime(2026, 1, 1)
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise RuntimeError("relay error")
