@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { IconCheck } from '@posthog/icons'
@@ -56,7 +57,7 @@ export function HogFlowFunctionConfiguration({
     }
 
     if (!template) {
-        return <div>Template not found!</div>
+        return <TemplateNotFoundFallback templateId={templateId} />
     }
 
     const triggerType = workflow?.trigger?.type
@@ -198,4 +199,19 @@ export function HogFlowFunctionConfiguration({
             />
         </>
     )
+}
+
+// Reaching this fallback means the workflow editor finished loading the template list but the
+// referenced template was not in it — typically a server-side filter regression (see PR #61992)
+// or a workflow that points at a deleted/renamed template. Surfaces to error tracking so an
+// alert can fire before users start reporting it.
+function TemplateNotFoundFallback({ templateId }: { templateId: string }): JSX.Element {
+    useEffect(() => {
+        posthog.captureException(new Error('Workflow editor: hog function template not found'), {
+            severity: 'error',
+            tag: 'workflow_editor_template_not_found',
+            templateId,
+        })
+    }, [templateId])
+    return <div>Template not found!</div>
 }

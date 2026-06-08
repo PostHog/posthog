@@ -235,8 +235,8 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
     config = await database_sync_to_async(SignalScoutConfig.all_teams.get)(team=ateam, skill_name="signals-scout-foo")
     assert config.enabled is True
-    assert config.run_interval_minutes == 1440
-    assert config.emit is False
+    assert config.run_interval_minutes == 60
+    assert config.emit is True
     # Never-run row is immediately due, so it's dispatched this tick.
     assert [(p.team_id, p.skill_name) for p in planned] == [(ateam.id, "signals-scout-foo")]
 
@@ -277,6 +277,27 @@ async def test_config_within_interval_is_not_due(ateam):
     )
 
     assert await _run_activity() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "seconds_short,expected_skill_names",
+    [
+        (5, ["signals-scout-foo"]),  # within grace — stamp jitter shouldn't halve cadence
+        (120, []),  # beyond grace — genuinely not due yet
+    ],
+)
+async def test_due_check_grace_boundary(ateam, seconds_short, expected_skill_names):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    last_run = timezone.now() - timedelta(minutes=60) + timedelta(seconds=seconds_short)
+    await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=60, last_run_at=last_run
+    )
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == expected_skill_names
 
 
 @pytest.mark.asyncio

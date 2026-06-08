@@ -18,8 +18,9 @@ export const ActionsListParams = /* @__PURE__ */ zod.object({
 
 export const ActionsListQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    limit: zod.number().optional().describe('Maximum number of actions to return. Omit to return all.'),
+    offset: zod.number().optional().describe('Number of actions to skip before returning results.'),
+    search: zod.string().optional().describe('Case-insensitive substring match on the action name.'),
 })
 
 export const ActionsCreateParams = /* @__PURE__ */ zod.object({

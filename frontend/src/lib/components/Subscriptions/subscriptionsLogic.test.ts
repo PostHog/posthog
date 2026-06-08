@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
@@ -50,8 +53,10 @@ function fixtureInsightResponse(id: number, data?: Partial<InsightModel>): Parti
 describe('subscriptionsLogic', () => {
     let logic: ReturnType<typeof subscriptionsLogic.build>
     let subscriptions: SubscriptionType[] = []
+    let aiSubscriptions: SubscriptionType[] = []
     beforeEach(async () => {
         subscriptions = [fixtureSubscriptionResponse(1), fixtureSubscriptionResponse(2)]
+        aiSubscriptions = [fixtureSubscriptionResponse(10, { resource_type: 'ai_prompt', prompt: 'Weekly report' })]
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/1': fixtureInsightResponse(1),
@@ -64,9 +69,12 @@ describe('subscriptionsLogic', () => {
 
                 '/api/environments/:team_id/subscriptions': (req) => {
                     const insightId = req.url.searchParams.get('insight')
+                    const resourceType = req.url.searchParams.get('resource_type')
                     let results: SubscriptionType[] = []
 
-                    if (insightId === Insight2) {
+                    if (resourceType === 'ai_prompt') {
+                        results = aiSubscriptions
+                    } else if (insightId === Insight2) {
                         results = subscriptions
                     }
 
@@ -101,6 +109,31 @@ describe('subscriptionsLogic', () => {
         await expectLogic(logic).toFinishListeners().toMatchValues({
             subscriptions: subscriptions,
             subscriptionsLoading: false,
+        })
+    })
+
+    it('does not load AI subscriptions when the flag is off', async () => {
+        await expectLogic(logic).toFinishListeners().toMatchValues({
+            aiSubscriptions: [],
+            aiSubscriptionsLoading: false,
+        })
+    })
+
+    it('loads AI subscriptions separately when the flag is on', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+        })
+
+        // Distinct key so afterMount fetches fresh with the flag now on.
+        logic = subscriptionsLogic({
+            insightShortId: Insight2,
+        })
+        logic.mount()
+
+        await expectLogic(logic).toFinishListeners().toMatchValues({
+            aiSubscriptions: aiSubscriptions,
+            aiSubscriptionsLoading: false,
         })
     })
 })
