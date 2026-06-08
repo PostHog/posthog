@@ -10,6 +10,8 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { copyInstructions } from '../../scripts/copy-instructions'
+
 const MCP_DIR = resolve(__dirname, '..', '..')
 const UI_APPS_DIR = resolve(MCP_DIR, 'public', 'ui-apps')
 
@@ -21,6 +23,12 @@ function uiAppsAlreadyBuilt(): boolean {
 }
 
 export async function setup(): Promise<void> {
+    // Populate `shared/guidelines.md` (gitignored) so the `@shared/*` alias used by
+    // `src/hono/dispatcher.ts` and `src/mcp.ts` resolves. The integration CI job
+    // doesn't run the standalone copy step the unit job does, and it's absent on a
+    // fresh local checkout too — generate it here so the suite is self-sufficient.
+    copyInstructions()
+
     if (uiAppsAlreadyBuilt()) {
         return
     }

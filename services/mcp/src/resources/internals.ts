@@ -19,19 +19,23 @@ export type ArchiveLoader = (url: string) => Promise<Uint8Array>
 async function defaultArchiveLoader(url: string, noStore: boolean): Promise<Uint8Array> {
     let lastError: unknown
     for (let attempt = 1; attempt <= ARCHIVE_FETCH_ATTEMPTS; attempt++) {
+        let response: Response
         try {
-            const response = await fetch(url, {
+            response = await fetch(url, {
                 ...(noStore ? { cache: 'no-store' } : {}),
                 signal: AbortSignal.timeout(ARCHIVE_FETCH_TIMEOUT_MS),
             })
-            if (!response.ok) {
-                throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
-            }
-            const arrayBuffer = await response.arrayBuffer()
-            return new Uint8Array(arrayBuffer)
         } catch (err) {
+            // Transient failure (timeout / DNS / connection reset) — worth another attempt.
             lastError = err
+            continue
         }
+        // HTTP status errors are deterministic; retrying won't help, so surface immediately.
+        if (!response.ok) {
+            throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
+        }
+        const arrayBuffer = await response.arrayBuffer()
+        return new Uint8Array(arrayBuffer)
     }
     throw new Error(`Failed to fetch context-mill resources from ${url}: ${String(lastError)}`)
 }
