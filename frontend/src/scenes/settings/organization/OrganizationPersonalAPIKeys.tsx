@@ -80,7 +80,7 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
                 dataSource={keys}
                 loading={keysLoading}
                 columns={columns}
-                rowKey={(key) => `${key.owner.email}-${key.mask_value}`}
+                rowKey={(key) => `${key.owner.email}-${key.mask_value}-${key.created_at}`}
                 emptyState="No personal API keys have access to this organization."
             />
         </PayGateMini>

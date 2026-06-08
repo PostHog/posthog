@@ -15,8 +15,17 @@ export const organizationPersonalAPIKeysLogic = kea<organizationPersonalAPIKeysL
             [] as OrganizationPersonalAPIKeyApi[],
             {
                 loadKeys: async () => {
-                    const response = await personalApiKeysList(ApiConfig.getCurrentOrganizationId())
-                    return response.results
+                    const organizationId = ApiConfig.getCurrentOrganizationId()
+                    // Page through everything — an incomplete list would be a security-audit blind spot.
+                    const limit = 100
+                    const allKeys: OrganizationPersonalAPIKeyApi[] = []
+                    for (let offset = 0; ; offset += limit) {
+                        const response = await personalApiKeysList(organizationId, { limit, offset })
+                        allKeys.push(...response.results)
+                        if (!response.next) {
+                            return allKeys
+                        }
+                    }
                 },
             },
         ],
