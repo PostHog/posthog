@@ -478,3 +478,77 @@ class TestLifecycleMethodDivergences(DifferentialParityBase):
         self.assertEqual(proj_kwargs["project_id"], project_b.id)
         self.assertEqual(env_kwargs["team_ids"], [team_a.id])
         self.assertEqual(proj_kwargs["team_ids"], [team_b.id])
+
+
+class TestPermissionParity(DifferentialParityBase):
+    """Permission parity across membership levels.
+
+    The rest of the suite runs as ADMIN. These tests exercise the MEMBER path — where Veria flagged a possible
+    divergence (admin-only config fields writable by non-admins via /api/projects/). For the same membership
+    level and the same field, both endpoints must return the SAME status: admin-only fields rejected, member
+    fields accepted. A mismatch here is a real access-control divergence, not a cosmetic one.
+    """
+
+    def _make_twin(self) -> tuple[Project, Team]:
+        project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        return project, team
+
+    def _set_level(self, level: OrganizationMembership.Level) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            # (name, field, value, is_admin_only)
+            ("admin__timezone", "timezone", "America/New_York", True),
+            ("admin__require_evaluation_contexts", "require_evaluation_contexts", True, True),
+            ("admin__feature_flag_confirmation_enabled", "feature_flag_confirmation_enabled", True, True),
+            ("admin__base_currency", "base_currency", "EUR", True),
+            ("admin__capture_dead_clicks", "capture_dead_clicks", True, True),
+            ("member__session_recording_opt_in", "session_recording_opt_in", True, False),
+            ("member__surveys_opt_in", "surveys_opt_in", True, False),
+        ]
+    )
+    def test_member_config_write_permission_parity(self, _name, field, value, is_admin_only):
+        self._set_level(OrganizationMembership.Level.MEMBER)
+        _, team_a = self._make_twin()
+        project_b, _ = self._make_twin()
+
+        resp_a = self.client.patch(f"/api/environments/{team_a.id}/", {field: value}, format="json")
+        resp_b = self.client.patch(f"/api/projects/{project_b.id}/", {field: value}, format="json")
+
+        # The core assertion: both endpoints must agree for a member writing this field.
+        self.assertEqual(
+            resp_a.status_code,
+            resp_b.status_code,
+            f"member write of '{field}' diverges: env={resp_a.status_code} ({resp_a.content!r}) "
+            f"project={resp_b.status_code} ({resp_b.content!r})",
+        )
+        if is_admin_only:
+            self.assertEqual(resp_a.status_code, status.HTTP_403_FORBIDDEN, resp_a.content)
+        else:
+            self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.content)
+
+    @parameterized.expand(
+        [
+            # member hitting each ported action — status must match across endpoints regardless of allow/deny
+            ("default_release_conditions", "get", "default_release_conditions/"),
+            ("experiments_config", "get", "experiments_config/"),
+            ("default_evaluation_contexts", "get", "default_evaluation_contexts/"),
+            ("settings_as_of", "get", "settings_as_of/?at=2020-01-01T00:00:00Z&scope=timezone"),
+            ("event_ingestion_restrictions", "get", "event_ingestion_restrictions/"),
+            ("logs_config", "get", "logs_config/"),
+        ]
+    )
+    def test_member_action_permission_parity(self, _name, method, suffix):
+        self._set_level(OrganizationMembership.Level.MEMBER)
+        _, team_a = self._make_twin()
+        project_b, _ = self._make_twin()
+        call = getattr(self.client, method)
+        resp_a = call(f"/api/environments/{team_a.id}/{suffix}")
+        resp_b = call(f"/api/projects/{project_b.id}/{suffix}")
+        self.assertEqual(
+            resp_a.status_code,
+            resp_b.status_code,
+            f"member action '{suffix}' diverges: env={resp_a.status_code} project={resp_b.status_code}",
+        )
