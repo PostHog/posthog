@@ -7,66 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
+export interface ChartImageApi {
+    /** Base64-encoded PNG image bytes to publish. Must decode to a PNG no larger than 5 MiB. */
+    image_base64: string
+    /** Optional title used to build a readable filename for the published image. */
+    title?: string
+    /**
+     * Optional short id of the insight this image visualizes, recorded for provenance.
+     * @nullable
+     */
+    insight_short_id?: string | null
+    /** Id of the published image asset. */
     readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
-}
-
-export type ExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+    /** Durable signed URL of the published PNG, fetchable without authentication so it can be posted to Slack. */
+    readonly image_url: string
 }

@@ -8,7 +8,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { ExportedAssetApi, ExportsListParams, PaginatedExportedAssetListApi } from './api.schemas'
+import type { ChartImageApi } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -27,72 +27,22 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/exports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/exports/`
+export const getChartImagesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/chart_images/`
 }
 
-export const exportsList = async (
+/**
+ * Publish a pre-rendered PNG image and get back a durable signed URL that can be posted to Slack.
+ */
+export const chartImagesCreate = async (
     projectId: string,
-    params?: ExportsListParams,
+    chartImageApi: NonReadonly<ChartImageApi>,
     options?: RequestInit
-): Promise<PaginatedExportedAssetListApi> => {
-    return apiMutator<PaginatedExportedAssetListApi>(getExportsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExportsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/exports/`
-}
-
-export const exportsCreate = async (
-    projectId: string,
-    exportedAssetApi: NonReadonly<ExportedAssetApi>,
-    options?: RequestInit
-): Promise<ExportedAssetApi> => {
-    return apiMutator<ExportedAssetApi>(getExportsCreateUrl(projectId), {
+): Promise<ChartImageApi> => {
+    return apiMutator<ChartImageApi>(getChartImagesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(exportedAssetApi),
-    })
-}
-
-export const getExportsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/exports/${id}/`
-}
-
-export const exportsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ExportedAssetApi> => {
-    return apiMutator<ExportedAssetApi>(getExportsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExportsContentRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/exports/${id}/content/`
-}
-
-export const exportsContentRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getExportsContentRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
+        body: JSON.stringify(chartImageApi),
     })
 }

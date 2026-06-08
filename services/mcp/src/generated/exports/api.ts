@@ -1,10 +1,9 @@
 /**
- * Auto-generated Zod validation schemas from the Django backend OpenAPI schema.
- * To modify these schemas, update the Django serializers or views, then run:
- *   hogli build:openapi
- * Questions or issues? #team-devex on Slack
+ * Auto-generated from the Django backend OpenAPI schema.
+ * MCP service uses these Zod schemas for generated tool handlers.
+ * To regenerate: hogli build:openapi
  *
- * PostHog API - generated
+ * PostHog API - MCP 1 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -12,6 +11,14 @@ import * as zod from 'zod'
 /**
  * Publish a pre-rendered PNG image and get back a durable signed URL that can be posted to Slack.
  */
+export const ChartImagesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
 export const chartImagesCreateBodyTitleDefault = ``
 
 export const ChartImagesCreateBody = /* @__PURE__ */ zod.object({
