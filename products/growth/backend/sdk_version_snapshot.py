@@ -27,14 +27,6 @@ SDK_VERSIONS_UPDATED_AT_PROPERTY = "sdk_versions_updated_at"
 # Match the SDK Doctor lookback so "current" means the same thing across the product.
 LOOKBACK_DAYS = 7
 
-# Bound every scan explicitly instead of relying on the OFFLINE cluster's implicit server-side
-# default — an all-teams events scan is in the same weight class as usage_report's billing queries,
-# which set their own ceiling. max_memory_usage mirrors the FULL kill-switch guard.
-SDK_SNAPSHOT_CH_SETTINGS = {
-    "max_execution_time": 180,
-    "max_memory_usage": 30_000_000_000,  # 30GB
-}
-
 # All-teams aggregation grouped by team — mirrors the full-scan grouped queries usage_report runs.
 # Uses materialized columns (no property-map lookup) and pre-filters to tracked SDKs to bound
 # cardinality. We only need presence of each lib@version per team, so no counts/timestamps.
@@ -59,8 +51,8 @@ def _fetch_team_sdk_keys(*, lookback_days: int = LOOKBACK_DAYS) -> dict[int, set
     """Return, per team, the set of `{lib}@{lib_version}` keys seen in the lookback window.
 
     The lookback is split into single-day scans whose per-team presence is unioned — the result is
-    identical to one wide scan, but each query stays small and bounded (mirrors the time-splitting
-    usage_report uses for its heavy event scans).
+    identical to one wide scan, but each query stays small (mirrors the time-splitting usage_report
+    uses for its heavy event scans). Runs on the OFFLINE cluster's default settings.
     """
     team_keys: defaultdict[int, set[str]] = defaultdict(set)
     now = timezone.now()
@@ -72,7 +64,6 @@ def _fetch_team_sdk_keys(*, lookback_days: int = LOOKBACK_DAYS) -> dict[int, set
                 SDK_VERSIONS_BY_TEAM_SQL,
                 {"begin": begin, "end": end, "sdk_types": SDK_TYPES},
                 workload=Workload.OFFLINE,
-                settings=SDK_SNAPSHOT_CH_SETTINGS,
             )
             for team_id, lib, lib_version in rows:
                 team_keys[team_id].add(f"{lib}@{lib_version}")

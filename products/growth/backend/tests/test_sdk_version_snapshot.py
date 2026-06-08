@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Organization, Team
 
 from products.growth.backend.sdk_version_snapshot import (
@@ -94,9 +95,9 @@ class TestFetchTeamSdkKeys(BaseTest):
 
         assert mock_sync_execute.call_count == 2
         assert team_keys == {1: {"web@1.0.0", "web@2.0.0"}, 2: {"posthog-php@3.4.0"}}
-        # Every scan is explicitly bounded rather than relying on the cluster default.
+        # Every scan runs on the OFFLINE cluster.
         for call in mock_sync_execute.call_args_list:
-            assert "max_execution_time" in call.kwargs["settings"]
+            assert call.kwargs["workload"] == Workload.OFFLINE
 
 
 class TestSnapshotSdkVersionsToGroups(BaseTest):
