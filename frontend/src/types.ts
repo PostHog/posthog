@@ -36,7 +36,7 @@ import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
@@ -4824,6 +4824,8 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
+    homepage?: SceneTab | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -5130,17 +5132,28 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
-// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt'
+// Value map for the above — kept a distinct name from the type so kea-typegen still imports
+// the type correctly (a const+type sharing a name drops it from generated `import type` lines).
+export const SubscriptionResourceTypes = {
+    Insight: 'insight',
+    Dashboard: 'dashboard',
+    AiPrompt: 'ai_prompt',
+} as const satisfies Record<string, SubscriptionResourceType>
+
+// TODO: migrate to SubscriptionApi from @posthog/products-subscriptions/frontend/generated/api.schemas.
 // This hand-written interface predates the generated type and now requires
 // dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
+    resource_type: SubscriptionResourceType
     insight?: number
     dashboard?: number
     insight_short_id?: string | null
     resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
+    prompt?: string | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'

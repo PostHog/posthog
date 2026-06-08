@@ -255,10 +255,7 @@ describe('BatchingPipeline', () => {
                     )
                 ),
             (builder) => builder,
-            (builder) =>
-                builder.pipe((input) =>
-                    Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
-                ),
+            (builder) => builder.pipe((input) => Promise.resolve(ok(input))),
             { concurrentBatches: Infinity }
         )
 
@@ -291,7 +288,7 @@ describe('BatchingPipeline', () => {
             (builder) =>
                 builder.pipe((input) => {
                     capturedAfter.push(input.batchContext)
-                    return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+                    return Promise.resolve(ok(input))
                 }),
             { concurrentBatches: Infinity }
         )

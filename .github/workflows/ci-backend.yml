@@ -439,7 +439,7 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
@@ -991,6 +991,12 @@ jobs:
 
             - name: Run migration risk analysis and post comment
               if: github.event_name == 'pull_request'
+              # Step timeout: an analyzer hang fails THIS step (a failure, which
+              # !cancelled() still publishes as a definitive verdict) instead of
+              # running out the 20-min job timeout — a job timeout counts as a
+              # cancellation, which the publish step now skips, silently stranding
+              # the consumer. Normal analysis finishes in well under a minute.
+              timeout-minutes: 5
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
@@ -1076,7 +1082,11 @@ jobs:
               # rotation, app misconfig) must not redden check-migrations
               # when migration validation itself passed. On failure the
               # token output is empty and the publish step below is skipped.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              #
+              # !cancelled(): a cancelled run was superseded by a newer one that
+              # publishes the verdict, so don't mint a token here. (${{ }} wraps
+              # the leading !, a YAML tag indicator.)
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
               id: migration-risk-app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1095,11 +1105,16 @@ jobs:
               # Published via the posthog-tests app token (see the token step
               # above) so the check lands in that app's own check suite.
               #
-              # Always published — even with zero migrations to analyze, or
-              # when the analyzer crashed — so every PR ends up with a
+              # Published on success or genuine failure (including an analyzer
+              # crash, or zero migrations to analyze) so every PR ends up with a
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
+              #
+              # !cancelled(): a cancelled job skipped the analyzer, leaving no
+              # migration_analysis.json, so an always() publish would stamp a
+              # spurious "❌ Analyzer failed". The newer run that superseded it
+              # publishes the real verdict; genuine crashes still publish here.
               #
               # Skipped on PRs from forks: the app token can't be minted there
               # (secrets are withheld from fork-triggered workflows), so the
@@ -1111,7 +1126,7 @@ jobs:
               # Also skipped when the token step failed: its output is then
               # empty and the check-runs POST would 401 and redden the job
               # for a reason unrelated to migration validation.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != ''
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
               env:
                   GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}

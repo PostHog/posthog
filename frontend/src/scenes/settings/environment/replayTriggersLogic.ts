@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { compareVersion } from 'lib/utils/semver'
-import { sdkDoctorLogic } from 'scenes/onboarding/sdks/sdkDoctorLogic'
+import { sdkHealthLogic } from 'scenes/onboarding/sdks/sdkHealthLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
@@ -88,7 +88,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         validateUrlInput: (url: string, type: 'trigger' | 'blocklist') => ({ url, type }),
     }),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], sdkDoctorLogic, ['augmentedData']],
+        values: [teamLogic, ['currentTeam'], sdkHealthLogic, ['augmentedData']],
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     reducers({

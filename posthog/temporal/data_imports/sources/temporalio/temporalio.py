@@ -112,7 +112,7 @@ class FakeSettings:
     """Required to trick temporal.io client to think its reading from django settings"""
 
     TEMPORAL_SECRET_KEY: str | bytes
-    TEMPORAL_FALLBACK_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list)
+    TEMPORAL_FALLBACK_SECRET_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list)
     TEST: bool = False
     DEBUG: bool = False
 

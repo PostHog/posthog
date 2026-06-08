@@ -62,7 +62,7 @@ describe('replayScannersLogic', () => {
             },
         })
         initKeaTests()
-        logic = replayScannersLogic({ tabId: 'test' })
+        logic = replayScannersLogic()
         logic.mount()
     })
 
