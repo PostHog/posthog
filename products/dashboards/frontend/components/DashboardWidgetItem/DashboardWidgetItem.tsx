@@ -274,7 +274,7 @@ function DashboardWidgetItemContent({
                 }
                 onDragHandleMouseDown={onDragHandleMouseDown}
             />
-            {!showSharedPlaceholder && showTileFilters && TileFilters ? (
+            {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
                 <TileFilters
                     tileId={tile.id}
                     config={widget.config}

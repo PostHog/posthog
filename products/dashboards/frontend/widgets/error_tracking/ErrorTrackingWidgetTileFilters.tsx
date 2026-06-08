@@ -16,7 +16,7 @@ import {
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/configSchemas'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
-import { errorTrackingWidgetFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
+import { getWidgetTileFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
     WidgetDateRangeReadOnlyValue,
     WidgetPropertyFiltersReadOnlyValues,
@@ -39,7 +39,7 @@ export function ErrorTrackingWidgetTileFilters({
     disabledReason,
     canMutateErrorTrackingIssues = false,
 }: ErrorTrackingWidgetTileFiltersProps): JSX.Element {
-    const { context: filterDefinitionsContext, isAllowed } = errorTrackingWidgetFiltersSetup
+    const { context: filterDefinitionsContext, isAllowed } = getWidgetTileFiltersSetup('error_tracking_list')
     const parsed = parseErrorTrackingWidgetConfig(config)
     const dateFrom = (parsed.dateRange?.date_from ?? '-7d') as WidgetDateFromValue
     const status = (parsed.status ?? 'active') as ErrorTrackingStatusSelectValue

@@ -1,38 +1,38 @@
 import { useCallback, useEffect, useRef } from 'react'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
 import type { QuickFilter } from '~/types'
 
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    type DashboardWidgetCatalogKey,
+    type DashboardWidgetTileFiltersCatalogConfig,
+} from '../widget_types/catalog'
 import { WIDGET_TILE_REFRESH_DEBOUNCE_MS } from './constants'
-import { isAllowedErrorTrackingWidgetFilter } from './error_tracking/constants'
-
-const SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES = new Set([
-    '$browser',
-    '$os',
-    '$device_type',
-    '$geoip_country_code',
-    '$geoip_city_name',
-    '$current_url',
-    '$pathname',
-    '$host',
-    '$referring_domain',
-    '$lib',
-])
 
 export type WidgetFilterDefinitionsSetup = {
     /** Loads saved property-filter definitions for tile pickers (project Quick Filter records). */
-    context: QuickFilterContext
+    context: DashboardWidgetTileFiltersCatalogConfig['quickFilterContext']
     isAllowed: (filter: Pick<QuickFilter, 'name' | 'property_name'>) => boolean
 }
 
-export const sessionReplayWidgetFiltersSetup: WidgetFilterDefinitionsSetup = {
-    context: QuickFilterContext.Dashboards,
-    isAllowed: (filter) => SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES.has(filter.property_name.trim().toLowerCase()),
+export function widgetTileFiltersSetupFromCatalog(
+    config: DashboardWidgetTileFiltersCatalogConfig
+): WidgetFilterDefinitionsSetup {
+    const allowedPropertyNames = new Set(
+        config.allowedPropertyNames.map((propertyName) => propertyName.trim().toLowerCase())
+    )
+    return {
+        context: config.quickFilterContext,
+        isAllowed: (filter) => allowedPropertyNames.has(filter.property_name.trim().toLowerCase()),
+    }
 }
 
-export const errorTrackingWidgetFiltersSetup: WidgetFilterDefinitionsSetup = {
-    context: QuickFilterContext.ErrorTrackingIssueFilters,
-    isAllowed: isAllowedErrorTrackingWidgetFilter,
+export function getWidgetTileFiltersSetup(widgetType: DashboardWidgetCatalogKey): WidgetFilterDefinitionsSetup {
+    const tileFilters = DASHBOARD_WIDGET_CATALOG[widgetType].tileFilters
+    if (!tileFilters) {
+        throw new Error(`Dashboard widget catalog entry ${widgetType} is missing tileFilters config`)
+    }
+    return widgetTileFiltersSetupFromCatalog(tileFilters)
 }
 
 export function useWidgetTileConfigPersist(

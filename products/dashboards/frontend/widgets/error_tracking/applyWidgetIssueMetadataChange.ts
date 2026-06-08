@@ -61,5 +61,9 @@ export function applyIssueMetadataToWidgetListResult(
     return {
         ...result,
         results: shouldRemoveFromFilteredList ? updated.filter((issue) => issue.id !== issueId) : updated,
+        totalCount:
+            shouldRemoveFromFilteredList && result.totalCount !== undefined
+                ? Math.max(0, result.totalCount - 1)
+                : result.totalCount,
     }
 }

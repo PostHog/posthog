@@ -8,7 +8,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/configSchemas'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
-import { sessionReplayWidgetFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
+import { getWidgetTileFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
     WidgetDateRangeReadOnlyValue,
     WidgetPropertyFiltersReadOnlyValues,
@@ -26,7 +26,7 @@ export function SessionReplayWidgetTileFilters({
     onUpdateConfig,
     disabledReason,
 }: SessionReplayWidgetTileFiltersProps): JSX.Element {
-    const { context: filterDefinitionsContext, isAllowed } = sessionReplayWidgetFiltersSetup
+    const { context: filterDefinitionsContext, isAllowed } = getWidgetTileFiltersSetup('session_replay_list')
     const parsed = parseSessionReplayWidgetConfig(config)
     const dateFrom = (parsed.dateRange?.date_from ?? '-7d') as WidgetDateFromValue
     const widgetFilters = parsed.widgetFilters ?? {}

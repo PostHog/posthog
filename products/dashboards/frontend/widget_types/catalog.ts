@@ -1,5 +1,7 @@
 import { urls } from 'scenes/urls'
 
+import { QuickFilterContext } from '~/queries/schema/schema-general'
+
 import type { DashboardWidgetProductAccess } from '../types'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
@@ -23,6 +25,37 @@ export const DEFAULT_DASHBOARD_WIDGET_HEADER_META = {
     showWidgetType: true,
     showDateRange: true,
 } satisfies DashboardWidgetHeaderMeta
+
+/** Event properties allowed in error tracking list widget `config.widgetFilters`. */
+export const ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES = [
+    '$environment',
+    '$current_url',
+    '$pathname',
+    '$team',
+    '$posthog_team',
+    '$temporal_worker',
+    '$temporal_worker_name',
+] as const
+
+/** Event properties allowed in session replay list widget `config.widgetFilters`. */
+export const SESSION_REPLAY_LIST_TILE_FILTER_PROPERTIES = [
+    '$browser',
+    '$os',
+    '$device_type',
+    '$geoip_country_code',
+    '$geoip_city_name',
+    '$current_url',
+    '$pathname',
+    '$host',
+    '$referring_domain',
+    '$lib',
+    '$environment',
+] as const
+
+export type DashboardWidgetTileFiltersCatalogConfig = {
+    quickFilterContext: QuickFilterContext
+    allowedPropertyNames: readonly string[]
+}
 
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
@@ -56,6 +89,8 @@ export type DashboardWidgetCatalogEntry = {
     }
     /** Optional project setup requirement surfaced in widget runtime when unmet (see `widgetAvailability.ts`). */
     availability?: WidgetAvailabilityConfig
+    /** Quick filter context + property allowlist for on-tile filter bars. */
+    tileFilters?: DashboardWidgetTileFiltersCatalogConfig
 }
 
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
@@ -74,6 +109,10 @@ export const DASHBOARD_WIDGET_CATALOG = {
         sharedPlaceholder: {
             title: 'Top issues',
             message: 'Log in to PostHog to see which errors are affecting your users.',
+        },
+        tileFilters: {
+            quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
+            allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
         },
     },
     session_replay_list: {
@@ -98,6 +137,10 @@ export const DASHBOARD_WIDGET_CATALOG = {
                 'Turn on session recordings for this project to watch recent replays from your dashboard.',
             setupActionLabel: 'Enable session replay',
             docsHref: 'https://posthog.com/docs/session-replay',
+        },
+        tileFilters: {
+            quickFilterContext: QuickFilterContext.Dashboards,
+            allowedPropertyNames: SESSION_REPLAY_LIST_TILE_FILTER_PROPERTIES,
         },
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>

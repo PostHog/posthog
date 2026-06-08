@@ -20,13 +20,14 @@ describe('applyIssueMetadataToWidgetListResult', () => {
 
     it('removes the issue when status no longer matches the tile filter', () => {
         const next = applyIssueMetadataToWidgetListResult(
-            baseResult,
+            { ...baseResult, totalCount: 2 },
             'a',
             { status: 'resolved' },
             { statusFilter: 'active' }
         )
         expect(next.results).toHaveLength(1)
         expect(next.results?.[0]?.id).toBe('b')
+        expect(next.totalCount).toBe(1)
     })
 
     it('keeps resolved issues when tile filter is all', () => {
