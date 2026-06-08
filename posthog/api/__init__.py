@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 # The API route aggregator (the DRF router build + ~200 viewset imports) lives in
 # `posthog.api.rest_router`, imported lazily — only when a name it defines or re-exports
-# (the router objects, view modules like `feature_flag`) is first accessed, which in practice
+# (the router objects, view modules like `dashboard`) is first accessed, which in practice
 # is when the URLconf resolves (first web request). Real submodules (`posthog.api.monitoring`,
 # `.file_system`, ...) resolve directly without building the aggregator, so a plain
 # `django.setup()` (shell, migrate, celery, CI) stays cheap. See posthog/api/rest_router.py.
@@ -17,7 +17,7 @@ def __getattr__(name: str) -> Any:
     if importlib.util.find_spec(f"{__name__}.{name}") is not None:
         return importlib.import_module(f"{__name__}.{name}")
     # Otherwise it's a name the aggregator defines or re-exports (router objects, plus view
-    # modules like `feature_flag` that come from other packages). Build it lazily and delegate.
+    # modules like `dashboard` that come from other packages). Build it lazily and delegate.
     from posthog.api import rest_router  # noqa: PLC0415
 
     try:

@@ -44,6 +44,7 @@ class ExecutionTimeRecorder:
         self._status_override: str | None = None
 
     def set_status(self, status: str) -> None:
+        """Override the status that will be recorded. Use for non-exception outcomes like SKIPPED."""
         self._status_override = status
 
     def __enter__(self) -> typing.Self:

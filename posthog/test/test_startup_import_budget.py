@@ -166,3 +166,63 @@ def test_signal_receivers_connect_at_setup_not_via_router() -> None:
         "connect in a process that doesn't build it (celery, temporal, migrate, shell). Connect them from "
         "the owning app's AppConfig.ready() so they wire at django.setup()."
     )
+
+
+# The diff guard above has a blind spot: it only catches a receiver that connects *late* (via the
+# router). It cannot catch a receiver that connects in NO process — e.g. someone deletes an
+# F401-suppressed side-effect import from an AppConfig.ready(), so the handler is never imported, never
+# wired, and `before`/`after` both lack it (empty diff, green test) while the audit log silently stops.
+# This positive check pins the receivers this refactor relocated into a ready(): each must be present in
+# the setup-time snapshot, so dropping its wiring fails loudly. One representative receiver per relocated
+# ready() import — when adding a new ready()-wired receiver, add it here too.
+_RELOCATED_RECEIVERS = [
+    # Audit-log handlers (model_activity_signal) extracted into light activity_logging modules or wired
+    # from a viewset import at ready(), because the lazy router no longer drags them in.
+    "products.feature_flags.backend.activity_logging.handle_feature_flag_change",
+    "products.dashboards.backend.activity_logging.handle_dashboard_change",
+    "products.dashboards.backend.activity_logging.handle_dashboard_widget_change",
+    "products.data_warehouse.backend.activity_logging.handle_external_data_source_change",
+    "products.data_warehouse.backend.activity_logging.handle_external_data_schema_change",
+    "products.ai_observability.backend.activity_logging.handle_evaluation_change",
+    "products.batch_exports.backend.api.batch_export.handle_batch_export_change",
+    "products.batch_exports.backend.api.batch_imports.handle_batch_import_change",
+    "products.actions.backend.api.action.handle_action_change",
+    "products.annotations.backend.api.annotation.handle_annotation_change",
+    "products.alerts.backend.api.alert.handle_alert_configuration_change",
+    "products.logs.backend.alerts_api.handle_logs_alert_activity",
+    "products.logs.backend.sampling_api.handle_logs_sampling_rule_activity",
+    "posthog.api.tagged_item.handle_tag_change",
+    "posthog.api.tagged_item.handle_tagged_item_change",
+    # Cache-invalidation receivers wired from products/feature_flags AppConfig.ready().
+    "products.feature_flags.backend.flags_cache.feature_flag_changed_flags_cache",
+    "products.feature_flags.backend.local_evaluation.feature_flag_changed",
+]
+
+# Reuses _connected() from the diff snapshot, but prints the SETUP-TIME set (before the router builds) so
+# the test can assert the relocated receivers are present there.
+_SETUP_RECEIVER_SNAPSHOT = _ROUTER_RECEIVER_DIFF.replace(
+    """before = _connected()
+from posthog.api import rest_router  # noqa: F401 — building the aggregator imports ~200 viewsets
+after = _connected()
+print("\\n".join(sorted(after - before)))""",
+    """print("\\n".join(sorted(_connected())))""",
+)
+
+
+def test_relocated_receivers_present_at_setup() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _SETUP_RECEIVER_SNAPSHOT],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"snapshot failed:\n{result.stderr[-2000:]}"
+    # Strip the "signal:" prefix — we only care that each handler is connected to *some* signal at setup.
+    connected = {line.split(":", 1)[1] for line in result.stdout.splitlines() if ":" in line}
+    missing = [r for r in _RELOCATED_RECEIVERS if r not in connected]
+    assert not missing, (
+        f"These receivers were relocated into an AppConfig.ready() but are NOT connected at django.setup(): "
+        f"{missing}. Their ready() import was likely dropped (e.g. a 'remove unused import' cleanup deleted a "
+        "# noqa: F401 side-effect import), so they wire in no process and their audit/cache writes silently "
+        "stop. Restore the ready() import in the owning app, or update _RELOCATED_RECEIVERS if intentional."
+    )
