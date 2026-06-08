@@ -1,5 +1,5 @@
-import { expectLogic } from 'kea-test-utils'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
