@@ -1,14 +1,23 @@
-import { expect, test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Annotations', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
         await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('annotations')
     })
 
-    test.skip('Annotations loaded', async ({ page }) => {
-        // Check that the annotations page loaded with key elements visible
-        await expect(page.getByRole('heading', { name: 'Annotations' })).toBeVisible()
+    test('Annotations loaded', async ({ page }) => {
+        // Check that the annotations page loaded with key elements visible.
+        // Scope to the scene title — a bare 'Annotations' heading match also hits the
+        // empty-state "Welcome to Annotations!" h2 (substring match) and trips strict mode.
+        await expect(page.getByTestId('scene-name').getByRole('heading', { name: 'Annotations' })).toBeVisible()
         await expect(page.getByRole('button', { name: 'New annotation' })).toBeVisible()
         await expect(page.locator('[data-attr="annotations-content"]')).toBeVisible()
     })

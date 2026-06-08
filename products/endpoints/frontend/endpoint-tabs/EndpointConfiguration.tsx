@@ -20,10 +20,6 @@ import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
 
-interface EndpointConfigurationProps {
-    tabId: string
-}
-
 const DATA_FRESHNESS_OPTIONS: { value: number; label: string }[] = [
     { value: 900, label: '15 minutes' },
     { value: 1800, label: '30 minutes' },
@@ -64,17 +60,17 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
     }
 }
 
-export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { setDataFreshness } = useActions(endpointSceneLogic({ tabId }))
+export function EndpointConfiguration(): JSX.Element {
+    const { endpoint } = useValues(endpointLogic)
+    const { setDataFreshness } = useActions(endpointSceneLogic)
     const {
         dataFreshness,
         viewingVersion,
         materializationPreview,
         materializationPreviewLoading,
         isMaterialized: localIsMaterialized,
-    } = useValues(endpointSceneLogic({ tabId }))
-    const { loadMaterializationPreview } = useActions(endpointSceneLogic({ tabId }))
+    } = useValues(endpointSceneLogic)
+    const { loadMaterializationPreview } = useActions(endpointSceneLogic)
     const [leftActiveKeys, setLeftActiveKeys] = useState<string[]>(['materialization'])
 
     if (!endpoint) {
@@ -107,7 +103,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                     </Tooltip>
                                 </div>
                             ),
-                            content: <MaterializationContent tabId={tabId} />,
+                            content: <MaterializationContent />,
                         },
                         {
                             key: 'data-freshness',
@@ -221,20 +217,20 @@ function ExecutionQueryPanel({
     )
 }
 
-function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
-    const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
+function MaterializationContent(): JSX.Element {
+    const { loadMaterializationStatus } = useActions(endpointLogic)
     const {
         endpoint,
         materializationStatus: loadedMaterializationStatus,
         materializationStatusLoading,
-    } = useValues(endpointLogic({ tabId }))
-    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic({ tabId }))
+    } = useValues(endpointLogic)
+    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic)
     const {
         isMaterialized: localIsMaterialized,
         viewingVersion,
         materializationPreview,
         bucketOverrides,
-    } = useValues(endpointSceneLogic({ tabId }))
+    } = useValues(endpointSceneLogic)
     const [runsModalOpen, setRunsModalOpen] = useState(false)
 
     if (!endpoint) {

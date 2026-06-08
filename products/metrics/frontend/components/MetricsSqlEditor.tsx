@@ -8,7 +8,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { getMetricsSqlEditorTabId, metricsSceneLogic } from '../metricsSceneLogic'
+import { METRICS_SQL_EDITOR_TAB_ID, metricsSceneLogic } from '../metricsSceneLogic'
 import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
 
 // `metrics` is only registered under the `posthog.` HogQL namespace
@@ -16,12 +16,8 @@ import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
 // referenced fully qualified.
 const DEFAULT_METRICS_QUERY = 'SELECT * FROM posthog.metrics LIMIT 10'
 
-export interface MetricsSqlEditorProps {
-    id: string
-}
-
-export const MetricsSqlEditor = ({ id }: MetricsSqlEditorProps): JSX.Element => {
-    const sqlEditorTabId = getMetricsSqlEditorTabId(id)
+export const MetricsSqlEditor = (): JSX.Element => {
+    const sqlEditorTabId = METRICS_SQL_EDITOR_TAB_ID
     const { keepSqlEditorMounted } = useActions(metricsSceneLogic)
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)

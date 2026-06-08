@@ -171,10 +171,17 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 
     warmed = 0
     failed = 0
-    for query in queries:
+    total = len(queries)
+    for idx, query in enumerate(queries, start=1):
         kind = str(query.get("kind"))
         breakdown_value = query.get("breakdownBy")
         label = f"{kind}:{breakdown_value}" if breakdown_value else kind
+        # Per-tile start line so the run is followable live in the Dagster UI —
+        # each tile can take up to the query timeout, so seeing which one is in
+        # flight (and how far through the matrix) matters when a run drags.
+        context.log.info(f"eager_baseline_warming_tile_start [{idx}/{total}] team={team.pk} query={label}")
+        logger.info("eager_baseline_warming_tile_start", team_id=team.pk, query=label, tile=idx, total=total)
+        tile_started = time.monotonic()
         try:
             # Tag BEFORE constructing the runner. `tag_queries` writes to
             # a contextvar; any I/O the runner does at construction time
@@ -189,14 +196,36 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
+            tile_ms = round((time.monotonic() - tile_started) * 1000)
+            context.log.info(
+                f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "
+                f"status=warmed duration_ms={tile_ms}"
+            )
+            logger.info(
+                "eager_baseline_warming_tile_done",
+                team_id=team.pk,
+                query=label,
+                tile=idx,
+                total=total,
+                status="warmed",
+                duration_ms=tile_ms,
+            )
         except Exception as exc:
+            tile_ms = round((time.monotonic() - tile_started) * 1000)
             EAGER_PRECOMPUTE_BASELINE_FAILED.labels(query_kind=label, error_type=type(exc).__name__).inc()
-            context.log.exception(f"eager_baseline_warming_query_failed team={team.pk} query={label}")
+            context.log.exception(
+                f"eager_baseline_warming_query_failed [{idx}/{total}] team={team.pk} query={label} "
+                f"duration_ms={tile_ms}"
+            )
             logger.exception(
                 "eager_baseline_warming_query_failed",
                 team_id=team.pk,
                 query=label,
                 query_kind=label,
+                tile=idx,
+                total=total,
+                status="failed",
+                duration_ms=tile_ms,
                 error_type=type(exc).__name__,
             )
             failed += 1
