@@ -501,6 +501,28 @@ class TestCreateFeatureFlagTool(APIBaseTest):
             flag = await FeatureFlag.objects.aget(key="default-context-flag", team=self.team)
             assert await self._get_evaluation_context_names(flag) == {"production"}
 
+    async def test_create_flag_explicit_empty_contexts_skips_defaults(self):
+        self.team.default_evaluation_contexts_enabled = True
+        await database_sync_to_async(self.team.save)()
+        await self._create_default_context("production")
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            tool = self._create_tool()
+
+            schema = FeatureFlagCreationSchema(
+                key="explicit-empty-context-flag",
+                name="Explicit Empty Context Flag",
+                groups=[ALL_USERS_GROUP],
+                evaluation_contexts=[],
+            )
+
+            result, _ = await tool._arun_impl(feature_flag=schema)
+
+            assert "Successfully created" in result
+
+            flag = await FeatureFlag.objects.aget(key="explicit-empty-context-flag", team=self.team)
+            assert await self._get_evaluation_context_names(flag) == set()
+
     async def test_create_flag_no_default_contexts_when_disabled(self):
         self.team.default_evaluation_contexts_enabled = False
         await database_sync_to_async(self.team.save)()
