@@ -45,12 +45,7 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1459,15 +1454,7 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_batch_exports_in_period() -> list:
     # get all batch exports that are active or completed at run time
-    regular_counts = BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id"))
-    on_demand_counts = BatchExportOnDemand.objects.unscoped().values("team_id").annotate(total=Count("id"))
-
-    totals: defaultdict[int, int] = defaultdict(int)
-    for row in (*regular_counts, *on_demand_counts):
-        totals[row["team_id"]] += row["total"]
-
-    result = [{"team_id": tid, "total": total} for tid, total in totals.items()]
-    return result
+    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
 
 
 @timed_log()
