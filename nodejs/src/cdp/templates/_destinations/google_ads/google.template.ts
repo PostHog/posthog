@@ -32,7 +32,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Conversion Date Time',
             description:
-                'The date time at which the conversion occurred. Must be after the click time. The timezone must be specified. The format is "yyyy-mm-dd hh:mm:ss+|-hh:mm", e.g. "2019-01-01 12:32:45-08:00".',
+                'The date time at which the conversion occurred. Must be after the click time. The timezone must be specified. The format is ISO 8601 "yyyy-mm-ddThh:mm:ss+|-hh:mm", e.g. "2019-01-01T12:32:45-08:00".',
             default: "{formatDateTime(toDateTime(event.timestamp), '%Y-%m-%dT%H:%i:%S')}+00:00",
             secret: false,
             required: true,
