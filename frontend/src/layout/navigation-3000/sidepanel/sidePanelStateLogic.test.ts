@@ -54,27 +54,28 @@ describe('sidePanelStateLogic', () => {
         await expectLogic(logic).toMatchValues({ sidePanelOpen: false })
     })
 
-    it('does not leave a #panel=max hash in the URL when opening Max', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.openSidePanel(SidePanelTab.Max)
-        }).toFinishAllListeners()
-        // No lingering hash means a reload / return to the app won't auto-reopen Max
+    // No lingering hash means a reload / return to the app won't auto-reopen Max
+    it.each([
+        ['opening via action', () => logic.actions.openSidePanel(SidePanelTab.Max)],
+        ['opening via URL hash', () => router.actions.push('', {}, { panel: 'max' })],
+    ])('does not leave a #panel hash in the URL after Max opens (%s)', async (_, trigger) => {
+        await expectLogic(logic, trigger).toFinishAllListeners()
         expect(router.values.hashParams).not.toHaveProperty('panel')
     })
 
-    it('clears the #panel=max:options hash after consuming options', async () => {
+    it('opens Max from a #panel=max hash before stripping it', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push('', {}, { panel: 'max' })
+        }).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
+        expect(router.values.hashParams).not.toHaveProperty('panel')
+    })
+
+    it('consumes #panel=max:options into kea state and strips the hash', async () => {
         await expectLogic(logic, () => {
             logic.actions.openSidePanel(SidePanelTab.Max, '!Explain this insight')
         }).toFinishAllListeners()
         // Options live in kea state, not the URL, so reload doesn't re-run the prompt
         expect(logic.values.selectedTabOptions).toEqual('!Explain this insight')
-        expect(router.values.hashParams).not.toHaveProperty('panel')
-    })
-
-    it('opens Max from a #panel=max hash but then strips it', async () => {
-        await expectLogic(logic, () => {
-            router.actions.push('', {}, { panel: 'max' })
-        }).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
         expect(router.values.hashParams).not.toHaveProperty('panel')
     })
 
