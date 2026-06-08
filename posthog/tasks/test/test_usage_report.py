@@ -302,6 +302,22 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 team=self.org_1_team_1,
             )
 
+            # Conversations widget events — excluded from billing
+            _create_event(
+                distinct_id=distinct_id,
+                event="$conversations_loaded",
+                properties={"$lib": "web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$conversations_widget_loaded",
+                properties={"$lib": "web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             # Events before the period
             for _ in range(0, 10):
                 _create_event(
