@@ -278,6 +278,7 @@ export function createErrorTrackingPipeline(
                                         .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
                                             tries: 3,
                                             sleepMs: 100,
+                                            name: 'cymbal_processing',
                                         })
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)

@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { captureException } from '../../utils/posthog'
 import { createContext, createNewPipeline, createOkContext } from './helpers'
+import { pipelineRetryAttemptsHistogram } from './metrics'
 import { PipelineResultType, dlq, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 
@@ -13,9 +14,26 @@ jest.mock('../../utils/posthog', () => ({
 
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
 
+// Reads the {_count, _sum} of the retry-attempts histogram for a given name/outcome.
+// _sum holds the observed attempt count (a single observe per process() call), _count the number of calls.
+async function getRetryAttempts(name: string, outcome: string): Promise<{ count: number; sum: number } | null> {
+    const metric = await pipelineRetryAttemptsHistogram.get()
+    const find = (suffix: string): number | undefined =>
+        metric.values.find(
+            (v) =>
+                v.metricName === `ingestion_pipeline_retry_attempts${suffix}` &&
+                v.labels.name === name &&
+                v.labels.outcome === outcome
+        )?.value
+    const count = find('_count')
+    const sum = find('_sum')
+    return count === undefined || sum === undefined ? null : { count, sum }
+}
+
 describe('RetryingPipeline', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        pipelineRetryAttemptsHistogram.reset()
     })
 
     describe('basic functionality', () => {
@@ -532,6 +550,97 @@ describe('RetryingPipeline', () => {
 
             // Should have both context and step warnings
             expect(result.context.warnings).toEqual([contextWarning, stepWarning])
+        })
+    })
+
+    describe('retry attempts metric', () => {
+        const message: Message = {
+            value: Buffer.from('test'),
+            topic: 'test',
+            partition: 0,
+            offset: 1,
+            key: Buffer.from('key'),
+            size: 4,
+            timestamp: Date.now(),
+            headers: [],
+        }
+        const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
+
+        it('records the attempt count and "completed" outcome when it succeeds after retries', async () => {
+            let callCount = 0
+            const step = jest.fn().mockImplementation(() => {
+                callCount++
+                if (callCount < 3) {
+                    const error = new Error('Retriable error')
+                    ;(error as any).isRetriable = true
+                    return Promise.reject(error)
+                }
+                return Promise.resolve(ok({ processed: true }))
+            })
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), {
+                name: 'test_retry',
+                tries: 3,
+                sleepMs: 1,
+            })
+            await pipeline.process(input)
+
+            // Succeeded on the 3rd attempt → one observation of value 3.
+            expect(await getRetryAttempts('test_retry', 'completed')).toEqual({ count: 1, sum: 3 })
+            expect(await getRetryAttempts('test_retry', 'exhausted')).toBeNull()
+        })
+
+        it('records "completed" with a single attempt when it succeeds first try', async () => {
+            const step = jest.fn().mockResolvedValue(ok({ processed: true }))
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), { name: 'test_retry' })
+            await pipeline.process(input)
+
+            expect(await getRetryAttempts('test_retry', 'completed')).toEqual({ count: 1, sum: 1 })
+        })
+
+        it('records "exhausted" with the full attempt count when retries run out', async () => {
+            const step = jest.fn().mockImplementation(() => {
+                const error = new Error('Always fails')
+                ;(error as any).isRetriable = true
+                return Promise.reject(error)
+            })
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), {
+                name: 'test_retry',
+                tries: 4,
+                sleepMs: 1,
+            })
+            await expect(pipeline.process(input)).rejects.toThrow('Always fails')
+
+            expect(await getRetryAttempts('test_retry', 'exhausted')).toEqual({ count: 1, sum: 4 })
+        })
+
+        it('records "non_retriable" with a single attempt and no retries', async () => {
+            const step = jest.fn().mockImplementation(() => {
+                const error = new Error('Non-retriable error')
+                ;(error as any).isRetriable = false
+                return Promise.reject(error)
+            })
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), {
+                name: 'test_retry',
+                tries: 5,
+                sleepMs: 1,
+            })
+            await pipeline.process(input)
+
+            expect(await getRetryAttempts('test_retry', 'non_retriable')).toEqual({ count: 1, sum: 1 })
+            expect(step).toHaveBeenCalledTimes(1)
+        })
+
+        it('falls back to the "unknown" name label when none is provided', async () => {
+            const step = jest.fn().mockResolvedValue(ok({ processed: true }))
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step))
+            await pipeline.process(input)
+
+            expect(await getRetryAttempts('unknown', 'completed')).toEqual({ count: 1, sum: 1 })
         })
     })
 })

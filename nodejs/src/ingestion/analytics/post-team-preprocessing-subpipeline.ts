@@ -107,6 +107,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .pipeBatchWithRetry(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled), {
                 tries: 3,
                 sleepMs: 100,
+                name: 'personless_distinct_ids',
             })
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
