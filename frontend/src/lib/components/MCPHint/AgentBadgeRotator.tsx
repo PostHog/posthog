@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconLogomark } from '@posthog/icons'
+import { IconExternal, IconLogomark } from '@posthog/icons'
 
 import { useInterval } from 'lib/hooks/useInterval'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -54,12 +54,19 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
     })
 
     return (
-        <span className={cn('inline-flex items-center gap-1 relative', className)} aria-live="polite">
+        <span className={cn('inline-flex items-center gap-1 relative align-text-bottom', className)} aria-live="polite">
             <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
             {agent.url ? (
                 /* oxlint-disable-next-line forbid-elements */
-                <a href={agent.url} target="_blank" rel="noopener noreferrer" key={agent.name} className={nameClasses}>
-                    {agent.name}
+                <a
+                    href={agent.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    key={agent.name}
+                    className="inline-flex items-center gap-0.5"
+                >
+                    <span className={nameClasses}>{agent.name}</span>
+                    <IconExternal className="size-3" />
                 </a>
             ) : (
                 <span key={agent.name} className={nameClasses}>
