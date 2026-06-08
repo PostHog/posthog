@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+from typing import cast
 from uuid import UUID
 
 import temporalio.workflow as wf
@@ -40,6 +41,8 @@ from products.replay_vision.backend.temporal.errors import (
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.types import (
+    OBSERVATION_PHASE_INDEX,
+    OBSERVATION_PHASE_ORDER,
     ApplyScannerInputs,
     CallScannerProviderInputs,
     CleanupGeminiFileInputs,
@@ -55,6 +58,7 @@ from products.replay_vision.backend.temporal.types import (
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    ObservationProgress,
     ScannerCallOutput,
     ScannerResult,
     UploadedVideo,
@@ -130,11 +134,35 @@ def _encode_reason(kind: str, message: str) -> str:
     return f"{kind}:{message}"
 
 
+def _rasterizer_workflow_id(inputs: ApplyScannerInputs) -> str:
+    # Per-scanner child id so concurrent observations of the same session don't collide on WorkflowAlreadyStartedError.
+    return f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.scanner_id}"
+
+
 @wf.defn(name=APPLY_SCANNER_WORKFLOW_NAME)
 class ApplyScannerWorkflow(PostHogWorkflow):
     """Apply one scanner to one session: create row → fetch+rasterize → upload → call provider → emit event → mark succeeded."""
 
     inputs_cls = ApplyScannerInputs
+
+    def __init__(self) -> None:
+        self._progress: ObservationProgress = {
+            "phase": OBSERVATION_PHASE_ORDER[0],
+            "step": 0,
+            "total_steps": len(OBSERVATION_PHASE_ORDER),
+            "rasterizer_workflow_id": None,
+        }
+
+    @wf.query
+    def get_progress(self) -> ObservationProgress:
+        # Copy so Temporal serializes a stable snapshot without racing the run() coroutine.
+        return cast(ObservationProgress, dict(self._progress))
+
+    def _advance_phase(self, phase: str, rasterizer_workflow_id: str | None = None) -> None:
+        self._progress["phase"] = phase
+        self._progress["step"] = OBSERVATION_PHASE_INDEX[phase]
+        if rasterizer_workflow_id is not None:
+            self._progress["rasterizer_workflow_id"] = rasterizer_workflow_id
 
     @wf.run
     async def run(self, inputs: ApplyScannerInputs) -> None:
@@ -164,17 +192,21 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
+        self._advance_phase("fetching")
 
         uploaded: UploadedVideo | None = None
         try:
             asset_result = await self._fetch_and_ensure_asset(inputs, observation_id)
+            self._advance_phase("rendering", rasterizer_workflow_id=_rasterizer_workflow_id(inputs))
             await self._run_rasterize_child(inputs, asset_result.asset_id)
+            self._advance_phase("uploading")
             uploaded = await wf.execute_activity(
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_UPLOAD_RETRY,
             )
+            self._advance_phase("analyzing")
             call_output: ScannerCallOutput = await wf.execute_activity(
                 call_scanner_provider_activity,
                 CallScannerProviderInputs(
@@ -186,9 +218,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
-            await self._apply_scanner_side_effects(
-                inputs, observation_id, call_output.model_output, create_result.emits_embeddings
-            )
+            self._advance_phase("finalizing")
+            await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
             await wf.execute_activity(
                 emit_observation_event_activity,
                 EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
@@ -249,12 +280,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         return asset_result
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:
-        # Per-scanner child id so concurrent observations of the same session don't collide on WorkflowAlreadyStartedError.
         try:
             await wf.execute_child_workflow(
                 "rasterize-recording",
                 RasterizeRecordingInputs(exported_asset_id=asset_id),
-                id=f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.scanner_id}",
+                id=_rasterizer_workflow_id(inputs),
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -299,10 +329,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         inputs: ApplyScannerInputs,
         observation_id: UUID,
         model_output: object,
-        emits_embeddings: bool,
     ) -> None:
         """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow."""
-        if isinstance(model_output, SummarizerOutput) and emits_embeddings and model_output.has_any_facet():
+        if isinstance(model_output, SummarizerOutput) and model_output.has_any_facet():
             await wf.execute_activity(
                 embed_summarizer_observation_activity,
                 EmbedSummarizerObservationInputs(

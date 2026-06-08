@@ -11,6 +11,8 @@ import structlog
 import temporalio.client
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.tasks.backend.models import TaskRun as TaskRunModel
 from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
@@ -46,6 +48,7 @@ class RelaySandboxEventsInput:
 
 
 @activity.defn
+@close_db_connections
 async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     """Long-running activity that relays SSE events from a sandbox agent to a Redis stream.
 

@@ -81,6 +81,22 @@ def build_task_run_artifact_size_error(
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
 
 
+class TaskFileRequestSerializer(serializers.Serializer):
+    folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'.",
+    )
+
+
+class TaskFileResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Identifier of the project-tree entry for this task.")
+    path = serializers.CharField(help_text="Full slash-separated path of the filed task in the project tree.")
+    type = serializers.CharField(help_text="File system entry type. Always 'task'.")
+    ref = serializers.CharField(help_text="Identifier of the task this entry points to.")
+    href = serializers.CharField(help_text="In-app link to the task.")
+
+
 class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(
         max_length=255,
@@ -502,6 +518,19 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Artifact ids that could not be resolved for the run",
+    )
+    limit_type = serializers.ChoiceField(
+        choices=[("burst", "burst"), ("sustained", "sustained")],
+        required=False,
+        help_text="Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)",
+    )
+    reset_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp when the hit usage limit resets, when known",
+    )
+    is_pro = serializers.BooleanField(
+        required=False,
+        help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
 
 

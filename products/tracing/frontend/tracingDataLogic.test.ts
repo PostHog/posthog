@@ -1,10 +1,22 @@
+import posthog from 'posthog-js'
+
+import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
-const TEST_TAB = 'test-tab'
+const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
+    service_name: 'svc',
+    name,
+    count: 1,
+    total_duration_nano: 1000,
+    avg_duration_nano: 1000,
+    p50_duration_nano: 1000,
+    p95_duration_nano: 1000,
+    error_count: 0,
+})
 
 const createMockSpan = (uuid: string, timestamp: string): Span => ({
     uuid,
@@ -20,6 +32,7 @@ const createMockSpan = (uuid: string, timestamp: string): Span => ({
     duration_nano: 1000,
     is_root_span: true,
     matched_filter: true,
+    attributes: {},
 })
 
 const mockSpans: Span[] = [
@@ -30,8 +43,8 @@ const mockSpans: Span[] = [
 ]
 
 function mountWithSpans(spans: Span[] = mockSpans): ReturnType<typeof tracingDataLogic.build> {
-    tracingFiltersLogic({ tabId: TEST_TAB }).mount()
-    const logic = tracingDataLogic({ tabId: TEST_TAB })
+    tracingFiltersLogic().mount()
+    const logic = tracingDataLogic()
     logic.mount()
     if (spans.length > 0) {
         logic.actions.fetchSpansSuccess(spans)
@@ -122,6 +135,53 @@ describe('tracingDataLogic', () => {
             logic.actions.clearSpans()
             expect(logic.values.visibleRowRange).toBeNull()
             expect(logic.values.visibleRowDateRange).toBeNull()
+        })
+    })
+
+    describe('results tracking', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            logic = mountWithSpans([])
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+        })
+
+        it.each([
+            {
+                name: 'spans with a count',
+                dispatch: (l: typeof logic) => l.actions.fetchSpansSuccess(mockSpans),
+                event: 'tracing results returned',
+                properties: { count: mockSpans.length, query_type: 'spans' },
+            },
+            {
+                name: 'empty spans',
+                dispatch: (l: typeof logic) => l.actions.fetchSpansSuccess([]),
+                event: 'tracing no results returned',
+                properties: { query_type: 'spans' },
+            },
+            {
+                name: 'aggregation with a count',
+                dispatch: (l: typeof logic) =>
+                    l.actions.fetchAggregationSuccess({
+                        current: [createMockAggregatedRow('op-1'), createMockAggregatedRow('op-2')],
+                        previous: null,
+                    }),
+                event: 'tracing results returned',
+                properties: { count: 2, query_type: 'aggregation' },
+            },
+            {
+                name: 'empty aggregation',
+                dispatch: (l: typeof logic) => l.actions.fetchAggregationSuccess({ current: [], previous: null }),
+                event: 'tracing no results returned',
+                properties: { query_type: 'aggregation' },
+            },
+        ])('captures the right event for $name', ({ dispatch, event, properties }) => {
+            dispatch(logic)
+            expect(captureSpy).toHaveBeenCalledWith(event, properties)
         })
     })
 })

@@ -41,9 +41,9 @@
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
         "storybook": "pnpm turbo --filter=@posthog/storybook start",
         "quill:dev": "pnpm --filter=@posthog/quill-workspace dev",
-        "quill:build": "pnpm --filter='@posthog/quill...' build",
+        "quill:build": "pnpm --filter='@posthog/quill...' --filter='@posthog/quill-charts...' build",
         "quill:storybook": "pnpm --filter=@posthog/quill-workspace storybook",
-        "quill:publish": "pnpm quill:build && pnpm --filter @posthog/quill-tokens publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill publish --tag alpha --no-git-checks",
+        "quill:publish": "pnpm quill:build && pnpm --filter @posthog/quill-tokens publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill-charts publish --tag alpha --no-git-checks",
         "// DEPRECATED - use hogli start instead": "",
         "start": "./bin/start",
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true; [ ! -f bin/fix-rdkafka-paths ] || bin/fix-rdkafka-paths",
@@ -68,7 +68,7 @@
         "markdownlint-cli2": "^0.18.1",
         "oxfmt": "catalog:",
         "oxlint": "^1.8.0",
-        "playwright": "1.45.0",
+        "playwright": "1.60.0",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
@@ -136,7 +136,8 @@
             "typescript": "6.0.3",
             "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
             "fast-xml-parser@^4": ">=4.5.4",
-            "fast-xml-parser@^5": ">=5.3.5"
+            "fast-xml-parser@^5": ">=5.3.5",
+            "jest-playwright-preset>playwright-core": "1.60.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

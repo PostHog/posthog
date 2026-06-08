@@ -675,7 +675,9 @@ def _get_all_ai_observability_reports(
     try:
         team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception("[AIO Usage Error] teams query failed", phase="teams")
+        logger.exception(
+            "[AIO Usage Error] teams query failed", phase="teams", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
 
@@ -690,7 +692,9 @@ def _get_all_ai_observability_reports(
     try:
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] metrics query failed", phase="metrics")
+        logger.exception(
+            "[AIO Usage Error] metrics query failed", phase="metrics", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
@@ -710,7 +714,11 @@ def _get_all_ai_observability_reports(
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] breakdowns query failed", phase="breakdowns")
+        logger.exception(
+            "[AIO Usage Error] breakdowns query failed",
+            phase="breakdowns",
+            event_source="ai_observability_usage_report",
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
@@ -720,7 +728,9 @@ def _get_all_ai_observability_reports(
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] surveys query failed", phase="surveys")
+        logger.exception(
+            "[AIO Usage Error] surveys query failed", phase="surveys", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
@@ -894,6 +904,7 @@ def capture_ai_observability_report(
             "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
             organization_id=organization_id,
             error=str(err),
+            event_source="ai_observability_usage_report",
         )
 
         try:
@@ -909,6 +920,7 @@ def capture_ai_observability_report(
                 "[AIO Usage Error] Failed to capture error event",
                 organization_id=organization_id,
                 error=str(capture_err),
+                event_source="ai_observability_usage_report",
             )
 
         raise
@@ -1000,6 +1012,7 @@ def send_ai_observability_usage_reports(
                 "[AIO Usage Error] Failed to queue AI observability report for organization",
                 organization_id=org_id,
                 error=str(err),
+                event_source="ai_observability_usage_report",
             )
             capture_exception(err)
 

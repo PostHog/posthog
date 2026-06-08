@@ -109,6 +109,95 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * * `suppressed` - suppressed
+ * `potential` - potential
+ */
+export type SignalReportStateRequestStateEnumApi =
+    (typeof SignalReportStateRequestStateEnumApi)[keyof typeof SignalReportStateRequestStateEnumApi]
+
+export const SignalReportStateRequestStateEnumApi = {
+    Suppressed: 'suppressed',
+    Potential: 'potential',
+} as const
+
+export interface SignalReportStateRequestApi {
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+
+  * `suppressed` - suppressed
+  * `potential` - potential */
+    state: SignalReportStateRequestStateEnumApi
+    /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
+    dismissal_reason?: string
+    /**
+     * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    dismissal_note?: string
+    /**
+     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+     * @minimum 1
+     * @maximum 100000
+     */
+    snooze_for?: number
+}
+
+/**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface SignalScoutConfigApi {
+    readonly id: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    readonly created_at: string
+}
+
+/**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface PatchedSignalScoutConfigApi {
+    readonly id?: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name?: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at?: string | null
+    readonly created_at?: string
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -1056,6 +1145,10 @@ export type SignalsReportsListParams = {
      * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
      */
     ordering?: string
+    /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string
     /**
      * Case-insensitive substring match against report title and summary.
      */
