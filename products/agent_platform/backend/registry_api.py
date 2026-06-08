@@ -106,7 +106,7 @@ class AgentSkillTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     # ---- queryset / lookup helpers ----
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:  # type: ignore[override]
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # Templates either belong to the active team or are canonical
         # (team_id IS NULL). Both surface in the registry list.
         return AgentSkillTemplate.objects.filter(
@@ -471,7 +471,7 @@ class AgentCustomToolTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions = ["create", "publish", "archive", "duplicate"]
     lookup_field = "name"
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:  # type: ignore[override]
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return AgentCustomToolTemplate.objects.filter(
             deleted=False,
         ).filter(models_q_team_or_canonical(self.team_id))

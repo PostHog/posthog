@@ -160,7 +160,9 @@ class SkillTemplateSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AgentSkillTemplate
-        fields = (
+        # Widened to tuple[str, ...] so subclasses (e.g. SkillTemplateDetailSerializer)
+        # can extend without tripping the Liskov check on the inferred fixed-size tuple.
+        fields: tuple[str, ...] = (
             "id",
             "name",
             "description",
@@ -240,9 +242,10 @@ class SkillTemplateCreateSerializer(serializers.Serializer):
         default=dict,
         help_text="Agent Skills `metadata` map (string → string) for non-promoted keys like author or version.",
     )
+    # DRF stub types `default` as Mapping; runtime accepts any JSON-serialisable callable.
     allowed_tools = serializers.JSONField(
         required=False,
-        default=list,
+        default=list,  # type: ignore[arg-type]
         help_text="Optional list of tool ids the skill expects to reach for. Emitted as the spec's space-separated `allowed-tools` frontmatter at freeze.",
     )
 
@@ -431,7 +434,9 @@ class CustomToolTemplateSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AgentCustomToolTemplate
-        fields = (
+        # Widened to tuple[str, ...] so subclasses (e.g. CustomToolTemplateDetailSerializer)
+        # can extend without tripping the Liskov check on the inferred fixed-size tuple.
+        fields: tuple[str, ...] = (
             "id",
             "name",
             "description",
@@ -449,7 +454,9 @@ class CustomToolTemplateSummarySerializer(serializers.ModelSerializer):
 
 
 class CustomToolTemplateDetailSerializer(CustomToolTemplateSummarySerializer):
-    source = serializers.CharField(
+    # `source` shadows the inherited `Field.source` typed as `Callable | str | None`;
+    # DRF lets us reuse the attribute name for a child Field, but mypy can't model that.
+    source = serializers.CharField(  # type: ignore[assignment]
         allow_blank=True,
         help_text="TypeScript source the bundler compiles to `compiled_js`.",
     )
@@ -479,7 +486,7 @@ class CustomToolTemplateCreateSerializer(serializers.Serializer):
     description = serializers.CharField(
         max_length=4096, required=False, allow_blank=True, default="", help_text="One-line description."
     )
-    source = serializers.CharField(required=False, allow_blank=True, default="", help_text="TypeScript source.")
+    source = serializers.CharField(required=False, allow_blank=True, default="", help_text="TypeScript source.")  # type: ignore[assignment]
     compiled_js = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -518,7 +525,7 @@ class CustomToolTemplatePublishSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Overrides the prior description. Omit to keep the prior value.",
     )
-    source = serializers.CharField(
+    source = serializers.CharField(  # type: ignore[assignment]
         required=False, allow_blank=True, help_text="Full new TypeScript source. Mutually exclusive with `edits`."
     )
     edits = serializers.ListField(

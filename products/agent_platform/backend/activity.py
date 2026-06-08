@@ -12,15 +12,19 @@ once at Django startup.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django.contrib.auth.models import AnonymousUser
 
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 from .models import AgentApplication, AgentRevision
+
+
+def _real_user(user: User | AnonymousUser | None) -> User | None:
+    return None if user is None or isinstance(user, AnonymousUser) else user
 
 
 @mutable_receiver(model_activity_signal, sender=AgentApplication)
@@ -41,13 +45,13 @@ def handle_agent_application_change(
     log_activity(
         organization_id=application.team.organization_id,
         team_id=application.team_id,
-        user=user,
+        user=_real_user(user),
         was_impersonated=was_impersonated,
         item_id=application.id,
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
             name=application.slug,
         ),
     )
@@ -76,13 +80,13 @@ def handle_agent_revision_change(
     log_activity(
         organization_id=application.team.organization_id,
         team_id=application.team_id,
-        user=user,
+        user=_real_user(user),
         was_impersonated=was_impersonated,
         item_id=revision.id,
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
             name=name,
         ),
     )

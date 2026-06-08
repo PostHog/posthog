@@ -27,6 +27,7 @@ class TestAgentApplicationActivityLog(APIBaseTest):
         entries = list(ActivityLog.objects.filter(scope="AgentApplication", item_id=str(app.id)))
         assert len(entries) == 1
         entry = entries[0]
+        assert entry.detail is not None
         assert entry.activity == "created"
         assert entry.team_id == self.team.id
         assert entry.detail["name"] == "auditable-agent"
@@ -46,6 +47,7 @@ class TestAgentApplicationActivityLog(APIBaseTest):
         entries = list(ActivityLog.objects.filter(scope="AgentApplication", item_id=str(app.id)))
         assert len(entries) == 1
         entry = entries[0]
+        assert entry.detail is not None
         assert entry.activity == "updated"
         changed_fields = [c["field"] for c in entry.detail["changes"]]
         assert "name" in changed_fields
@@ -65,6 +67,7 @@ class TestAgentApplicationActivityLog(APIBaseTest):
         entries = list(ActivityLog.objects.filter(scope="AgentApplication", item_id=str(app.id)))
         assert len(entries) == 1
         entry = entries[0]
+        assert entry.detail is not None
         assert entry.activity == "updated"
         changed_fields = [c["field"] for c in entry.detail["changes"]]
         # The archived flip surfaces — archived_at is in field_exclusions so
@@ -87,6 +90,7 @@ class TestAgentApplicationActivityLog(APIBaseTest):
         entries = list(ActivityLog.objects.filter(scope="AgentApplication", item_id=str(app.id)))
         assert len(entries) == 1
         entry = entries[0]
+        assert entry.detail is not None
         changes = entry.detail["changes"]
         env_changes = [c for c in changes if c["field"] == "encrypted_env"]
         assert len(env_changes) == 1
@@ -115,6 +119,7 @@ class TestAgentRevisionActivityLog(APIBaseTest):
         entries = list(ActivityLog.objects.filter(scope="AgentRevision", item_id=str(rev.id)))
         assert len(entries) == 1
         entry = entries[0]
+        assert entry.detail is not None
         assert entry.activity == "created"
         # Display name format from activity.py.
         assert entry.detail["name"].startswith("rev-host@")
@@ -135,6 +140,7 @@ class TestAgentRevisionActivityLog(APIBaseTest):
         entries = list(ActivityLog.objects.filter(scope="AgentRevision", item_id=str(rev.id)))
         assert len(entries) == 1
         entry = entries[0]
+        assert entry.detail is not None
         assert entry.activity == "updated"
         changed_fields = {c["field"] for c in entry.detail["changes"]}
         assert "state" in changed_fields
@@ -155,5 +161,7 @@ class TestAgentRevisionActivityLog(APIBaseTest):
 
         entries = list(ActivityLog.objects.filter(scope="AgentRevision", item_id=str(rev.id)))
         assert len(entries) == 1
-        changed_fields = {c["field"] for c in entries[0].detail["changes"]}
+        entry = entries[0]
+        assert entry.detail is not None
+        changed_fields = {c["field"] for c in entry.detail["changes"]}
         assert "spec" in changed_fields
