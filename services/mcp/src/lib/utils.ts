@@ -1,5 +1,7 @@
 import crypto from 'node:crypto'
 
+import { env } from '@/lib/env'
+
 export function hash(data: string): string {
     // Use PBKDF2 with sufficient computational effort for security
     // 100,000 iterations provides good security while maintaining reasonable performance
@@ -8,14 +10,19 @@ export function hash(data: string): string {
 }
 
 // Extract the API token from a request. Prefers the `Authorization: Bearer
-// <token>` header, falling back to a `?token=` query param for clients that can
-// only customize the URL, not request headers (e.g. MCP UI apps in an iframe).
+// <token>` header. Outside of production, falls back to a `?token=` query param
+// for clients that can only customize the URL, not request headers (e.g. MCP UI
+// apps in an iframe). The query-param fallback is dev-only so tokens never leak
+// into URLs (logs, referrers, history) in production.
 export function extractBearerToken(request: Request): string | undefined {
-    return (
-        request.headers.get('Authorization')?.split(' ')[1] ||
-        new URL(request.url).searchParams.get('token') ||
-        undefined
-    )
+    const headerToken = request.headers.get('Authorization')?.split(' ')[1]
+    if (headerToken) {
+        return headerToken
+    }
+    if (env.NODE_ENV !== 'production') {
+        return new URL(request.url).searchParams.get('token') || undefined
+    }
+    return undefined
 }
 
 // Redact an API token for logs: keep only the last 4 chars, mask the rest.

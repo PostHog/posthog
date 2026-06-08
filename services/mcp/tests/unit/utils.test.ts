@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
 import { omitResponseFields, pickResponseFields, withPostHogUrl } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
@@ -17,6 +17,47 @@ describe('utils', () => {
 
         it('fully masks an empty token', () => {
             expect(redactToken('')).toBe('****')
+        })
+    })
+
+    describe('extractBearerToken', () => {
+        const originalNodeEnv = process.env.NODE_ENV
+
+        beforeEach(() => {
+            process.env.NODE_ENV = 'development'
+        })
+
+        afterEach(() => {
+            process.env.NODE_ENV = originalNodeEnv
+        })
+
+        const req = (opts: { header?: string; url?: string }): Request =>
+            new Request(opts.url ?? 'https://mcp.posthog.com/', {
+                headers: opts.header ? { Authorization: opts.header } : {},
+            })
+
+        it('prefers the Authorization bearer header', () => {
+            expect(extractBearerToken(req({ header: 'Bearer phx_header', url: 'https://x/?token=phx_query' }))).toBe(
+                'phx_header'
+            )
+        })
+
+        it('falls back to the ?token query param outside production', () => {
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBe('phx_query')
+        })
+
+        it('ignores the ?token query param in production', () => {
+            process.env.NODE_ENV = 'production'
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBeUndefined()
+        })
+
+        it('still reads the header in production', () => {
+            process.env.NODE_ENV = 'production'
+            expect(extractBearerToken(req({ header: 'Bearer phx_header' }))).toBe('phx_header')
+        })
+
+        it('returns undefined when no token is present', () => {
+            expect(extractBearerToken(req({}))).toBeUndefined()
         })
     })
 
