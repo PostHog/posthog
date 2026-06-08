@@ -1044,7 +1044,7 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
-                        # credential is attached in bulk below (decrypt once per credential, not per table)
+                        # no table__credential: credential attached in bulk below
                         .select_related("table", "managed_viewset")
                     )
                     if not is_managed_viewset_enabled:
@@ -1059,7 +1059,7 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
                         .exclude(deleted=True)
-                        # credential is attached in bulk below (decrypt once per credential, not per table)
+                        # no table__credential: credential attached in bulk below
                         .select_related("table")
                     )
                 except Exception as e:
@@ -1081,9 +1081,8 @@ class Database(BaseModel):
                     # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .queryable()
-                    # credential and external_data_source are attached in bulk below (hydrate/decrypt
-                    # once per distinct row, not once per table). The access_method exclude/filter below
-                    # still joins external_data_source for the WHERE without hydrating its columns.
+                    # No select_related: credential/external_data_source attached in bulk below. The
+                    # access_method filter below still joins the source for its WHERE without hydrating it.
                     # Deterministic tiebreak when two live tables share a name: newest wins, since
                     # name collisions resolve first-come-first-served when added to the table tree.
                     .order_by("-created_at")
@@ -1112,9 +1111,7 @@ class Database(BaseModel):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
         with timings.measure("attach_credentials", emit_span=True):
-            # Decrypt each distinct credential once and prime the FK cache on every table/view that
-            # references it, rather than re-decrypting via select_related on each of the (potentially
-            # thousands of) rows above.
+            # Tables and view-backing tables share the credential pool; attach across all of them.
             credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
             credentialed_tables.extend(
                 sq.table for sq in saved_queries if sq.table_id is not None and sq.table is not None
@@ -1878,14 +1875,12 @@ NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
 def _attach_external_data_sources(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
-    """Populate each table's `external_data_source` FK, hydrating every distinct source exactly once.
+    """Prime each table's `external_data_source` FK, hydrating every distinct source once.
 
-    `select_related("external_data_source")` re-hydrates the full source for every table row, and the
-    source's `job_inputs` is an `EncryptedJSONField` — each hydration Fernet-decrypts every JSON leaf
-    (dozens of ops per source). A team's thousands of tables share only tens of sources, and the common
-    build path never reads `job_inputs` (only the direct-postgres branch does). So we fetch the distinct
-    sources in one query, defer the encrypted `job_inputs` entirely (the rare direct-postgres path loads
-    it lazily), and prime the FK cache so the build phase reads `table.external_data_source` query-free.
+    Replaces per-row `select_related("external_data_source")`: a team's thousands of tables share only
+    tens of sources, and `job_inputs` is an `EncryptedJSONField` that Fernet-decrypts every leaf on
+    hydration — wasted, since only the (rare) direct-postgres branch reads it. So fetch distinct sources
+    once with `job_inputs` deferred (that branch reloads it lazily).
     """
     source_ids = {
         table.external_data_source_id for table in warehouse_tables if table.external_data_source_id is not None
@@ -1897,8 +1892,7 @@ def _attach_external_data_sources(warehouse_tables: Sequence[DataWarehouseTable]
             for source in ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids).defer("job_inputs")
         }
     for table in warehouse_tables:
-        # Self-managed tables (no source) return None from the FK without a query, so only prime the
-        # cache when a source exists. queryable() guarantees a live source row when the id is set.
+        # A null FK returns None without a query, so only prime when a source exists.
         if table.external_data_source_id is None:
             continue
         source = sources_by_id.get(table.external_data_source_id)
@@ -1916,9 +1910,8 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    # No select_related("source"): warning rendering reads schema.source.source_type, but a schema's
-    # source is its owning table's source, which is already hydrated. Prime schema.source from it to
-    # avoid re-hydrating (and re-decrypting job_inputs on) the same handful of sources thousands of times.
+    # Prime schema.source from the owning table's already-hydrated source rather than select_related,
+    # which would re-hydrate (and re-decrypt job_inputs on) the same few sources for every schema.
     for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=list(tables_by_id.keys())):
         owning_table = tables_by_id.get(str(schema.table_id))
         owning_source = owning_table.external_data_source if owning_table is not None else None
@@ -1931,12 +1924,10 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
 
 
 def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
-    """Populate each table's `credential` FK, decrypting every distinct credential exactly once.
+    """Prime each table's `credential` FK, decrypting every distinct credential once.
 
-    `select_related("credential")` re-hydrates (and re-Fernet-decrypts) the credential for every table
-    row, but a team's thousands of warehouse tables and views share only a handful of credentials. We
-    fetch the distinct credentials in a single query, so decryption is O(credentials) rather than
-    O(tables), and prime the FK cache so `hogql_definition` never triggers a lazy fetch.
+    Replaces per-row `select_related("credential")`: thousands of tables and views share a handful of
+    credentials, so fetching them once makes Fernet decryption O(credentials) rather than O(tables).
     """
     credential_ids = {table.credential_id for table in warehouse_tables if table.credential_id is not None}
     credentials_by_id: dict[Any, DataWarehouseCredential] = {}
@@ -1946,8 +1937,6 @@ def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable]
             for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
         }
     for table in warehouse_tables:
-        # Assigning the related object (or None for a missing/absent credential) primes the FK cache,
-        # mirroring select_related so the build phase reads `table.credential` without querying.
         table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
 
 
