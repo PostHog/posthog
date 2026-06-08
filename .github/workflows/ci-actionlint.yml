@@ -22,7 +22,6 @@ jobs:
     actionlint:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        continue-on-error: true
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -39,8 +38,9 @@ jobs:
 
             - name: Run actionlint
               # actionlint exits non-zero when findings exist; capture JSON and keep the step green
-              # so the summarize step still runs. SHELLCHECK_OPTS scopes shellcheck integration to
-              # actual errors — info/warning/style findings on workflow run-blocks are too noisy.
+              # so the summarize/upload steps still run — the "Fail if findings exist" step gates at
+              # the end. SHELLCHECK_OPTS scopes shellcheck integration to actual errors —
+              # info/warning/style findings on workflow run-blocks are too noisy.
               env:
                   SHELLCHECK_OPTS: --severity=error
               run: |
@@ -68,3 +68,10 @@ jobs:
                   name: actionlint-findings
                   path: actionlint.json
                   retention-days: 14
+
+            - name: Fail if findings exist
+              run: |
+                  set -euo pipefail
+                  count=$(jq length actionlint.json)
+                  echo "actionlint findings: $count"
+                  [ "$count" -eq 0 ]
