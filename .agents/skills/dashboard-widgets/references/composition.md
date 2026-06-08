@@ -99,6 +99,44 @@ The widget `Component` receives `loading` from scene logic and must early-return
 - `gridChildren` is reserved for react-grid-layout resize handles only
 - Wide tables: horizontal scroll **inside** `WidgetCardContent`, not the dashboard grid
 
+## Product visual parity
+
+When the widget surfaces data from an **existing PostHog product** (variant in an existing `groupId`, or first widget in a product area that already has a scene):
+
+**Default:** Reuse the same presentation the product scene uses — list rows, cards, empty copy, skeletons, setup prompts. A dashboard tile is a smaller viewport; users should still recognize it as the same product data they see in-app (e.g. `ErrorTrackingIssueList` on `/error-tracking`, not a bespoke widget-only table). **Chart-primary bodies do not belong in widgets** — use insight tiles ([architecture.md § Charts → insight tiles](architecture.md#charts--use-insight-tiles-not-widgets)).
+
+### Where to look
+
+Intake should already have run [repo discovery](widget-intake.md#discover-product-ui-in-the-repo) — use those component paths first.
+
+1. Start from intake **product UI reference** when the engineer named a scene path, tab, Storybook story, or sibling widget — do not guess a different screen.
+2. Otherwise open the primary scene for that product (list, overview, or detail index).
+3. Note which components render the main data block — often under `products/<product>/frontend/components/` or `scenes/<area>/`.
+4. Import those into `products/dashboards/frontend/widgets/<product>/` and compose inside `WidgetCardContent` (or the product's setup gate wrapper).
+
+Shipped reference: `ErrorTrackingWidget` imports `ErrorTrackingIssueList`, `ErrorTrackingIssueListSkeleton`, and `ErrorTrackingIngestionPrompt` from `products/error_tracking/frontend/`.
+
+### Platform vs product chrome
+
+| Layer                                                | Owner                                        |
+| ---------------------------------------------------- | -------------------------------------------- |
+| Tile header, ⋯ menu, resize, edit modal shell        | Dashboard (`WidgetCard`, `EditWidgetModal*`) |
+| Rows, empty states, loading skeletons, setup prompts | Product (import shared components)           |
+
+Do not duplicate product menus, filters, or page-level chrome inside the widget body — config belongs in the widget settings modal ([layout-and-ux.md](layout-and-ux.md)).
+
+### Charts
+
+**Out of scope for widgets.** Time series, funnels, and other graph visualizations belong on **insight tiles**, not a new `widget_type`. Do not embed product chart components as the primary widget body.
+
+### Storybook and review
+
+Populated stories should render through the **same product components** with realistic `run_*` payloads so visual review catches drift from the scene. Compare side-by-side with the product Storybook story or scene when unsure.
+
+### When parity is not feasible
+
+Say so in the PR (e.g. scene is full-page with inline filters and no extracted list). Prefer a thin extract into the product package over a one-off dashboard-only presentation — keeps the next widget variant consistent too.
+
 ## Storybook
 
 Platform primitives under **Dashboards/Dashboard Widgets/**:
@@ -113,6 +151,7 @@ Per-type stories: `widgets/<product>/<Component>.stories.tsx` under **Widget typ
 - Meta `title` must be a **string literal** matching `DASHBOARD_WIDGET_GROUP_LABELS[groupId]` / `label` (CSF rejects dynamic titles)
 - Compose with `WidgetCard` + `WidgetCardHeader` + `WidgetCardBody` + catalog header metadata — see `ErrorTrackingWidget.stories.tsx`
 - Product setup state: Kea seed helpers live in `widgetCardStoryFixtures.tsx` (`withErrorTrackingProjectState`, etc.) — do not export decorators from `*.stories.tsx` (Storybook treats exports as stories)
+- Frozen dates: spread `widgetStorybookParameters` in story `parameters` and align fixture timestamps in `widgetOverviewStoryFixtures.ts` to `WIDGET_STORYBOOK_MOCK_DATE` so TZLabel / relative copy stays stable in visual review
 - Stack decorators carefully: story-level `withErrorTrackingProjectState(false)` must not be overridden by a meta decorator that seeds `true`
 
 ## Unknown / deploy-skew widget types

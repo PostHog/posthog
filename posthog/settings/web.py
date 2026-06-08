@@ -6,7 +6,7 @@ import structlog
 from corsheaders.defaults import default_headers
 
 from posthog.scopes import get_scope_descriptions
-from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
+from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
@@ -86,6 +86,7 @@ PRODUCTS_APPS = [
     "products.annotations.backend.apps.AnnotationsConfig",
     "products.batch_exports.backend.apps.BatchExportsConfig",
     "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
+    "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -448,6 +449,7 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
@@ -477,6 +479,7 @@ SPECTACULAR_SETTINGS = {
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
+        "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -739,12 +742,19 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
 
+OIDC_RSA_PRIVATE_KEY_INACTIVE_1 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_1", "").replace("\\n", "\n")
+OIDC_RSA_PRIVATE_KEY_INACTIVE_2 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_2", "").replace("\\n", "\n")
+OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
+    key for key in (OIDC_RSA_PRIVATE_KEY_INACTIVE_1, OIDC_RSA_PRIVATE_KEY_INACTIVE_2) if key
+]
+
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": OIDC_RSA_PRIVATE_KEYS_INACTIVE,
     "SCOPES": {
         "openid": "OpenID Connect scope",
         "profile": "Access to user's profile",
@@ -819,3 +829,19 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
+
+# Teams force-enrolled in web analytics lazy precompute: the eligibility gate
+# bypasses the org rollout flag for these, and the eager warmer uses the same
+# list as its audience — one source of truth so warmer and reader cannot drift.
+# The default enrolls the Cloud dogfooding team (project 2) ONLY on Cloud —
+# never self-hosted, where lazy precompute is Cloud-only and project id 2 is an
+# arbitrary customer project. A comma-separated env var overrides it on any
+# deployment; changing enrollment is a deploy-time env-var change (Django +
+# Dagster), not runtime-overridable.
+_LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS = (
+    "2" if (CLOUD_DEPLOYMENT or "").upper() in ("EU", "US", "DEV", "E2E") and not TEST else ""
+)
+WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]

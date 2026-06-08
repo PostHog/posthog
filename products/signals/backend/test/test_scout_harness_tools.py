@@ -339,6 +339,7 @@ class TestBuildEmitExtra:
     def _minimal(self) -> dict:
         return _build_extra(
             run_id="run-uuid",
+            task_run_id="task-run-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=2,
@@ -355,6 +356,7 @@ class TestBuildEmitExtra:
         extra = self._minimal()
         # Required by schema:
         assert extra["scout_run_id"] == "run-uuid"
+        assert extra["task_run_id"] == "task-run-uuid"
         assert extra["finding_id"] == "finding-uuid"
         assert extra["skill_name"] == "signals-scout-errors"
         assert extra["confidence"] == 0.7
@@ -375,6 +377,7 @@ class TestBuildEmitExtra:
     def test_full_extra_includes_all_optional_fields(self) -> None:
         extra = _build_extra(
             run_id="run-uuid",
+            task_run_id="task-run-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=1,
@@ -439,8 +442,10 @@ async def ateam_emit(aorganization_emit):
             source_type="cross_source_issue",
             enabled=True,
         )
-        # Seed a SignalScoutConfig so the run row's FK is valid.
-        await database_sync_to_async(SignalScoutConfig.objects.create)(team=team)
+        # Seed a SignalScoutConfig (emit on) so the run's FK is valid and emits aren't dry-run.
+        await database_sync_to_async(SignalScoutConfig.objects.create)(
+            team=team, skill_name="signals-scout-errors", emit=True
+        )
         yield team
 
 
@@ -488,6 +493,7 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
     assert call_kwargs["description"] == "Checkout 500s post-deploy"
     assert call_kwargs["weight"] == 0.7
     assert call_kwargs["extra"]["scout_run_id"] == str(arun_emit.id)
+    assert call_kwargs["extra"]["task_run_id"] == str(arun_emit.task_run_id)
     assert call_kwargs["extra"]["finding_id"] == "f-happy"
     assert call_kwargs["extra"]["skill_name"] == "signals-scout-errors"
     assert call_kwargs["extra"]["skill_version"] == 3.0
@@ -603,6 +609,85 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
     mock_emit.assert_not_called()
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, ateam_emit):
+    # Fixture seeds an emit-on config; flip it to dry-run to exercise the per-scout gate.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).update
+    )(emit=False)
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-dry-run",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_emit_disabled"
+    mock_emit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_emit):
+    # scout_config is SET_NULL: deleting the config mid-run nulls the run's FK, so the gate
+    # has no live config to emit against and fails closed.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
+    )()
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-no-config",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_config_missing"
+    mock_emit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_fails_closed_when_config_deleted_then_recreated(arun_emit, ateam_emit):
+    # The config the run was dispatched with is deleted (SET_NULL nulls the run's FK) and a
+    # fresh emit-on config for the same (team, skill) is recreated before emit. The gate is
+    # anchored on the run's own (now-null) FK, not re-resolved by skill_name, so the stale run
+    # still fails closed — independent of the emit default now being True.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
+    )()
+    await database_sync_to_async(SignalScoutConfig.all_teams.create)(
+        team=ateam_emit, skill_name=arun_emit.skill_name, emit=True
+    )
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-recreated-config",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_config_missing"
+    mock_emit.assert_not_called()
+
+
 # --- emit_finding (team, run) ownership guard tests ---
 
 
@@ -640,7 +725,7 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
     owning_team = Team.objects.create(organization=org, name="owner")
     other_team = Team.objects.create(organization=org, name="other")
     with team_scope(owning_team.id, canonical=True):
-        config = SignalScoutConfig.objects.create(team=owning_team)
+        config = SignalScoutConfig.objects.create(team=owning_team, skill_name="signals-scout-errors")
         task_run = _make_task_run(owning_team, status=TaskRun.Status.IN_PROGRESS)
         run = SignalScoutRun.objects.create(
             task_run=task_run,

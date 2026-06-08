@@ -1,9 +1,13 @@
+from datetime import datetime, timedelta
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.property_values_query_runner import (
+    PROPERTY_VALUES_TABLE_FLAG,
     CachedPropertyValuesQueryResponse,
     PropertyType,
     PropertyValueItem,
@@ -252,3 +256,150 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(slo_started_calls) == 1
         captured_props = slo_started_calls[0].kwargs["properties"]
         assert captured_props["execution_mode"] == expected_value
+
+
+class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseTest):
+    def _run(self, query: PropertyValuesQuery) -> list[PropertyValueItem]:
+        runner = PropertyValuesQueryRunner(team=self.team, query=query)
+        return runner.calculate().results
+
+    def _flag_on(self):
+        return patch(
+            "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == PROPERTY_VALUES_TABLE_FLAG,
+        )
+
+    def _insert_rows(self, rows: list[tuple]) -> None:
+        sync_execute(
+            "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count, last_seen) VALUES",
+            rows,
+        )
+
+    def test_returns_distinct_values(self):
+        now = datetime.now()
+        self._insert_rows(
+            [
+                (self.team.pk, "event", "browser", "Chrome", 3, now),
+                (self.team.pk, "event", "browser", "Chrome", 4, now),
+                (self.team.pk, "event", "browser", "Firefox", 2, now),
+            ]
+        )
+
+        with self._flag_on():
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert {r.name for r in results} == {"Chrome", "Firefox"}
+        assert results[0].count is None
+
+    @parameterized.expand(
+        [
+            ("lowercase_needle", "chr", {"Chrome"}),
+            ("uppercase_needle", "FIRE", {"Firefox"}),
+            ("non_matching", "edge", set()),
+            ("percent_wildcard", "%", set()),
+            ("underscore_wildcard", "chr_me", set()),
+        ]
+    )
+    def test_search_is_case_insensitive_and_escapes_wildcards(self, _name, search_value, expected_names):
+        now = datetime.now()
+        self._insert_rows(
+            [
+                (self.team.pk, "event", "browser", "Chrome", 3, now),
+                (self.team.pk, "event", "browser", "Firefox", 2, now),
+            ]
+        )
+
+        with self._flag_on():
+            results = self._run(
+                PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", search_value=search_value)
+            )
+        assert {r.name for r in results} == expected_names
+
+    def test_values_not_seen_in_seven_days_are_excluded(self):
+        self._insert_rows(
+            [
+                (self.team.pk, "event", "browser", "Chrome", 3, datetime.now()),
+                (self.team.pk, "event", "browser", "Netscape", 100, datetime.now() - timedelta(days=10)),
+            ]
+        )
+
+        with self._flag_on():
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert {r.name for r in results} == {"Chrome"}
+
+    def test_other_team_values_are_excluded(self):
+        self._insert_rows([(self.team.pk + 999999, "event", "browser", "Chrome", 3, datetime.now())])
+
+        with self._flag_on():
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert results == []
+
+    def test_person_type_rows_are_excluded(self):
+        self._insert_rows(
+            [
+                (self.team.pk, "event", "browser", "Chrome", 3, datetime.now()),
+                (self.team.pk, "person", "browser", "PersonChrome", 3, datetime.now()),
+            ]
+        )
+
+        with self._flag_on():
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert {r.name for r in results} == {"Chrome"}
+
+    def test_json_array_value_is_flattened(self):
+        self._insert_rows([(self.team.pk, "event", "tags", '["python", "django"]', 3, datetime.now())])
+
+        with self._flag_on():
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="tags"))
+        assert {r.name for r in results} == {"python", "django"}
+
+    def test_event_scoped_request_is_served_unscoped_from_table(self):
+        self._insert_rows([(self.team.pk, "event", "browser", "TableValue", 3, datetime.now())])
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "EventScopedValue"})
+
+        with self._flag_on():
+            results = self._run(
+                PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", event_names=["$pageview"])
+            )
+        assert {r.name for r in results} == {"TableValue"}
+
+    def test_restricted_property_key_uses_events_scan(self):
+        self._insert_rows([(self.team.pk, "event", "browser", "TableOnly", 3, datetime.now())])
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "EventOnly"})
+
+        with (
+            self._flag_on(),
+            patch(
+                "posthog.hogql_queries.property_values_query_runner.get_restricted_property_names",
+                return_value={"browser"},
+            ),
+        ):
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert {r.name for r in results} == {"EventOnly"}
+
+    def test_is_column_uses_events_scan(self):
+        self._insert_rows([(self.team.pk, "event", "event", "TableOnly", 3, datetime.now())])
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={})
+
+        with self._flag_on():
+            results = self._run(
+                PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="event", is_column=True)
+            )
+        assert {r.name for r in results} == {"$pageview"}
+
+    def test_virtual_key_uses_events_scan(self):
+        runner = PropertyValuesQueryRunner(
+            team=self.team,
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$virt_initial_channel_type"),
+        )
+        with self._flag_on():
+            assert runner._use_property_values_table is False
+
+    def test_flag_off_uses_events_scan(self):
+        self._insert_rows([(self.team.pk, "event", "browser", "TableOnly", 3, datetime.now())])
+
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        assert results == []

@@ -158,6 +158,67 @@ class TestDiscoverSameOrigin(BaseTest):
             )
         assert urls == ["https://ex.com/a", "https://ex.com/b"]
 
+    def test_include_glob_collects_matching_pages_not_just_entry_links(self) -> None:
+        # Mirrors the reported bug: crawl `/` for `/handbook/*`. The cap must
+        # count handbook pages (reached at depth 2), not be spent on the
+        # homepage's many non-handbook links.
+        pages = {
+            "https://ex.com/": '<a href="/handbook">hb</a><a href="/pricing">p</a><a href="/docs">d</a>',
+            "https://ex.com/handbook": (
+                '<a href="/handbook/a">a</a><a href="/handbook/b">b</a><a href="/handbook/c">c</a>'
+            ),
+            "https://ex.com/handbook/a": "",
+            "https://ex.com/handbook/b": "",
+            "https://ex.com/handbook/c": "",
+            "https://ex.com/pricing": '<a href="/pricing/x">x</a>',
+            "https://ex.com/docs": '<a href="/docs/y">y</a>',
+        }
+        fetched: list[str] = []
+
+        def _fake(url: str, max_bytes: int = 0) -> str:
+            if url == "https://ex.com/robots.txt":
+                raise discover.DiscoverError("not found")
+            fetched.append(url)
+            return pages.get(url, "")
+
+        with patch.object(discover, "_http_get_text", side_effect=_fake):
+            urls = discover.discover(
+                "same_origin",
+                "https://ex.com/",
+                discover.CrawlConfig(include_globs=("/handbook/*",), max_depth=3, max_pages=50),
+            )
+
+        assert set(urls) == {
+            "https://ex.com/handbook/a",
+            "https://ex.com/handbook/b",
+            "https://ex.com/handbook/c",
+        }
+        # Focused traversal: never fetched the unrelated subtrees.
+        assert "https://ex.com/pricing" not in fetched
+        assert "https://ex.com/docs" not in fetched
+
+    def test_include_glob_caps_on_matching_pages(self) -> None:
+        # 5 handbook pages exist but max_pages=3 → exactly 3 matching collected.
+        links = "".join(f'<a href="/handbook/{i}">{i}</a>' for i in range(5))
+        pages = {
+            "https://ex.com/handbook": links,
+            **{f"https://ex.com/handbook/{i}": "" for i in range(5)},
+        }
+
+        def _fake(url: str, max_bytes: int = 0) -> str:
+            if url == "https://ex.com/robots.txt":
+                raise discover.DiscoverError("not found")
+            return pages.get(url, "")
+
+        with patch.object(discover, "_http_get_text", side_effect=_fake):
+            urls = discover.discover(
+                "same_origin",
+                "https://ex.com/handbook",
+                discover.CrawlConfig(include_globs=("/handbook/*",), max_depth=2, max_pages=3),
+            )
+        assert len(urls) == 3
+        assert all(u.startswith("https://ex.com/handbook/") for u in urls)
+
 
 class _FakeFetch:
     """
