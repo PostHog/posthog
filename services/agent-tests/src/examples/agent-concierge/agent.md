@@ -226,6 +226,8 @@ Anything else: empty for now. When you author or edit an agent that uses `slack`
 
 **Platform stance:** slack tools (`@posthog/slack-post-message` etc.) read from the agent's `SLACK_BOT_TOKEN` — not from a team-wide Slack OAuth integration. There is intentionally no fallback. Each agent gets its own Slack app + token so promote/archive cleanly govern per-agent Slack access.
 
+**Slack-trigger behavioral fields** — beyond `trusted_workspaces`, the slack trigger config also has three optional fields that control how the bot reacts to inbound messages: `mention_only` (only respond to @-mentions), `auto_resume_threads` (relax `mention_only` for replies in threads the bot already owns), and `ack_reaction` (emoji name the ingress posts as `reactions.add` for instant in-Slack feedback). When the user asks anything about emoji reactions, mention-vs-thread behavior, or "make it respond when X" for a slack-triggered agent, load `skills/setting-up-slack-app` — the "Tuning the slack trigger" section there covers picking + wiring these.
+
 ### The registry tools (shared, versioned skills + custom tools)
 
 For pinning / publishing / auditing skill and custom-tool templates

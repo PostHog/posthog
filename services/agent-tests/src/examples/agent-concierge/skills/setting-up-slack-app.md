@@ -125,7 +125,15 @@ Now you take over. Loop, in order:
    workspace id from prep step 5** (or is `"*"`). If not, open the draft
    revision and patch the spec before freeze.
 
-4. **Validate, freeze, promote.** The validate step will refuse if
+4. **Decide conversation style — see "Tuning the slack trigger" below
+   before freeze.** The three optional fields (`mention_only`,
+   `auto_resume_threads`, `ack_reaction`) control how the bot reacts
+   to inbound messages. Defaults are back-compat ("react to anything
+   in the channel"); most authors will want to opt into the
+   `mention_only + auto_resume_threads` pair, which is what users
+   usually mean by "behave like a normal Slack bot".
+
+5. **Validate, freeze, promote.** The validate step will refuse if
    either secret is missing; promote re-checks at the gate. Both
    give clear error strings — surface them verbatim if hit. **Get
    explicit consent before promote per hard rule #3** — but make the
@@ -161,11 +169,18 @@ Tell the user, in order:
 
 2. **Subscribe to bot events.**
    Same page → "Subscribe to bot events". Add what the agent needs.
-   The minimum useful pair is:
-   - `app_mention` — fires when someone @-mentions the bot.
-   - `message.channels` — every message in channels the bot's in
-     (use this OR `app_mention`, not both, unless you really want
-     both surfaces).
+   The choice maps to the conversation-style decision in step 2.4
+   above:
+   - `app_mention` — fires when someone @-mentions the bot. Always
+     subscribe to this if the user wants the bot to respond to
+     @-mentions at all.
+   - `message.channels` — every message in channels the bot's in.
+     Subscribe in addition to `app_mention` when the user picked
+     `auto_resume_threads` (the trigger needs the thread-reply
+     events to flow in) OR when the bot should react to everything
+     (no `mention_only` gate). Skip this when the bot is purely
+     mention-driven and never auto-resumes — saves Slack
+     bandwidth.
      Save.
 
 3. **(Optional) Set the Interactivity URL.**
@@ -189,17 +204,81 @@ check the agent-ingress logs for a 401 (signing secret mismatch),
 403 (`workspace_not_trusted`), or 404 (`no_slack_trigger` — spec
 didn't actually freeze with the slack trigger).
 
+## Tuning the slack trigger
+
+The slack trigger config has three optional fields beyond
+`channel_id` / `trusted_workspaces`. Defaults are back-compat ("react
+to anything the bot can see"); for most new agents the user actually
+wants the opt-in flags.
+
+| Field                 | Type             | Default | What it does                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mention_only`        | `boolean`        | `false` | When `true`, only `app_mention` events seed sessions. Plain `message` events (delivered because the bot subscribed to `message.channels`) are dropped at the trigger. Use when the agent should only react when someone explicitly @-mentions it.                                                                                    |
+| `auto_resume_threads` | `boolean`        | `false` | Relaxes `mention_only` for replies in threads the bot already owns. When a `message` event comes in with a `thread_ts` matching an existing session's `external_key`, the trigger accepts it. The seeded message carries `mention: false` so the model can judge whether it was addressed. No effect when `mention_only` is `false`. |
+| `ack_reaction`        | `string` (emoji) | unset   | Emoji name (no colons, e.g. `"eyes"` or `"thinking_face"`) the ingress posts as `reactions.add` against the inbound message immediately on accept — before the runner produces a turn. Fire-and-forget; failures (revoked token, slack 5xx, `already_reacted`) are silently swallowed.                                               |
+
+### How to pick
+
+Walk the user through the choice as a question, not a config dump:
+
+> Three behavioural knobs on the slack trigger. The defaults
+> ("react to everything the bot can see") match a Slackbot-style bot;
+> most authors want one of:
+>
+> - **"Only when I @-mention you"** — set `mention_only: true`. Pair
+>   with `app_mention` in Slack-side event subscriptions; drop
+>   `message.channels`. Best for utility bots in busy channels.
+> - **"@-mention to start, then just talk in the thread"** — set
+>   both `mention_only: true` AND `auto_resume_threads: true`. Pair
+>   with both `app_mention` AND `message.channels`. Best for
+>   conversational bots — the user @-mentions once, then the bot
+>   stays in the thread until it dies.
+> - **"React to everything"** — leave both unset (defaults).
+>   Subscribe to `message.channels`. Best for digest / monitoring
+>   bots that should see all channel chatter.
+>
+> And optionally, `ack_reaction: "eyes"` for an instant emoji
+> reaction so the user sees you saw the message before you produce
+> a real response — useful when the first turn is slow.
+
+### Wiring it
+
+The three fields land on `spec.triggers[].config` for the slack
+trigger. Open the draft revision and patch the spec before freeze
+(or do it inline at trigger-creation time):
+
+```json
+{
+  "type": "slack",
+  "config": {
+    "trusted_workspaces": ["T01ABC"],
+    "mention_only": true,
+    "auto_resume_threads": true,
+    "ack_reaction": "eyes"
+  }
+}
+```
+
+If the user picks `mention_only: true` without `auto_resume_threads`,
+warn them once that the bot won't see thread replies unless they
+@-mention every time — most people want both together. If they pick
+`auto_resume_threads` without `mention_only`, tell them it's a no-op
+(the gate it relaxes never fires).
+
 ## Common failure modes
 
-| Symptom (user sees)                                     | Likely cause                                                                                  | Fix                                                                              |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| URL verification fails BEFORE promote                   | Agent has no live revision yet — Slack's challenge POST hits a 404                            | Don't paste the URL into Slack until promote returns `state=live`                |
-| URL verification fails AFTER promote ("didn't respond") | Tunnel not running / wrong URL / agent-ingress crashed                                        | Check `curl <events_url>` from terminal; restart `bin/agent-tunnel`              |
-| URL turns green but bot doesn't respond to mentions     | Bot not invited to channel OR `app_mentions:read` scope missing OR `trusted_workspaces` wrong | Invite bot, re-install app, fix `trusted_workspaces`                             |
-| `invalid_signature` 401 in ingress logs                 | `SLACK_SIGNING_SECRET` value mismatch (wrong app, or copied with whitespace)                  | Rotate via punch-out with `mode: "rotate"`                                       |
-| `slack.chat.postMessage error: invalid_auth` in session | `SLACK_BOT_TOKEN` revoked or wrong (e.g. `xoxp-` user token vs `xoxb-` bot token)             | Rotate via punch-out — confirm it's the Bot User OAuth Token, not the user token |
-| `slack.chat.postMessage error: not_in_channel`          | Bot not invited to the target channel                                                         | `/invite @<bot>` in the channel                                                  |
-| Promote refuses with `missing required encrypted_env`   | One of the two punch-outs got skipped or `user_cancelled`                                     | Run that specific `set_secret` again                                             |
+| Symptom (user sees)                                       | Likely cause                                                                                                                     | Fix                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| URL verification fails BEFORE promote                     | Agent has no live revision yet — Slack's challenge POST hits a 404                                                               | Don't paste the URL into Slack until promote returns `state=live`                                                                  |
+| URL verification fails AFTER promote ("didn't respond")   | Tunnel not running / wrong URL / agent-ingress crashed                                                                           | Check `curl <events_url>` from terminal; restart `bin/agent-tunnel`                                                                |
+| URL turns green but bot doesn't respond to mentions       | Bot not invited to channel OR `app_mentions:read` scope missing OR `trusted_workspaces` wrong                                    | Invite bot, re-install app, fix `trusted_workspaces`                                                                               |
+| `invalid_signature` 401 in ingress logs                   | `SLACK_SIGNING_SECRET` value mismatch (wrong app, or copied with whitespace)                                                     | Rotate via punch-out with `mode: "rotate"`                                                                                         |
+| `slack.chat.postMessage error: invalid_auth` in session   | `SLACK_BOT_TOKEN` revoked or wrong (e.g. `xoxp-` user token vs `xoxb-` bot token)                                                | Rotate via punch-out — confirm it's the Bot User OAuth Token, not the user token                                                   |
+| `slack.chat.postMessage error: not_in_channel`            | Bot not invited to the target channel                                                                                            | `/invite @<bot>` in the channel                                                                                                    |
+| Promote refuses with `missing required encrypted_env`     | One of the two punch-outs got skipped or `user_cancelled`                                                                        | Run that specific `set_secret` again                                                                                               |
+| Bot ignores thread replies after the first @-mention      | `mention_only: true` set without `auto_resume_threads: true`                                                                     | Add `auto_resume_threads: true` to the slack trigger config OR drop `mention_only`                                                 |
+| Bot reacts to non-mention messages despite `mention_only` | Slack event subscriptions include `message.channels` AND `auto_resume_threads: true` with the message landing in an owned thread | Expected — `auto_resume_threads` accepts thread replies on owned sessions; the seed flags `mention: false` so the model can ignore |
+| No `:eyes:` ack reaction lands in Slack                   | `ack_reaction` unset, or `SLACK_BOT_TOKEN` missing `reactions:write` scope, or bot not in channel                                | Add the scope + re-install; verify token; remember `ack_reaction` is fail-open so this never blocks ingestion                      |
 
 ## Things not to do
 
