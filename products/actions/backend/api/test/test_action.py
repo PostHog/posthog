@@ -1,4 +1,7 @@
+from datetime import UTC, datetime, timedelta
+
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -342,29 +345,29 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
-    def test_listing_actions_supports_limit_offset_and_search(self) -> None:
-        for name in ["alpha", "beta", "gamma", "delta"]:
-            Action.objects.create(team=self.team, name=name)
+    @parameterized.expand(
+        [
+            # No params returns every action (the unchanged default the actions page relies on).
+            ("no_params", "", ["alpha", "beta", "gamma", "delta"]),
+            ("limit", "?limit=2", ["alpha", "beta"]),
+            # offset pages past earlier results without overlapping the first page.
+            ("limit_and_offset", "?limit=2&offset=2", ["gamma", "delta"]),
+            # search filters by case-insensitive name substring.
+            ("search", "?search=ALph", ["alpha"]),
+        ]
+    )
+    def test_listing_actions_supports_limit_offset_and_search(
+        self, _name: str, params: str, expected_names: list[str]
+    ) -> None:
+        # Results are ordered by -last_calculated_at, so pin it (descending with creation
+        # order) to make the display order match the alphabetical names deterministically.
+        base = datetime(2021, 1, 1, tzinfo=UTC)
+        for index, name in enumerate(["alpha", "beta", "gamma", "delta"]):
+            Action.objects.create(team=self.team, name=name, last_calculated_at=base - timedelta(minutes=index))
 
-        # No params returns every action (unchanged default the actions page relies on).
-        all_response = self.client.get(f"/api/projects/{self.team.id}/actions/")
-        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(all_response.json()["results"]), 4)
-
-        # limit caps the number of results.
-        limited = self.client.get(f"/api/projects/{self.team.id}/actions/?limit=2")
-        limited_names = [a["name"] for a in limited.json()["results"]]
-        self.assertEqual(len(limited_names), 2)
-
-        # offset pages past earlier results without overlap.
-        offset = self.client.get(f"/api/projects/{self.team.id}/actions/?limit=2&offset=2")
-        offset_names = [a["name"] for a in offset.json()["results"]]
-        self.assertEqual(len(offset_names), 2)
-        self.assertEqual(set(limited_names) & set(offset_names), set())
-
-        # search filters by case-insensitive name substring.
-        searched = self.client.get(f"/api/projects/{self.team.id}/actions/?search=ALph")
-        self.assertEqual([a["name"] for a in searched.json()["results"]], ["alpha"])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{params}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([action["name"] for action in response.json()["results"]], expected_names)
 
     def test_get_tags_returns_list(self):
         action = Action.objects.create(team=self.team, name="bla")
