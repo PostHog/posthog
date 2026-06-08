@@ -3,7 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { evaluationReportLogic } from './evaluationReportLogic'
+import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
+import type { ReportConfigDraft } from './evaluationReportLogic'
 import { EvaluationReport } from './types'
 
 const makeReport = (overrides: Partial<EvaluationReport> = {}): EvaluationReport => ({
@@ -28,6 +29,21 @@ const makeReport = (overrides: Partial<EvaluationReport> = {}): EvaluationReport
     ...overrides,
 })
 
+const makeDraft = (overrides: Partial<ReportConfigDraft> = {}): ReportConfigDraft => ({
+    enabled: true,
+    frequency: 'every_n',
+    rrule: '',
+    startsAt: null,
+    timezoneName: 'UTC',
+    emailValue: 'team@example.com',
+    slackIntegrationId: null,
+    slackChannelValue: '',
+    reportPromptGuidance: '',
+    triggerThreshold: 100,
+    cooldownHours: 1,
+    ...overrides,
+})
+
 describe('evaluationReportLogic', () => {
     let logic: ReturnType<typeof evaluationReportLogic.build>
     // The mock handlers read these lazily at request time, so each test sets
@@ -35,14 +51,23 @@ describe('evaluationReportLogic', () => {
     // body to an evaluation_reports detail route, in call order.
     let reports: EvaluationReport[]
     let patchBodies: Record<string, unknown>[]
+    let createBodies: Record<string, unknown>[]
 
     beforeEach(() => {
         reports = []
         patchBodies = []
+        createBodies = []
         useMocks({
             get: {
                 '/api/environments/:teamId/llm_analytics/evaluation_reports/': () => [200, { results: reports }],
                 '/api/environments/:teamId/llm_analytics/evaluation_reports/:id/runs/': { results: [] },
+            },
+            post: {
+                '/api/environments/:teamId/llm_analytics/evaluation_reports/': async (req) => {
+                    const body = (await req.json()) as Record<string, unknown>
+                    createBodies.push(body)
+                    return [201, makeReport({ id: 'created-report', ...body })]
+                },
             },
             patch: {
                 '/api/environments/:teamId/llm_analytics/evaluation_reports/:id/': async (req) => {
@@ -126,5 +151,35 @@ describe('evaluationReportLogic', () => {
             expect.objectContaining({ id: 'report-1', enabled: true }),
             expect.objectContaining({ id: 'report-2', enabled: false }),
         ])
+    })
+
+    it('persists a new evaluation report draft by updating the auto-created report config', async () => {
+        reports = [makeReport({ id: 'auto-created-report', delivery_targets: [] })]
+
+        const didPersist = await persistReportDraft(
+            1,
+            'eval-1',
+            makeDraft({ emailValue: 'new-recipient@example.com' }),
+            null
+        )
+
+        expect(didPersist).toBe(true)
+        expect(createBodies).toEqual([])
+        expect(patchBodies).toEqual([
+            expect.objectContaining({
+                delivery_targets: [{ type: 'email', value: 'new-recipient@example.com' }],
+                trigger_threshold: 100,
+            }),
+        ])
+    })
+
+    it('persists a disabled new evaluation report draft by pausing the auto-created report config', async () => {
+        reports = [makeReport({ id: 'auto-created-report' })]
+
+        const didPersist = await persistReportDraft(1, 'eval-1', makeDraft({ enabled: false }), null)
+
+        expect(didPersist).toBe(true)
+        expect(createBodies).toEqual([])
+        expect(patchBodies).toEqual([{ enabled: false }])
     })
 })

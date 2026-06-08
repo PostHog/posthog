@@ -170,13 +170,40 @@ export async function persistReportDraft(
         )
         return true
     }
-    // No active report yet — create only if the draft has savable content.
+
+    const hasSavableContent = targets.length > 0 || draft.reportPromptGuidance.trim().length > 0
+    if (draft.enabled && !hasSavableContent) {
+        return false
+    }
+
+    // Creating an evaluation auto-creates a default report config server-side.
+    // Reuse it here so the new-evaluation save flow doesn't create a duplicate config.
+    // nosemgrep: prefer-codegen-api
+    const response = await api.get(
+        `api/environments/${teamId}/llm_analytics/evaluation_reports/?evaluation=${evaluationId}`
+    )
+    const existingReport = (response?.results || []).find((report: EvaluationReport) => !report.deleted) ?? null
+
     if (!draft.enabled) {
+        if (existingReport) {
+            // nosemgrep: prefer-codegen-api
+            await api.update(`api/environments/${teamId}/llm_analytics/evaluation_reports/${existingReport.id}/`, {
+                enabled: false,
+            })
+            return true
+        }
         return false
     }
-    if (targets.length === 0 && draft.reportPromptGuidance.trim().length === 0) {
-        return false
+    if (existingReport) {
+        // nosemgrep: prefer-codegen-api
+        await api.update(
+            `api/environments/${teamId}/llm_analytics/evaluation_reports/${existingReport.id}/`,
+            buildReportUpdatePayload(draft, existingReport, targets)
+        )
+        return true
     }
+
+    // No active report yet — create only if the draft has savable content.
     // nosemgrep: prefer-codegen-api
     await api.create(
         `api/environments/${teamId}/llm_analytics/evaluation_reports/`,
