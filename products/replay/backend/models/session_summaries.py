@@ -7,7 +7,6 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UUIDModel
 
@@ -264,7 +263,7 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     Each summary represents analysis of a single session replay.
     """
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     session_id = models.CharField(max_length=200, help_text="Session replay ID")
 
     # Summary content
@@ -308,7 +307,7 @@ class SingleSessionSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         if self.extra_summary_context:
             return f"Summary for session {self.session_id} with extra context {self.extra_summary_context}"
         return f"Summary for session {self.session_id}"
@@ -320,7 +319,7 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     Each summary represents pattern analysis across multiple sessions.
     """
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     # User-facing title for the summary
     title = models.CharField(max_length=2048, help_text="Title of the group session summary", default="Group summary")
     # List of session IDs that were analyzed together in this group
@@ -357,6 +356,6 @@ class SessionGroupSummary(ModelActivityMixin, CreatedMetaFields, UUIDModel):
             # Creating Manager for rare cases of `exact 300 ids + context input match` seems excessive.
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         session_count = len(self.session_ids) if self.session_ids else 0
         return f"{self.title} - {session_count} sessions (team {self.team_id})"

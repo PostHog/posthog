@@ -2,7 +2,6 @@ import logging
 
 from django.db import models
 
-from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
 
 logger = logging.getLogger(__name__)
@@ -15,7 +14,7 @@ CUSTOM_TAG_DESCRIPTION_MAX_LENGTH = 200
 
 
 class TeamSessionSummariesConfig(models.Model):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
 
     product_context = models.TextField(
         blank=True,
@@ -36,6 +35,9 @@ class TeamSessionSummariesConfig(models.Model):
             "the LLM when to apply each tag."
         ),
     )
+
+    class Meta:
+        db_table = "ee_teamsessionsummariesconfig"
 
 
 register_team_extension_signal(TeamSessionSummariesConfig, logger=logger)

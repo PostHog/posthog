@@ -27,7 +27,6 @@ from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
-from .exported_recording import ExportedRecording
 from .file_system.file_system import FileSystem
 from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
@@ -116,7 +115,6 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "RoleExternalReference",
-    "ExportedRecording",
     "FileSystem",
     "FileSystemFolderInstructions",
     "FileSystemViewLog",

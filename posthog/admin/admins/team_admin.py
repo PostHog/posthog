@@ -34,7 +34,6 @@ from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
-from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
@@ -50,6 +49,8 @@ from posthog.temporal.session_replay.delete_recordings.types import (
 )
 from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
 from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
+
+from products.replay.backend.models.exported_recording import ExportedRecording
 
 logger = get_logger()
 

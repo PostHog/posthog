@@ -5,7 +5,7 @@ import structlog
 from posthog.api.capture import capture_internal
 from posthog.temporal.session_replay.session_summary.types.events import SessionSummaryReadyProperties
 
-from ee.models.session_summaries import SingleSessionSummary
+from products.replay.backend.models.session_summaries import SingleSessionSummary
 
 EVENT_SOURCE = "session_summary_events"
 logger = structlog.get_logger(__name__)
