@@ -401,3 +401,49 @@ class MetricBreakdownInjector:
                         for condition in join_conditions[1:]:
                             condition_expr = ast.And(exprs=[condition_expr, condition])
                         join_expr.constraint = ast.JoinConstraint(expr=condition_expr, constraint_type="ON")
+
+    def inject_retention_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """Inject breakdown columns into a retention query.
+
+        Reads the breakdown off the **start event** (in ``start_events``) and attributes each
+        user first-touch via ``argMin`` over the start event timestamp. Retention is a ratio
+        ``retained / cohort``; the cohort (denominator) is defined by the start event and every
+        retained user has one, so the start event is the only attribution source that keeps the
+        per-bucket denominator well-defined. The completion event is NOT used for the breakdown —
+        non-retained users have no completion event, which would break the per-bucket denominator.
+
+        ``start_events`` groups by entity, so the breakdown is deduped per user inside it; the
+        attributed value is then carried into ``entity_metrics``.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="")
+
+        # Read + first-touch attribute the breakdown off the start event, deduped per entity.
+        if query.ctes and "start_events" in query.ctes:
+            start_events_cte = query.ctes["start_events"]
+            if isinstance(start_events_cte, ast.CTE) and isinstance(start_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    start_events_cte.expr.select.append(
+                        ast.Alias(
+                            alias=alias,
+                            expr=ast.Call(name="argMin", args=[expr, ast.Field(chain=["timestamp"])]),
+                        )
+                    )
+
+        # Carry the attributed breakdown into entity_metrics and group by it.
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["start_events", alias]))
+                    )
+                if entity_metrics_cte.expr.group_by is None:
+                    entity_metrics_cte.expr.group_by = []
+                for alias in aliases:
+                    entity_metrics_cte.expr.group_by.append(ast.Field(chain=["start_events", alias]))
+
+        self._inject_final_breakdown_columns(query, aliases)
