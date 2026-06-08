@@ -383,15 +383,15 @@ def _compute_system_table_access_decision(
     from posthog.models import OrganizationMembership
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
-    scoped_table_nodes = [
-        table_node
-        for table_node in SystemTables().children.values()
-        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
-    ]
+    system_children = SystemTables().children
 
     # No user: remove every access-controlled system table.
     if user is None:
-        return None, {table_node.name for table_node in scoped_table_nodes}
+        return None, {
+            name
+            for name, table_node in system_children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+        }
 
     user_access_control = UserAccessControl(user=user, team=team)
 
@@ -400,12 +400,14 @@ def _compute_system_table_access_decision(
         return user_access_control, set()
 
     denied: set[str] = set()
-    for table_node in scoped_table_nodes:
-        table = cast(PostgresTable, table_node.table)
+    for name, table_node in system_children.items():
+        table = table_node.table
+        if not isinstance(table, PostgresTable) or table.access_scope is None:
+            continue  # Not access-controlled, keep it
         access_level = user_access_control.access_level_for_resource(table.access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
-        denied.add(table_node.name)
+        denied.add(name)
 
     return user_access_control, denied
 

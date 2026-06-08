@@ -2,7 +2,8 @@ import os
 import statistics
 from collections.abc import Callable
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
+from uuid import UUID
 
 import unittest
 from posthog.test.base import BaseTest
@@ -102,7 +103,11 @@ class TestCreateHogQLDatabasePerf(BaseTest):
         ExternalDataSchema.objects.bulk_create(
             [
                 ExternalDataSchema(
-                    team=self.team, source_id=t.external_data_source_id, name=t.name, table=t, should_sync=True
+                    team=self.team,
+                    source_id=cast(UUID, t.external_data_source_id),
+                    name=t.name,
+                    table=t,
+                    should_sync=True,
                 )
                 for t in tables
             ]
