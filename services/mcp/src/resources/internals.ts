@@ -5,17 +5,35 @@ import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 
 const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
+// Bound the upstream fetch so a slow/hung GitHub release download can't stall a
+// cold-start warmup indefinitely (it would otherwise hold the Redis writer lock
+// and time out the integration harness `beforeAll`). One retry smooths over the
+// transient slowness common on the `releases/latest/download` CDN redirect.
+const ARCHIVE_FETCH_TIMEOUT_MS = 15_000
+const ARCHIVE_FETCH_ATTEMPTS = 2
+
 let cachedResources: Unzipped | null = null
 
 export type ArchiveLoader = (url: string) => Promise<Uint8Array>
 
 async function defaultArchiveLoader(url: string, noStore: boolean): Promise<Uint8Array> {
-    const response = await fetch(url, noStore ? { cache: 'no-store' } : {})
-    if (!response.ok) {
-        throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
+    let lastError: unknown
+    for (let attempt = 1; attempt <= ARCHIVE_FETCH_ATTEMPTS; attempt++) {
+        try {
+            const response = await fetch(url, {
+                ...(noStore ? { cache: 'no-store' } : {}),
+                signal: AbortSignal.timeout(ARCHIVE_FETCH_TIMEOUT_MS),
+            })
+            if (!response.ok) {
+                throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
+            }
+            const arrayBuffer = await response.arrayBuffer()
+            return new Uint8Array(arrayBuffer)
+        } catch (err) {
+            lastError = err
+        }
     }
-    const arrayBuffer = await response.arrayBuffer()
-    return new Uint8Array(arrayBuffer)
+    throw new Error(`Failed to fetch context-mill resources from ${url}: ${String(lastError)}`)
 }
 
 /**
