@@ -71,6 +71,8 @@ jobs:
                         - 'tools/pr-approval-agent/**'
                         # query-performance-ai dev tool
                         - 'tools/query-performance-ai/**'
+                        # traffic-sim MCP server (auto-approved in .mcp.json)
+                        - 'tools/traffic-sim/**'
 
     code-quality:
         needs: changes
@@ -195,6 +197,12 @@ jobs:
               run: |
                   pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
+            - name: Run traffic-sim tests
+              shell: bash
+              # -m "not integration" skips the Playwright browser test (CI installs the python package but not chromium)
+              run: |
+                  pytest tools/traffic-sim/tests -m "not integration" -v --junitxml=junit-traffic-sim.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -204,6 +212,7 @@ jobs:
                       junit-hogli.xml
                       junit-hogli-commands.xml
                       junit-query-performance-ai.xml
+                      junit-traffic-sim.xml
 
             - name: Run dependency detection script tests
               shell: bash
