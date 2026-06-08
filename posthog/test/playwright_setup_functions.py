@@ -496,6 +496,57 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
         infer_taxonomy_for_team(team.pk)
 
 
+class PlaywrightHogFunctionTemplateData(BaseModel):
+    template_id: str
+    name: str = "Test template"
+    status: str = "hidden"
+    template_type: str = "destination"
+    inputs_schema: list[dict[str, Any]] = []
+
+
+class PlaywrightHogFunctionTemplateResult(BaseModel):
+    template_id: str
+    created: bool
+
+
+def create_hog_function_template(
+    data: PlaywrightHogFunctionTemplateData,
+) -> PlaywrightHogFunctionTemplateResult:
+    """Seeds a single HogFunctionTemplate row.
+
+    Playwright CI doesn't run `sync_hog_function_templates`, so the templates table is empty.
+    Tests that exercise the workflow editor or hog function configuration need to seed any
+    template they reference. Templates are global (not team-scoped), so we no-op when a row
+    with the same template_id already exists — keeps it idempotent across parallel workers
+    without fighting `HogFunctionTemplate.save()` which recomputes `sha` from content.
+    """
+    from django.db import IntegrityError
+
+    from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+
+    if HogFunctionTemplate.objects.filter(template_id=data.template_id).exists():
+        return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=False)
+
+    try:
+        HogFunctionTemplate.objects.create(
+            template_id=data.template_id,
+            sha="playwright-seed",
+            name=data.name,
+            description=data.name,
+            code="return event",
+            code_language="hog",
+            inputs_schema=data.inputs_schema,
+            type=data.template_type,
+            status=data.status,
+            category=["Other"],
+            free=True,
+        )
+        return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=True)
+    except IntegrityError:
+        # Lost a race with a parallel worker — the row exists now.
+        return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=False)
+
+
 @dataclass(frozen=True)
 class SetupFunctionConfig:
     function: PlaywrightSetupFunction
@@ -508,5 +559,10 @@ PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
         function=create_organization_with_team,  # type: ignore
         input_model=PlaywrightWorkspaceSetupData,
         description="Creates org → team + user + API key",
+    ),
+    "hog_function_template": SetupFunctionConfig(
+        function=create_hog_function_template,  # type: ignore
+        input_model=PlaywrightHogFunctionTemplateData,
+        description="Seeds a single HogFunctionTemplate row (templates are global, not team-scoped)",
     ),
 }

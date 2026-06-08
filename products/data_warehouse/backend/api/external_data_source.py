@@ -1447,6 +1447,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         enabled_columns,
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
+                        # Direct-postgres columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),

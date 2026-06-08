@@ -418,17 +418,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
     skill_name = models.CharField(max_length=200)
     enabled = models.BooleanField(default=True, db_default=True)
-    # Dry-run vs emit. When False the scout runs and logs but `emit_finding` writes
-    # nothing — lets a scout be validated on a team before its findings reach the inbox.
-    emit = models.BooleanField(default=False, db_default=False)
+    # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
+    # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
+    # nothing — to validate it on a team before its findings reach the inbox.
+    emit = models.BooleanField(default=True, db_default=True)
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
     # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
-    # 1440 = once a day. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
+    # 60 = hourly. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
     run_interval_minutes = models.PositiveIntegerField(
-        default=1440,
-        db_default=1440,
+        default=60,
+        db_default=60,
         validators=[MinValueValidator(10), MaxValueValidator(43200)],
     )
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
