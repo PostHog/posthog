@@ -35,8 +35,8 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Filter by delivery channel (email, Slack, or webhook).",
-            "enum": ["email", "slack", "webhook"],
+            "description": "Filter by delivery channel (email or Slack).",
+            "enum": ["email", "slack"],
             "type": "string"
         }
     },

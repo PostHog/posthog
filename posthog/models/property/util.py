@@ -182,20 +182,14 @@ def parse_prop_clauses(
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
-                    person_id_query, cohort_filter_params = format_filter_query(
-                        cohort,
-                        idx,
-                        cast(HogQLContext, hogql_context),
-                        custom_match_field=person_id_joined_alias,
-                    )
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort,
                         idx,
-                        cast(HogQLContext, hogql_context),
-                        custom_match_field=f"{person_id_joined_alias}",
+                        custom_match_field=person_id_joined_alias,
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
