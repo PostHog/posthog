@@ -644,16 +644,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['evaluation', 'default', 'context', 'tag'],
             },
             {
-                id: 'feature-flag-evaluation-context-suggestions',
-                title: 'Evaluation context suggestions',
-                description:
-                    'Manage which evaluation context names are suggested when scoping a feature flag. Hide stale or mistyped names from the suggestion list without affecting flags that already use them.',
-                docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
-                flag: 'FLAG_EVALUATION_TAGS',
-                component: <EvaluationContextSuggestions />,
-                keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
-            },
-            {
                 id: 'feature-flag-default-release-conditions',
                 title: 'Default release conditions',
                 description:
@@ -669,6 +659,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
                 keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
+            },
+            {
+                id: 'feature-flag-evaluation-context-suggestions',
+                title: 'Evaluation context suggestions',
+                description:
+                    'Manage which evaluation context names are suggested when scoping a feature flag. Hide stale or mistyped names from the suggestion list without affecting flags that already use them.',
+                docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
+                flag: 'FLAG_EVALUATION_TAGS',
+                component: <EvaluationContextSuggestions />,
+                keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
             },
         ],
     },

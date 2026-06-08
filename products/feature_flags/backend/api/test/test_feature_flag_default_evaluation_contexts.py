@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -286,3 +287,51 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         response = self.client.post(self.url, {"context_name": "secret"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(EvaluationContext.objects.get(name="secret", team=other_team).hidden_from_suggestions)
+
+
+class TestEvaluationContextRootTeamScoping(APIBaseTest):
+    """Flags persist contexts under the project root team, so contexts must be visible and
+    manageable from any child environment of the same project — not just the root."""
+
+    def setUp(self):
+        super().setUp()
+        # self.team is the project root (no parent_team); add a sibling child environment.
+        self.child_env = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            name="child-env",
+        )
+        self.get_url = f"/api/environments/{self.child_env.id}/default_evaluation_contexts/"
+        self.suggestions_url = f"/api/environments/{self.child_env.id}/evaluation_context_suggestions/"
+
+    @parameterized.expand(
+        [
+            ("visible", False, "available_contexts"),
+            ("hidden", True, "hidden_contexts"),
+        ]
+    )
+    def test_root_team_context_visible_from_child_environment(self, _name, hidden, bucket):
+        EvaluationContext.objects.create(name="production", team=self.team, hidden_from_suggestions=hidden)
+
+        data = self.client.get(self.get_url).json()
+        self.assertEqual(data[bucket], ["production"])
+
+    def test_hide_and_restore_root_team_context_from_child_environment(self):
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+
+        hide = self.client.post(self.suggestions_url, {"context_name": "production"}, format="json")
+        self.assertEqual(hide.status_code, status.HTTP_200_OK)
+        ctx.refresh_from_db()
+        self.assertTrue(ctx.hidden_from_suggestions)
+
+        restore = self.client.delete(self.suggestions_url + "?context_name=production")
+        self.assertEqual(restore.status_code, status.HTTP_200_OK)
+        ctx.refresh_from_db()
+        self.assertFalse(ctx.hidden_from_suggestions)
+
+    def test_adding_default_from_child_environment_persists_under_root_team(self):
+        response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertTrue(EvaluationContext.objects.filter(name="production", team=self.team).exists())
+        self.assertFalse(EvaluationContext.objects.filter(name="production", team=self.child_env).exists())

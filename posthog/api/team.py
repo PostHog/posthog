@@ -1559,6 +1559,15 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     lookup_field = "id"
     ordering = "-created_by"
 
+    # Team-config actions any project member may edit via the UI, across all their HTTP methods
+    # (including DELETE). These rely on AccessControlPermission rather than the admin-for-DELETE
+    # gate in TeamMemberLightManagementPermission.
+    MEMBER_EDITABLE_CONFIG_ACTIONS = (
+        "default_release_conditions",
+        "default_evaluation_contexts",
+        "evaluation_context_suggestions",
+    )
+
     def safely_get_queryset(self, queryset):
         user = cast(User, self.request.user)
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
@@ -1599,7 +1608,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # Team-level config actions that any member should be able to edit via the UI.
         # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in ("default_release_conditions", "default_evaluation_contexts"):
+        if self.action in self.MEMBER_EDITABLE_CONFIG_ACTIONS:
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
@@ -1628,8 +1637,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
-            elif self.action != "list":
-                # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
+            elif self.action != "list" and self.action not in self.MEMBER_EDITABLE_CONFIG_ACTIONS:
+                # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer.
+                # Member-editable config actions are gated by AccessControlPermission instead, so their DELETE
+                # methods aren't forced behind the admin-only gate in TeamMemberLightManagementPermission.
                 permissions.append(TeamMemberLightManagementPermission)
 
         return [permission() for permission in permissions]
@@ -1846,17 +1857,21 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage default evaluation contexts for a team."""
         team = self.get_object()
+        # Feature flags persist contexts under the project root team (RootTeamMixin), so scope
+        # context lookups to the root team — otherwise flag-used contexts are invisible from
+        # child environments.
+        root_team = team.parent_team or team
 
         if request.method == "GET":
-            defaults = TeamDefaultEvaluationContext.objects.filter(team=team).select_related("evaluation_context")
+            defaults = TeamDefaultEvaluationContext.objects.filter(team=root_team).select_related("evaluation_context")
             defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
             all_contexts = list(
-                EvaluationContext.objects.filter(team=team, hidden_from_suggestions=False)
+                EvaluationContext.objects.filter(team=root_team, hidden_from_suggestions=False)
                 .values_list("name", flat=True)
                 .order_by("name")
             )
             hidden_contexts = list(
-                EvaluationContext.objects.filter(team=team, hidden_from_suggestions=True)
+                EvaluationContext.objects.filter(team=root_team, hidden_from_suggestions=True)
                 .values_list("name", flat=True)
                 .order_by("name")
             )
@@ -1880,13 +1895,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
             with transaction.atomic():
-                existing = list(TeamDefaultEvaluationContext.objects.filter(team=team).select_for_update())
+                existing = list(TeamDefaultEvaluationContext.objects.filter(team=root_team).select_for_update())
                 if len(existing) >= 10:
                     return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
 
-                ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=team)
+                ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
                 default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
-                    team=team, evaluation_context=ctx
+                    team=root_team, evaluation_context=ctx
                 )
 
                 if created:
@@ -1910,9 +1925,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
             with transaction.atomic():
                 try:
-                    ctx = EvaluationContext.objects.get(name=context_name, team=team)
+                    ctx = EvaluationContext.objects.get(name=context_name, team=root_team)
                     deleted_count, _ = TeamDefaultEvaluationContext.objects.filter(
-                        team=team, evaluation_context=ctx
+                        team=root_team, evaluation_context=ctx
                     ).delete()
 
                     if deleted_count > 0:
@@ -1946,6 +1961,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         using it are never modified — this only controls what gets suggested.
         """
         team = self.get_object()
+        # Contexts are persisted under the project root team (see default_evaluation_contexts).
+        root_team = team.parent_team or team
 
         context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
         if not isinstance(context_name, str):
@@ -1958,7 +1975,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         with transaction.atomic():
             try:
-                ctx = EvaluationContext.objects.select_for_update().get(name=context_name, team=team)
+                ctx = EvaluationContext.objects.select_for_update().get(name=context_name, team=root_team)
             except EvaluationContext.DoesNotExist:
                 return response.Response({"error": "Evaluation context not found"}, status=404)
 

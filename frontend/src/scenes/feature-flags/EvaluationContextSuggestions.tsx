@@ -12,8 +12,7 @@ import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic
 
 export function EvaluationContextSuggestions(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { availableContexts, hiddenContexts, defaultEvaluationContextsLoading } =
-        useValues(defaultEvaluationContextsLogic)
+    const { availableContexts, hiddenContexts } = useValues(defaultEvaluationContextsLogic)
     const { hideContext, unhideContext } = useActions(defaultEvaluationContextsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -31,7 +30,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                 the suggestion list — flags already using it keep working, and the name reappears if it's used again.
             </p>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
                 <h4 className="mb-0">Suggested contexts</h4>
                 {availableContexts.length === 0 ? (
                     <div className="text-sm text-muted italic">No suggested evaluation contexts.</div>
@@ -52,7 +51,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
             </div>
 
             {hiddenContexts.length > 0 && (
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                     <h4 className="mb-0">Hidden from suggestions</h4>
                     <div className="flex flex-wrap gap-2 items-center">
                         {hiddenContexts.map((name) => (
@@ -64,7 +63,6 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         icon={<IconUndo />}
                                         tooltip="Restore to suggestions"
                                         onClick={() => unhideContext(name)}
-                                        loading={defaultEvaluationContextsLoading}
                                         disabledReason={restrictedReason}
                                     />
                                 </span>
