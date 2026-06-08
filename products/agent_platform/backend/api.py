@@ -1913,26 +1913,29 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def freeze(self, request: Request, **kwargs) -> Response:
         """Freeze the bundle: draft → ready, stamps sha256 on the row.
 
-        Single atomic block now that the janitor's freeze endpoint is
-        side-effect-free w.r.t. `agent_revision`: (1) resolve
-        `spec.skills[].from_template` / `spec.tools[].from_template` refs
-        into the bundle (copies content, stamps versions, inserts join
-        rows); (2) call the janitor to compute the bundle sha (writes the
-        S3 `.frozen` marker, returns the sha); (3) stamp `state='ready'`
-        + `bundle_sha256` on the revision row from Django. Django is the
-        sole writer to `agent_revision.state`, so there's no cross-process
-        row contention on the same row to deadlock against. Any failure
-        leaves the revision in `draft`; the next freeze re-runs all three
-        phases idempotently.
+        Django is a thin proxy here: resolve template refs into the
+        bundle, ask the janitor to seal it (the janitor returns the sha
+        + the spec it derived from the typed resources), then stamp the
+        row. No `transaction.atomic()` — the janitor's freeze is idempotent
+        (on retry it re-reads the existing `.frozen` marker + re-derives
+        spec), so a partial failure here is recoverable by re-calling
+        freeze, not by transactional rollback. Holding an atomic block
+        across the janitor HTTP call previously deadlocked the
+        agent_revision row against the janitor's spec write — that's
+        moved off the janitor side as part of the same fix.
         """
         revision: AgentRevision = self.get_object()
         janitor_client = _janitor()
         try:
-            with transaction.atomic():
-                freeze_templates_into_bundle(revision, janitor_client, team_id=self.team_id)
-                result = self._call(janitor_client.freeze, str(revision.id))
-                revision.state = "ready"
-                revision.bundle_sha256 = result["bundle_sha256"]
+            freeze_templates_into_bundle(revision, janitor_client, team_id=self.team_id)
+            result = self._call(janitor_client.freeze, str(revision.id))
+            revision.state = "ready"
+            revision.bundle_sha256 = result["bundle_sha256"]
+            derived_spec = result.get("derived_spec")
+            if derived_spec is not None:
+                revision.spec = derived_spec
+                revision.save(update_fields=["state", "bundle_sha256", "spec"])
+            else:
                 revision.save(update_fields=["state", "bundle_sha256"])
         except FreezeError as e:
             err = ValidationError(e.message)

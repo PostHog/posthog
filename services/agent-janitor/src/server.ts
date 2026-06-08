@@ -48,6 +48,7 @@ import {
     accumulateUsage,
     AgentRevision,
     AgentSession,
+    AgentSpec,
     AgentSpecSchema,
     ApprovalRequest,
     ApprovalStore,
@@ -58,6 +59,7 @@ import {
     createLogger,
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
+    instrument,
     INTERNAL_JWT_AUDIENCE,
     InternalJwtVerifyError,
     lastAssistantTextPreview,
@@ -167,20 +169,29 @@ function defaultSince(): string {
  * any skill markdown in the bundle gets a spec entry, any tool dir gets a
  * spec entry. Drift requires a writer; there isn't one.
  */
-async function deriveAndPersistSpec(args: {
+/**
+ * Compute the freeze-time spec without persisting it. Django wraps the
+ * freeze call in `transaction.atomic()` and holds the `agent_revision`
+ * row lock for the duration; a janitor-side `UPDATE` from a different
+ * connection deadlocks (we saw 120s freezes pinning the Django proxy).
+ * The caller (Django) is the sole writer to that row — it stamps the
+ * derived spec alongside `state='ready'` and `bundle_sha256` in its
+ * own atomic.
+ */
+async function deriveSpec(args: {
     revisionId: string
     rev: AgentRevision
-    revisions: RevisionStore
     bundles: BundleStore
-    /** Precomputed `bundles.list()` result, threaded through to avoid a
-     *  re-list inside `readTypedBundle`. The freeze handler hands this in. */
     entries?: BundleEntry[]
-}): Promise<void> {
-    const { bundle } = await readTypedBundle(
-        args.revisionId,
-        args.bundles,
-        args.rev.spec as unknown as Record<string, unknown>,
-        args.entries
+}): Promise<AgentSpec> {
+    const ctx = { revisionId: args.revisionId }
+    const { bundle } = await instrument({ key: 'derive.readBundle', log, context: ctx }, () =>
+        readTypedBundle(
+            args.revisionId,
+            args.bundles,
+            args.rev.spec as unknown as Record<string, unknown>,
+            args.entries
+        )
     )
     const derivedSkills = bundle.skills.map((s) => ({
         id: s.id,
@@ -193,11 +204,6 @@ async function deriveAndPersistSpec(args: {
         path: `tools/${t.id}`,
     }))
 
-    // Merge with anything the author wrote via PUT /spec (mcps, triggers,
-    // native_tools, etc.). The derived arrays are authoritative for
-    // skills + custom tools; spec.tools[] may also carry kind:'native' or
-    // kind:'client' entries the author wrote — preserve those by merging
-    // alongside the derived custom entries.
     const authorTools = ((args.rev.spec as Record<string, unknown>).tools as unknown[] | undefined) ?? []
     const preservedTools = authorTools.filter(
         (t) => typeof t === 'object' && t !== null && (t as { kind?: string }).kind !== 'custom'
@@ -208,8 +214,9 @@ async function deriveAndPersistSpec(args: {
         skills: derivedSkills,
         tools: [...preservedTools, ...derivedTools],
     }
-    const parsed = AgentSpecSchema.parse(mergedSpec)
-    await args.revisions.updateSpec(args.revisionId, parsed)
+    return instrument({ key: 'derive.parseSpec', log, context: ctx }, () =>
+        Promise.resolve(AgentSpecSchema.parse(mergedSpec))
+    )
 }
 
 const BackfillUsageBodySchema = z.object({
@@ -719,65 +726,71 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             if (!needRevisionStore(res)) {
                 return
             }
-            // Idempotency: if the bundle is already frozen (e.g. a previous
-            // freeze HTTP call timed out at the Django proxy while the
-            // janitor finished writing the .frozen marker), return the
-            // existing sha instead of failing with revision_not_editable.
-            // Lets the caller stamp the row + recover from the inconsistent
-            // mid-freeze state.
-            if (opts.bundles && (await opts.bundles.isFrozen(req.params.id))) {
-                // Re-derive the sha from the existing manifest. Same shape
-                // S3BundleStore.freeze uses — list, sort, hash (path \0 sha \0).
-                const entries = await opts.bundles.list(req.params.id)
+            // Already-frozen revisions: re-derive the sha + spec from the
+            // existing manifest and return them. Lets callers recover from
+            // the case where the janitor wrote `.frozen` but the HTTP
+            // response was lost in flight.
+            if (opts.bundles && opts.revisions && (await opts.bundles.isFrozen(req.params.id))) {
+                const idCtx = { revisionId: req.params.id }
+                const entries = await instrument({ key: 'freeze.idempotent.list', log, context: idCtx }, () =>
+                    opts.bundles!.list(req.params.id)
+                )
+                const rev = await opts.revisions.getRevision(req.params.id)
+                let derivedSpec: AgentSpec | null = null
+                if (rev) {
+                    derivedSpec = await instrument({ key: 'freeze.idempotent.derive', log, context: idCtx }, () =>
+                        deriveSpec({ revisionId: req.params.id, rev, bundles: opts.bundles!, entries })
+                    )
+                }
                 const { createHash } = await import('node:crypto')
                 const hash = createHash('sha256')
                 for (const e of entries) {
                     hash.update(e.path).update('\0').update(e.sha256).update('\0')
                 }
-                res.json({ ok: true, state: 'ready', bundle_sha256: hash.digest('hex'), idempotent: true })
+                res.json({
+                    ok: true,
+                    state: 'ready',
+                    bundle_sha256: hash.digest('hex'),
+                    idempotent: true,
+                    derived_spec: derivedSpec,
+                })
                 return
             }
             const ok = await requireDraft(res, req.params.id)
             if (!ok) {
                 return
             }
-            // Single bundle.list() up front, threaded through every step
-            // that needs it. Without this each of derive / freeze re-lists
-            // the bundle (= one S3 ListObjects + N parallel HEADs each),
-            // which dominates wall time on bundles past ~10 files. Caching
-            // the result is the load-bearing latency fix.
-            const entries = await opts.bundles!.list(req.params.id)
-            await deriveAndPersistSpec({
-                revisionId: req.params.id,
-                rev: ok.rev!,
-                revisions: opts.revisions!,
-                bundles: opts.bundles!,
-                entries,
-            })
-            const merged = await opts.revisions!.getRevision(req.params.id)
-            if (!merged) {
-                res.status(404).json({ error: 'revision_not_found' })
-                return
-            }
-            // Validate before freezing — freeze is the contract that says
-            // "this is a real candidate for running." A revision that would
-            // fail validation can't pass that gate; otherwise we'd ship dead
-            // agents like the original Hedgebox Helper v2 (empty triggers).
-            const report = await validateRevisionBundle(merged, opts.bundles!)
+            const ctx = { revisionId: req.params.id }
+            const entries = await instrument({ key: 'freeze.list', log, context: ctx }, () =>
+                opts.bundles!.list(req.params.id)
+            )
+            // Derive spec without persisting — Django holds the
+            // agent_revision row lock for the duration of its freeze
+            // atomic, so a janitor-side UPDATE deadlocks. Django stamps
+            // the returned spec alongside state + sha in its own
+            // transaction.
+            const derivedSpec = await instrument(
+                { key: 'freeze.derive', log, context: { ...ctx, files: entries.length } },
+                () =>
+                    deriveSpec({
+                        revisionId: req.params.id,
+                        rev: ok.rev!,
+                        bundles: opts.bundles!,
+                        entries,
+                    })
+            )
+            const validateInput: AgentRevision = { ...ok.rev!, spec: derivedSpec }
+            const report = await instrument({ key: 'freeze.validate', log, context: ctx }, () =>
+                validateRevisionBundle(validateInput, opts.bundles!)
+            )
             if (!report.ok) {
                 res.status(422).json({ error: 'validation_failed', report })
                 return
             }
-            // Custom tools were compiled at PUT /tools/:id — the typed
-            // upload pipeline runs AST shape check + esbuild synchronously
-            // inside the upload handler. By the time freeze runs,
-            // compiled.js is on disk for every tool.
-            const sha = await opts.bundles!.freeze(req.params.id, entries)
-            // Django owns the `agent_revision.state` + `bundle_sha256` write.
-            // Returning sha lets the caller stamp the row inside its own
-            // transaction; the janitor stays out of that table to avoid
-            // cross-process row contention with the Django freeze atomic.
-            res.json({ ok: true, state: 'ready', bundle_sha256: sha })
+            const sha = await instrument({ key: 'freeze.seal', log, context: { ...ctx, files: entries.length } }, () =>
+                opts.bundles!.freeze(req.params.id, entries)
+            )
+            res.json({ ok: true, state: 'ready', bundle_sha256: sha, derived_spec: derivedSpec })
         })
     )
 
@@ -887,8 +900,13 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             // leaving a half-cloned draft. S3 server-side copy doesn't move
             // bytes through this process so the only ceiling is the S3
             // client connection pool, which handles dozens fine.
-            const src = await opts.bundles!.list(sourceId)
-            await Promise.all(src.map((entry) => opts.bundles!.copy(sourceId, entry.path, req.params.id, entry.path)))
+            const cloneCtx = { revisionId: req.params.id, sourceRevisionId: sourceId }
+            const src = await instrument({ key: 'clone_from.list', log, context: cloneCtx }, () =>
+                opts.bundles!.list(sourceId)
+            )
+            await instrument({ key: 'clone_from.copy', log, context: { ...cloneCtx, files: src.length } }, () =>
+                Promise.all(src.map((entry) => opts.bundles!.copy(sourceId, entry.path, req.params.id, entry.path)))
+            )
             const files = await opts.bundles!.list(req.params.id)
             res.json({ ok: true, source_revision_id: sourceId, files })
         })
