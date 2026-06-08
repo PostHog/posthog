@@ -246,7 +246,7 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
 
 
-def filter_to_unprivileged_scopes(scopes: Iterable[str]) -> list[str]:
+def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
     """Keep only self-serve-grantable scopes from a declared list, deduped, order preserved.
 
     The single allow-list for scopes a self-registering client declares, covering both DCR

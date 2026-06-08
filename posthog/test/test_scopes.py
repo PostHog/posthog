@@ -1,6 +1,5 @@
 import runpy
 from pathlib import Path
-from typing import cast
 
 from posthog.test.base import BaseTest
 
@@ -322,5 +321,7 @@ class TestFilterToUnprivilegedScopes(SimpleTestCase):
 
     def test_non_string_entries_dropped(self) -> None:
         # Callers pass raw partner JSON (CIMD `com.posthog.scopes`), which may hold non-strings.
-        junk = cast(list[str], ["insight:read", 123, None, {"x": 1}, "query:read"])
-        assert filter_to_unprivileged_scopes(junk) == ["insight:read", "query:read"]
+        assert filter_to_unprivileged_scopes(["insight:read", 123, None, {"x": 1}, "query:read"]) == [
+            "insight:read",
+            "query:read",
+        ]
