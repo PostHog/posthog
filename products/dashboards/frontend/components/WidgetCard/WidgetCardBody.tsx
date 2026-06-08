@@ -212,6 +212,72 @@ export function WidgetCardContent({ children, footer, className }: WidgetCardCon
     )
 }
 
+type WidgetContentFooterProps = {
+    children: React.ReactNode
+    className?: string
+}
+
+/** Pinned footer slot for list widgets — sibling of `WidgetCardContent`. */
+export function WidgetContentFooter({ children, className }: WidgetContentFooterProps): JSX.Element {
+    return (
+        <div data-slot="widget-card-content-footer" className={cn('flex shrink-0 justify-center pt-0.5', className)}>
+            {children}
+        </div>
+    )
+}
+
+export type WidgetListCountNoun = {
+    singular: string
+    plural: string
+}
+
+export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue', plural: 'issues' }
+export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
+
+export function formatWidgetListCountFooter(
+    shown: number,
+    totalCount: number | undefined,
+    totalCountIsLowerBound?: boolean,
+    noun: WidgetListCountNoun = WIDGET_LIST_COUNT_ISSUES,
+    hasMore?: boolean
+): string {
+    const label = shown === 1 && totalCount === 1 && !totalCountIsLowerBound ? noun.singular : noun.plural
+
+    if (totalCount === undefined) {
+        if (hasMore && shown > 0) {
+            return `${shown}+ ${shown === 1 ? noun.singular : noun.plural}`
+        }
+        return `${shown} ${shown === 1 ? noun.singular : noun.plural}`
+    }
+
+    const totalLabel = totalCountIsLowerBound ? `${totalCount}+` : String(totalCount)
+    return `${shown} of ${totalLabel} ${label}`
+}
+
+type WidgetListCountProps = {
+    shown: number
+    totalCount?: number
+    totalCountIsLowerBound?: boolean
+    noun?: WidgetListCountNoun
+    hasMore?: boolean
+    dataAttr: string
+}
+
+export function WidgetListCount({
+    shown,
+    totalCount,
+    totalCountIsLowerBound,
+    noun = WIDGET_LIST_COUNT_ISSUES,
+    hasMore,
+    dataAttr,
+}: WidgetListCountProps): JSX.Element {
+    return (
+        <p className="text-xs text-muted m-0 text-center" data-attr={dataAttr}>
+            {formatWidgetListCountFooter(shown, totalCount, totalCountIsLowerBound, noun, hasMore)}
+        </p>
+    )
+}
+
 export type WidgetCardSharedPlaceholderCopy = {
     title: string
     message: string

@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { ApiError } from 'lib/api-error'
-
 import {
     sessionReplayWidgetConfigSchema,
     sessionReplayWidgetFormSchema,
@@ -9,17 +7,22 @@ import {
     type StoredWidgetFilter,
     type WidgetDateFromValue,
 } from '../../widget_types/configSchemas'
-import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
+import {
+    parseWidgetConfig,
+    parseWidgetConfigApiError,
+    validateWidgetConfigInput,
+    type WidgetListFormInput,
+} from '../widgetConfigValidation'
+
 type SessionReplayWidgetFormField = keyof z.infer<typeof sessionReplayWidgetFormSchema>
 
 export type SessionReplayWidgetFieldErrors = Partial<Record<SessionReplayWidgetFormField, string>>
 
-export type SessionReplayWidgetFormInput = {
-    limit: number
-    orderBy: string
+export type SessionReplayWidgetFormInput = WidgetListFormInput & {
     orderDirection: SessionReplayWidgetConfig['orderDirection']
-    filterTestAccounts: boolean
 }
+
+const sessionReplayConfigDefaults = sessionReplayWidgetConfigSchema.parse({})
 
 export function parseSessionReplayWidgetConfig(config: Record<string, unknown>): SessionReplayWidgetConfig {
     return parseWidgetConfig(sessionReplayWidgetConfigSchema, config)
@@ -63,47 +66,35 @@ export function validateSessionReplayWidgetConfigInput(input: {
 }):
     | { success: true; config: SessionReplayWidgetConfig }
     | { success: false; fieldErrors: SessionReplayWidgetFieldErrors } {
-    const parsed = sessionReplayWidgetFormSchema.safeParse({
-        limit: input.limit,
-        orderBy: input.orderBy,
-        orderDirection: input.orderDirection,
-        dateFrom: input.baseConfig.dateRange?.date_from ?? '-7d',
-        filterTestAccounts: input.filterTestAccounts,
+    return validateWidgetConfigInput({
+        formSchema: sessionReplayWidgetFormSchema,
+        buildConfig: (formInput) =>
+            buildSessionReplayWidgetConfig(
+                {
+                    ...formInput,
+                    orderDirection: input.orderDirection as SessionReplayWidgetConfig['orderDirection'],
+                },
+                input.baseConfig
+            ),
+        input: {
+            limit: input.limit,
+            orderBy: input.orderBy,
+            dateFrom: input.baseConfig.dateRange?.date_from ?? '-7d',
+            filterTestAccounts: input.filterTestAccounts,
+            baseConfig: input.baseConfig,
+        },
     })
-
-    if (!parsed.success) {
-        return { success: false, fieldErrors: fieldErrorsFromZodError(parsed.error) }
-    }
-
-    return {
-        success: true,
-        config: buildSessionReplayWidgetConfig(parsed.data, input.baseConfig),
-    }
 }
 
 export function parseSessionReplayWidgetConfigApiError(
     error: unknown,
     config: Record<string, unknown>
 ): SessionReplayWidgetFieldErrors | null {
-    if (!(error instanceof ApiError)) {
-        return null
-    }
-
-    const parsedConfig = sessionReplayWidgetConfigSchema.safeParse(config)
-    if (parsedConfig.success) {
-        return null
-    }
-
-    const parsedForm = sessionReplayWidgetFormSchema.safeParse({
-        limit: (config.limit as number) ?? 0,
-        orderBy: (config.orderBy as string) ?? 'start_time',
-        orderDirection: (config.orderDirection as SessionReplayWidgetConfig['orderDirection']) ?? 'DESC',
-        dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
-        filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
+    return parseWidgetConfigApiError({
+        error,
+        config,
+        configSchema: sessionReplayWidgetConfigSchema,
+        formSchema: sessionReplayWidgetFormSchema,
+        defaultOrderBy: sessionReplayConfigDefaults.orderBy,
     })
-    if (!parsedForm.success) {
-        return fieldErrorsFromZodError(parsedForm.error)
-    }
-
-    return fieldErrorsFromZodError(parsedConfig.error)
 }

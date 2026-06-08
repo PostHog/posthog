@@ -9,6 +9,7 @@ export type DashboardWidgetTileFiltersProps = {
     config: Record<string, unknown>
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
     disabledReason?: string | null
+    canMutateErrorTrackingIssues?: boolean
 }
 import type {
     WidgetIssueMetadataContext,

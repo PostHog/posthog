@@ -6,6 +6,10 @@ export {
     WidgetCardContent,
     WidgetCardSharedPlaceholderBody,
     type WidgetCardSharedPlaceholderCopy,
+    WidgetContentFooter,
+    WidgetListCount,
+    WIDGET_LIST_COUNT_ISSUES,
+    WIDGET_LIST_COUNT_RECORDINGS,
     WidgetLoadingState,
 } from './WidgetCardBody'
 export {

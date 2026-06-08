@@ -279,6 +279,7 @@ function DashboardWidgetItemContent({
                     tileId={tile.id}
                     config={widget.config}
                     onUpdateConfig={componentProps.onUpdateConfig}
+                    canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
                     disabledReason={
                         canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
                     }
