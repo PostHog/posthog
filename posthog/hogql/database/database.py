@@ -173,7 +173,6 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
-    # datawarehouse_saved_query imports this module, so a top-level import would be circular.
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 tracer = trace.get_tracer(__name__)
@@ -957,7 +956,6 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        # datawarehouse_saved_query imports this module, so a top-level import would be circular.
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         with timings.measure("team", emit_span=True):
@@ -1153,7 +1151,6 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        # datawarehouse_saved_query imports this module, so a top-level import would be circular.
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         team = sources.team
