@@ -13,6 +13,9 @@ const COLLAPSED_AXIS_MARGIN = 8
 const MIN_LEFT_MARGIN = 20
 const MIN_RIGHT_MARGIN_DUAL_AXIS = 48
 const Y_LABEL_RIGHT_PADDING = 12
+// Gutter left of the y-axis labels so the widest label doesn't sit flush at the plot's left edge
+// and clip against the chart wrapper's `overflow: hidden`.
+const Y_LABEL_LEFT_GUTTER = 6
 const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
 const Y_AXIS_TITLE_MARGIN = 24
@@ -132,7 +135,7 @@ export function useChartMargins({
             ? COLLAPSED_AXIS_MARGIN
             : Math.max(
                   MIN_LEFT_MARGIN,
-                  Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING,
+                  Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING + Y_LABEL_LEFT_GUTTER,
                   xLabelHalfWidth + X_LABEL_EDGE_PADDING
               ) + (normalizedYAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right

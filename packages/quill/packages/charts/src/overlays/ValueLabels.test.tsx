@@ -345,4 +345,45 @@ describe('ValueLabels', () => {
                 .sort()
         ).toEqual(['20%', '40%', '60%', '80%'])
     })
+
+    describe('offset', () => {
+        it('nudges a vertical above-label up by the offset', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]
+            const { container } = renderInChart(makeContext(series, { labels: ['Mon'] }), <ValueLabels offset={6} />)
+            const divs = labelDivs(container)
+            expect(divs).toHaveLength(1)
+            expect(divs[0].style.transform).toBe('translate(-50%, -100%) translate(0px, -6px)')
+        })
+
+        it('nudges a horizontal label outward from the bar tip by the offset', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [1] }]
+            const ctx = makeContext(series, {
+                axisOrientation: 'horizontal',
+                labels: ['Mon'],
+                scales: { x: () => 200, y: () => 400, yTicks: () => [0, 1] },
+            })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels offset={6} />).container)
+            expect(divs).toHaveLength(1)
+            expect(divs[0].style.transform).toBe('translateY(-50%) translate(6px, 0px)')
+        })
+
+        it('ignores offset for centered percent-mode labels', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#f00', data: [20, 60] },
+                { key: 'b', label: 'B', color: '#0f0', data: [80, 40] },
+            ]
+            const percentScales: ChartScales = { x: xScale, y: (v: number) => 368 - v * 352, yTicks: () => [0, 0.5, 1] }
+            const positionByKey: Record<string, number[]> = { a: [0.2, 0.6], b: [1.0, 1.0] }
+            const resolvePositionValue: ResolveValueFn = (s, i) => positionByKey[s.key]?.[i] ?? 0
+            const ctx = makeContext(series, {
+                isPercent: true,
+                labels: ['Mon', 'Tue'],
+                scales: percentScales,
+                resolvePositionValue,
+            })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels offset={6} />).container)
+            expect(divs.length).toBeGreaterThan(0)
+            divs.forEach((d) => expect(d.style.transform).toBe('translate(-50%, -50%)'))
+        })
+    })
 })

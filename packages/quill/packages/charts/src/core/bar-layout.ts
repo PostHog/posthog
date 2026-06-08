@@ -10,6 +10,9 @@ export interface BarChartPrivate {
 
 export type SeriesBarLayout = (BarRect | null)[]
 
+// Sub-pixel overlap between adjacent stacked segments, to hide anti-aliased seams at shared edges.
+const STACK_SEGMENT_OVERLAP_PX = 0.5
+
 /** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked
  *  layers below the topmost. `shouldRoundBaseline` rounds the side *towards* the baseline — used
  *  for the bottom-of-stack layer so a funnel-style bar reads as one rounded pill on both ends. */
@@ -179,7 +182,16 @@ export function computeBarAtIndex({
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
     const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap, shouldRoundBaseline)
-    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
+    // Extend an interior segment a sub-pixel toward the baseline so it overlaps its lower neighbour,
+    // hiding the faint anti-aliased seam where two adjacent fills meet on a fractional device pixel.
+    // The bottom-of-stack segment sits on the value-axis baseline, so it's left exact — extending it
+    // would only overpaint the axis. The cap (away-from-baseline) side is always exact so cap
+    // rounding and the stack's outer edge stay put.
+    const sitsOnBaseline = Math.abs(bottomPixel - scales.value(0)) < 0.001
+    const overlappedBottom = sitsOnBaseline
+        ? bottomPixel
+        : bottomPixel + STACK_SEGMENT_OVERLAP_PX * Math.sign(bottomPixel - topPixel)
+    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, overlappedBottom, corners, dataIndex)
 }
 
 /** The track rect behind a bar — the bar's band slot stretched across the whole value

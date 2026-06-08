@@ -46,6 +46,8 @@ export interface TimeSeriesLineChartConfig {
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
+    showAxisLines?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
 }
@@ -86,6 +88,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         comparisonOf,
         percentStackView,
         showCrosshair,
+        showAxisLines,
         tooltip: tooltipConfig,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
@@ -119,6 +122,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         xAxisLabel: xAxis?.label,
         yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
+        showAxisLines,
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,

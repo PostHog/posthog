@@ -71,13 +71,14 @@ function BarChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         showGrid = false,
+        showAxisLines = false,
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
     } = config ?? {}
     const {
         cornerRadius: barCornerRadius = 0,
-        track: barTrack = false,
+        track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
         maxBandRange,
@@ -89,6 +90,8 @@ function BarChartInner<Meta = unknown>({
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
+    const barTrack = trackConfig !== false
+    const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
     const wrapperMinHeight = useMemo(
@@ -245,6 +248,7 @@ function BarChartInner<Meta = unknown>({
                 barLayout,
                 isHorizontal,
                 showGrid,
+                showAxisLines,
                 xTickFormatter,
                 stackedData,
                 topStackedKeyByAxis,
@@ -256,6 +260,7 @@ function BarChartInner<Meta = unknown>({
             }),
         [
             showGrid,
+            showAxisLines,
             stackedData,
             barLayout,
             isHorizontal,
@@ -286,7 +291,7 @@ function BarChartInner<Meta = unknown>({
                 stackedData,
                 topStackedKeyByAxis,
                 roundStackEnds,
-                barTrack,
+                barTrackHover,
             })
             if (!resolved) {
                 lastHoverKeyRef.current = null
@@ -303,7 +308,16 @@ function BarChartInner<Meta = unknown>({
             drawBarHoverItems(ctx, d3Scales, resolved, { alpha, barCornerRadius, barTrack, isHorizontal })
             return true
         },
-        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, roundStackEnds, barCornerRadius, barTrack]
+        [
+            stackedData,
+            barLayout,
+            isHorizontal,
+            topStackedKeyByAxis,
+            roundStackEnds,
+            barCornerRadius,
+            barTrack,
+            barTrackHover,
+        ]
     )
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels

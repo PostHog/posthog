@@ -13,13 +13,16 @@ export interface ValueLabelsProps {
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
     mode?: ValueLabelsMode
+    /** Gap in px between the bar tip and the label, applied along the value axis in the outward
+     *  direction (right/above the tip, or inward for labels flipped inside a clipped bar). Ignored
+     *  for centered (`percent`) labels. Defaults to 0 — the label's edge sits on the bar tip. */
+    offset?: number
 }
 
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_HEIGHT = 22
 const LABEL_PADDING_X = 4
-const LABEL_PADDING_Y = 2
 const LABEL_BORDER = 2
 const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
@@ -346,11 +349,18 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHori
 
 const LABEL_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
+    // Fixed, even border-box height so `translateY(-50%)` lands on a whole pixel (no half-pixel
+    // bias) and the text is flex-centered rather than relying on line-height to centre it.
+    boxSizing: 'border-box',
+    height: LABEL_HEIGHT,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     color: 'white',
     fontSize: 12,
     fontWeight: 600,
-    lineHeight: 1.2,
-    padding: `${LABEL_PADDING_Y}px ${LABEL_PADDING_X}px`,
+    lineHeight: 1,
+    padding: `0 ${LABEL_PADDING_X}px`,
     borderRadius: 4,
     borderWidth: LABEL_BORDER,
     borderStyle: 'solid',
@@ -359,7 +369,7 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     transition: 'transform 150ms ease-out',
 }
 
-function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): string {
+function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean, offset: number): string {
     // Lift direction depends on which side of the value-axis the label sits on.
     let liftX = 0
     let liftY = 0
@@ -370,6 +380,15 @@ function transformFor(c: Candidate, isHorizontal: boolean, hovered: boolean): st
             liftX = c.above ? HOVER_LIFT_PX : -HOVER_LIFT_PX
         } else {
             liftY = c.above ? -HOVER_LIFT_PX : HOVER_LIFT_PX
+        }
+    }
+    // Nudge the label off the bar tip, away from the baseline (or inward when flipped inside a
+    // clipped bar so the gap stays on the bar side). Centered labels sit on the segment, no offset.
+    if (offset && !c.centerAnchor) {
+        if (isHorizontal) {
+            liftX += c.above ? offset : -offset
+        } else {
+            liftY += c.above ? -offset : offset
         }
     }
     const lift = liftX === 0 && liftY === 0 ? '' : ` translate(${liftX}px, ${liftY}px)`
@@ -386,6 +405,7 @@ export function ValueLabels({
     valueFormatter,
     minGap = 4,
     mode = 'per-segment',
+    offset = 0,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
     const { hoverIndex } = useChartHover()
@@ -457,7 +477,7 @@ export function ValueLabels({
                             borderColor,
                             left: Math.round(c.x),
                             top: Math.round(c.y),
-                            transform: transformFor(c, isHorizontal, isHovered),
+                            transform: transformFor(c, isHorizontal, isHovered, offset),
                             willChange: isHovered ? 'transform' : undefined,
                         }}
                     >
