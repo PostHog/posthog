@@ -678,14 +678,18 @@ class Database(BaseModel):
         if user_access_control is not None:
             self.user_access_control = user_access_control
 
+        # Only record denials for system tables that actually exist on this database — a database
+        # without a "system" node (e.g. a direct-connection query) denies nothing.
+        removed: set[str] = set()
         if denied_system_table_names:
             system_node = self.tables.children.get("system")
             if system_node is not None and hasattr(system_node, "children"):
                 for name in denied_system_table_names:
                     if name in system_node.children:
                         del system_node.children[name]
+                        removed.add(name)
 
-        self._denied_tables = {f"system.{name}" for name in denied_system_table_names}
+        self._denied_tables = {f"system.{name}" for name in removed}
 
     def serialize(
         self,

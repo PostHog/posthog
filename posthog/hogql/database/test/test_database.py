@@ -725,19 +725,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             field_name="some_field",
         )
 
+        # A dataWarehouseEventsModifier so the define_mappings path (get_clickhouse_column_type, the
+        # events-join lookup) is also exercised under assertNumQueries(0) - it used to query per modifier.
         modifiers = create_default_modifiers_for_team(
-            self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                useMaterializedViews=True,
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="whatever0",
+                        id_field="id",
+                        timestamp_field="created_at",
+                        distinct_id_field="id",
+                    )
+                ],
+            ),
         )
         sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
 
         with self.assertNumQueries(0):
             db = Database._build_from_sources(sources)
 
-        # The warehouse table, saved query, endpoint view and join were all wired up without queries.
+        # The warehouse table, saved query, endpoint view, join and modifier were all wired up without queries.
         assert db.has_table("whatever0")
         assert db.has_table("whatever_view0")
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
+        assert "timestamp" in db.get_table("whatever0").fields
 
     def test_database_warehouse_joins_on_system_table_are_serialized(self):
         DataWarehouseJoin.objects.create(
