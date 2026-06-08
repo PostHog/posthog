@@ -1,5 +1,5 @@
 ---
-name: analyzing-clickhouse-query-performance
+name: generating-clickhouse-query-performance-reports
 description: >
   Produce and structure slow-query performance reports for PostHog's production
   ClickHouse (US and EU). Use when asked for a slow query report, query performance
@@ -11,7 +11,7 @@ description: >
   Runs queries via the `query-clickhouse-via-metabase` skill.
 ---
 
-# Analyzing ClickHouse query performance
+# Generating ClickHouse query performance reports
 
 This skill is the _methodology_ for investigating slow ClickHouse queries and writing up a
 performance report. It pairs with [`query-clickhouse-via-metabase`](../query-clickhouse-via-metabase/SKILL.md),
