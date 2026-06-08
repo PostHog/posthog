@@ -222,11 +222,74 @@ For custom tools, write **`tools/<id>/source.ts`** and
 **`tools/<id>/schema.json`** (declaring args + required secrets).
 That's it — DO NOT write `compiled.js`. The janitor compiles
 `source.ts` to `compiled.js` at freeze time using esbuild; the
-runner then sandboxes the compiled output at session start. If you
-hand-compile (e.g. by stripping type annotations and writing
-`compiled.js` yourself) you'll either ship the wrong thing or
-collide with the freeze-step output. Write `source.ts` as readable
-TypeScript and trust the build.
+runner then sandboxes the compiled output at session start. The
+janitor REJECTS direct writes to `tools/*/compiled.js` (422
+`compiled_js_is_generated`) — if you see that error, you tried to
+hand-compile; write `source.ts` instead.
+
+#### The exact `source.ts` shape the runner expects
+
+The custom-tool runtime contract is non-obvious and has burned past
+sessions for hours. The runner's sandbox loader reads
+`module.exports.default ?? module.exports` and requires it to be:
+
+```ts
+{
+    id?: string,                 // optional; defaults to spec.tools[].id
+    actions: {
+        default: (args, ctx) => unknown | Promise<unknown>,
+        // additional named actions are allowed but the runner ALWAYS
+        // dispatches with action="default". A tool without
+        // actions.default will load successfully but never fire.
+    }
+}
+```
+
+The canonical `source.ts` template:
+
+```ts
+type Args = {
+  // declare your args inline so TS catches mistakes
+  name: string
+}
+
+type Ctx = {
+  secrets: {
+    ref: (name: string) => string // opaque nonce, safe to log
+    value: (name: string) => string // raw value — only for outbound calls
+  }
+  http: {
+    fetch: (url: string, init?: RequestInit) => Promise<Response>
+  }
+}
+
+export default {
+  actions: {
+    default: async (args: Args, ctx: Ctx) => {
+      const res = await ctx.http.fetch(`https://api.example.com/hello?name=${args.name}`, {
+        headers: { Authorization: `Bearer ${ctx.secrets.value('EXAMPLE_API_KEY')}` },
+      })
+      const data = await res.json()
+      return { ok: true, data }
+    },
+  },
+}
+```
+
+**Common shapes that look right and fail:**
+
+| You wrote                                              | What compiles                  | Why it fails                                                                          |
+| ------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------- |
+| `export default async function run(args) { ... }`      | `exports.default = <function>` | Loader needs `{actions: {default: fn}}` — a bare function has no `actions` property   |
+| `export default { id: 'x', run: async (args) => ... }` | `exports.default = {id, run}`  | `actions` is missing entirely → freeze fails with "actions is missing or not object"  |
+| `export default { actions: { run: async () => ... } }` | wrong key                      | `actions.run` exists, `actions.default` doesn't — the dispatcher fires `default` only |
+| `module.exports = async function run() { ... }`        | CJS bare function              | Same as the first row — no `actions` map                                              |
+
+The freeze step **vm-evaluates the compiled output** and rejects any
+of the above with the exact reason in `compile.errors[0].message`. If
+freeze returns `compile_failed`, read that message — it tells you the
+exact shape you missed. Do NOT retry by tweaking the export style;
+the contract is `{actions: {default: fn}}` and nothing else.
 
 Use `agent-applications-revisions-file-update` for each file.
 Don't use `bundle-update` mode=replace until you have a sense for

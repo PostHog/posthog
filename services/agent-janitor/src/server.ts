@@ -163,6 +163,17 @@ const FilePathQuerySchema = z.object({
     path: z.string().min(1, 'missing_path'),
 })
 
+// Custom-tool `compiled.js` is generated at freeze from `source.ts` via esbuild.
+// Author writes (concierge included) MUST NOT touch it directly — hand-written
+// compiled.js gets clobbered by the next freeze, which historically sent the
+// concierge into a multi-turn debugging spiral guessing CJS/ESM export shapes.
+// Reject the write here so the failure surfaces immediately with a clear hint
+// instead of as a confusing "my edits didn't land" symptom later.
+const GENERATED_COMPILED_JS = /^tools\/[^/]+\/compiled\.js$/
+function isGeneratedPath(path: string): boolean {
+    return GENERATED_COMPILED_JS.test(path)
+}
+
 // Per-file ceiling, well below the express.json() 8MB limit. The 8MB cap
 // lets a single ~7MB file path slip through; this stops that. Bundles
 // containing files larger than this should land via S3 presigned URLs
@@ -711,6 +722,14 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const { path } = FilePathQuerySchema.parse(req.query)
+            if (isGeneratedPath(path)) {
+                res.status(422).json({
+                    error: 'compiled_js_is_generated',
+                    path,
+                    hint: 'compiled.js is produced from source.ts at freeze time via esbuild. Write source.ts instead — the janitor will compile it for you. Hand-written compiled.js is overwritten on the next freeze.',
+                })
+                return
+            }
             const { content } = FileUpdateBodySchema.parse(req.body)
             const ok = await requireDraft(res, req.params.id)
             if (!ok) {
@@ -769,6 +788,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const { files, mode } = BundlePutBodySchema.parse(req.body)
+            const generated = Object.keys(files).filter(isGeneratedPath)
+            if (generated.length > 0) {
+                res.status(422).json({
+                    error: 'compiled_js_is_generated',
+                    paths: generated,
+                    hint: 'compiled.js is produced from source.ts at freeze time via esbuild. Remove these entries and write source.ts instead — the janitor will compile them for you. Hand-written compiled.js is overwritten on the next freeze.',
+                })
+                return
+            }
             const ok = await requireDraft(res, req.params.id)
             if (!ok) {
                 return

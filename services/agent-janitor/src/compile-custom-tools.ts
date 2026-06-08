@@ -22,6 +22,7 @@
  */
 
 import { transform as esbuildTransform } from 'esbuild'
+import * as vm from 'vm'
 
 import { AgentRevision, BundleStore } from '@posthog/agent-shared'
 
@@ -69,6 +70,18 @@ export async function compileCustomToolsIntoBundle(
                 format: 'cjs',
                 target: 'node20',
             })
+            // Shape check: a syntactically-valid source.ts can still produce
+            // a compiled.js the runner can't dispatch — e.g.
+            // `export default async function run() {}` parses fine but
+            // exports a bare function, and the runner's loader requires
+            // `{actions: {default: fn}}`. We catch that here so the failure
+            // surfaces at freeze (recoverable, no live agent yet) instead
+            // of at the first session invocation (live, opaque, mid-chat).
+            const shapeErr = validateCompiledShape(tool.id, out.code)
+            if (shapeErr) {
+                errors.push({ tool_id: tool.id, source_path: sourcePath, message: shapeErr })
+                continue
+            }
             await bundle.write(rev.id, compiledPath, out.code)
             compiled += 1
         } catch (err) {
@@ -81,4 +94,62 @@ export async function compileCustomToolsIntoBundle(
         }
     }
     return { compiled, errors }
+}
+
+/**
+ * Eval the compiled.js in a minimal vm context and confirm it exports the
+ * exact shape the runner's sandbox loader expects:
+ *   `{ id?, actions: { default: fn | { run: fn }, ... } }`
+ *
+ * We mirror the runner's CJS extraction (`module.exports.default ?? module.exports`)
+ * so the check passes/fails identically. Returns null on success or a single-
+ * line explanation on failure — kept terse because it gets surfaced verbatim
+ * to the author.
+ *
+ * Why `actions.default` specifically: the runner's dispatcher
+ * (`build-agent-tools.ts:makeCustomTool`) always invokes with `action: 'default'`.
+ * A tool that ships without `actions.default` will load but never dispatch.
+ */
+function validateCompiledShape(toolId: string, code: string): string | null {
+    const sandbox: Record<string, unknown> = {
+        module: { exports: {} },
+        exports: {},
+        console: { log: () => undefined, warn: () => undefined, error: () => undefined },
+        setTimeout,
+        clearTimeout,
+        setInterval,
+        clearInterval,
+        Promise,
+        URL,
+        URLSearchParams,
+        TextEncoder,
+        TextDecoder,
+        Buffer,
+        JSON,
+    }
+    sandbox.global = sandbox
+    const ctx = vm.createContext(sandbox)
+    try {
+        vm.runInContext(code, ctx, { filename: `tools/${toolId}/compiled.js`, timeout: 1000 })
+    } catch (err) {
+        return `compiled output threw at module load: ${(err as Error).message.split('\n')[0]}`
+    }
+    const moduleExports = (sandbox.module as { exports: unknown }).exports
+    const exported = (moduleExports as { default?: unknown })?.default ?? moduleExports
+    if (!exported || typeof exported !== 'object') {
+        return 'source.ts must export `{ id?, actions: { default: fn } }` — got a non-object (likely `export default <function>` instead of `export default { actions: { default: fn } }`)'
+    }
+    const obj = exported as { actions?: unknown }
+    if (!obj.actions || typeof obj.actions !== 'object') {
+        return 'source.ts must export `{ actions: { default: fn } }` — `actions` is missing or not an object'
+    }
+    const actions = obj.actions as Record<string, unknown>
+    const def = actions.default
+    const isCallable = typeof def === 'function'
+    const isRunWrapper = def && typeof def === 'object' && typeof (def as { run?: unknown }).run === 'function'
+    if (!isCallable && !isRunWrapper) {
+        const got = def === undefined ? 'undefined' : typeof def
+        return `source.ts must export \`actions.default\` as a function (or \`{ run: fn }\`) — got ${got}. The runner always dispatches action="default"; other action names will load but never fire.`
+    }
+    return null
 }

@@ -785,6 +785,64 @@ describe('janitor HTTP', () => {
         expect(get.body.content).toBe('export default 1')
     })
 
+    it('PUT /revisions/:id/file rejects writes to tools/<id>/compiled.js — generated at freeze', async () => {
+        // History: the concierge spent hours hand-writing compiled.js with
+        // various CJS/ESM export shapes when the runner couldn't dispatch.
+        // Now that freeze owns compile, hand-written compiled.js is silently
+        // overwritten on the next freeze — confusing the model into thinking
+        // its edits aren't landing. Reject the write up front with a clear
+        // hint pointing back at source.ts.
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/file?path=tools/my-tool/compiled.js`)
+            .send({ content: 'module.exports = { actions: { default: () => 1 } }' })
+        expect(res.status).toBe(422)
+        expect(res.body.error).toBe('compiled_js_is_generated')
+        expect(res.body.hint).toMatch(/source\.ts/i)
+        // Nothing was actually written.
+        expect(await bundles.exists(revisionId, 'tools/my-tool/compiled.js')).toBe(false)
+    })
+
+    it('PUT /revisions/:id/file allows source.ts and other paths under tools/', async () => {
+        // The guard is precise — only tools/<id>/compiled.js is blocked.
+        // source.ts, schema.json, README.md, and arbitrary subdirs all pass.
+        const { app, revisionId } = await mkRevisionApp()
+        for (const path of [
+            'tools/my-tool/source.ts',
+            'tools/my-tool/schema.json',
+            'tools/my-tool/README.md',
+            'tools/my-tool/helpers/util.ts',
+        ]) {
+            const res = await request(app).put(`/revisions/${revisionId}/file?path=${path}`).send({ content: 'x' })
+            expect(res.status, `expected ${path} to be allowed`).toBe(200)
+        }
+    })
+
+    it('PUT /revisions/:id/bundle rejects any compiled.js entry in the bulk push', async () => {
+        // Same rule as the single-file PUT, applied to the bulk push path the
+        // concierge uses for first-revision authoring. Reports every offending
+        // path so the caller can fix the request in one round-trip.
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/bundle`)
+            .send({
+                files: {
+                    'agent.md': 'system prompt',
+                    'tools/a/source.ts': 'export default { actions: { default: () => 1 } }',
+                    'tools/a/compiled.js': 'module.exports = {}',
+                    'tools/b/compiled.js': 'module.exports = {}',
+                },
+                mode: 'merge',
+            })
+        expect(res.status).toBe(422)
+        expect(res.body.error).toBe('compiled_js_is_generated')
+        expect((res.body.paths as string[]).sort()).toEqual(['tools/a/compiled.js', 'tools/b/compiled.js'])
+        // No partial write — the whole bundle push is rejected so the caller
+        // doesn't end up with half their tool authored.
+        expect(await bundles.exists(revisionId, 'agent.md')).toBe(false)
+        expect(await bundles.exists(revisionId, 'tools/a/source.ts')).toBe(false)
+    })
+
     it('DELETE /revisions/:id/file removes the file', async () => {
         const { app, bundles, revisionId } = await mkRevisionApp()
         await bundles.write(revisionId, 'doomed.md', 'bye')
