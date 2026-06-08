@@ -723,6 +723,9 @@ importers:
       '@posthog/products-product-analytics':
         specifier: workspace:*
         version: link:../products/product_analytics
+      '@posthog/products-pulse':
+        specifier: workspace:*
+        version: link:../products/pulse
       '@posthog/products-replay':
         specifier: workspace:*
         version: link:../products/replay
@@ -3798,6 +3801,43 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/product_tours: {}
+
+  products/pulse:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.37.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/reminders: {}
 
@@ -22272,8 +22312,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.428.0:
-    resolution: {integrity: sha512-QW9wRDW1ejd+wpJpX0uebs1y6xp45j8FLCVusA/mGCh0arjqevlfY0op/g96ShaDrGVJp1ROklk+UmE5lDezBA==}
+  unlayer-types@1.433.0:
+    resolution: {integrity: sha512-3irjQmcrnZ9qgBixI7ofa4RdO3I0BR5cS7ujUClze3gaxRloGhfdKbg626QTObdcxT/4NZhaD4pbGlftffVrKA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -43502,7 +43542,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.428.0
+      unlayer-types: 1.433.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45812,7 +45852,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.428.0: {}
+  unlayer-types@1.433.0: {}
 
   unpipe@1.0.0: {}
 
