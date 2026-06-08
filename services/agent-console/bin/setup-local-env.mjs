@@ -6,10 +6,13 @@
  *   1. Calls the `setup_oauth_for_agent_console` Django management
  *      command (via `flox activate -- python manage.py ...`) and
  *      parses the JSON output to get `client_id` + `client_secret`.
- *   2. Reads any existing `.env.local`, merges in the OAuth creds,
- *      generates `OAUTH_COOKIE_SECRET` if missing, and fills any
- *      other unset keys from `.env.local.example` defaults.
+ *   2. Reads any existing `.env.local`, merges in the OAuth creds.
  *   3. Writes `.env.local` back out.
+ *
+ * The cookie sealer (`OAUTH_COOKIE_SECRET`) and URL defaults are no
+ * longer materialized into `.env.local` — `src/lib/config.ts` supplies
+ * deterministic dev defaults for them via zod. Override either by
+ * setting the env var explicitly.
  *
  * Run from the agent-console directory or anywhere — it cd's to the
  * package root by `import.meta.url`.
@@ -18,7 +21,6 @@
  */
 
 import { spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,25 +29,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CONSOLE_ROOT = path.resolve(HERE, '..')
 const REPO_ROOT = path.resolve(CONSOLE_ROOT, '../..')
 const ENV_FILE = path.join(CONSOLE_ROOT, '.env.local')
-const EXAMPLE_FILE = path.join(CONSOLE_ROOT, '.env.local.example')
-
-const DEFAULTS = {
-    POSTHOG_BASE_URL: 'http://localhost:8010',
-    POSTHOG_AGENTS_BASE: 'http://localhost:3030',
-    CONSOLE_BASE_URL: 'http://localhost:3040',
-}
 
 async function main() {
     const { clientId, clientSecret } = await runDjango()
 
     const existing = await readEnvFile(ENV_FILE)
     const merged = { ...existing }
-
-    for (const [k, v] of Object.entries(DEFAULTS)) {
-        if (!merged[k]) {
-            merged[k] = v
-        }
-    }
 
     merged.POSTHOG_OAUTH_CLIENT_ID = clientId
     if (clientSecret) {
@@ -55,10 +44,6 @@ async function main() {
             'Django returned no client_secret (--keep-secret used?) and none exists in .env.local. ' +
                 'Re-run without --keep-secret to rotate.'
         )
-    }
-
-    if (!merged.OAUTH_COOKIE_SECRET) {
-        merged.OAUTH_COOKIE_SECRET = randomBytes(32).toString('hex')
     }
 
     await writeEnvFile(ENV_FILE, merged)
@@ -144,14 +129,7 @@ async function readEnvFile(file) {
 async function writeEnvFile(file, kv) {
     // Preserve a stable order. Anything we didn't predefine gets
     // appended at the bottom in insertion order.
-    const orderedKeys = [
-        'POSTHOG_BASE_URL',
-        'POSTHOG_AGENTS_BASE',
-        'CONSOLE_BASE_URL',
-        'POSTHOG_OAUTH_CLIENT_ID',
-        'POSTHOG_OAUTH_CLIENT_SECRET',
-        'OAUTH_COOKIE_SECRET',
-    ]
+    const orderedKeys = ['POSTHOG_OAUTH_CLIENT_ID', 'POSTHOG_OAUTH_CLIENT_SECRET']
     const seen = new Set()
     const lines = []
     for (const key of orderedKeys) {
@@ -173,6 +151,3 @@ main().catch((err) => {
     console.error('setup-local-env failed:', err.message)
     process.exit(1)
 })
-
-// Avoid lint complaining about unused — referenced via @ts-check
-void EXAMPLE_FILE

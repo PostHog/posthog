@@ -24,9 +24,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 
-import { posthogAgentsBaseUrl, posthogBaseUrl } from '@/lib/auth/config'
 import { clearSession, getSession, setSession, type SessionPayload } from '@/lib/auth/session'
 import { OAuthTokenError, refreshAccessToken } from '@/lib/auth/tokens'
+import { getConfig } from '@/lib/config'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,12 +80,13 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
 }
 
 function buildUpstreamUrl(segments: string[], search: string): string {
+    const { posthogAgentsBaseUrl, posthogBaseUrl } = getConfig()
     if (segments[0] === 'agents' && segments[1] === 'v1') {
         const rest = segments.slice(2).join('/')
-        return `${posthogAgentsBaseUrl()}/${rest}${search}`
+        return `${posthogAgentsBaseUrl}/${rest}${search}`
     }
     const rest = segments.join('/')
-    return `${posthogBaseUrl()}/api/${rest}${search}`
+    return `${posthogBaseUrl}/api/${rest}${search}`
 }
 
 async function buildRequestInit(request: NextRequest): Promise<RequestInit> {

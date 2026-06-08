@@ -9,9 +9,9 @@
 
 import { NextResponse } from 'next/server'
 
-import { posthogBaseUrl } from '@/lib/auth/config'
 import { clearSession, getSession, setSession, type SessionPayload } from '@/lib/auth/session'
 import { OAuthTokenError, refreshAccessToken } from '@/lib/auth/tokens'
+import { getConfig } from '@/lib/config'
 
 /**
  * `GET /api/auth/me` — returns the authenticated identity for the UI.
@@ -34,9 +34,11 @@ export async function GET(): Promise<Response> {
         return NextResponse.json({ authenticated: false }, { status: 200 })
     }
 
+    const { posthogBaseUrl } = getConfig()
+
     let [oidc, profile] = await Promise.all([
-        fetchJson(`${posthogBaseUrl()}/oauth/userinfo/`, session.accessToken),
-        fetchJson(`${posthogBaseUrl()}/api/users/@me/`, session.accessToken),
+        fetchJson(`${posthogBaseUrl}/oauth/userinfo/`, session.accessToken),
+        fetchJson(`${posthogBaseUrl}/api/users/@me/`, session.accessToken),
     ])
 
     // If either upstream 401'd, the access token has expired. Refresh
@@ -55,8 +57,8 @@ export async function GET(): Promise<Response> {
         session = { ...session, ...refreshed }
         await setSession(session)
         ;[oidc, profile] = await Promise.all([
-            fetchJson(`${posthogBaseUrl()}/oauth/userinfo/`, session.accessToken),
-            fetchJson(`${posthogBaseUrl()}/api/users/@me/`, session.accessToken),
+            fetchJson(`${posthogBaseUrl}/oauth/userinfo/`, session.accessToken),
+            fetchJson(`${posthogBaseUrl}/api/users/@me/`, session.accessToken),
         ])
     }
 
@@ -72,7 +74,7 @@ export async function GET(): Promise<Response> {
         // Surfaced so the browser can link back to the main app (the
         // sidebar's "Back to PostHog" item) without leaking the internal
         // url into client code.
-        posthogBaseUrl: posthogBaseUrl(),
+        posthogBaseUrl,
     })
 }
 

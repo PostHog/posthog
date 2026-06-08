@@ -8,8 +8,9 @@
  * Server-side only.
  */
 
+import { getConfig } from '@/lib/config'
+
 import { getOAuthClient, redirectUri } from './client'
-import { posthogBaseUrl } from './config'
 import type { SessionPayload } from './session'
 
 interface TokenResponse {
@@ -55,7 +56,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<SessionP
 }
 
 async function tokenRequest(body: URLSearchParams): Promise<SessionPayload> {
-    const res = await fetch(`${posthogBaseUrl()}/oauth/token/`, {
+    const res = await fetch(`${getConfig().posthogBaseUrl}/oauth/token/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',

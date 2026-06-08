@@ -3823,13 +3823,16 @@ importers:
         version: 0.577.0(react@18.3.1)
       next:
         specifier: ^15.5.4
-        version: 15.5.18(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
+        version: 15.5.18(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
       react:
         specifier: 18.3.1
         version: 18.3.1
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@storybook/addon-docs':
         specifier: ^8.6.14
@@ -22835,8 +22838,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.419.0:
-    resolution: {integrity: sha512-Yl4/EK+aafqO0a2+NRECq3+T1r+PIVJchAuDKVaAGR4YvGGe9npC0d+LkPag6n22+U/bxGHaf1WxnhrZzR3rKw==}
+  unlayer-types@1.420.0:
+    resolution: {integrity: sha512-MD7+ZTGB89LGDeGqTfV9qmQU9xjRGcnYZCXXzPZ08lUpcO2KhrabzVkxpLgTDmzc+sHBDNi+StarpOdUvDhgQw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -43532,7 +43535,7 @@ snapshots:
 
   netmask@2.0.2: {}
 
-  next@15.5.18(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0):
+  next@15.5.18(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0):
     dependencies:
       '@next/env': 15.5.18
       '@swc/helpers': 0.5.15
@@ -43540,7 +43543,7 @@ snapshots:
       postcss: 8.4.31
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      styled-jsx: 5.1.6(react@18.3.1)
+      styled-jsx: 5.1.6(@babel/core@7.29.0)(react@18.3.1)
     optionalDependencies:
       '@next/swc-darwin-arm64': 15.5.18
       '@next/swc-darwin-x64': 15.5.18
@@ -45753,7 +45756,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.419.0
+      unlayer-types: 1.420.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -47104,10 +47107,12 @@ snapshots:
     dependencies:
       inline-style-parser: 0.2.7
 
-  styled-jsx@5.1.6(react@18.3.1):
+  styled-jsx@5.1.6(@babel/core@7.29.0)(react@18.3.1):
     dependencies:
       client-only: 0.0.1
       react: 18.3.1
+    optionalDependencies:
+      '@babel/core': 7.29.0
 
   stylehacks@7.0.4(postcss@8.5.15):
     dependencies:
@@ -48120,7 +48125,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.419.0: {}
+  unlayer-types@1.420.0: {}
 
   unpipe@1.0.0: {}
 

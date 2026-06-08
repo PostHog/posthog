@@ -1,11 +1,11 @@
 /**
- * OAuth client config — env-var driven.
+ * OAuth client config — pulls from the typed config.
  *
  * The agent console doesn't self-register. The OAuth app is provisioned
  * out-of-band:
- *   - **Dev:** `python manage.py setup_oauth_for_agent_console` (added
- *     in the same change as this file) creates the OAuthApplication
- *     row and prints credentials to paste into `.env.local`.
+ *   - **Dev:** `python manage.py setup_oauth_for_agent_console` (also
+ *     wrapped by `pnpm setup:local`) creates the OAuthApplication row
+ *     and writes credentials into `.env.local`.
  *   - **Prod:** ops creates the OAuth app via the PostHog admin and
  *     supplies `POSTHOG_OAUTH_CLIENT_ID` + `POSTHOG_OAUTH_CLIENT_SECRET`
  *     via the deploy's env.
@@ -14,7 +14,7 @@
  * add the write surface later.
  */
 
-import { consoleBaseUrl } from './config'
+import { getConfig } from '@/lib/config'
 
 export interface OAuthClient {
     clientId: string
@@ -32,14 +32,13 @@ const SCOPES = [
 ].join(' ')
 
 export function getOAuthClient(): OAuthClient {
-    const clientId = process.env.POSTHOG_OAUTH_CLIENT_ID
-    const clientSecret = process.env.POSTHOG_OAUTH_CLIENT_SECRET
-    if (!clientId || !clientSecret) {
+    const { oauthClientId, oauthClientSecret } = getConfig()
+    if (!oauthClientId || !oauthClientSecret) {
         throw new Error(
-            'POSTHOG_OAUTH_CLIENT_ID / POSTHOG_OAUTH_CLIENT_SECRET are not set. Run `python manage.py setup_oauth_for_agent_console` to provision a dev OAuth app, then paste the values into services/agent-console/.env.local.'
+            'POSTHOG_OAUTH_CLIENT_ID / POSTHOG_OAUTH_CLIENT_SECRET are not set. Run `pnpm --filter @posthog/agent-console setup:local` to provision a dev OAuth app.'
         )
     }
-    return { clientId, clientSecret }
+    return { clientId: oauthClientId, clientSecret: oauthClientSecret }
 }
 
 export function clientScope(): string {
@@ -47,5 +46,5 @@ export function clientScope(): string {
 }
 
 export function redirectUri(): string {
-    return new URL('/api/auth/callback', consoleBaseUrl()).toString()
+    return new URL('/api/auth/callback', getConfig().consoleBaseUrl).toString()
 }

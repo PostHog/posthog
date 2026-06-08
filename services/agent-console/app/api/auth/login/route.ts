@@ -16,8 +16,8 @@ import { NextResponse } from 'next/server'
 import { createHash, randomBytes } from 'node:crypto'
 
 import { clientScope, getOAuthClient, redirectUri } from '@/lib/auth/client'
-import { posthogBaseUrl } from '@/lib/auth/config'
 import { setOAuthFlow } from '@/lib/auth/session'
+import { getConfig } from '@/lib/config'
 
 function base64url(buf: Buffer): string {
     return buf.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
@@ -41,7 +41,7 @@ export async function GET(request: Request): Promise<Response> {
     await setOAuthFlow({ state, codeVerifier, returnTo })
 
     const { clientId } = getOAuthClient()
-    const authorizeUrl = new URL('/oauth/authorize/', posthogBaseUrl())
+    const authorizeUrl = new URL('/oauth/authorize/', getConfig().posthogBaseUrl)
     authorizeUrl.searchParams.set('client_id', clientId)
     authorizeUrl.searchParams.set('redirect_uri', redirectUri())
     authorizeUrl.searchParams.set('response_type', 'code')

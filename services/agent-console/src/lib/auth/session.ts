@@ -13,7 +13,15 @@
 import { sealData, unsealData } from 'iron-session'
 import { cookies } from 'next/headers'
 
-import { cookieSecret } from './config'
+import { getConfig } from '@/lib/config'
+
+function cookieSecret(): string {
+    return getConfig().oauthCookieSecret
+}
+
+function cookieSecure(): boolean {
+    return getConfig().nodeEnv === 'production'
+}
 
 const COOKIE_NAME = 'agent-console-session'
 const COOKIE_TTL_SECONDS = 60 * 60 * 24 * 7 // 7 days
@@ -57,7 +65,7 @@ export async function setSession(payload: SessionPayload): Promise<void> {
     store.set(COOKIE_NAME, sealed, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        secure: cookieSecure(),
         path: '/',
         maxAge: COOKIE_TTL_SECONDS,
     })
@@ -90,7 +98,7 @@ export async function setOAuthFlow(payload: OAuthFlowPayload): Promise<void> {
     store.set(FLOW_COOKIE_NAME, sealed, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        secure: cookieSecure(),
         path: '/',
         maxAge: FLOW_COOKIE_TTL_SECONDS,
     })

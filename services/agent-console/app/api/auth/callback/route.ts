@@ -15,9 +15,9 @@
 
 import { NextResponse } from 'next/server'
 
-import { posthogBaseUrl } from '@/lib/auth/config'
 import { consumeOAuthFlow, setSession } from '@/lib/auth/session'
 import { exchangeAuthorizationCode } from '@/lib/auth/tokens'
+import { getConfig } from '@/lib/config'
 
 export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -59,7 +59,7 @@ export async function GET(request: Request): Promise<Response> {
 
 async function fetchCurrentTeamId(accessToken: string): Promise<number | undefined> {
     try {
-        const res = await fetch(`${posthogBaseUrl()}/api/users/@me/`, {
+        const res = await fetch(`${getConfig().posthogBaseUrl}/api/users/@me/`, {
             headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
         })
         if (!res.ok) {

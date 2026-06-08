@@ -11,8 +11,8 @@
 import { NextResponse } from 'next/server'
 
 import { getOAuthClient } from '@/lib/auth/client'
-import { posthogBaseUrl } from '@/lib/auth/config'
 import { clearSession, getSession } from '@/lib/auth/session'
+import { getConfig } from '@/lib/config'
 
 async function revoke(token: string, hint: 'access_token' | 'refresh_token'): Promise<void> {
     const { clientId, clientSecret } = getOAuthClient()
@@ -23,7 +23,7 @@ async function revoke(token: string, hint: 'access_token' | 'refresh_token'): Pr
         client_secret: clientSecret,
     })
     try {
-        await fetch(`${posthogBaseUrl()}/oauth/revoke/`, {
+        await fetch(`${getConfig().posthogBaseUrl}/oauth/revoke/`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
@@ -43,7 +43,7 @@ async function handle(): Promise<Response> {
 }
 
 function getOrigin(): string {
-    return process.env.CONSOLE_BASE_URL ?? 'http://localhost:3040'
+    return getConfig().consoleBaseUrl
 }
 
 export const GET = handle

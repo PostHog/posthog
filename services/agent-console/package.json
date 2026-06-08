@@ -25,7 +25,8 @@
         "lucide-react": "^0.577.0",
         "next": "^15.5.4",
         "react": "^19.2.0",
-        "react-dom": "^19.2.0"
+        "react-dom": "^19.2.0",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@storybook/addon-docs": "^8.6.14",
