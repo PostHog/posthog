@@ -17,16 +17,16 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 from posthog.exceptions_capture import capture_exception
-from posthog.utils import get_instance_region
-
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
-from products.exports.backend.temporal.subscriptions.prompt_sanitization import (
+from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
     SUBSCRIPTION_TITLE_MAX_LEN,
     sanitize_core_memory_text,
     sanitize_user_text,
 )
+from posthog.utils import get_instance_region
+
+from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
 from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)

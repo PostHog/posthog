@@ -2228,6 +2228,68 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FolderInstructionsApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Markdown instructions describing the contents of the folder. */
+    readonly content: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+    /** When this version row was last modified. */
+    readonly updated_at: string
+}
+
+export interface FolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+export interface PatchedFolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content?: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+/**
+ * Version-history entry: metadata only, with the markdown content omitted.
+ */
+export interface FolderInstructionsVersionApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+}
+
+export interface PaginatedFolderInstructionsVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FolderInstructionsVersionApi[]
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -2659,11 +2721,11 @@ export interface SubscriptionApi {
   * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
-    interval?: number
+    interval: number
     /**
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
@@ -2789,8 +2851,8 @@ export interface PatchedSubscriptionApi {
   * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
     interval?: number
@@ -2943,6 +3005,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -3552,6 +3619,21 @@ export type DesktopFileSystemListParams = {
     search?: string
 }
 
+export type DesktopFileSystemInstructionsVersionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type DesktopFileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
@@ -3657,7 +3739,7 @@ export type PropertyDefinitionsListParams = {
      */
     excluded_properties?: string
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null
@@ -3666,7 +3748,7 @@ export type PropertyDefinitionsListParams = {
      */
     group_type_index?: number
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null

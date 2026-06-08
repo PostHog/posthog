@@ -6,8 +6,6 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -650,8 +648,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         values: [
             teamLogic,
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
-            featureFlagLogic,
-            ['featureFlags'],
             batchExportDataLogic({ id: props.id }),
             ['batchExportConfig', 'batchExportConfigLoading'],
         ],
@@ -722,7 +718,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         end_at,
                         model,
                         filters,
-                        json_config_file,
                         integration_id,
                         // Redshift COPY configuration
                         mode,
@@ -894,8 +889,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
         ],
         requiredFields: [
-            (s) => [s.service, s.isNew, s.configuration, s.featureFlags],
-            (service, isNew, config, featureFlags): string[] => {
+            (s) => [s.service, s.isNew, s.configuration],
+            (service, isNew, config): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
@@ -930,17 +925,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         ...(isNew ? ['file_format'] : []),
                     ]
                 } else if (service === 'BigQuery') {
-                    return [
-                        ...generalRequiredFields,
-                        ...(isNew && !featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
-                            ? ['json_config_file']
-                            : []),
-                        ...(isNew && featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
-                            ? ['integration_id']
-                            : []),
-                        'dataset_id',
-                        'table_id',
-                    ]
+                    return [...generalRequiredFields, ...(isNew ? ['integration_id'] : []), 'dataset_id', 'table_id']
                 } else if (service === 'HTTP') {
                     return [...generalRequiredFields, 'url', 'token']
                 } else if (service === 'Snowflake') {
@@ -984,7 +969,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 end_at,
                 model,
                 filters,
-                json_config_file,
                 integration_id,
                 // Redshift COPY configuration
                 mode,
@@ -1131,33 +1115,9 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             }
             actions.setRunningStep(null)
         },
-        setConfigurationValue: async ({ name, value }) => {
+        setConfigurationValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
-            if (fieldName === 'json_config_file' && value) {
-                try {
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const filereader = new FileReader()
-                        filereader.onload = (e) => resolve(e.target?.result as string)
-                        filereader.onerror = (e) => reject(e)
-                        filereader.readAsText(value[0])
-                    })
-                    const jsonConfig = JSON.parse(loadedFile)
-                    const { json_config_file, ...remainingConfig } = values.configuration
-
-                    actions.setConfigurationValues({
-                        ...remainingConfig,
-                        project_id: jsonConfig.project_id,
-                        private_key: jsonConfig.private_key,
-                        private_key_id: jsonConfig.private_key_id,
-                        client_email: jsonConfig.client_email,
-                        token_uri: jsonConfig.token_uri,
-                    })
-                } catch {
-                    actions.setConfigurationManualErrors({
-                        json_config_file: 'The config file is not valid',
-                    })
-                }
-            } else if (fieldName === 'interval') {
+            if (fieldName === 'interval') {
                 // if changing to day or week, set the timezone to the team's timezone if not already set
                 if (value === 'day' || value === 'week') {
                     // if we didn't have a timezone set before, set it to the team's timezone

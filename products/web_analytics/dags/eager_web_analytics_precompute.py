@@ -34,6 +34,8 @@ queries users actually ran. The eager job covers the fixed UI matrix;
 the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
+import time
+
 import dagster
 import structlog
 from prometheus_client import Counter
@@ -169,10 +171,17 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 
     warmed = 0
     failed = 0
-    for query in queries:
+    total = len(queries)
+    for idx, query in enumerate(queries, start=1):
         kind = str(query.get("kind"))
         breakdown_value = query.get("breakdownBy")
         label = f"{kind}:{breakdown_value}" if breakdown_value else kind
+        # Per-tile start line so the run is followable live in the Dagster UI —
+        # each tile can take up to the query timeout, so seeing which one is in
+        # flight (and how far through the matrix) matters when a run drags.
+        context.log.info(f"eager_baseline_warming_tile_start [{idx}/{total}] team={team.pk} query={label}")
+        logger.info("eager_baseline_warming_tile_start", team_id=team.pk, query=label, tile=idx, total=total)
+        tile_started = time.monotonic()
         try:
             # Tag BEFORE constructing the runner. `tag_queries` writes to
             # a contextvar; any I/O the runner does at construction time
@@ -187,9 +196,38 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
+            tile_ms = round((time.monotonic() - tile_started) * 1000)
+            context.log.info(
+                f"eager_baseline_warming_tile_done [{idx}/{total}] team={team.pk} query={label} "
+                f"status=warmed duration_ms={tile_ms}"
+            )
+            logger.info(
+                "eager_baseline_warming_tile_done",
+                team_id=team.pk,
+                query=label,
+                tile=idx,
+                total=total,
+                status="warmed",
+                duration_ms=tile_ms,
+            )
         except Exception as exc:
+            tile_ms = round((time.monotonic() - tile_started) * 1000)
             EAGER_PRECOMPUTE_BASELINE_FAILED.labels(query_kind=label, error_type=type(exc).__name__).inc()
-            context.log.exception(f"eager_baseline_warming_query_failed team={team.pk} query={label}")
+            context.log.exception(
+                f"eager_baseline_warming_query_failed [{idx}/{total}] team={team.pk} query={label} "
+                f"duration_ms={tile_ms}"
+            )
+            logger.exception(
+                "eager_baseline_warming_query_failed",
+                team_id=team.pk,
+                query=label,
+                query_kind=label,
+                tile=idx,
+                total=total,
+                status="failed",
+                duration_ms=tile_ms,
+                error_type=type(exc).__name__,
+            )
             failed += 1
     return warmed, failed
 
@@ -197,11 +235,16 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 @dagster.op
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
     """Run the baseline tile matrix against every team in `EAGER_BASELINE_TEAM_IDS`."""
+    started = time.monotonic()
     team_ids, gate_reason, diagnostics = _resolve_eager_audience()
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
     context.log.info(
         f"eager_baseline_warming_start teams={len(team_ids)} gate_reason={gate_reason} {diag_str}".rstrip()
     )
+    # Mirror lifecycle events to structlog so the run is queryable in Loki /
+    # PostHog. `context.log` only reaches the Dagster UI — PostHog's Dagster
+    # has no python_logs sink wiring it to stdout.
+    logger.info("eager_baseline_warming_start", teams=len(team_ids), gate_reason=gate_reason, **diagnostics)
 
     # Bulk-load teams once instead of N+1 per-team get().
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids).select_related("organization")}
@@ -213,19 +256,38 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
         team = teams_by_id.get(team_id)
         if team is None:
             context.log.warning(f"eager_baseline_warming_team_missing team_id={team_id}")
+            logger.warning("eager_baseline_warming_team_missing", team_id=team_id)
             skipped += 1
             continue
 
+        team_started = time.monotonic()
         team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        logger.info(
+            "eager_baseline_warming_team",
+            team_id=team_id,
+            warmed=team_warmed,
+            failed=team_failed,
+            duration_ms=round((time.monotonic() - team_started) * 1000),
+        )
         warmed += team_warmed
         failed += team_failed
 
+    duration_ms = round((time.monotonic() - started) * 1000)
     context.log.info(
         f"eager_baseline_warming_complete teams={len(team_ids)} warmed={warmed} failed={failed} "
-        f"skipped={skipped} gate_reason={gate_reason}"
+        f"skipped={skipped} gate_reason={gate_reason} duration_ms={duration_ms}"
+    )
+    logger.info(
+        "eager_baseline_warming_complete",
+        teams=len(team_ids),
+        warmed=warmed,
+        failed=failed,
+        skipped=skipped,
+        gate_reason=gate_reason,
+        duration_ms=duration_ms,
     )
     result = {"teams": len(team_ids), "warmed": warmed, "failed": failed, "skipped": skipped}
-    context.add_output_metadata({**result, "gate_reason": gate_reason, **diagnostics})
+    context.add_output_metadata({**result, "gate_reason": gate_reason, "duration_ms": duration_ms, **diagnostics})
     return result
 
 

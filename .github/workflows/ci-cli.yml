@@ -6,6 +6,7 @@ on:
         paths:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
+            - '.github/workflows/release-cli.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
