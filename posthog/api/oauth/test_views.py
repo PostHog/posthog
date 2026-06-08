@@ -2459,11 +2459,27 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
-            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+            (
+                "ceiling_excludes_requested",
+                ["experiment:read"],
+                "experiment:write",
+                "experiment:write",
+                ["experiment:write"],
+            ),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read", "llm_gateway:read", ["llm_gateway:read"]),
+            # mixed grantable + out-of-ceiling scope: requested records the full set, rejected pins to just the offender
+            (
+                "mixed_scope_isolates_offender",
+                ["experiment:read"],
+                "experiment:read%20experiment:write",
+                "experiment:read experiment:write",
+                ["experiment:write"],
+            ),
         ]
     )
-    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+    def test_authorize_rejection_captures_invalid_scope_event(
+        self, _name, ceiling, requested_scope, expected_requested_scopes, expected_rejected_scopes
+    ):
         self._set_ceiling(*ceiling)
         with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
             response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
@@ -2478,23 +2494,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(props["registration_type"], "manual")
         self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
         self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
-        self.assertEqual(props["requested_scopes"], requested_scope)
-        self.assertEqual(props["rejected_scopes"], [requested_scope])
-
-    def test_authorize_rejection_event_isolates_offending_scope(self):
-        # A request mixing a grantable scope with an out-of-ceiling one records the
-        # full requested set but pins rejected_scopes to just the offender — this is
-        # the signal that turns the alert from "something failed" into "scope X is".
-        self._set_ceiling("experiment:read")
-        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
-            response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read%20experiment:write")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("error=invalid_scope", response.get("Location") or "")
-        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
-        self.assertEqual(len(rejected), 1)
-        props = rejected[0].kwargs["properties"]
-        self.assertEqual(props["requested_scopes"], "experiment:read experiment:write")
-        self.assertEqual(props["rejected_scopes"], ["experiment:write"])
+        self.assertEqual(props["requested_scopes"], expected_requested_scopes)
+        self.assertEqual(props["rejected_scopes"], expected_rejected_scopes)
 
     def test_authorize_success_does_not_capture_invalid_scope_event(self):
         self._set_ceiling("experiment:read")
