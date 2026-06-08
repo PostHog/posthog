@@ -69,7 +69,8 @@ export function AIGatewayScene(): JSX.Element {
         {
             width: 0,
             render: (_, gateway) => (
-                <div className="flex gap-1 justify-end">
+                // Stop row-click navigation from firing when using the row actions.
+                <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
                     <LemonButton
                         size="small"
                         icon={<IconPencil />}
