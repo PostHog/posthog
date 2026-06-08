@@ -34,6 +34,7 @@ async def ateam(aorganization):
             timeout=10.0,
         )
     except asyncio.TimeoutError:
+        # On timeout the thread may still be running, but team.delete() CASCADE is safe.
         logger.warning("Timed out deleting batch exports for team %s during teardown", team.pk)
     except Exception:
         logger.warning("Failed to delete batch exports for team %s during teardown", team.pk, exc_info=True)
