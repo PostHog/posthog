@@ -4122,7 +4122,8 @@
          "posthog_evaluationcontext"."id",
          "posthog_evaluationcontext"."name",
          "posthog_evaluationcontext"."team_id",
-         "posthog_evaluationcontext"."created_at"
+         "posthog_evaluationcontext"."created_at",
+         "posthog_evaluationcontext"."hidden_from_suggestions"
   FROM "posthog_featureflagevaluationcontext"
   INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
   WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
