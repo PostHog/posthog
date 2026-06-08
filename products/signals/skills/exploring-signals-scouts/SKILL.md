@@ -21,7 +21,7 @@ A **scout** is a scheduled agent that wakes on its own interval, looks at one Po
 decides what's genuinely worth surfacing, and either emits it as a **finding** into the Signals
 inbox or closes out empty (a real, valid outcome). PostHog ships a fleet of canonical scouts — a
 cross-product generalist (`signals-scout-general`) plus per-surface specialists
-(`-error-tracking`, `-llm-analytics`, `-logs`, `-revenue-analytics`, `-surveys`,
+(`-error-tracking`, `-ai-observability`, `-logs`, `-revenue-analytics`, `-surveys`,
 `-csp-violations`, `-observability-gaps`). A project may also have **custom scouts** beyond the
 canonical fleet — any `signals-scout-*` skill a team authored (e.g. `-brand-mentions`,
 `-mcp-feedback`) shows up here too, so don't assume the roster is only the canonical set.
@@ -145,7 +145,15 @@ Returns the full run: `status`, `started_at` / `completed_at` (compute duration 
 `task_url`. The transcript — the actual tool calls and reasoning — lives in the Tasks UI behind
 `task_url`, not in this payload; hand the user that link when they want to see every step. A
 **failed** run returns an empty `summary` and **no error field** — the payload looks the same as
-the list row, so to learn _why_ it failed you must open `task_url`.
+the list row, so to learn _why_ it failed you need the transcript.
+
+You don't have to open the UI for that: **`tasks-runs-session-logs-retrieve` returns the run's
+session log (every tool call, message, and reasoning step) as data** — handy when you're
+diagnosing a failure or want to trace exactly what a run did without leaving the conversation. Pass
+the run's `task_run_id` as `id` and its `task_id` (both are on the run row). The raw stream is
+large and dominated by incremental `tool_call_update` chunks, so filter to keep it readable — e.g.
+`exclude_types: "tool_call_update,usage_update,_posthog/console,agent_thought_chunk"` leaves just
+the `tool_call` and `agent_message` events, which is enough to reconstruct the run's timeline.
 
 **Telling whether a run emitted is not as direct as you'd hope.** The run row carries no emit
 flag and no finding count — the only readily-available signal is the prose `summary`, which says
@@ -250,8 +258,12 @@ below. The full playbook, including how to read each signal and the common failu
   "scout-emitted" filter — judge emit-vs-quiet from each run's `summary`, and don't read an empty
   `source_product: "signals_scout"` inbox result as "the fleet emitted nothing."
 - **A ~30-min run that `failed` is usually a timeout, not a broken scout.** Completed runs finish
-  in a couple of minutes; a run that ran the full budget and failed over-investigated. The fleet
-  self-corrects by writing "tight-run recipe" scratchpad entries.
+  in a couple of minutes. Most often the scout over-investigated and ran the full budget (the fleet
+  self-corrects by writing "tight-run recipe" scratchpad entries) — but some are false timeouts
+  where the scout actually finished in a few minutes and the run then hung on a dropped close-out.
+  The session log (above) tells them apart: real over-investigation shows tool calls right up to the
+  wall; a false timeout goes silent long before it. Don't assume over-investigation from duration
+  alone.
 - **Lead with the run `summary`**, then offer `task_url` for the full transcript — don't dump raw
   run rows at the user.
 - **`last_run_at: null`** means a scout has never fired — check it's enabled and the project is
