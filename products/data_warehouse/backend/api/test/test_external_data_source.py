@@ -5695,16 +5695,29 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] != "Custom REST source is not available for this team."
 
-    def test_create_custom_source_rejected_when_team_at_source_limit(self):
+    @parameterized.expand(
+        [
+            # name, seed sources soft-deleted?, seed for a different team?, expect the limit error
+            ("active_sources_at_limit", False, False, True),
+            ("soft_deleted_excluded", True, False, False),
+            ("other_team_excluded", False, True, False),
+        ]
+    )
+    def test_create_custom_source_per_team_limit(self, _name, deleted, other_team, expect_blocked):
+        seed_team_id = self.team.pk
+        if other_team:
+            seed_team_id = Team.objects.create(organization=self.organization, name="other team").pk
+
         for i in range(MAX_CUSTOM_SOURCES_PER_TEAM):
             ExternalDataSource.objects.create(
-                team_id=self.team.pk,
+                team_id=seed_team_id,
                 source_id=str(uuid.uuid4()),
                 connection_id=str(uuid.uuid4()),
                 destination_id=str(uuid.uuid4()),
                 source_type="Custom",
                 prefix=f"custom_{i}_",
                 job_inputs={"manifest_json": "{}"},
+                deleted=deleted,
             )
 
         with patch(
@@ -5720,45 +5733,14 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
 
+        # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
+        # excluded cases pass the gate and fail later on the (empty) manifest instead.
+        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["message"]
-            == f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
-        )
-
-    def test_create_custom_source_limit_ignores_deleted_and_other_teams(self):
-        # Soft-deleted custom sources and other teams' sources don't count toward the limit.
-        for i in range(MAX_CUSTOM_SOURCES_PER_TEAM):
-            ExternalDataSource.objects.create(
-                team_id=self.team.pk,
-                source_id=str(uuid.uuid4()),
-                connection_id=str(uuid.uuid4()),
-                destination_id=str(uuid.uuid4()),
-                source_type="Custom",
-                prefix=f"custom_deleted_{i}_",
-                job_inputs={"manifest_json": "{}"},
-                deleted=True,
-            )
-
-        with patch(
-            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
-            return_value=True,
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "Custom",
-                    "prefix": "custom_new_",
-                    "payload": {"manifest_json": "{}"},
-                },
-            )
-
-        # Not blocked by the per-team limit — it fails later on the (empty) manifest instead.
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["message"]
-            != f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
-        )
+        if expect_blocked:
+            assert response.json()["message"] == limit_message
+        else:
+            assert response.json()["message"] != limit_message
 
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""

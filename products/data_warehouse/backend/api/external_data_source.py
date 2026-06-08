@@ -1136,12 +1136,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        if source_type_model == ExternalDataSourceType.CUSTOM and not is_custom_source_available_for_team(self.team_id):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Custom REST source is not available for this team."},
-            )
         if source_type_model == ExternalDataSourceType.CUSTOM:
+            if not is_custom_source_available_for_team(self.team_id):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Custom REST source is not available for this team."},
+                )
             custom_source_count = (
                 ExternalDataSource.objects.filter(team_id=self.team_id, source_type=ExternalDataSourceType.CUSTOM)
                 .exclude(deleted=True)
