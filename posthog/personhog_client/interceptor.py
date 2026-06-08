@@ -41,6 +41,14 @@ def _method_name(client_call_details: grpc.ClientCallDetails) -> str:
     return method.rsplit("/", 1)[-1]
 
 
+def _grpc_error_type(code: grpc.StatusCode) -> str:
+    """Convert a gRPC status code to PascalCase to match Node.js and Rust error_type labels."""
+    # grpc.StatusCode.DEADLINE_EXCEEDED.name → "DEADLINE_EXCEEDED"
+    # We need "DeadlineExceeded" to align with Code[error.code] in Node
+    # and format!("{:?}", s.code()) in Rust.
+    return code.name.replace("_", " ").title().replace(" ", "")
+
+
 def _with_metadata(
     client_call_details: grpc.ClientCallDetails,
     extra: Sequence[tuple[str, str]],
@@ -112,13 +120,16 @@ class MetricsInterceptor(grpc.UnaryUnaryClientInterceptor):
             status = code.name if code else "OK"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
             if code is not None and code != grpc.StatusCode.OK:
-                PERSONHOG_ERRORS_TOTAL.labels(method=method, client=self._client_name, error_type=status).inc()
+                PERSONHOG_ERRORS_TOTAL.labels(
+                    method=method, client=self._client_name, error_type=_grpc_error_type(code)
+                ).inc()
             return response
         except grpc.RpcError as exc:
             code = exc.code()
             status = code.name if code else "UNKNOWN"
+            error_type = _grpc_error_type(code) if code else "Unknown"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
-            PERSONHOG_ERRORS_TOTAL.labels(method=method, client=self._client_name, error_type=status).inc()
+            PERSONHOG_ERRORS_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
             raise
         finally:
             PERSONHOG_DJANGO_REQUEST_DURATION.labels(method=method, client_name=self._client_name).observe(

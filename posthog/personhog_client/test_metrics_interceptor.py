@@ -94,7 +94,7 @@ class TestMetricsInterceptorErrorTracking:
         interceptor.intercept_unary_unary(lambda d, r: response, details, request=b"")
 
         mock_errors_counter.labels.assert_called_with(
-            method="GetPerson", client="test-client", error_type="UNAVAILABLE"
+            method="GetPerson", client="test-client", error_type="Unavailable"
         )
         mock_errors_counter.labels.return_value.inc.assert_called_once()
 
@@ -111,7 +111,7 @@ class TestMetricsInterceptorErrorTracking:
             )
 
         mock_errors_counter.labels.assert_called_with(
-            method="GetPerson", client="test-client", error_type="DEADLINE_EXCEEDED"
+            method="GetPerson", client="test-client", error_type="DeadlineExceeded"
         )
         mock_errors_counter.labels.return_value.inc.assert_called_once()
 

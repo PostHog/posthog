@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    metrics_consts::{GROUP_TYPE_CACHE, PERSONHOG_RESOLVE_DURATION, PERSONHOG_RESOLVE_ERRORS},
+    metrics_consts::{GROUP_TYPE_CACHE, PERSONHOG_ERRORS_TOTAL, PERSONHOG_RESOLVE_DURATION, PERSONHOG_RESOLVE_ERRORS},
     types::{GroupType, Update},
 };
 
@@ -95,7 +95,7 @@ impl GroupTypeResolver {
                     warn!(error = %e, error_type = %error_type, "personhog group type resolution failed");
                     metrics::counter!(PERSONHOG_RESOLVE_ERRORS).increment(1);
                     metrics::counter!(
-                        "personhog_errors_total",
+                        PERSONHOG_ERRORS_TOTAL,
                         "method" => "GetGroupTypeMappingsByTeamIds",
                         "client" => "property-defs-rs",
                         "error_type" => error_type,
