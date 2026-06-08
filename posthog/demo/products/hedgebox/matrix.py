@@ -53,6 +53,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
+from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
@@ -1789,6 +1790,14 @@ class HedgeboxMatrix(Matrix):
                     authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                     algorithm="RS256",
                     is_first_party=True,
+                    # An empty ceiling resolves to UNPRIVILEGED_SCOPES at /authorize, which
+                    # excludes the privileged/hidden scopes the onboarding wizard requests
+                    # (llm_gateway:read, wizard_session:*) — so it failed with invalid_scope.
+                    # Reproduce the broad default and add those so the wizard works locally.
+                    scopes=sorted(
+                        UNPRIVILEGED_SCOPES
+                        | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
+                    ),
                 )
             except (IntegrityError, ValidationError):
                 pass
