@@ -1777,6 +1777,80 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         params.update(kwargs)
         return SubscriptionDelivery.objects.create(**params)
 
+    def _create_ai_subscription(self) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            created_by=self.user,
+            prompt="Weekly growth recap",
+            target_type="email",
+            target_value="ai@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="AI Sub",
+        )
+
+    def _restrict_query_access(self) -> None:
+        # Demote the owner (owners bypass access controls) to a member with an explicit query "none"
+        # row so they fall below the read level required to see AI-generated report content.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            # The delivered report is query-derived only for AI prompt subscriptions, so its content
+            # is hidden from a query-restricted member there — but insight deliveries (no prompt) and
+            # members who keep query access still see the full snapshot.
+            ("ai_restricted", True, True, True),
+            ("ai_with_access", True, False, False),
+            ("insight_restricted", False, True, False),
+        ]
+    )
+    def test_ai_delivery_report_hidden_without_query_access(self, _name, is_ai, restrict, expect_hidden):
+        subscription = self._create_ai_subscription() if is_ai else self.subscription
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-report",
+            idempotency_key="report-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="ai@posthog.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+            change_summary="Signups up 20% week over week",
+            recipient_results=[{"recipient": "ai@posthog.com", "status": "success"}],
+        )
+        if restrict:
+            self._restrict_query_access()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        if expect_hidden:
+            assert data["content_snapshot"] == {}
+            assert data["change_summary"] is None
+        else:
+            assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
+            assert data["change_summary"] == "Signups up 20% week over week"
+        # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
+        assert data["status"] == "completed"
+        assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
+
     def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")
         d2 = self._create_delivery(idempotency_key="key-2")

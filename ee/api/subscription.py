@@ -1048,6 +1048,17 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # AI prompt subscription deliveries embed the query-derived report — content_snapshot holds
+        # the insight query_results, change_summary the generated summary. Scrub both for callers
+        # without query access (the viewset sets this flag) so subscription:read or a self-granted
+        # query:read scope can't read analytics the user isn't allowed to run themselves.
+        if self.context.get("hide_ai_report"):
+            data["content_snapshot"] = {}
+            data["change_summary"] = None
+        return data
+
 
 class SubscriptionDeliveryCursorPagination(CursorPagination):
     page_size = 50
@@ -1083,6 +1094,28 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     serializer_class = SubscriptionDeliverySerializer
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["hide_ai_report"] = self._should_hide_ai_report()
+        return context
+
+    def _should_hide_ai_report(self) -> bool:
+        # The delivered report of an AI prompt subscription is query-derived, so reading it requires
+        # query access — mirroring the create/test-delivery gate. Non-AI deliveries carry no prompt
+        # and are unaffected; a member with query access sees the full snapshot.
+        subscription_id = self.kwargs.get("parent_lookup_subscription_id")
+        if not subscription_id:
+            return False
+        is_ai_subscription = (
+            Subscription.objects.filter(pk=subscription_id, team_id=self.team_id)
+            .exclude(prompt__isnull=True)
+            .exclude(prompt="")
+            .exists()
+        )
+        if not is_ai_subscription:
+            return False
+        return not self.user_access_control.check_access_level_for_resource("query", "viewer")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")
