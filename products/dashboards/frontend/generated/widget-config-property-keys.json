@@ -1,0 +1,22 @@
+{
+    "configPropertyKeys": {
+        "error_tracking_list": [
+            "assignee",
+            "dateRange",
+            "filterTestAccounts",
+            "limit",
+            "orderBy",
+            "orderDirection",
+            "status",
+            "widgetFilters"
+        ],
+        "session_replay_list": [
+            "dateRange",
+            "filterTestAccounts",
+            "limit",
+            "orderBy",
+            "orderDirection",
+            "widgetFilters"
+        ]
+    }
+}

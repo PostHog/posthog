@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { filterSchemaByOperationIds } from '../src/schema.mjs'
+import {
+    buildCodegenSchemaResponseDoc,
+    discoverComponentSchemaNames,
+    discoverWidgetConfigPropertyKeys,
+    filterSchemaByOperationIds,
+} from '../src/schema.mjs'
 
 const buildSpec = () => ({
     openapi: '3.1.0',
@@ -191,5 +196,94 @@ describe('filterSchemaByOperationIds', () => {
             expect(response).not.toHaveProperty('content')
             expect(response).not.toHaveProperty('headers')
         }
+    })
+})
+
+describe('discoverComponentSchemaNames', () => {
+    it('finds schemas by suffix and merges explicit includes', () => {
+        const filtered = filterSchemaByOperationIds(buildSpec(), new Set(['widgets_create']))
+
+        expect(
+            discoverComponentSchemaNames(filtered, {
+                nameSuffix: 'Request',
+                include: ['WidgetResponseNested'],
+            })
+        ).toEqual(['WidgetCreateRequest', 'WidgetResponseNested'])
+    })
+})
+
+describe('discoverWidgetConfigPropertyKeys', () => {
+    it('maps widget_type to config property keys via catalog entry schemas', () => {
+        const spec = buildSpec()
+        spec.components.schemas.ErrorTrackingListWidgetTypeEnum = {
+            enum: ['error_tracking_list'],
+            type: 'string',
+        }
+        spec.components.schemas.ErrorTrackingListWidgetConfig = {
+            type: 'object',
+            properties: {
+                limit: { type: 'integer' },
+                orderBy: { type: 'string' },
+            },
+        }
+        spec.components.schemas.ErrorTrackingListWidgetCatalogEntryOpenApi = {
+            type: 'object',
+            properties: {
+                widget_type: { $ref: '#/components/schemas/ErrorTrackingListWidgetTypeEnum' },
+                config_schema: { $ref: '#/components/schemas/ErrorTrackingListWidgetConfig' },
+            },
+        }
+        spec.paths['/api/widget_catalog/'] = {
+            get: {
+                operationId: 'widget_catalog_retrieve',
+                responses: {
+                    200: {
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/WidgetCatalogResponse' },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        spec.components.schemas.WidgetCatalogResponse = {
+            type: 'object',
+            properties: {
+                results: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/ErrorTrackingListWidgetCatalogEntryOpenApi' },
+                },
+            },
+        }
+
+        const filtered = filterSchemaByOperationIds(spec, new Set(['widget_catalog_retrieve']))
+        expect(discoverWidgetConfigPropertyKeys(filtered)).toEqual({
+            error_tracking_list: ['limit', 'orderBy'],
+        })
+    })
+})
+
+describe('buildCodegenSchemaResponseDoc', () => {
+    it('adds one codegen GET per component schema with a direct response $ref', () => {
+        const filtered = filterSchemaByOperationIds(buildSpec(), new Set(['widgets_create']))
+        const doc = buildCodegenSchemaResponseDoc({
+            baseSchema: filtered,
+            schemaNames: ['WidgetCreateRequest', 'WidgetResponse'],
+            pathPrefix: '/_codegen/test',
+            operationIdPrefix: 'test_schema',
+        })
+
+        expect(Object.keys(doc.paths)).toEqual([
+            '/_codegen/test/WidgetCreateRequest/',
+            '/_codegen/test/WidgetResponse/',
+        ])
+        expect(doc.paths['/_codegen/test/WidgetCreateRequest/'].get.operationId).toBe(
+            'test_schema_WidgetCreateRequest_retrieve'
+        )
+        expect(
+            doc.paths['/_codegen/test/WidgetCreateRequest/'].get.responses['200'].content['application/json'].schema
+        ).toEqual({ $ref: '#/components/schemas/WidgetCreateRequest' })
+        expect(doc.components.schemas).toHaveProperty('WidgetCreateRequest')
     })
 })

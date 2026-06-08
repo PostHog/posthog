@@ -151,3 +151,138 @@ export function filterSchemaByOperationIds(fullSchema, operationIds, options = {
         components,
     }
 }
+
+/**
+ * List component schema names in a filtered OpenAPI slice.
+ *
+ * @param {object} filteredSchema
+ * @param {{ nameSuffix?: string, include?: string[] }} [options]
+ * @returns {string[]}
+ */
+export function discoverComponentSchemaNames(filteredSchema, { nameSuffix = '', include = [] } = {}) {
+    const schemas = filteredSchema.components?.schemas ?? {}
+    const discovered = Object.keys(schemas).filter((name) => name.endsWith(nameSuffix))
+    return [...new Set([...discovered, ...include])]
+        .filter((name) => schemas[name])
+        .sort()
+}
+
+/**
+ * Build an OpenAPI document with codegen-only GET operations — one per component schema.
+ *
+ * Orval's Zod client inlines nested $refs inside real operation response bodies, so a
+ * polymorphic catalog response never yields standalone per-config schema exports.
+ * Pointing each codegen op's 200 response at a top-level component $ref is the supported
+ * way to get named Zod exports from Orval today.
+ *
+ * @param {object} options
+ * @param {object} options.baseSchema - filtered OpenAPI slice (paths + components)
+ * @param {string[]} options.schemaNames - component schema names to export
+ * @param {string} [options.pathPrefix]
+ * @param {string} [options.operationIdPrefix]
+ * @param {string} [options.title]
+ * @param {string} [options.responseDescription]
+ * @returns {object}
+ */
+export function buildCodegenSchemaResponseDoc({
+    baseSchema,
+    schemaNames,
+    pathPrefix = '/_codegen/schema',
+    operationIdPrefix = 'codegen_schema',
+    title,
+    responseDescription = 'Codegen-only schema (not a real endpoint).',
+}) {
+    const availableSchemaNames = schemaNames.filter((name) => baseSchema.components?.schemas?.[name])
+    if (availableSchemaNames.length === 0) {
+        throw new Error(`No component schemas found for codegen: ${schemaNames.join(', ')}`)
+    }
+
+    return {
+        openapi: baseSchema.openapi,
+        info: {
+            ...baseSchema.info,
+            title: title ?? `${baseSchema.info?.title ?? 'API'} - codegen schemas`,
+        },
+        paths: Object.fromEntries(
+            availableSchemaNames.map((schemaName) => [
+                `${pathPrefix}/${schemaName}/`,
+                {
+                    get: {
+                        operationId: `${operationIdPrefix}_${schemaName}_retrieve`,
+                        responses: {
+                            200: {
+                                description: responseDescription,
+                                content: {
+                                    'application/json': {
+                                        schema: { $ref: `#/components/schemas/${schemaName}` },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ])
+        ),
+        components: baseSchema.components,
+    }
+}
+
+function _resolveComponentSchema(schemas, ref) {
+    if (typeof ref !== 'string' || !ref.startsWith('#/components/schemas/')) {
+        return undefined
+    }
+    return schemas[ref.replace('#/components/schemas/', '')]
+}
+
+function _resolveSingletonWidgetType(schemas, widgetTypeProperty) {
+    if (!widgetTypeProperty || typeof widgetTypeProperty !== 'object') {
+        return undefined
+    }
+    if (widgetTypeProperty.$ref) {
+        const enumSchema = _resolveComponentSchema(schemas, widgetTypeProperty.$ref)
+        if (enumSchema?.enum?.length === 1) {
+            return enumSchema.enum[0]
+        }
+    }
+    if (Array.isArray(widgetTypeProperty.enum) && widgetTypeProperty.enum.length === 1) {
+        return widgetTypeProperty.enum[0]
+    }
+    return undefined
+}
+
+function _resolveConfigSchemaName(schemas, configSchemaProperty) {
+    if (!configSchemaProperty || typeof configSchemaProperty !== 'object') {
+        return undefined
+    }
+    const ref = configSchemaProperty.$ref ?? configSchemaProperty.allOf?.[0]?.$ref
+    if (typeof ref !== 'string') {
+        return undefined
+    }
+    return ref.replace('#/components/schemas/', '')
+}
+
+/**
+ * Map widget_type → sorted config property keys from per-type catalog entry OpenAPI schemas.
+ *
+ * @param {object} catalogSlice - output of filterSchemaByOperationIds for widget_catalog_retrieve
+ * @returns {Record<string, string[]>}
+ */
+export function discoverWidgetConfigPropertyKeys(catalogSlice) {
+    const schemas = catalogSlice.components?.schemas ?? {}
+    const propertyKeysByWidgetType = {}
+
+    for (const [schemaName, schema] of Object.entries(schemas)) {
+        if (!schemaName.endsWith('CatalogEntryOpenApi') || !schema?.properties) {
+            continue
+        }
+        const widgetType = _resolveSingletonWidgetType(schemas, schema.properties.widget_type)
+        const configSchemaName = _resolveConfigSchemaName(schemas, schema.properties.config_schema)
+        if (!widgetType || !configSchemaName) {
+            continue
+        }
+        const configSchema = schemas[configSchemaName]
+        propertyKeysByWidgetType[widgetType] = Object.keys(configSchema?.properties ?? {}).sort()
+    }
+
+    return propertyKeysByWidgetType
+}

@@ -1,4 +1,12 @@
-export { collectSchemaRefs, filterSchemaByOperationIds, resolveNestedRefs } from './src/schema.mjs'
+export {
+    buildCodegenSchemaResponseDoc,
+    collectSchemaRefs,
+    discoverComponentSchemaNames,
+    discoverWidgetConfigPropertyKeys,
+    filterSchemaByOperationIds,
+    resolveNestedRefs,
+} from './src/schema.mjs'
+export { generateWidgetConfigZodModule, generateZodFromOpenApiComponent } from './src/json-schema-to-zod.mjs'
 export {
     clampIntegerBounds,
     inlineSchemaRefs,
@@ -12,4 +20,5 @@ export {
 } from './src/preprocess.mjs'
 export { formatJs, formatYaml } from './src/format.mjs'
 export { runOrvalParallel } from './src/orval.mjs'
+export { annotatePureZodExports, fixNullDefaults } from './src/zod-postprocess.mjs'
 export { applyNestedExclusions } from './src/exclusions.mjs'
