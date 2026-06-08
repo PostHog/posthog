@@ -17,7 +17,7 @@ import {
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './agentLogos'
+import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
 
 export interface AgentPromptAction {
     /** Stable key used for localStorage persistence */

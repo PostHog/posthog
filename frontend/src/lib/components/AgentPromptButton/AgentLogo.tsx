@@ -3,7 +3,7 @@ import { cn } from 'lib/utils/css-classes'
 export { default as claudeLogo } from './logos/claude.svg'
 export { default as cursorLogo } from './logos/cursor.svg'
 export { default as openaiLogo } from './logos/openai.svg'
-export { default as geminiLogo } from 'scenes/onboarding/sdks/logos/gemini.svg'
+export { default as geminiLogo } from './logos/gemini.svg'
 
 export function AgentLogo({
     logo,

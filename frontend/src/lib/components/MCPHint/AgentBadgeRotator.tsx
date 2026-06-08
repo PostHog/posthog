@@ -7,7 +7,7 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { AgentLogo, claudeLogo, cursorLogo, geminiLogo, openaiLogo } from '../AgentPromptButton/agentLogos'
+import { AgentLogo, claudeLogo, cursorLogo, geminiLogo, openaiLogo } from '../AgentPromptButton/AgentLogo'
 
 interface BadgeAgent {
     name: string
