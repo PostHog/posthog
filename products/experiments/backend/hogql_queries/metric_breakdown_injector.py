@@ -12,9 +12,17 @@ Scope: funnel metrics only. This is a standalone class (it does not subclass
 migrate to metric-event breakdowns.
 """
 
-from typing import cast
+from typing import Union, cast
 
-from posthog.schema import Breakdown, BreakdownAttributionType, ExperimentFunnelMetric, MultipleBreakdownType
+from posthog.schema import (
+    Breakdown,
+    BreakdownAttributionType,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    MultipleBreakdownType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
@@ -23,9 +31,11 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
+MetricType = Union[ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
+
 
 class MetricBreakdownInjector:
-    def __init__(self, breakdowns: list[Breakdown], metric: ExperimentFunnelMetric):
+    def __init__(self, breakdowns: list[Breakdown], metric: MetricType):
         self.breakdowns = breakdowns
         self.metric = metric
 
@@ -86,6 +96,7 @@ class MetricBreakdownInjector:
         - step: argMinIf from ``breakdownAttributionValue`` (0-indexed into the series,
           mapped to the corresponding step column step_{value + 1}).
         """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
         attribution = self.metric.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
         num_metric_steps = len(self.metric.series)
 
@@ -150,20 +161,27 @@ class MetricBreakdownInjector:
         )
         return subquery
 
-    def _inject_final_breakdown_columns(self, query: ast.SelectQuery, aliases: list[str]) -> None:
+    def _inject_final_breakdown_columns(
+        self, query: ast.SelectQuery, aliases: list[str], final_cte_name: str = "entity_metrics"
+    ) -> None:
         """Surface breakdown columns in the outer SELECT (after variant) and GROUP BY.
 
         Applies the top-N + "Other" limit: breakdown tuples beyond the limit (ranked by
         user count) are relabeled to BREAKDOWN_OTHER_STRING_LABEL before the final GROUP BY,
         capping output cardinality. The relabel collapses the whole tuple together so all
         breakdown columns of an "Other" row carry the Other label.
+
+        ``final_cte_name`` is the CTE the outer SELECT reads from (``entity_metrics`` for funnels
+        and non-winsorized mean, ``winsorized_entity_metrics`` for winsorized mean). Ranking is
+        always computed from ``entity_metrics`` since winsorization doesn't change the set of
+        (entity, variant, breakdown) tuples.
         """
-        # Membership test against the top-N set. Single breakdown compares the scalar value
-        # directly; multiple breakdowns compare the value tuple element-wise.
+        # Membership test against the top-N set, always ranked from entity_metrics (pre-winsorization).
+        # Single breakdown compares the scalar value directly; multiple breakdowns compare the tuple.
         if len(aliases) == 1:
-            left: ast.Expr = ast.Field(chain=["entity_metrics", aliases[0]])
+            left: ast.Expr = ast.Field(chain=[final_cte_name, aliases[0]])
         else:
-            left = ast.Tuple(exprs=[ast.Field(chain=["entity_metrics", alias]) for alias in aliases])
+            left = ast.Tuple(exprs=[ast.Field(chain=[final_cte_name, alias]) for alias in aliases])
         in_top = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=left,
@@ -175,7 +193,7 @@ class MetricBreakdownInjector:
                 "if({in_top}, {value}, {other})",
                 placeholders={
                     "in_top": in_top,
-                    "value": ast.Field(chain=["entity_metrics", alias]),
+                    "value": ast.Field(chain=[final_cte_name, alias]),
                     "other": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
                 },
             )
@@ -237,3 +255,149 @@ class MetricBreakdownInjector:
                     )
 
         self._inject_final_breakdown_columns(query, aliases)
+
+    def inject_mean_breakdown_columns(self, query: ast.SelectQuery, final_cte_name: str = "entity_metrics") -> None:
+        """Inject breakdown columns into a mean query.
+
+        Reads the breakdown property off the *metric event* (in ``metric_events``) and
+        attributes each user to a single bucket via **first-touch** — ``argMin`` over the
+        metric event timestamp. Mean has no attribution modes (unlike funnels), so the
+        breakdown is always taken from the user's first qualifying metric event. The
+        per-user conversion window is already enforced by the ``entity_metrics`` join, so
+        no extra condition is needed on the ``argMin``.
+
+        ``final_cte_name`` is ``entity_metrics`` for the plain query or
+        ``winsorized_entity_metrics`` for the winsorized query; winsorization needs the
+        breakdown carried through its percentiles/join CTEs.
+
+        Session-property metrics have an extra ``metric_events_by_session`` layer; their
+        ``metric_events`` CTE joins exposures and can't see raw event properties, so the
+        breakdown is read (and deduped) in the by-session layer instead. See
+        ``_read_breakdown_into_metric_events``.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        # The session-property shape reads the breakdown a layer earlier; the attribution
+        # timestamp is the session's first event time rather than the metric event timestamp.
+        is_session_property = bool(query.ctes and "metric_events_by_session" in query.ctes)
+        timestamp_field = "first_event_timestamp" if is_session_property else "timestamp"
+
+        self._read_breakdown_into_metric_events(query, aliases, is_session_property)
+
+        # Attribute first-touch per user: argMin over the (session-)first event timestamp.
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(
+                            alias=alias,
+                            expr=ast.Call(
+                                name="argMin",
+                                args=[
+                                    ast.Field(chain=["metric_events", alias]),
+                                    ast.Field(chain=["metric_events", timestamp_field]),
+                                ],
+                            ),
+                        )
+                    )
+
+        # Carry the attributed breakdown through the winsorization CTEs.
+        self._inject_winsorization_breakdown_columns(query, aliases, final_cte_name)
+
+        self._inject_final_breakdown_columns(query, aliases, final_cte_name=final_cte_name)
+
+    def _read_breakdown_into_metric_events(
+        self, query: ast.SelectQuery, aliases: list[str], is_session_property: bool
+    ) -> None:
+        """Surface the breakdown value (and an attribution timestamp) in the ``metric_events`` CTE.
+
+        Standard path: read the breakdown directly off the metric event in ``metric_events``.
+
+        Session-property path: ``metric_events`` joins exposures and can't see raw event
+        properties, so read the breakdown off raw events in ``metric_events_by_session``
+        (deduped per session via ``any()``, mirroring ``session_value``), then carry both the
+        breakdown and ``first_event_timestamp`` up into ``metric_events``.
+        """
+        if not query.ctes:
+            return
+
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="")
+
+        if not is_session_property:
+            metric_events_cte = query.ctes.get("metric_events")
+            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    metric_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+            return
+
+        # Read + dedupe the breakdown per session in the by-session layer.
+        by_session_cte = query.ctes.get("metric_events_by_session")
+        if isinstance(by_session_cte, ast.CTE) and isinstance(by_session_cte.expr, ast.SelectQuery):
+            for alias, expr in breakdown_exprs:
+                by_session_cte.expr.select.append(ast.Alias(alias=alias, expr=ast.Call(name="any", args=[expr])))
+
+        # Carry the breakdown and first_event_timestamp up into metric_events for attribution.
+        metric_events_cte = query.ctes.get("metric_events")
+        if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+            for alias in aliases:
+                metric_events_cte.expr.select.append(
+                    ast.Alias(alias=alias, expr=ast.Field(chain=["metric_events_by_session", alias]))
+                )
+            metric_events_cte.expr.select.append(
+                ast.Alias(
+                    alias="first_event_timestamp",
+                    expr=ast.Field(chain=["metric_events_by_session", "first_event_timestamp"]),
+                )
+            )
+
+    def _inject_winsorization_breakdown_columns(
+        self, query: ast.SelectQuery, aliases: list[str], final_cte_name: str
+    ) -> None:
+        """Carry breakdown columns through the percentiles and winsorized_entity_metrics CTEs.
+
+        Winsorization computes per-breakdown-group percentile thresholds (preserved here, not
+        changed), so the breakdown must be grouped in ``percentiles`` and joined into
+        ``winsorized_entity_metrics`` on the breakdown columns.
+        """
+        if not (query.ctes and "percentiles" in query.ctes):
+            return
+
+        percentiles_cte = query.ctes["percentiles"]
+        if isinstance(percentiles_cte, ast.CTE) and isinstance(percentiles_cte.expr, ast.SelectQuery):
+            for alias in aliases:
+                percentiles_cte.expr.select.append(
+                    ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
+                )
+            if percentiles_cte.expr.group_by is None:
+                percentiles_cte.expr.group_by = []
+            for alias in aliases:
+                percentiles_cte.expr.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
+        if final_cte_name == "winsorized_entity_metrics" and "winsorized_entity_metrics" in query.ctes:
+            winsorized_cte = query.ctes["winsorized_entity_metrics"]
+            if isinstance(winsorized_cte, ast.CTE) and isinstance(winsorized_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    winsorized_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias]))
+                    )
+                # Convert the CROSS JOIN with percentiles into a per-breakdown-group INNER JOIN.
+                if winsorized_cte.expr.select_from:
+                    join_expr = winsorized_cte.expr.select_from.next_join
+                    if join_expr and isinstance(join_expr, ast.JoinExpr):
+                        join_expr.join_type = "JOIN"
+                        join_conditions: list[ast.Expr] = [
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["percentiles", alias]),
+                                right=ast.Field(chain=["entity_metrics", alias]),
+                            )
+                            for alias in aliases
+                        ]
+                        condition_expr = join_conditions[0]
+                        for condition in join_conditions[1:]:
+                            condition_expr = ast.And(exprs=[condition_expr, condition])
+                        join_expr.constraint = ast.JoinConstraint(expr=condition_expr, constraint_type="ON")
