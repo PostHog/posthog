@@ -98,6 +98,11 @@ BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS: int = get_from_env(
 BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS: int = get_from_env(
     "BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS", 50, type_cast=int
 )
+# Caps how many staging files the producer streams from S3 concurrently. This decouples read concurrency
+# from the number of files written (which scales with export size)
+BATCH_EXPORT_PRODUCER_MAX_CONCURRENT_FILE_READS: int = get_from_env(
+    "BATCH_EXPORT_PRODUCER_MAX_CONCURRENT_FILE_READS", 5, type_cast=int
+)
 BATCH_EXPORT_TRANSFORMER_MAX_WORKERS: int = get_from_env("BATCH_EXPORT_TRANSFORMER_MAX_WORKERS", 2, type_cast=int)
 
 BATCH_EXPORTS_ENABLE_BILLING_CHECK: bool = get_from_env(
