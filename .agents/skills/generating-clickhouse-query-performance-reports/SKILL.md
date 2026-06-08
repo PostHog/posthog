@@ -110,7 +110,12 @@ mentioned. Diff against history only after the independent pass is done.
    (`sum(query_duration_ms)`) and by **OOM count** separately. Before calling anything systemic,
    check whether one team or one API key dominates a metric: a single integration querying via a
    `personal_api_key` can account for the large majority of cluster OOMs, and the "incident" is then
-   really one tenant. Attribute by `team_id` + `lc_api_key_label` first.
+   really one tenant. Attribute by `team_id` + `lc_api_key_label` first. Then add a **top-consumers view
+   over all queries** (not just the slow set): top teams, top API keys (`lc_api_key_label`), and top apps
+   (`lc_product`) ranked by **bytes, CPU-seconds, and wall-time** (`references/query-patterns.md` §4c).
+   This is where the heavy-but-fast consumers show up: a tenant or integration can dominate cluster CPU
+   or bytes through millions of cheap queries while never crossing the slow threshold, so it is invisible
+   to the slow-set ranking. The CPU:wall ratio per row separates compute-bound from wait/IO-bound load.
 6. **Characterize user-facing slowness.** For `lc_kind='request' AND lc_product='product_analytics'`
    with empty `lc_access_method` (logged-in web), break down by `lc_query__kind` and flag
    `breakdown_value` usage and JSONExtract over `person_properties`. This is the product-actionable
@@ -179,12 +184,15 @@ A report should contain, in order:
    [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md)
    skill's investigation playbook). Group findings by what they are: a per-tenant incident, the
    heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
-5. A **JSON-extracted property table**: the top event and person property names pulled from JSON blobs
+5. A **top-consumers-by-resource section** (all queries, not just slow): top teams, top API keys, and
+   top apps (`lc_product`) ranked by bytes / CPU / wall-time (`references/query-patterns.md` §4c), calling
+   out consumers that never trip the slow threshold and the compute-bound vs wait-bound split.
+6. A **JSON-extracted property table**: the top event and person property names pulled from JSON blobs
    in the slow set, with the teams using each (`references/query-patterns.md` §7). These are the
    materialization candidates.
-6. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
+7. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
    make pipeline Y incremental, ...).
-7. A **delta vs the previous report** (step 9): what changed since last time, plus a follow-up check on
+8. A **delta vs the previous report** (step 9): what changed since last time, plus a follow-up check on
    each action the previous report recommended (resolved / still open / regressed, with numbers). Omit
    this section when there is no previous report.
 

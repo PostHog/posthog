@@ -173,6 +173,58 @@ WHERE event_time > now() - INTERVAL 14 DAY AND is_initial_query AND team_id = <T
 GROUP BY day ORDER BY day
 ```
 
+## 4c. Top consumers by resource (all queries, not just slow)
+
+Attribute total cluster resource use across **all** `is_initial_query` queries, not just the slow set:
+this catches consumers that cost the cluster through many cheap queries without ever crossing the slow
+threshold (and so are invisible to 4a/4b). Report top teams, top API keys, and top apps by **all three of
+bytes / CPU / wall-time** (the leader differs by metric). Use the typed
+`ProfileEvents_OSCPUVirtualTimeMicroseconds` column, not the `Map` lookup (§1b). Re-run each block with a
+different `ORDER BY` (`cpu_hours`, `sum(read_bytes)`, `query_hours`) to get the per-metric leaders. The
+CPU:wall ratio per row separates compute-bound (ratio >> 1, highly parallel) from wait/IO-bound (ratio
+~1 or below) consumers.
+
+```sql
+-- top teams (swap ORDER BY for the bytes / wall-time rankings)
+SELECT team_id,
+    round(sum(query_duration_ms)/3600000, 0)                       AS query_hours,
+    round(sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/3.6e9, 0) AS cpu_hours,
+    formatReadableSize(sum(read_bytes))                            AS bytes_read,
+    countIf(exception_code = 241)                                  AS ooms,
+    count()                                                        AS queries
+FROM posthog.query_log_archive
+WHERE event_time > now() - INTERVAL 14 DAY AND is_initial_query AND team_id != 0
+GROUP BY team_id ORDER BY cpu_hours DESC LIMIT 15
+```
+
+```sql
+-- top named API keys / integrations (lc_api_key_label); swap ORDER BY as above
+SELECT lc_api_key_label,
+    round(sum(query_duration_ms)/3600000, 0)                       AS query_hours,
+    round(sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/3.6e9, 0) AS cpu_hours,
+    formatReadableSize(sum(read_bytes))                            AS bytes_read,
+    countIf(exception_code = 241) AS ooms, uniqExact(team_id) AS teams, count() AS queries
+FROM posthog.query_log_archive
+WHERE event_time > now() - INTERVAL 14 DAY AND is_initial_query AND lc_api_key_label != ''
+GROUP BY lc_api_key_label ORDER BY cpu_hours DESC LIMIT 15
+```
+
+```sql
+-- top apps (lc_product), cluster-wide (this is the all-query counterpart to the §3 slow-set categories)
+SELECT lc_product,
+    round(sum(query_duration_ms)/3600000, 0)                       AS query_hours,
+    round(sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/3.6e9, 0) AS cpu_hours,
+    formatReadableSize(sum(read_bytes))                            AS bytes_read,
+    countIf(exception_code = 241) AS ooms, uniqExact(team_id) AS teams, count() AS queries
+FROM posthog.query_log_archive
+WHERE event_time > now() - INTERVAL 14 DAY AND is_initial_query
+GROUP BY lc_product ORDER BY cpu_hours DESC LIMIT 15
+```
+
+A grouped aggregation over the full ~180M-row window is heavier than the slow-set queries; if Metabase
+returns a 502 or times out, retry (transient) or raise `--timeout`. `any(lc_product)` per team is
+non-deterministic (a team spans products), so annotate notable teams by hand rather than trusting it.
+
 ## 5. User-facing insight characterization
 
 Synchronous web product-analytics queries (the ones a logged-in user waits on), by query kind, with
