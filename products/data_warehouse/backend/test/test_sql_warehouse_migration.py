@@ -6,7 +6,7 @@ stable anchors Postgres/MySQL. Postgres end-to-end lives in `api/test/test_postg
 
 import uuid
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
@@ -79,7 +79,7 @@ class TestMultiSchemaCapability:
         ]
     )
     def test_source_namespace_is_blank(self, _name: str, job_inputs: dict[str, Any] | None, expected: bool) -> None:
-        assert source_namespace_is_blank(SimpleNamespace(job_inputs=job_inputs)) is expected
+        assert source_namespace_is_blank(cast(ExternalDataSource, SimpleNamespace(job_inputs=job_inputs))) is expected
 
 
 class TestDetectSchemaClearTransition:
