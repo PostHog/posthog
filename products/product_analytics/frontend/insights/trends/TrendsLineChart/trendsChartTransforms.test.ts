@@ -3,8 +3,9 @@ import type { TooltipConfig } from '@posthog/quill-charts'
 
 import { ciRanges } from 'lib/statistics'
 
-import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
+import type { GoalLine as SchemaGoalLine, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
 
+import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {
     buildDerivedConfigs,
     buildMainTrendsSeries,
@@ -13,6 +14,13 @@ import {
     computeDashedFromIndex,
     type TrendsResultLike,
 } from './trendsChartTransforms'
+
+// The neutral structural types in trendsChartDisplayOptions.ts exist so the shared chart code stays
+// free of `~/` schema imports (the MCP Vite bundle can't resolve them). These helpers' return types
+// enforce that the real schema types stay assignable to the neutral ones — if a schema field ever
+// changes shape, the returns fail to compile and flag the drift here rather than at a distant call site.
+const asNeutralGoalLine = (g: SchemaGoalLine): GoalLineLike => g
+const asNeutralYFormatterFields = (f: NonNullable<SchemaTrendsFilter>): YFormatterFields => f
 
 const RED = '#ff0000'
 
@@ -24,6 +32,15 @@ const makeResult = (overrides: Partial<TrendsResultLike> = {}): TrendsResultLike
 })
 
 describe('trendsChartTransforms', () => {
+    describe('schema type firewall', () => {
+        it('keeps the schema GoalLine / TrendsFilter assignable to the neutral structural types', () => {
+            // Assignment is checked at compile time by the return types above; the runtime assertions
+            // just keep the helpers referenced so they participate in the typecheck.
+            expect(asNeutralGoalLine({ label: 'goal', value: 10 })).toMatchObject({ label: 'goal', value: 10 })
+            expect(asNeutralYFormatterFields({ decimalPlaces: 2 })).toMatchObject({ decimalPlaces: 2 })
+        })
+    })
+
     describe('buildMainTrendsSeries', () => {
         it('builds a single main series with no compare and no in-progress tail', () => {
             const series = buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED })

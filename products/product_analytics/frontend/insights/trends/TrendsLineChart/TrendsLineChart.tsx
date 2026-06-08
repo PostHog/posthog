@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
@@ -29,7 +29,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import type { TrendsChartDisplayOptions } from '../shared/trendsChartDisplayOptions'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { TrendsLineChartView } from './TrendsLineChartView'
+import { buildTrendsLineChartProps } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
@@ -228,6 +228,33 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
+    const { series, config } = useMemo(
+        () =>
+            buildTrendsLineChartProps<IndexedTrendResult, TrendsSeriesMeta>({
+                results: indexedResults ?? [],
+                displayOptions,
+                getColor: getTrendsColor,
+                getHidden: getTrendsHidden,
+                buildMeta: buildTrendsSeriesMeta,
+                goalLines,
+                ciRanges,
+                incompletenessOffsetFromEnd,
+                isStickiness,
+                valueLabelFormatter,
+                tooltipConfig: TOOLTIP_CONFIG,
+            }),
+        [
+            indexedResults,
+            displayOptions,
+            getTrendsColor,
+            getTrendsHidden,
+            goalLines,
+            incompletenessOffsetFromEnd,
+            isStickiness,
+            valueLabelFormatter,
+        ]
+    )
+
     if (!hasData) {
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
@@ -236,21 +263,12 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (
-        <TrendsLineChartView<IndexedTrendResult, TrendsSeriesMeta>
-            results={indexedResults ?? []}
+        <TimeSeriesLineChart<TrendsSeriesMeta>
+            series={series}
             labels={labels}
             theme={theme}
-            getColor={getTrendsColor}
-            getHidden={getTrendsHidden}
-            buildMeta={buildTrendsSeriesMeta}
-            displayOptions={displayOptions}
-            goalLines={goalLines}
-            ciRanges={ciRanges}
-            incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
-            isStickiness={isStickiness}
-            valueLabelFormatter={valueLabelFormatter}
+            config={config}
             tooltip={renderTooltip}
-            tooltipConfig={TOOLTIP_CONFIG}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
@@ -267,6 +285,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 />
             ) : null}
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
-        </TrendsLineChartView>
+        </TimeSeriesLineChart>
     )
 }

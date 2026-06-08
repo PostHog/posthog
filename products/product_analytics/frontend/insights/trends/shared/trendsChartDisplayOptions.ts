@@ -5,8 +5,12 @@ import type { TimeInterval, YAxisFormat } from '@posthog/quill-charts'
 // bundle, which only resolves `products/*` and `@posthog/*`. The web side maps its kea-derived
 // `TrendsFilter` into this; the MCP app builds one directly.
 
-// Subset of `TrendsFilter` the y-axis formatter reads. `TrendsFilter` is structurally
-// assignable to this, so web callers can pass it unchanged.
+// Subset of the schema `TrendsFilter` the y-axis formatter reads. Declared structurally rather
+// than imported as a deliberate firewall: this file is bundled into the MCP Vite app, which has
+// no `~/` resolution, so importing `~/queries/schema/schema-general` would either break the build
+// or force the entire generated-schema graph into the MCP typecheck. The real `TrendsFilter` is
+// structurally assignable to this (asserted in trendsChartTransforms.test.ts), so web callers pass
+// it unchanged.
 export interface YFormatterFields {
     aggregationAxisFormat?: YAxisFormat
     aggregationAxisPrefix?: string
@@ -15,7 +19,9 @@ export interface YFormatterFields {
     minDecimalPlaces?: number
 }
 
-// Structurally matches the schema `GoalLine`, without importing it.
+// Structural mirror of the schema `GoalLine`. Not imported for the same firewall reason as
+// `YFormatterFields` above — keeping the MCP bundle free of `~/` schema deps. Assignability from
+// the real `GoalLine` is asserted in trendsChartTransforms.test.ts so this can't silently drift.
 export interface GoalLineLike {
     label: string
     value: number

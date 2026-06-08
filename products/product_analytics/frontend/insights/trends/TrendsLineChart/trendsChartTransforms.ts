@@ -11,7 +11,12 @@ import type {
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
-import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
+import type {
+    CiRangesFn,
+    GoalLineLike,
+    TrendsChartDisplayOptions,
+    YFormatterFields,
+} from '../shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -238,4 +243,71 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
     }
+}
+
+export interface BuildTrendsLineChartPropsOpts<R extends TrendsResultLike, M = unknown> {
+    results: R[]
+    // Declarative display config (shared shape). Host-specific capabilities are injected separately below.
+    displayOptions?: TrendsChartDisplayOptions
+    getColor: (r: R, index: number) => string
+    getHidden?: (r: R) => boolean
+    buildMeta?: (r: R, index: number) => M
+    goalLines?: GoalLineLike[] | null
+    // Injected so the transforms stay free of `lib/statistics`. CI is skipped when omitted.
+    ciRanges?: CiRangesFn
+    incompletenessOffsetFromEnd?: number
+    isStickiness?: boolean
+    /** Overrides the auto date formatter (hosts without interval/timezone, e.g. MCP). */
+    xAxisTickFormatter?: (value: string, index: number) => string | null
+    valueLabelFormatter?: (value: number) => string
+    tooltipConfig?: TooltipConfig
+}
+
+// Maps declarative display intent + injected host capabilities into the `series` and `config` a
+// quill `TimeSeriesLineChart` needs. Pure (no React, no kea, no `~/`/`lib/` deps) so both the web
+// trends container and the MCP UI app assemble the chart identically, then each renders its own
+// `<TimeSeriesLineChart>` (the web side wraps it with overlays; MCP renders it bare).
+export function buildTrendsLineChartProps<R extends TrendsResultLike, M = unknown>(
+    opts: BuildTrendsLineChartPropsOpts<R, M>
+): { series: Series<M>[]; config: TimeSeriesLineChartConfig } {
+    const displayOptions = opts.displayOptions ?? {}
+    const series = buildTrendsSeries<R, M>(opts.results, {
+        isArea: displayOptions.isArea,
+        showMultipleYAxes: displayOptions.showMultipleYAxes,
+        incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
+        isStickiness: opts.isStickiness,
+        getColor: opts.getColor,
+        getHidden: opts.getHidden,
+        buildMeta: opts.buildMeta,
+    })
+    const config = buildTrendsLineTimeSeriesConfig<R>({
+        results: opts.results,
+        trendsFilter: displayOptions.yFormatterFields,
+        baseCurrency: displayOptions.baseCurrency,
+        isPercentStackView: !!displayOptions.isPercentStackView,
+        isStickiness: opts.isStickiness,
+        yAxisScaleType: displayOptions.yAxisScaleType,
+        interval: displayOptions.interval,
+        timezone: displayOptions.timezone,
+        allDays: displayOptions.allDays,
+        xAxisLabel: displayOptions.xAxisLabel,
+        yAxisLabel: displayOptions.yAxisLabel,
+        xAxisTickFormatter: opts.xAxisTickFormatter,
+        goalLines: opts.goalLines,
+        incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
+        getHidden: opts.getHidden,
+        showConfidenceIntervals: displayOptions.showConfidenceIntervals,
+        confidenceLevel: displayOptions.confidenceLevel,
+        ciRanges: opts.ciRanges,
+        showMovingAverage: displayOptions.showMovingAverage,
+        movingAverageIntervals: displayOptions.movingAverageIntervals,
+        showTrendLines: displayOptions.showTrendLines,
+        valueLabels:
+            displayOptions.showValuesOnSeries && opts.valueLabelFormatter
+                ? { formatter: opts.valueLabelFormatter }
+                : false,
+        showCrosshair: displayOptions.showCrosshair,
+        tooltip: opts.tooltipConfig,
+    })
+    return { series, config }
 }

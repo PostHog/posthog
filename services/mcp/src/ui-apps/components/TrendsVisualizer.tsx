@@ -2,9 +2,10 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import type { TrendsChartDisplayOptions } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
-import { TrendsLineChartView } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChartView'
+import { buildTrendsLineChartProps } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import { BarChart, BigNumber, Select, type Series } from './charts'
 import { CHART_COLORS, CHART_THEME } from './charts/theme'
@@ -94,6 +95,18 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         showCrosshair: true,
     }
 
+    const { series: lineSeries, config: lineConfig } = buildTrendsLineChartProps({
+        results: results.map((item, i) => ({
+            id: i,
+            label: getSeriesLabel(item, i),
+            data: item.data ?? [],
+            days: item.days,
+        })),
+        displayOptions: lineDisplayOptions,
+        getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
+        xAxisTickFormatter: (value) => formatDate(value),
+    })
+
     return (
         <div>
             <div className="mb-2 flex justify-end">
@@ -108,23 +121,11 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
-                // The shared view's chart root is `flex: 1; height: 100%`, so it needs a flex-column
-                // parent with a height. The MCP host imposes none (the web app sizes it via the
-                // insight container), so provide one here.
+                // The quill chart root is `flex: 1; height: 100%`, so it needs a flex-column parent
+                // with a height. The MCP host imposes none (the web app sizes it via the insight
+                // container), so provide one here.
                 <div className="flex flex-col w-full h-[400px]">
-                    <TrendsLineChartView
-                        results={results.map((item, i) => ({
-                            id: i,
-                            label: getSeriesLabel(item, i),
-                            data: item.data ?? [],
-                            days: item.days,
-                        }))}
-                        labels={labels}
-                        theme={CHART_THEME}
-                        getColor={(_, index) => CHART_COLORS[index % CHART_COLORS.length]!}
-                        displayOptions={lineDisplayOptions}
-                        xAxisTickFormatter={(value) => formatDate(value)}
-                    />
+                    <TimeSeriesLineChart series={lineSeries} labels={labels} theme={CHART_THEME} config={lineConfig} />
                 </div>
             )}
         </div>
