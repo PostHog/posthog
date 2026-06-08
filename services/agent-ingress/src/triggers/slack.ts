@@ -14,6 +14,7 @@ import { z } from 'zod'
 
 import {
     AgentApplication,
+    createLogger,
     HttpFetcher,
     IdentityStore,
     IntegrationStore,
@@ -22,6 +23,8 @@ import {
     SLACK_BOT_TOKEN_KEY,
     SLACK_SIGNING_SECRET_KEY,
 } from '@posthog/agent-shared'
+
+const log = createLogger('slack-trigger')
 
 import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
@@ -176,13 +179,43 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             // seed message surfaces this so the model can judge whether the
             // user is actually talking to it.
             let resumedOwnedThread = false
+            // Single trace line per inbound event covers the discoverable
+            // state (slug + event type + thread + config flags) so a "why
+            // didn't my bot react?" question can be answered from a single
+            // grep. Debug-level — production traffic shouldn't spam the
+            // info channel, but local dev runs at debug by default.
+            log.debug(
+                {
+                    slug: resolved.application.slug,
+                    event_type: event.type,
+                    is_app_mention: isAppMention,
+                    channel: event.channel,
+                    thread_ts: event.thread_ts ?? null,
+                    mention_only: mentionOnly,
+                    auto_resume_threads: autoResumeThreads,
+                    ack_reaction: ackReaction ?? null,
+                },
+                'slack_event_received'
+            )
             if (!isAppMention && mentionOnly) {
                 if (!autoResumeThreads || !event.thread_ts) {
+                    log.info(
+                        { slug: resolved.application.slug, channel: event.channel, ts: event.ts },
+                        'slack_event_dropped_mention_only'
+                    )
                     res.json({ ok: true, dropped: 'mention_only' })
                     return
                 }
                 const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey)
                 if (!existing) {
+                    log.info(
+                        {
+                            slug: resolved.application.slug,
+                            channel: event.channel,
+                            thread_ts: event.thread_ts,
+                        },
+                        'slack_event_dropped_no_owned_thread'
+                    )
                     res.json({ ok: true, dropped: 'mention_only_no_owned_thread' })
                     return
                 }
@@ -195,16 +228,29 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             // moment to claim the session. Fails open: a revoked / missing
             // bot token, a slack.com 5xx, a previously-reacted message
             // (`already_reacted`), or a missing channel must NOT break the
-            // event handler. The `.catch` collapses every error path to a
-            // silent no-op; the session still enqueues. We `void` rather
-            // than `await` so reactions.add latency can't blow the ack
-            // window.
+            // event handler. We `void` rather than `await` so reactions.add
+            // latency can't blow the ack window; the `.catch` logs and
+            // collapses every error path to a silent no-op so the session
+            // still enqueues.
             if (ackReaction) {
                 void postAckReaction(deps, resolved.application, {
                     channel: event.channel,
                     ts: event.ts,
                     name: ackReaction,
-                }).catch(() => undefined)
+                }).catch((err) => {
+                    log.warn(
+                        {
+                            slug: resolved.application.slug,
+                            channel: event.channel,
+                            ts: event.ts,
+                            reaction: ackReaction,
+                            err: err instanceof Error ? err.message : String(err),
+                        },
+                        'ack_reaction_threw'
+                    )
+                })
+            } else {
+                log.debug({ slug: resolved.application.slug }, 'ack_reaction_not_configured')
             }
 
             // Identity resolution: same (workspace, user) tuple resolves to the
@@ -481,6 +527,11 @@ async function postAckReaction(
 ): Promise<void> {
     const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, application)
     if (!token) {
+        // The most common failure mode: SLACK_BOT_TOKEN isn't in
+        // encrypted_env yet (user wired the trigger before running the
+        // punch-out). Log at warn so a stuck "why no emoji?" is one grep
+        // away from the answer.
+        log.warn({ slug: application.slug, reaction: opts.name }, 'ack_reaction_no_bot_token')
         return
     }
     // Skip if no HttpFetcher is wired. Production always passes one via
@@ -489,8 +540,13 @@ async function postAckReaction(
     // outer `.catch` already guards against errors; this guard makes the
     // success path of the unconfigured case explicit (no-op).
     if (!deps.http) {
+        log.warn({ slug: application.slug, reaction: opts.name }, 'ack_reaction_no_http_client')
         return
     }
+    log.debug(
+        { slug: application.slug, channel: opts.channel, ts: opts.ts, reaction: opts.name },
+        'ack_reaction_posting'
+    )
     const res = await deps.http.fetch('https://slack.com/api/reactions.add', {
         method: 'POST',
         headers: {
@@ -499,14 +555,37 @@ async function postAckReaction(
         },
         body: JSON.stringify({ channel: opts.channel, timestamp: opts.ts, name: opts.name }),
     })
-    // `already_reacted` is a normal outcome on retries — Slack delivers the
-    // event up to 3 times if it doesn't see a 200 fast enough, and the
-    // idempotency key downstream dedupes the enqueue but doesn't dedupe
-    // this fire-and-forget call. Swallow it (and everything else) — the
-    // outer `.catch` already does, but the explicit no-throw here means
-    // the success path doesn't accidentally throw inside an async closure
-    // we don't await.
-    void res
+    // Slack returns 200 + `{ ok: false, error: ... }` for application-level
+    // failures (`channel_not_found`, `already_reacted`, `not_in_channel`,
+    // invalid token, etc.) — distinct from HTTP transport failures.
+    // Parse + log both shapes so the user can tell which side the failure
+    // came from. `already_reacted` is a normal outcome on Slack retries and
+    // doesn't need to look like an error in the log; everything else is a
+    // warning. We swallow all of them (the outer .catch guards too).
+    let body: { ok?: boolean; error?: string } = {}
+    try {
+        body = (await res.json()) as { ok?: boolean; error?: string }
+    } catch {
+        // Non-JSON response — Slack hiccup / network proxy. Treat as failure.
+    }
+    if (!res.ok || body.ok === false) {
+        const isAlreadyReacted = body.error === 'already_reacted'
+        const fields = {
+            slug: application.slug,
+            channel: opts.channel,
+            ts: opts.ts,
+            reaction: opts.name,
+            status: res.status,
+            slack_error: body.error ?? null,
+        }
+        if (isAlreadyReacted) {
+            log.debug(fields, 'ack_reaction_already_reacted')
+        } else {
+            log.warn(fields, 'ack_reaction_failed')
+        }
+        return
+    }
+    log.info({ slug: application.slug, channel: opts.channel, ts: opts.ts, reaction: opts.name }, 'ack_reaction_ok')
 }
 
 /**
