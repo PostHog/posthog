@@ -79,9 +79,11 @@ const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetr
 /// `$lib` stamped on every event synthesized from the OTel ingestion path. These
 /// events are built server-side and never pass through an SDK's `capture()`, so
 /// without this they arrive with no `$lib` and look anonymous to every downstream
-/// consumer (transformations, breakdowns, debugging). Browser SDKs report `web`/`js`
-/// and server SDKs `posthog-<lang>`; OTel-synthesized AI events report this.
-const OTEL_LIB_NAME: &str = "posthog-ai-otel";
+/// consumer (transformations, breakdowns, debugging). Names the ingestion transport
+/// (like `posthog-webhook` does), not the data domain — the `$ai_*` event name and
+/// `$ai_ingestion_source` already convey that. Browser SDKs report `web`/`js` and
+/// server SDKs `posthog-<lang>`; events ingested via the OTel endpoint report this.
+const OTEL_LIB_NAME: &str = "posthog-otel";
 
 fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
     attrs
@@ -356,7 +358,7 @@ mod tests {
         assert_eq!(props["$ai_trace_id"], "0102030405060708090a0b0c0d0e0f10");
         assert_eq!(props["$ai_span_id"], "0102030405060708");
         assert_eq!(props["$ai_ingestion_source"], "otel");
-        assert_eq!(props["$lib"], "posthog-ai-otel");
+        assert_eq!(props["$lib"], "posthog-otel");
         // No instrumentation scope on this request, so no $lib_version.
         assert!(!props.contains_key("$lib_version"));
         assert_eq!(props["service.name"], "test-svc");
@@ -413,7 +415,7 @@ mod tests {
 
         let events = expand_into_events(&request, "user-1");
         let props = events[0].properties.as_object().unwrap();
-        assert_eq!(props["$lib"], "posthog-ai-otel");
+        assert_eq!(props["$lib"], "posthog-otel");
         match expected_lib_version {
             Some(v) => assert_eq!(props["$lib_version"], v),
             None => assert!(!props.contains_key("$lib_version")),
