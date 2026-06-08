@@ -748,6 +748,10 @@ quality:
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
+    lint:python:pt009:
+        cmd: ./bin/ruff.sh check --select PT009,E711,E712 --fix --unsafe-fixes
+        description: Convert unittest-style asserts to pytest style; autofix what's possible (plus the
+            == True/None fallout the conversion creates), fail on the rest
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
