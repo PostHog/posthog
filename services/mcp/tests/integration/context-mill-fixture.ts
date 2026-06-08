@@ -1,11 +1,16 @@
 import { strToU8, zipSync } from 'fflate'
-import { http, HttpResponse } from 'msw'
-import { setupServer } from 'msw/node'
 
 // The Hono/CF harness warms up by downloading the context-mill resource bundle
 // from this GitHub release. Letting an integration suite depend on a live CDN
 // makes the harness `beforeAll` flaky (slow downloads blow the hook budget), so
-// we stub the download with an in-process MSW server serving a minimal bundle.
+// we stub just that one download with a minimal in-memory bundle.
+//
+// We deliberately patch `globalThis.fetch` directly rather than reach for a
+// request-mocking library: the MCP protocol uses a streaming HTTP transport
+// between the SDK client and the harness listener, and a lower-level fetch
+// interceptor mangles those streaming responses (the suite hangs). A thin
+// wrapper that delegates every non-matching request to the real fetch leaves
+// the transport untouched.
 const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 // Mirror of the real bundle shape — one `posthog://` resource is enough for
@@ -28,9 +33,36 @@ const manifest = {
 
 const zip = zipSync({ 'manifest.json': strToU8(JSON.stringify(manifest)) })
 
-// `onUnhandledRequest: 'bypass'` (set by callers on `.listen()`) lets the real
-// requests to the local PostHog stack and the harness's own listener flow
-// through untouched — only the context-mill download is stubbed.
-export const contextMillFixtureServer = setupServer(
-    http.get(CONTEXT_MILL_URL, () => new HttpResponse(zip, { headers: { 'Content-Type': 'application/zip' } }))
-)
+function requestUrl(input: RequestInfo | URL): string {
+    if (typeof input === 'string') {
+        return input
+    }
+    if (input instanceof URL) {
+        return input.href
+    }
+    return input.url
+}
+
+let realFetch: typeof globalThis.fetch | undefined
+
+export function installContextMillStub(): void {
+    if (realFetch) {
+        return
+    }
+    const original = globalThis.fetch
+    realFetch = original
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (requestUrl(input) === CONTEXT_MILL_URL) {
+            // Fresh copy per call so the body can be consumed by repeated reads.
+            return new Response(zip.slice(), { headers: { 'Content-Type': 'application/zip' } })
+        }
+        return original(input, init)
+    }) as typeof globalThis.fetch
+}
+
+export function uninstallContextMillStub(): void {
+    if (realFetch) {
+        globalThis.fetch = realFetch
+        realFetch = undefined
+    }
+}

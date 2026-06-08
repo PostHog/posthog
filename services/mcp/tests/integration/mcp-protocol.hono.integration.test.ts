@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from 'vitest'
 
-import { contextMillFixtureServer } from './context-mill-fixture'
+import { installContextMillStub, uninstallContextMillStub } from './context-mill-fixture'
 import { startHonoHarness } from './harness/hono'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
 import {
@@ -44,14 +44,14 @@ let harness: IntegrationHarness
 beforeAll(async () => {
     // Stub the context-mill download before the harness warms up so the boot
     // doesn't reach out to GitHub; everything else passes through to the real stack.
-    contextMillFixtureServer.listen({ onUnhandledRequest: 'bypass' })
+    installContextMillStub()
     env = loadIntegrationEnv()
     harness = await startHonoHarness(env)
 }, 30_000)
 
 afterAll(async () => {
     await harness?.stop()
-    contextMillFixtureServer.close()
+    uninstallContextMillStub()
 })
 
 const harnessFor = (): ProtocolTestHarness => ({
