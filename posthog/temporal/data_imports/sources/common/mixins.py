@@ -1,7 +1,6 @@
 import socket
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
-from typing import Any
 
 import structlog
 
@@ -97,7 +96,7 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
 
 
 @contextmanager
-def open_ssh_tunnel(config) -> Generator[tuple[str, int], Any]:
+def open_ssh_tunnel(config) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
     if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
         ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
