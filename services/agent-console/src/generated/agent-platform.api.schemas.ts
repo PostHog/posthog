@@ -205,6 +205,8 @@ export type AgentRevisionApiSpecTriggersItem =
           config: {
               channel_id?: string
               mention_only: boolean
+              auto_resume_threads: boolean
+              ack_reaction?: string
               trusted_workspaces: string[] | '*'
           }
       }
@@ -341,6 +343,11 @@ export type AgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_wall_seconds: number
+    /**
+     * @maximum 200000
+     * @exclusiveMinimum 0
+     */
+    max_output_tokens?: number
 }
 
 export type AgentRevisionApiSpecAuthModesItem =
@@ -421,6 +428,8 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
           config: {
               channel_id?: string
               mention_only: boolean
+              auto_resume_threads: boolean
+              ack_reaction?: string
               trusted_workspaces: string[] | '*'
           }
       }
@@ -557,6 +566,11 @@ export type PatchedAgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_wall_seconds: number
+    /**
+     * @maximum 200000
+     * @exclusiveMinimum 0
+     */
+    max_output_tokens?: number
 }
 
 export type PatchedAgentRevisionApiSpecAuthModesItem =
@@ -943,6 +957,12 @@ export interface AgentApplicationPreviewTokenResponseApi {
     expires_in: number
     /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix. */
     ingress_slug: string
+    /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when `AGENT_INGRESS_PUBLIC_URL` is unset. */
+    endpoints: unknown
+    /** How to attach credentials to those endpoints: preview-token header/query names, the agent's `spec.auth.modes`, and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
+    auth: unknown
+    /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
+    preview_proxy: unknown
 }
 
 export interface AgentSessionUsageTotalApi {

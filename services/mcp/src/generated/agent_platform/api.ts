@@ -151,6 +151,7 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -197,6 +198,9 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsDefault
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax = 2147483647
 
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax = 200000
+
 export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
@@ -223,6 +227,12 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                     .default(
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault
                                     ),
+                                auto_resume_threads: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -418,6 +428,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsExclusiveMin)
                         .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax)
                         .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsDefault),
+                    max_output_tokens: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax)
+                        .optional(),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
@@ -534,6 +549,7 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
 })
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -580,6 +596,9 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSeconds
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsMax = 2147483647
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax = 200000
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
@@ -606,6 +625,12 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     .default(
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault
                                     ),
+                                auto_resume_threads: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -805,6 +830,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsExclusiveMin)
                         .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsMax)
                         .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSecondsDefault),
+                    max_output_tokens: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax)
+                        .optional(),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),

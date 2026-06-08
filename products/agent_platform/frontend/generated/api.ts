@@ -1541,6 +1541,13 @@ directly via the public ingress URL. The caller attaches it as
 the `x-agent-preview-token` header (or `?preview_token=` query
 param for `EventSource`). See `_mint_preview_jwt` for the
 payload + claim binding.
+
+The response also includes `endpoints`, `auth`, and
+`preview_proxy` blocks so the caller can wire a preview
+invocation without grepping the agent-ingress source for which
+path each trigger exposes or which header name carries the
+token. This is the "self-describing" half of preview-mode —
+every piece of info you need to hit ingress is in one response.
  */
 export const agentApplicationsPreviewToken = async (
     projectId: string,

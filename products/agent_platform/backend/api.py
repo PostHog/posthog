@@ -173,6 +173,120 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
     return token, ttl_seconds
 
 
+# Per-trigger route catalogue. Mirrors the `path:` arrays in each
+# `services/agent-ingress/src/triggers/<type>.ts` `routes` export — keep
+# these tables in sync (a sibling test validates the chat one). Source of
+# truth is still the ingress; this is here so the preview-token caller
+# doesn't have to grep the ingress source to know which path to hit.
+_TRIGGER_ROUTES: dict[str, dict[str, str]] = {
+    "chat": {
+        "run": "/run",
+        "send": "/send",
+        "cancel": "/cancel",
+        "listen": "/listen",
+        "client_tool_result": "/client_tool_result",
+    },
+    "mcp": {
+        "rpc": "/mcp",
+        "stream": "/mcp/stream",
+        "connect_info": "/mcp/connect-info",
+    },
+    "slack": {
+        "events": "/slack/events",
+        "interactivity": "/slack/interactivity",
+    },
+    "webhook": {
+        "post": "/webhook",
+    },
+    # `cron` triggers have no externally-callable ingress endpoint —
+    # they fire from the janitor's scheduler. Omit from the catalogue
+    # so the preview response doesn't advertise a URL the caller can't
+    # actually hit.
+}
+
+
+def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Return `{trigger_type: {route_name: absolute_url}}` for every
+    trigger the spec declares that has a public ingress route in
+    `_TRIGGER_ROUTES`. Empty when `AGENT_INGRESS_PUBLIC_URL` isn't
+    set (local dev without `bin/agent-tunnel`)."""
+    base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
+    if not base:
+        return {}
+    triggers = spec.get("triggers") or []
+    if not isinstance(triggers, list):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for trigger in triggers:
+        if not isinstance(trigger, dict):
+            continue
+        ttype = trigger.get("type")
+        if not isinstance(ttype, str):
+            continue
+        routes = _TRIGGER_ROUTES.get(ttype)
+        if not routes:
+            continue
+        # First trigger of a given type wins; spec-side validation
+        # should already enforce uniqueness, but be defensive.
+        if ttype in out:
+            continue
+        out[ttype] = {name: f"{base}/agents/{ingress_slug}{path}" for name, path in routes.items()}
+    return out
+
+
+def _build_preview_auth_info(spec: dict[str, Any]) -> dict[str, Any]:
+    """Surface the auth contract the caller has to satisfy when hitting
+    the endpoints above. The preview-token gate is separate from
+    `spec.auth.modes` — the caller almost always needs both."""
+    auth = spec.get("auth")
+    spec_modes: list[str] = []
+    if isinstance(auth, dict):
+        modes = auth.get("modes")
+        if isinstance(modes, list):
+            for mode in modes:
+                if isinstance(mode, dict):
+                    mtype = mode.get("type")
+                    if isinstance(mtype, str):
+                        spec_modes.append(mtype)
+    return {
+        "preview_token_header": "x-agent-preview-token",
+        "preview_token_query": "preview_token",
+        "spec_modes": spec_modes,
+        "notes": (
+            "The preview-token in `token` gates revision routing only (it admits non-live "
+            "revisions). The ingress then ALSO enforces the agent's spec.auth.modes for the "
+            "trigger you're hitting — pick one of `spec_modes` and attach the matching "
+            "credential (Authorization: Bearer for oauth/pat, x-posthog-internal for "
+            "posthog_internal, etc.). Public-auth agents accept anonymous; everything else "
+            "needs a real credential alongside the preview-token."
+        ),
+    }
+
+
+def _build_preview_proxy_info(request: Request, application: AgentApplication) -> dict[str, Any]:
+    """Same-origin Django-side proxy. Convenient for browser SSE flows
+    where attaching preview-tokens to EventSource is awkward; not a
+    full replacement for the direct path because the proxy strips
+    caller Authorization (so it can't satisfy `spec_modes` for
+    non-public agents)."""
+    team_id = application.team_id
+    proxy_base = (
+        f"{request.scheme}://{request.get_host()}"
+        f"/api/projects/{team_id}/agent_applications/{application.slug}/preview-proxy"
+    )
+    return {
+        "base": proxy_base,
+        "allowed_paths": sorted(AgentApplicationViewSet._PREVIEW_PROXY_ALLOWED_PATHS),
+        "notes": (
+            "Server-side proxy that mints the preview-token for you and forwards to ingress. "
+            "Strips caller Authorization / Cookie before forwarding, so it works for agents "
+            "whose `spec.auth.modes` accepts anonymous (public). Agents with required auth "
+            "(`oauth` / `pat` / `posthog_internal`) need the direct endpoints above with a "
+            "real credential attached."
+        ),
+    }
+
+
 class EventStreamRenderer(renderers.BaseRenderer):
     """Lets DRF's content negotiation accept `Accept: text/event-stream`
     requests (browser EventSource sends this) so they reach the view
@@ -752,6 +866,15 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "ingress_slug": drf_serializers.CharField(
                         help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision in the path-routing prefix.",
                     ),
+                    "endpoints": drf_serializers.JSONField(
+                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when `AGENT_INGRESS_PUBLIC_URL` is unset.",
+                    ),
+                    "auth": drf_serializers.JSONField(
+                        help_text="How to attach credentials to those endpoints: preview-token header/query names, the agent's `spec.auth.modes`, and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
+                    ),
+                    "preview_proxy": drf_serializers.JSONField(
+                        help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
+                    ),
                 },
             )
         ),
@@ -762,7 +885,15 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         directly via the public ingress URL. The caller attaches it as
         the `x-agent-preview-token` header (or `?preview_token=` query
         param for `EventSource`). See `_mint_preview_jwt` for the
-        payload + claim binding."""
+        payload + claim binding.
+
+        The response also includes `endpoints`, `auth`, and
+        `preview_proxy` blocks so the caller can wire a preview
+        invocation without grepping the agent-ingress source for which
+        path each trigger exposes or which header name carries the
+        token. This is the "self-describing" half of preview-mode —
+        every piece of info you need to hit ingress is in one response.
+        """
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -777,19 +908,17 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
             )
         token_pair = _mint_preview_jwt(application, revision, request.user)
-        if token_pair is None:
-            # No AGENT_INTERNAL_SIGNING_KEY configured — ingress's gate is
-            # also bypassed in that mode, so an empty token is fine
-            # (and signals the dev/harness configuration to the caller).
-            return Response({"token": "", "expires_in": 0, "ingress_slug": f"{application.slug}-{revision.id.hex}"})
-        token, expires_in = token_pair
-        return Response(
-            {
-                "token": token,
-                "expires_in": expires_in,
-                "ingress_slug": f"{application.slug}-{revision.id.hex}",
-            }
-        )
+        ingress_slug = f"{application.slug}-{revision.id.hex}"
+        spec = revision.spec if isinstance(revision.spec, dict) else {}
+        body: dict[str, Any] = {
+            "token": token_pair[0] if token_pair is not None else "",
+            "expires_in": token_pair[1] if token_pair is not None else 0,
+            "ingress_slug": ingress_slug,
+            "endpoints": _build_preview_endpoints(ingress_slug, spec),
+            "auth": _build_preview_auth_info(spec),
+            "preview_proxy": _build_preview_proxy_info(request, application),
+        }
+        return Response(body)
 
     @extend_schema(
         operation_id="agent_applications_stats",
