@@ -86,6 +86,7 @@ PRODUCTS_APPS = [
     "products.annotations.backend.apps.AnnotationsConfig",
     "products.batch_exports.backend.apps.BatchExportsConfig",
     "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
+    "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
 ]
 
 INSTALLED_APPS = [

@@ -24,9 +24,9 @@ from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
-from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.exports.backend.api import exports
+from products.managed_migrations.backend.api.batch_imports import BatchImportViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -61,6 +61,7 @@ from . import (
     organization_integration,
     organization_invite,
     organization_member,
+    organization_personal_api_key,
     personal_api_key,
     project_secret_api_key,
     proxy_record,
@@ -412,6 +413,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"personal_api_keys",
+    organization_personal_api_key.OrganizationPersonalAPIKeyViewSet,
+    "organization_personal_api_keys",
     ["organization_id"],
 )
 organizations_router.register(

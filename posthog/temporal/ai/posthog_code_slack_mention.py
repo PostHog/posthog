@@ -16,6 +16,7 @@ from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.storage import object_storage
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
@@ -524,6 +525,7 @@ async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> 
 
 
 @activity.defn
+@close_db_connections
 def resolve_posthog_code_slack_user_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -541,6 +543,7 @@ def resolve_posthog_code_slack_user_activity(
 
 
 @activity.defn
+@close_db_connections
 def handle_posthog_code_rules_command_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -578,6 +581,7 @@ def handle_posthog_code_rules_command_activity(
 
 
 @activity.defn
+@close_db_connections
 def collect_posthog_code_thread_messages_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -597,6 +601,7 @@ def collect_posthog_code_thread_messages_activity(
 
 
 @activity.defn
+@close_db_connections
 def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
@@ -654,6 +659,7 @@ def cascade_posthog_code_repository_activity(
 
 
 @activity.defn
+@close_db_connections
 async def discover_posthog_code_repository_via_agent_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -777,6 +783,7 @@ def classify_posthog_code_task_needs_repo_activity(
 
 
 @activity.defn
+@close_db_connections
 def enforce_posthog_code_billing_quota_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -809,6 +816,7 @@ def enforce_posthog_code_billing_quota_activity(
 
 
 @activity.defn
+@close_db_connections
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
@@ -829,6 +837,7 @@ def post_posthog_code_no_repos_activity(
 
 
 @activity.defn
+@close_db_connections
 def post_posthog_code_repo_picker_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -884,6 +893,7 @@ def post_posthog_code_repo_picker_activity(
 
 
 @activity.defn
+@close_db_connections
 def block_posthog_code_task_if_no_personal_github_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -958,6 +968,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
 
 
 @activity.defn
+@close_db_connections
 def create_posthog_code_task_for_repo_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -1106,6 +1117,7 @@ def create_posthog_code_task_for_repo_activity(
 
 
 @activity.defn
+@close_db_connections
 def create_posthog_code_routing_rule_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -1161,6 +1173,7 @@ def create_posthog_code_routing_rule_activity(
 
 
 @activity.defn
+@close_db_connections
 def forward_posthog_code_followup_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -1626,6 +1639,7 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 
 
 @activity.defn
+@close_db_connections
 def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
@@ -1664,6 +1678,7 @@ def post_posthog_code_picker_timeout_activity(
 
 
 @activity.defn
+@close_db_connections
 def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
