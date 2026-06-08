@@ -20,20 +20,55 @@ tools:
             idempotent: false
         title: Create subscription
         description: >
-            Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an
-            insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the
-            recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected
-            Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly,
-            monthly, yearly) and interval (required, minimum 1 — use 1 for no multiplier; e.g. 2 with weekly = every 2
-            weeks), plus optional byweekday, start_date, and until_date. Dashboard subscriptions also require
-            dashboard_export_insights (list of insight IDs from that dashboard, max 6).
+            Create a recurring subscription. The kind is inferred from which field you populate and returned as the
+            read-only `resource_type`:
+
+            (1) set `insight` — schedule periodic snapshots of one insight (`resource_type: "insight"`).
+
+            (2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max
+            6) — schedule periodic snapshots of one dashboard (`resource_type: "dashboard"`).
+
+            (3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report
+            (`resource_type: "ai_prompt"`). Available on PostHog Cloud (self-hosted production is not eligible) once the
+            organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create
+            is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
+            runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
+
+            Delivery is set by `target_type` — `email` or `slack`. (Insight and dashboard subscriptions also accept
+            `webhook`; prompt subscriptions do not.)
+
+            The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
+            rejected.
         exclude_params:
-            - created_by
+            - deleted
             - next_delivery_date
-            - summary
-            - insight_short_id
             - resource_name
-            - prompt
+            - insight_short_id
+            - invite_message
+            - summary_enabled
+            - summary_prompt_guide
+    subscriptions-delete:
+        operation: subscriptions_destroy
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete subscription
+        description: >
+            Soft-delete a subscription. Stops all future deliveries and returns the subscription with `deleted: true`.
+            One-way via MCP — there is no restore tool, so re-create the subscription if you need it back. Deleting an
+            prompt subscription additionally requires the `query:read` scope (the backend gates every write touching a
+            prompt subscription on query access).
+        param_overrides:
+            id:
+                cast: string-int
+        soft_delete: true
+        response:
+            exclude:
+                - invite_message
     subscriptions-deliveries-list:
         operation: subscriptions_deliveries_list
         enabled: true
@@ -77,9 +112,6 @@ tools:
                 - content_snapshot
                 - recipient_results
                 - error
-    subscriptions-destroy:
-        operation: subscriptions_destroy
-        enabled: false
     subscriptions-list:
         operation: subscriptions_list
         enabled: true
@@ -92,9 +124,12 @@ tools:
         list: true
         title: List subscriptions
         description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
-            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
-            next_delivery_date, and a human-readable summary.
+            List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated
+            name of an unnamed insight), or dashboard name. Prompt subscriptions are only matched on their `title` — the
+            `prompt` text is not searchable.
+        response:
+            exclude:
+                - invite_message
     subscriptions-partial-update:
         operation: subscriptions_partial_update
         enabled: true
@@ -102,20 +137,22 @@ tools:
             - subscription:write
         annotations:
             readOnly: false
-            destructive: true
+            destructive: false
             idempotent: true
         title: Update subscription
         description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
-            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
-            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
+            Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions,
+            `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's
+            field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously
+            auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that
+            the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a
+            prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete
+            — `deleted` is not settable here.
         exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-            - prompt
+            - deleted
+            - invite_message
+            - summary_enabled
+            - summary_prompt_guide
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true
@@ -126,9 +163,10 @@ tools:
             destructive: false
             idempotent: true
         title: Get subscription
-        description: >
-            Get a specific subscription by ID. Returns the full subscription configuration including target type and
-            value, schedule details, next delivery date, and associated insight or dashboard.
+        description: Retrieve a single subscription by ID.
+        response:
+            exclude:
+                - invite_message
     subscriptions-summary-quota-retrieve:
         operation: subscriptions_summary_quota_retrieve
         enabled: false
@@ -139,16 +177,18 @@ tools:
             - subscription:write
         annotations:
             readOnly: false
-            destructive: true
+            destructive: false
             idempotent: false
         title: Send test delivery
         description: >
-            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook).
-            Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery
-            record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
-            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
+            Trigger an immediate test delivery of a subscription to its configured target(s) (email or Slack). Runs the
+            same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can
+            inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the
+            delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
             subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
-            is already in flight.
+            is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has been deleted.
+            Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs the AI HogQL
+            pipeline).
     subscriptions-update:
         operation: subscriptions_update
         enabled: false

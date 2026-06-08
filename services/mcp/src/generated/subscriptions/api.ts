@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -87,8 +87,6 @@ export const subscriptionsCreateBodyCountMax = 2147483647
 
 export const subscriptionsCreateBodyTitleMax = 100
 
-export const subscriptionsCreateBodySummaryPromptGuideMax = 500
-
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod
@@ -104,6 +102,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
+        prompt: zod
+            .string()
+            .nullish()
+            .describe(
+                "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])
@@ -158,7 +162,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
         enabled: zod
             .boolean()
             .optional()
@@ -174,12 +177,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
 
@@ -211,8 +208,6 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
-export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
-
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod
@@ -228,6 +223,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
+        prompt: zod
+            .string()
+            .nullish()
+            .describe(
+                "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])
@@ -289,7 +290,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
         enabled: zod
             .boolean()
             .optional()
@@ -305,14 +305,20 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const SubscriptionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this subscription.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
