@@ -8268,18 +8268,6 @@ export const DashboardsDestroyFormat = {
     Txt: 'txt',
 } as const
 
-export type DashboardsAnalyzeRefreshResultCreateParams = {
-    format?: DashboardsAnalyzeRefreshResultCreateFormat
-}
-
-export type DashboardsAnalyzeRefreshResultCreateFormat =
-    (typeof DashboardsAnalyzeRefreshResultCreateFormat)[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat]
-
-export const DashboardsAnalyzeRefreshResultCreateFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
 export type DashboardsCopyTileCreateParams = {
     format?: DashboardsCopyTileCreateFormat
 }
@@ -8408,18 +8396,6 @@ export type DashboardsRunWidgetsRetrieveFormat =
     (typeof DashboardsRunWidgetsRetrieveFormat)[keyof typeof DashboardsRunWidgetsRetrieveFormat]
 
 export const DashboardsRunWidgetsRetrieveFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
-export type DashboardsSnapshotCreateParams = {
-    format?: DashboardsSnapshotCreateFormat
-}
-
-export type DashboardsSnapshotCreateFormat =
-    (typeof DashboardsSnapshotCreateFormat)[keyof typeof DashboardsSnapshotCreateFormat]
-
-export const DashboardsSnapshotCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
