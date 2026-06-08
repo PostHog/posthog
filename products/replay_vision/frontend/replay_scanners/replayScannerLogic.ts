@@ -256,6 +256,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
+                // In the wizard, "Next" from /configure also goes through submit so kea-forms validates
+                // the configure-owned fields before letting the user proceed. Don't POST yet — just route.
+                const pathname = router.values.location.pathname
+                if (pathname.endsWith('/configure')) {
+                    router.actions.push(urls.replayVisionScannerTriggers(props.id))
+                    return
+                }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
@@ -571,7 +578,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             setScannerType: ({ scannerType }) => {
-                actions.setScannerValues({
+                // Use resetScanner (not setScannerValues) so the form's "show errors" flag flips back
+                // to false — otherwise stale errors from the previous type's prompt/config keep showing
+                // on the freshly-defaulted fields.
+                const current = values.scanner
+                if (!current) {
+                    return
+                }
+                actions.resetScanner({
+                    ...current,
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 })
