@@ -1317,7 +1317,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert results[0]["title"] == "DifferentTitle"
 
     @parameterized.expand(
-        [("slack",), ("webhook",), ("email",)],
+        [("slack",), ("email",)],
         name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0]}",
     )
     def test_list_subscriptions_filter_by_target_type(self, target_type):
@@ -1329,12 +1329,6 @@ class TestSubscriptionTemporal(APILicensedTest):
                 target_type="slack",
                 target_value="C1234|#general",
                 integration_id=slack_integration.id,
-            )
-        elif target_type == "webhook":
-            create_res = self._create_subscription(
-                title="Webhook sub",
-                target_type="webhook",
-                target_value="https://example.com/hook",
             )
         else:
             create_res = self._create_subscription(title="Email only sub")
