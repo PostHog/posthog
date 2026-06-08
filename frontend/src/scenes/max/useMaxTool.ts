@@ -46,7 +46,7 @@ export function useMaxTool({
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { setActiveGroup, startNewConversation } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { setActiveGroup, startNewConversation } = useActions(maxLogic({ sidePanel: true }))
 
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
