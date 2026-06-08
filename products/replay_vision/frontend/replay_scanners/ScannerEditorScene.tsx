@@ -257,9 +257,13 @@ function EditorFooter({
         <div className="flex items-center justify-between">
             {step === 'configure' ? (
                 <>
-                    <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
-                        Back to templates
-                    </LemonButton>
+                    {isNew ? (
+                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
+                            Back to templates
+                        </LemonButton>
+                    ) : (
+                        <span />
+                    )}
                     <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance}>
                         Next: triggers
                     </LemonButton>
