@@ -246,6 +246,26 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
 
 
+def filter_to_unprivileged_scopes(scopes: Iterable[str]) -> list[str]:
+    """Keep only self-serve-grantable scopes from a declared list, deduped, order preserved.
+
+    The single allow-list for scopes a self-registering client declares, covering both DCR
+    (the RFC 7591 `scope` string, split before it gets here) and CIMD (`com.posthog.scopes`).
+    `UNPRIVILEGED_SCOPES` drops privileged (`llm_gateway:*`), internal, hidden, and unknown
+    strings: none may reach a per-app ceiling, since `/authorize` would otherwise grant them
+    on a user-consented token. Non-string entries are dropped too, so raw partner JSON is safe
+    to pass straight in.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in scopes:
+        if not isinstance(token, str) or token not in UNPRIVILEGED_SCOPES or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
+
+
 def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
     """The scope set a request resolves against: the explicit `app_scopes` ceiling,
     or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""

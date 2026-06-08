@@ -982,6 +982,17 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
             self.assertNotIn(hidden_scope, app.scopes)
         self.assertIn("insight:read", app.scopes)
 
+    # Duplicate scopes in the metadata array collapse to one entry, order preserved.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_duplicate_scopes_deduped(self, mock_get, _url_mock):
+        metadata = _make_metadata(com_posthog={"scopes": ["insight:read", "dashboard:write", "insight:read"]})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.scopes, ["insight:read", "dashboard:write"])
+
     # (b) absent com.posthog.scopes on refresh leaves existing scopes untouched.
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_absent_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
