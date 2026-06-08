@@ -79,7 +79,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }): React.
     return (
         <div className="flex h-full min-h-0 flex-col">
             <div className="mx-auto w-full max-w-5xl shrink-0 px-6 pt-6">
-                <Breadcrumb name={agent.name} onBack={() => router.push('/')} />
+                <Breadcrumb name={agent.name} onBack={() => router.push('/agents')} />
 
                 <header className="mt-3 flex items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
