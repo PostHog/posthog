@@ -3246,8 +3246,10 @@ class FeatureFlagViewSet(
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
 
-            # Rename the key if the flag is linked to any experiment, to free it up
-            has_linked_experiments = any(True for _ in flag.experiment_set.all())
+            # Rename the key if the flag is linked to any experiment, to free it up.
+            # Use the prefetched experiment_set cache (see queryset above) rather than
+            # .exists(), which would issue a fresh query per flag.
+            has_linked_experiments = bool(flag.experiment_set.all())
             if has_linked_experiments:
                 flags_to_delete_with_rename.append(flag)
             else:
