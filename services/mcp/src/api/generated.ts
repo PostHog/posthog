@@ -3878,6 +3878,41 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `user` - user
+    * `role` - role
+     */
+    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+
+
+    export const AssigneeTypeEnum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface ErrorTrackingAssignee {
+      /** User ID or role UUID to filter by. */
+      id: string | number | null;
+      /** Assignee target type: user or role.
+
+      * `user` - user
+      * `role` - role */
+      type: AssigneeTypeEnum;
+    }
+
+    export interface WidgetFilterConfigEntry {
+      /** Filter UUID; must match the widgetFilters map key. */
+      filterId: string;
+      /** Event property key (for example $environment). */
+      propertyName: string;
+      /** Selected option id from the filter definition. */
+      optionId: string;
+      /** Property filter operator (for example exact, is_not, icontains). */
+      operator: string;
+      /** Filter value as a string, list of strings, or null. */
+      value?: unknown;
+    }
+
+    /**
      * * `-14d` - -14d
     * `-1h` - -1h
     * `-24h` - -24h
@@ -3912,9 +3947,14 @@ export namespace Schemas {
       date_from?: DateFromEnum | null;
     }
 
+    /**
+     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
+     */
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+
     export interface ErrorTrackingListWidgetConfig {
       /**
-         * Maximum number of issues to return.
+         * Maximum number of issues to return (page size).
          * @minimum 1
          * @maximum 25
          */
@@ -3941,7 +3981,11 @@ export namespace Schemas {
       * `suppressed` - suppressed
       * `all` - all */
       status?: ErrorTrackingIssueStatusEnum;
-      /** Optional relative date range override. */
+      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
+      assignee?: ErrorTrackingAssignee | null;
+      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
+      /** Relative date range for issues (date_from only on widgets). */
       dateRange?: WidgetDateRange | null;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;
@@ -3992,6 +4036,11 @@ export namespace Schemas {
       StartTime: 'start_time',
     } as const;
 
+    /**
+     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
+     */
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+
     export interface SessionReplayListWidgetConfig {
       /**
          * Maximum number of recordings to return.
@@ -4015,6 +4064,8 @@ export namespace Schemas {
       orderDirection?: OrderDirectionEnum;
       /** Optional relative date range override. */
       dateRange?: WidgetDateRange | null;
+      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;
     }
@@ -7825,18 +7876,6 @@ export namespace Schemas {
       /** @nullable */
       download_url: string | null;
     }
-
-    /**
-     * * `user` - user
-    * `role` - role
-     */
-    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
-
-
-    export const AssigneeTypeEnum = {
-      User: 'user',
-      Role: 'role',
-    } as const;
 
     export interface AsyncDeletionStatus {
       /** The UUID of the person whose events are queued for deletion. */
@@ -15032,16 +15071,6 @@ export namespace Schemas {
       volume_buckets?: ErrorTrackingVolumeBucket[];
     }
 
-    export interface ErrorTrackingAssignee {
-      /** User ID or role UUID to filter by. */
-      id: string | number | null;
-      /** Assignee target type: user or role.
-
-      * `user` - user
-      * `role` - role */
-      type: AssigneeTypeEnum;
-    }
-
     export interface ErrorTrackingAssigneeResponse {
       /** Assignee user ID or role UUID. */
       id?: string | number | null;
@@ -18484,6 +18513,49 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface FolderInstructions {
+      /** Unique identifier for this instructions version. */
+      readonly id: string;
+      /** Markdown instructions describing the contents of the folder. */
+      readonly content: string;
+      /** Monotonically increasing version number, starting at 1. */
+      readonly version: number;
+      /** Whether this is the current (latest) version for the folder. */
+      readonly is_latest: boolean;
+      /** User who published this version. */
+      readonly created_by: UserBasic;
+      /** When this version was published. */
+      readonly created_at: string;
+      /** When this version row was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface FolderInstructionsPublish {
+      /** Full markdown instructions to publish as a new version for the folder. */
+      content: string;
+      /**
+         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+         * @minimum 0
+         */
+      base_version?: number;
+    }
+
+    /**
+     * Version-history entry: metadata only, with the markdown content omitted.
+     */
+    export interface FolderInstructionsVersion {
+      /** Unique identifier for this instructions version. */
+      readonly id: string;
+      /** Monotonically increasing version number, starting at 1. */
+      readonly version: number;
+      /** Whether this is the current (latest) version for the folder. */
+      readonly is_latest: boolean;
+      /** User who published this version. */
+      readonly created_by: UserBasic;
+      /** When this version was published. */
+      readonly created_at: string;
+    }
+
     /**
      * Request body for `forget`.
      */
@@ -21660,6 +21732,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `burst` - burst
+    * `sustained` - sustained
+     */
+    export type LimitTypeEnum = typeof LimitTypeEnum[keyof typeof LimitTypeEnum];
+
+
+    export const LimitTypeEnum = {
+      Burst: 'burst',
+      Sustained: 'sustained',
+    } as const;
+
+    /**
      * Typed output for view set `list`.
      */
     export interface ListOutput {
@@ -23465,6 +23549,22 @@ export namespace Schemas {
       readonly scim_base_url: string | null;
       /** @nullable */
       readonly scim_bearer_token: string | null;
+      /** Returns whether ID-JAG (XAA) is configured for this domain. */
+      readonly has_id_jag: boolean;
+      /**
+         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_issuer_url?: string | null;
+      /**
+         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_jwks_url?: string | null;
+      /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+      id_jag_allowed_clients?: string[];
     }
 
     /**
@@ -23566,6 +23666,47 @@ export namespace Schemas {
       is_verified?: boolean;
       readonly created: string;
       readonly updated: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyOwner {
+      /** First name of the key's owner. */
+      readonly first_name: string;
+      /** Last name of the key's owner. */
+      readonly last_name: string;
+      /** Email address of the key's owner. */
+      readonly email: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyProjectScope {
+      /** Project (team) ID the key is scoped to. */
+      id: number;
+      /** Name of the project the key is scoped to. */
+      name: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyAccessScope {
+      /** Breadth of access: 'all' (every project the owner can reach), 'organization' (this whole organization), or 'projects' (specific projects listed under 'projects'). */
+      type: string;
+      /** Projects within this organization the key is scoped to, present only when type is 'projects'. */
+      projects?: OrganizationPersonalAPIKeyProjectScope[];
+    }
+
+    export interface OrganizationPersonalAPIKey {
+      /** The organization member who owns this key. */
+      readonly owner: OrganizationPersonalAPIKeyOwner;
+      /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
+      readonly mask_value: string;
+      /** API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access. */
+      readonly scopes: readonly string[];
+      /** Where the key's scopes apply within this organization. */
+      readonly access_scope: OrganizationPersonalAPIKeyAccessScope;
+      /**
+         * When the key was last used to authenticate, if ever.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
+      /** When the key was created. */
+      readonly created_at: string;
     }
 
     /**
@@ -24296,6 +24437,15 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
+    export interface PaginatedFolderInstructionsVersionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FolderInstructionsVersion[];
+    }
+
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -24675,6 +24825,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface PaginatedOrganizationPersonalAPIKeyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: OrganizationPersonalAPIKey[];
     }
 
     export interface ParserRecipe {
@@ -25975,6 +26134,8 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
+      /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+      quarantined_count?: number;
     }
 
     /**
@@ -26009,7 +26170,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly scheduled_at: string | null;
-      /** Channel snapshot at send time (email, slack, webhook). */
+      /** Channel snapshot at send time (email or slack). */
       readonly target_type: string;
       /** Destination snapshot at send time (emails, channel id, URL). */
       readonly target_value: string;
@@ -26053,9 +26214,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `insight` - Insight
+    * `dashboard` - Dashboard
+    * `ai_prompt` - AI prompt
+     */
+    export type ResourceTypeEnum = typeof ResourceTypeEnum[keyof typeof ResourceTypeEnum];
+
+
+    export const ResourceTypeEnum = {
+      Insight: 'insight',
+      Dashboard: 'dashboard',
+      AiPrompt: 'ai_prompt',
+    } as const;
+
+    /**
      * * `email` - Email
     * `slack` - Slack
-    * `webhook` - Webhook
      */
     export type TargetTypeEnum = typeof TargetTypeEnum[keyof typeof TargetTypeEnum];
 
@@ -26063,7 +26237,6 @@ export namespace Schemas {
     export const TargetTypeEnum = {
       Email: 'email',
       Slack: 'slack',
-      Webhook: 'webhook',
     } as const;
 
     /**
@@ -26109,6 +26282,12 @@ export namespace Schemas {
      */
     export interface Subscription {
       readonly id: number;
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+
+      * `insight` - Insight
+      * `dashboard` - Dashboard
+      * `ai_prompt` - AI prompt */
+      readonly resource_type: ResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
          * @nullable
@@ -26125,13 +26304,17 @@ export namespace Schemas {
       readonly resource_name: string | null;
       /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
       dashboard_export_insights?: number[];
-      /** Delivery channel: email, slack, or webhook.
+      /**
+         * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
+         * @nullable
+         */
+      prompt?: string | null;
+      /** Delivery channel: email or slack.
 
       * `email` - Email
-      * `slack` - Slack
-      * `webhook` - Webhook */
+      * `slack` - Slack */
       target_type: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
       target_value: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
 
@@ -29584,6 +29767,16 @@ export namespace Schemas {
       readonly created_at?: string;
     }
 
+    export interface PatchedFolderInstructionsPublish {
+      /** Full markdown instructions to publish as a new version for the folder. */
+      content?: string;
+      /**
+         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+         * @minimum 0
+         */
+      base_version?: number;
+    }
+
     export interface PatchedGroupType {
       readonly group_type?: string;
       readonly group_type_index?: number;
@@ -30613,6 +30806,22 @@ export namespace Schemas {
       readonly scim_base_url?: string | null;
       /** @nullable */
       readonly scim_bearer_token?: string | null;
+      /** Returns whether ID-JAG (XAA) is configured for this domain. */
+      readonly has_id_jag?: boolean;
+      /**
+         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_issuer_url?: string | null;
+      /**
+         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_jwks_url?: string | null;
+      /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+      id_jag_allowed_clients?: string[];
     }
 
     /**
@@ -32068,6 +32277,12 @@ export namespace Schemas {
      */
     export interface PatchedSubscription {
       readonly id?: number;
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+
+      * `insight` - Insight
+      * `dashboard` - Dashboard
+      * `ai_prompt` - AI prompt */
+      readonly resource_type?: ResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
          * @nullable
@@ -32084,13 +32299,17 @@ export namespace Schemas {
       readonly resource_name?: string | null;
       /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
       dashboard_export_insights?: number[];
-      /** Delivery channel: email, slack, or webhook.
+      /**
+         * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
+         * @nullable
+         */
+      prompt?: string | null;
+      /** Delivery channel: email or slack.
 
       * `email` - Email
-      * `slack` - Slack
-      * `webhook` - Webhook */
+      * `slack` - Slack */
       target_type?: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
       target_value?: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
 
@@ -38179,7 +38398,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Health UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -38190,7 +38409,7 @@ export namespace Schemas {
     export interface SdkAssessment {
       /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
       lib: string;
-      /** Human-readable SDK name matching the SDK Doctor UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
+      /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
       readable_name: string;
       /** Most recent published version of this SDK. */
       latest_version: string;
@@ -38208,7 +38427,7 @@ export namespace Schemas {
       severity: SdkAssessmentSeverityEnum;
       /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
       reason: string;
-      /** Top-level alert sentences matching the SDK Doctor UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
+      /** Top-level alert sentences matching the SDK Health UI's 'Time for an update!' banner — one per outdated version with significant traffic. Quote verbatim when surfacing the headline to users. */
       banners: string[];
       /** Per-version assessment for all versions seen in the last 7 days. */
       releases: SdkReleaseAssessment[];
@@ -40033,6 +40252,15 @@ export namespace Schemas {
       attr?: string;
       /** Artifact ids that could not be resolved for the run */
       missing_artifact_ids?: string[];
+      /** Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)
+
+      * `burst` - burst
+      * `sustained` - sustained */
+      limit_type?: LimitTypeEnum;
+      /** ISO 8601 timestamp when the hit usage limit resets, when known */
+      reset_at?: string;
+      /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
+      is_pro?: boolean;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -42050,18 +42278,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type EnvironmentsDashboardsAnalyzeRefreshResultCreateParams = {
-    format?: EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat[keyof typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat];
-
-
-    export const EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type EnvironmentsDashboardsCopyTileCreateParams = {
     format?: EnvironmentsDashboardsCopyTileCreateFormat;
     };
@@ -42191,18 +42407,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsSnapshotCreateParams = {
-    format?: EnvironmentsDashboardsSnapshotCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsSnapshotCreateFormat = typeof EnvironmentsDashboardsSnapshotCreateFormat[keyof typeof EnvironmentsDashboardsSnapshotCreateFormat];
-
-
-    export const EnvironmentsDashboardsSnapshotCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -45395,7 +45599,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Filter by subscription resource: insight vs dashboard export.
+     * Filter by subscription resource: insight, dashboard export, or AI report.
      */
     resource_type?: EnvironmentsSubscriptionsListResourceType;
     /**
@@ -45403,7 +45607,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by delivery channel (email, Slack, or webhook).
+     * Filter by delivery channel (email or Slack).
      */
     target_type?: EnvironmentsSubscriptionsListTargetType;
     };
@@ -45412,6 +45616,7 @@ export namespace Schemas {
 
 
     export const EnvironmentsSubscriptionsListResourceType = {
+      AiPrompt: 'ai_prompt',
       Dashboard: 'dashboard',
       Insight: 'insight',
     } as const;
@@ -45422,7 +45627,6 @@ export namespace Schemas {
     export const EnvironmentsSubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
-      Webhook: 'webhook',
     } as const;
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
@@ -46184,6 +46388,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type PersonalApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type OrganizationsProjectsListParams = {
     /**
      * Number of results to return per page.
@@ -46308,13 +46523,17 @@ export namespace Schemas {
     export type ActionsListParams = {
     format?: ActionsListFormat;
     /**
-     * Number of results to return per page.
+     * Maximum number of actions to return. Omit to return all.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of actions to skip before returning results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring match on the action name.
+     */
+    search?: string;
     };
 
     export type ActionsListFormat = typeof ActionsListFormat[keyof typeof ActionsListFormat];
@@ -47349,18 +47568,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type DashboardsAnalyzeRefreshResultCreateParams = {
-    format?: DashboardsAnalyzeRefreshResultCreateFormat;
-    };
-
-    export type DashboardsAnalyzeRefreshResultCreateFormat = typeof DashboardsAnalyzeRefreshResultCreateFormat[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat];
-
-
-    export const DashboardsAnalyzeRefreshResultCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type DashboardsCopyTileCreateParams = {
     format?: DashboardsCopyTileCreateFormat;
     };
@@ -47490,18 +47697,6 @@ export namespace Schemas {
 
 
     export const DashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsSnapshotCreateParams = {
-    format?: DashboardsSnapshotCreateFormat;
-    };
-
-    export type DashboardsSnapshotCreateFormat = typeof DashboardsSnapshotCreateFormat[keyof typeof DashboardsSnapshotCreateFormat];
-
-
-    export const DashboardsSnapshotCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -47718,6 +47913,21 @@ export namespace Schemas {
     };
 
     export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemInstructionsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -51319,7 +51529,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SdkDoctorReportRetrieveParams = {
+    export type SdkHealthReportRetrieveParams = {
     /**
      * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
      */
@@ -51553,7 +51763,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Filter by subscription resource: insight vs dashboard export.
+     * Filter by subscription resource: insight, dashboard export, or AI report.
      */
     resource_type?: SubscriptionsListResourceType;
     /**
@@ -51561,7 +51771,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by delivery channel (email, Slack, or webhook).
+     * Filter by delivery channel (email or Slack).
      */
     target_type?: SubscriptionsListTargetType;
     };
@@ -51570,6 +51780,7 @@ export namespace Schemas {
 
 
     export const SubscriptionsListResourceType = {
+      AiPrompt: 'ai_prompt',
       Dashboard: 'dashboard',
       Insight: 'insight',
     } as const;
@@ -51580,7 +51791,6 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
-      Webhook: 'webhook',
     } as const;
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
@@ -52274,6 +52484,10 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean;
     /**
      * Number of results to return per page.
      */

@@ -198,6 +198,7 @@ export type SettingId =
     | 'organization-proxy'
     | 'organization-roles'
     | 'organization-security'
+    | 'organization-personal-api-keys'
     | 'passkeys'
     | 'path-cleaning'
     | 'person-display-name'

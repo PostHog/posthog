@@ -11,7 +11,7 @@ class _RequiredSettings(typing.Protocol):
     """Protocol for required settings."""
 
     TEMPORAL_SECRET_KEY: str | bytes
-    TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes]
+    TEMPORAL_FALLBACK_SECRET_KEYS: collections.abc.Iterable[str | bytes]
     TEST: bool
     DEBUG: bool
 
@@ -74,12 +74,12 @@ class EncryptionCodec(PayloadCodec):
         if not settings.TEST and not settings.DEBUG:
             if any(
                 len(key.encode() if isinstance(key, str) else key) < 32
-                for key in (settings.TEMPORAL_SECRET_KEY, *settings.TEMPORAL_FALLBACK_KEYS)
+                for key in (settings.TEMPORAL_SECRET_KEY, *settings.TEMPORAL_FALLBACK_SECRET_KEYS)
             ):
                 raise ValueError("Keys must be at least 32 bytes")
 
         main_key = _prepare_key(settings.TEMPORAL_SECRET_KEY)
-        fallback_keys = map(_prepare_key, settings.TEMPORAL_FALLBACK_KEYS)
+        fallback_keys = map(_prepare_key, settings.TEMPORAL_FALLBACK_SECRET_KEYS)
 
         return cls(main_key, fallback_keys)
 

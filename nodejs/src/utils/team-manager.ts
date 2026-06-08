@@ -14,6 +14,11 @@ export interface TeamManagerOptions {
     loaderRetry?: LoaderRetryOptions
 }
 
+/**
+ * Looks up Teams by id or token, backed by a Postgres-loaded lazy cache.
+ * Pure business surface — no `start` / `stop`. Callers that need to manage
+ * its lifetime as part of a `Lifecycle` use `TeamManagerComponent`.
+ */
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
@@ -162,6 +167,26 @@ export class TeamManager {
             resultRecord[row.api_token] = team
         })
 
-        return resultRecord as Record<string, Team | null>
+        return resultRecord
+    }
+}
+
+/**
+ * Lifecycle owner for `TeamManager`. `start()` constructs a fresh
+ * `TeamManager` and hands it back along with a no-op stop callback. The
+ * resulting `TeamManager` has no `start`/`stop` of its own — its lifetime
+ * is fully controlled through this Manager.
+ */
+export class TeamManagerComponent {
+    constructor(
+        private postgres: PostgresRouter,
+        private options?: TeamManagerOptions
+    ) {}
+
+    start(): Promise<{ value: TeamManager; stop: () => Promise<void> }> {
+        return Promise.resolve({
+            value: new TeamManager(this.postgres, this.options),
+            stop: () => Promise.resolve(),
+        })
     }
 }

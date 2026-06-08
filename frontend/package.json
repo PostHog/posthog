@@ -112,6 +112,7 @@
         "@posthog/products-revenue-analytics": "workspace:*",
         "@posthog/products-session-replay": "workspace:*",
         "@posthog/products-session-summaries": "workspace:*",
+        "@posthog/products-subscriptions": "workspace:*",
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-tracing": "workspace:*",
