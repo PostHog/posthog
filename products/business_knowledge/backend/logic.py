@@ -17,7 +17,7 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -40,6 +40,9 @@ from .constants import (
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
+    PENDING_EMBEDDING_SCAN_CAP,
+    RECONCILE_EMBEDDING_GRACE,
+    RECONCILE_EMBEDDING_SCAN_CAP,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -1134,10 +1137,13 @@ def _insert_document_and_chunks(
         document.tombstoned_at = None
         # Content changed (caller only reaches this branch on a hash diff), so
         # the prior safety verdict no longer applies — re-queue for
-        # classification with a fresh attempt budget.
+        # classification with a fresh attempt budget. The old chunk vectors are
+        # stale too (and the chunk ids may shift), so clear the embedding stamp
+        # to re-embed once the new content is re-classified SAFE.
         document.safety_verdict = SafetyVerdict.UNKNOWN
         document.safety_reason = ""
         document.classification_attempts = 0
+        document.embeddings_emitted_at = None
         document.save(
             update_fields=[
                 "title",
@@ -1150,6 +1156,7 @@ def _insert_document_and_chunks(
                 "safety_verdict",
                 "safety_reason",
                 "classification_attempts",
+                "embeddings_emitted_at",
                 "updated_at",
             ]
         )
@@ -1762,3 +1769,160 @@ def sweep_tombstoned_documents(*, older_than: datetime.timedelta = datetime.time
         KnowledgeDocument.objects.unscoped().filter(tombstoned_at__isnull=False, tombstoned_at__lt=cutoff).delete()
     )
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# Embedding-pipeline coordinator helpers (cross-team)
+#
+# Like the classification helpers above, these run inside Temporal activities
+# and scan across teams via `.unscoped()`. They only read/write Postgres; the
+# actual produce-to-Kafka and ClickHouse presence check live in the coordinator
+# activity so this module stays free of Kafka / ClickHouse dependencies.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChunkToEmbed:
+    chunk_id: UUID
+    content: str
+
+
+@dataclass(frozen=True)
+class DocumentToEmbed:
+    """A SAFE document whose chunks need producing to the embedding pipeline."""
+
+    team_id: int
+    document_id: UUID
+    # The document's stable `created_at`, passed as the embedding row `timestamp`
+    # so a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    timestamp: datetime.datetime
+    chunks: list[ChunkToEmbed]
+
+
+@dataclass(frozen=True)
+class EmittedDocument:
+    """An already-emitted SAFE document, for ClickHouse-presence reconciliation."""
+
+    team_id: int
+    document_id: UUID
+    chunk_ids: list[UUID]
+
+
+def _embeddable_documents_qs() -> QuerySet[KnowledgeDocument]:
+    """Base queryset of docs eligible to be embedded: SAFE, live, READY source,
+    and an org that approved AI data processing (we must not send content to the
+    embedding service otherwise — same gate as classification). Cross-team."""
+    return KnowledgeDocument.objects.unscoped().filter(
+        safety_verdict=SafetyVerdict.SAFE,
+        tombstoned_at__isnull=True,
+        source__status=SourceStatus.READY,
+        team__organization__is_ai_data_processing_approved=True,
+    )
+
+
+def _load_chunks_to_embed(team_id: int, document_id: UUID) -> list[ChunkToEmbed]:
+    return [
+        ChunkToEmbed(chunk_id=chunk_id, content=content)
+        for chunk_id, content in (
+            KnowledgeChunk.objects.unscoped()
+            .filter(team_id=team_id, document_id=document_id)
+            .order_by("ordinal")
+            .values_list("id", "content")
+        )
+    ]
+
+
+def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP) -> list[DocumentToEmbed]:
+    """
+    Return SAFE documents that have not yet had their chunks produced to the
+    embedding pipeline (``embeddings_emitted_at IS NULL``).
+
+    Bounded by ``limit`` (loads chunk content per doc into memory, same rationale
+    as ``list_documents_pending_classification``). The first post-deploy pass
+    backfills every existing SAFE doc across all teams, so the cap is what lets
+    the hourly coordinator drain that over many passes. Cross-team — coordinator
+    only.
+    """
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=True)
+        .values_list("team_id", "id", "created_at")[:limit]
+    )
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=created_at,
+            chunks=_load_chunks_to_embed(team_id, document_id),
+        )
+        for team_id, document_id, created_at in rows
+    ]
+
+
+def list_documents_for_embedding_reconciliation(
+    *,
+    now: datetime.datetime | None = None,
+    grace: datetime.timedelta = RECONCILE_EMBEDDING_GRACE,
+    limit: int = RECONCILE_EMBEDDING_SCAN_CAP,
+) -> list[EmittedDocument]:
+    """
+    Return already-emitted SAFE docs (oldest first) whose vectors should by now
+    be in ClickHouse, so the coordinator can re-verify they actually landed.
+
+    ``embeddings_emitted_at`` only means "produced to Kafka", not "present in
+    ClickHouse": a transient produce failure that did NOT raise, or a worker
+    that dropped the message, leaves a SAFE doc permanently serving FTS-only.
+    The grace window skips docs whose vectors are merely still in flight.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - grace
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    return [
+        EmittedDocument(
+            team_id=team_id,
+            document_id=document_id,
+            chunk_ids=list(
+                KnowledgeChunk.objects.unscoped()
+                .filter(team_id=team_id, document_id=document_id)
+                .values_list("id", flat=True)
+            ),
+        )
+        for team_id, document_id in rows
+    ]
+
+
+@with_team_scope(canonical=True)
+def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Stamp ``embeddings_emitted_at`` after a successful produce.
+
+    Gated on the doc still being SAFE and unstamped: a concurrent content change
+    resets the verdict to ``unknown`` and the stamp to NULL, and we must never
+    mark that new (unembedded) content as emitted. The guard makes this a no-op
+    in that race, so the new content is re-embedded on a later pass.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=True,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def clear_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Reset the emission stamp to NULL so the next pending pass re-emits.
+
+    Used by reconciliation when a doc's vectors never landed in ClickHouse.
+    """
+    KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
+        embeddings_emitted_at=None, updated_at=timezone.now()
+    )
