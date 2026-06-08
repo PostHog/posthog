@@ -1,14 +1,18 @@
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
+import { UserType } from '~/types'
 
 import { ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
-import { WebAnalyticsConcern } from './focus-mode/types'
+import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 describe('webAnalyticsLogic focus mode', () => {
@@ -16,7 +20,7 @@ describe('webAnalyticsLogic focus mode', () => {
 
     const enableFocusMode = (): void => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE]: true,
+            [FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE]: 'test',
         })
     }
 
@@ -25,6 +29,7 @@ describe('webAnalyticsLogic focus mode', () => {
         initKeaTests()
         jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
         jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
         featureFlagLogic.mount()
         logic = webAnalyticsLogic()
         logic.mount()
@@ -144,6 +149,125 @@ describe('webAnalyticsLogic focus mode', () => {
         await expectLogic(logic).toMatchValues({
             productTab: ProductTab.ANALYTICS,
             showFocusMode: false,
+        })
+    })
+
+    it('hides focus mode for the control variant', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE]: 'control',
+        })
+        await expectLogic(logic).toMatchValues({
+            productTab: ProductTab.ANALYTICS,
+            showFocusMode: false,
+        })
+    })
+
+    describe('onboarding', () => {
+        const loadUser = (hasSeenProductIntroFor: Record<string, boolean>): void => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                has_seen_product_intro_for: hasSeenProductIntroFor,
+            } as UserType)
+        }
+
+        it('auto-opens for an unseen user when the flag flips on, without marking it seen', async () => {
+            loadUser({})
+
+            await expectLogic(logic, () => {
+                enableFocusMode()
+            })
+                .toDispatchActions(['openFocusModeOnboarding'])
+                .toNotHaveDispatchedActions(['markFocusModeOnboardingSeen'])
+                .toMatchValues({ focusModeOnboardingModalOpen: true })
+
+            expect(api.update).not.toHaveBeenCalled()
+        })
+
+        it('does not auto-open when already seen', async () => {
+            loadUser({ [getFocusModeOnboardingSeenKey(MOCK_TEAM_ID)]: true })
+
+            await expectLogic(logic, () => {
+                enableFocusMode()
+            }).toMatchValues({ focusModeOnboardingModalOpen: false })
+        })
+
+        it('auto-opens when onboarding was only seen for a different project', async () => {
+            loadUser({ [getFocusModeOnboardingSeenKey(MOCK_TEAM_ID + 1)]: true })
+
+            await expectLogic(logic, () => {
+                enableFocusMode()
+            })
+                .toDispatchActions(['openFocusModeOnboarding'])
+                .toMatchValues({ focusModeOnboardingModalOpen: true })
+        })
+
+        it('does not auto-open when concerns already saved', async () => {
+            loadUser({})
+            logic.actions.setFocusModeConcerns([WebAnalyticsConcern.RETENTION])
+
+            await expectLogic(logic, () => {
+                enableFocusMode()
+            }).toMatchValues({ focusModeOnboardingModalOpen: false })
+        })
+
+        it('does not auto-open when the user is not loaded', async () => {
+            userLogic.actions.loadUserSuccess(null as any)
+
+            await expectLogic(logic, () => {
+                enableFocusMode()
+            }).toMatchValues({ focusModeOnboardingModalOpen: false })
+        })
+
+        it('startFocusModeOnboarding closes the welcome modal, opens the real dialog, and marks it seen', async () => {
+            loadUser({})
+            enableFocusMode()
+            logic.actions.openFocusModeOnboarding()
+            ;(api.update as jest.Mock).mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.startFocusModeOnboarding()
+            }).toDispatchActions(['markFocusModeOnboardingSeen'])
+
+            expect(logic.values.focusModeOnboardingModalOpen).toBe(false)
+            expect(logic.values.focusModeModalOpen).toBe(true)
+            expect(logic.values.focusModeModalIsOnboarding).toBe(true)
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    has_seen_product_intro_for: expect.objectContaining({
+                        [getFocusModeOnboardingSeenKey(MOCK_TEAM_ID)]: true,
+                    }),
+                })
+            )
+        })
+
+        it('dismissFocusModeOnboarding closes it and marks it seen', async () => {
+            loadUser({})
+            enableFocusMode()
+            logic.actions.openFocusModeOnboarding()
+            ;(api.update as jest.Mock).mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.dismissFocusModeOnboarding()
+            })
+                .toDispatchActions(['markFocusModeOnboardingSeen'])
+                .toMatchValues({ focusModeOnboardingModalOpen: false })
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    has_seen_product_intro_for: expect.objectContaining({
+                        [getFocusModeOnboardingSeenKey(MOCK_TEAM_ID)]: true,
+                    }),
+                })
+            )
+        })
+
+        it('manual openFocusModeModal() is not onboarding mode', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openFocusModeModal()
+            }).toMatchValues({ focusModeModalIsOnboarding: false })
         })
     })
 })

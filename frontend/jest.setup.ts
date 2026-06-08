@@ -153,6 +153,7 @@ jest.mock('posthog-js', () => {
         identify: jest.fn(),
         getFeatureFlag: jest.fn(),
         getFeatureFlagPayload: jest.fn(),
+        getFeatureFlagResult: jest.fn(),
         getAllFlags: jest.fn(),
         isFeatureEnabled: jest.fn(),
         getEarlyAccessFeatures: jest.fn(),

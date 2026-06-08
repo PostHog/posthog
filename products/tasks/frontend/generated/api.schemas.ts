@@ -12,6 +12,17 @@ export interface CodeInviteRedeemRequestApi {
     code: string
 }
 
+/**
+ * * `burst` - burst
+ * `sustained` - sustained
+ */
+export type LimitTypeEnumApi = (typeof LimitTypeEnumApi)[keyof typeof LimitTypeEnumApi]
+
+export const LimitTypeEnumApi = {
+    Burst: 'burst',
+    Sustained: 'sustained',
+} as const
+
 export interface TaskRunErrorResponseApi {
     /** Human-readable validation error */
     detail?: string
@@ -25,6 +36,15 @@ export interface TaskRunErrorResponseApi {
     attr?: string
     /** Artifact ids that could not be resolved for the run */
     missing_artifact_ids?: string[]
+    /** Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)
+
+  * `burst` - burst
+  * `sustained` - sustained */
+    limit_type?: LimitTypeEnumApi
+    /** ISO 8601 timestamp when the hit usage limit resets, when known */
+    reset_at?: string
+    /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
+    is_pro?: boolean
 }
 
 /**
@@ -437,6 +457,24 @@ export interface PatchedTaskApi {
      * @nullable
      */
     ci_prompt?: string | null
+}
+
+export interface TaskFileRequestApi {
+    /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
+    folder?: string
+}
+
+export interface TaskFileResponseApi {
+    /** Identifier of the project-tree entry for this task. */
+    id: string
+    /** Full slash-separated path of the filed task in the project tree. */
+    path: string
+    /** File system entry type. Always 'task'. */
+    type: string
+    /** Identifier of the task this entry points to. */
+    ref: string
+    /** In-app link to the task. */
+    href: string
 }
 
 /**

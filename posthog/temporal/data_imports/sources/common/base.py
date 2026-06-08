@@ -119,6 +119,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
         return dict.fromkeys(endpoints)
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        """``job_inputs`` fields that determine where stored credentials are sent.
+
+        Changing one of these on an existing source must require the editor to re-enter the
+        source's secrets — otherwise an org member could retarget the preserved credential at a
+        server they control and exfiltrate it. The update serializer enforces this. ``host`` and
+        the SSH tunnel target are handled separately, so sources whose connection target lives in
+        a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
+        return []
+
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
         return None

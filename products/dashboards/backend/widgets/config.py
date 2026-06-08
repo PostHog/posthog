@@ -8,7 +8,11 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models.team import Team
 
-from products.dashboards.backend.constants import WIDGET_DATE_FROM_VALUES
+from products.dashboards.backend.constants import (
+    DEFAULT_WIDGET_LIST_LIMIT,
+    MAX_WIDGET_RESULT_LIMIT,
+    WIDGET_DATE_FROM_VALUES,
+)
 
 
 def resolve_filter_test_accounts(config: dict[str, Any], team: Team) -> bool:
@@ -29,6 +33,33 @@ def merge_base_widget_config_fields(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(value, bool):
         raise DRFValidationError({"config": "filterTestAccounts must be a boolean."})
     return {"filterTestAccounts": value}
+
+
+def validate_widget_list_limit(config: dict[str, Any]) -> int:
+    limit = config.get("limit", DEFAULT_WIDGET_LIST_LIMIT)
+    if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_RESULT_LIMIT:
+        raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_RESULT_LIMIT}."})
+    return limit
+
+
+def validate_widget_list_order_by(config: dict[str, Any], *, allowed: frozenset[str], default: str) -> str:
+    order_by = config.get("orderBy", default)
+    if order_by not in allowed:
+        raise DRFValidationError({"config": f"orderBy must be one of: {', '.join(sorted(allowed))}."})
+    return order_by
+
+
+def validate_widget_list_order_direction(config: dict[str, Any]) -> str:
+    order_direction = config.get("orderDirection", "DESC")
+    if order_direction not in {"ASC", "DESC"}:
+        raise DRFValidationError({"config": "orderDirection must be ASC or DESC."})
+    return order_direction
+
+
+def validate_widget_list_date_range_if_present(config: dict[str, Any]) -> dict[str, object] | None:
+    if "dateRange" not in config:
+        return None
+    return validate_widget_date_range(config.get("dateRange"))
 
 
 def validate_widget_date_range(date_range: object) -> dict[str, object] | None:

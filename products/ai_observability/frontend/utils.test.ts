@@ -11,32 +11,23 @@ import {
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
-    getToolNamesCalled,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
     isInternalToolResultUserMessage,
-    isLangChainMessage,
     isInternalTagMessage,
     isTextContentItem,
     isToolResult,
     isToolStepItem,
     looksLikeXml,
-    parseOpenAIToolCalls,
     parsePartialJSON,
     parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
-import * as legacy from './utils'
 
-// Parameterized suite: the canonical `normalizeMessage`/`normalizeMessages`
-// in `./utils` stays untouched and is the production code path; the
-// recipe-based wrapper in `./normalizer` exposes the same shape and we run
-// the entire suite against it too. Any divergence shows up as a failure on
-// only one column.
+// The recipe-based `RecipeNormalizer` in `./normalizer` is the production code path.
 const recipe = new RecipeNormalizer()
 const IMPLS = [
-    { name: 'legacy', normalizeMessage: legacy.normalizeMessage, normalizeMessages: legacy.normalizeMessages },
     {
         name: 'recipe',
         normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d),
@@ -1765,17 +1756,6 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
     })
 
     describe('LangChain/LangGraph format', () => {
-        it.each([
-            ['human type', { type: 'human', content: 'Hello' }, true],
-            ['ai type', { type: 'ai', content: 'Hi there', tool_calls: [] }, true],
-            ['tool type', { type: 'tool', content: 'result', tool_call_id: 'toolu_123' }, true],
-            ['context type', { type: 'context', content: '<system_reminder>...' }, true],
-            ['rejects messages with role field', { role: 'user', type: 'human', content: 'Hello' }, false],
-            ['rejects unknown types', { type: 'text', content: 'Hello' }, false],
-        ])('isLangChainMessage: %s', (_, input, expected) => {
-            expect(isLangChainMessage(input)).toBe(expected)
-        })
-
         it('normalizeMessage maps human type to user role', () => {
             const message = { type: 'human', content: 'Hello', id: 'msg-1' }
             const result = normalizeMessage(message, 'assistant')
@@ -1822,103 +1802,6 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             const result = normalizeMessage(message, 'user')
             expect(result).toEqual([
                 { role: 'system', content: '<system_reminder>Your initial mode is sql.</system_reminder>' },
-            ])
-        })
-    })
-
-    describe('parseOpenAIToolCalls', () => {
-        it('should parse valid JSON arguments in tool calls', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-123',
-                    function: {
-                        name: 'test_function',
-                        arguments: '{"key": "value", "number": 42}',
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-123',
-                    function: {
-                        name: 'test_function',
-                        arguments: { key: 'value', number: 42 },
-                    },
-                },
-            ])
-        })
-
-        it('should handle malformed JSON arguments gracefully', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-456',
-                    function: {
-                        name: 'test_function',
-                        arguments: 'invalid json {not valid}',
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            // Should keep the original string if parsing fails
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-456',
-                    function: {
-                        name: 'test_function',
-                        arguments: 'invalid json {not valid}',
-                    },
-                },
-            ])
-        })
-
-        it('should handle mixed valid and invalid JSON in multiple tool calls', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-1',
-                    function: {
-                        name: 'func1',
-                        arguments: '{"valid": "json"}',
-                    },
-                },
-                {
-                    type: 'function' as const,
-                    id: 'call-2',
-                    function: {
-                        name: 'func2',
-                        arguments: 'not valid json',
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-1',
-                    function: {
-                        name: 'func1',
-                        arguments: { valid: 'json' },
-                    },
-                },
-                {
-                    type: 'function',
-                    id: 'call-2',
-                    function: {
-                        name: 'func2',
-                        arguments: 'not valid json',
-                    },
-                },
             ])
         })
     })
@@ -2560,188 +2443,129 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
         })
     })
 
-    describe('getToolNamesCalled', () => {
-        const span = (id: string, createdAt: string, spanName?: string): LLMTraceEvent => ({
-            id,
-            event: '$ai_span',
-            createdAt,
-            properties: spanName ? { $ai_span_name: spanName } : {},
-        })
-        const generation = (id: string, createdAt: string, outputChoices: unknown): LLMTraceEvent => ({
-            id,
-            event: '$ai_generation',
-            createdAt,
-            properties: { $ai_output_choices: outputChoices },
+    // Regressions found by sampling real production payloads across teams. These
+    // shapes were mishandled at some point by the recipe pipeline.
+    describe('production payload regressions', () => {
+        it('null input carries no message', () => {
+            // Recipe used to salvage `null` into a spurious empty user message.
+            expect(normalizeMessages(null, 'user')).toEqual([])
         })
 
-        it('returns [] for an empty event list', () => {
-            expect(getToolNamesCalled([])).toEqual([])
+        it('number/boolean input carries no message', () => {
+            expect(normalizeMessages(42, 'user')).toEqual([])
+            expect(normalizeMessages(true, 'user')).toEqual([])
         })
 
-        it('returns `$ai_span_name` from instrumented span events', () => {
-            const events = [span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user')]
-            expect(getToolNamesCalled(events)).toEqual(['fetch_user'])
+        it('a single-field {content} object inherits the default role', () => {
+            // Recipe used to force role:user even on the output (assistant) side.
+            expect(normalizeMessages({ content: 'hi' }, 'assistant')).toEqual([{ role: 'assistant', content: 'hi' }])
+            expect(normalizeMessages({ content: 'hi' }, 'user')).toEqual([{ role: 'user', content: 'hi' }])
         })
 
-        it('skips span events without a `$ai_span_name`', () => {
-            const events = [span('s1', '2026-05-11T00:00:00.000Z')]
-            expect(getToolNamesCalled(events)).toEqual([])
+        it('an empty top-level tool_calls array adds no synthetic message', () => {
+            // Recipe used to append an empty assistant message for `tool_calls: []`.
+            // (thinking+text content so the Anthropic envelope path is exercised.)
+            const message = {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'x' },
+                    { type: 'text', text: 'done' },
+                ],
+                tool_calls: [],
+            }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                { role: 'assistant (thinking)', content: 'x' },
+                { role: 'assistant', content: 'done' },
+            ])
         })
 
-        it('skips event types other than `$ai_span` and `$ai_generation`', () => {
-            const events: LLMTraceEvent[] = [
-                {
-                    id: 'trace',
-                    event: '$ai_trace',
-                    createdAt: '2026-05-11T00:00:00.000Z',
-                    properties: { $ai_span_name: 'irrelevant' },
-                },
-            ]
-            expect(getToolNamesCalled(events)).toEqual([])
+        it('OTel parts whose text lives under an unexpected key degrade to empty content, not [null]', () => {
+            // `text`-keyed parts (some SDKs) don't match the `content` pluck; the
+            // result must collapse to '' rather than a malformed [null] array.
+            const message = { role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'user', content: '' }])
+        })
+    })
+
+    // Structured content the recipe pipeline surfaces as canonical messages.
+    describe('recipe normalization improvements', () => {
+        const expectRecipe = (input: unknown, role: string, expected: unknown): void => {
+            expect(normalizeMessages(input, role)).toEqual(expected)
+        }
+
+        it('extracts single-field {text}/{message} wrappers instead of stringifying them', () => {
+            expectRecipe({ text: 'hello' }, 'assistant', [{ role: 'assistant', content: 'hello' }])
         })
 
-        // Covers every output shape `normalizeMessages` understands — adding a new
-        // SDK shape there should bring it under this case table without further
-        // changes here.
-        it.each<[name: string, outputChoices: unknown, expected: string[]]>([
-            [
-                'OpenAI Chat Completions `tool_calls`',
-                [
+        it('empties null content and drops an empty tool_calls array', () => {
+            // content is normalized to '' (renderers expect a string).
+            expectRecipe({ role: 'assistant', content: null, tool_calls: [] }, 'assistant', [
+                { role: 'assistant', content: '' },
+            ])
+        })
+
+        it('preserves and canonicalizes a tool_call lacking the type marker', () => {
+            // canonicalizes it to {type, id, function:{name, parsed args}}.
+            const input = {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
                     {
-                        role: 'assistant',
-                        content: '',
-                        tool_calls: [
-                            { id: 'a', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
-                            { id: 'b', type: 'function', function: { name: 'search_docs', arguments: '{}' } },
-                        ],
+                        id: 'call_1',
+                        caller: { type: 'direct' },
+                        index: 0,
+                        function: { name: 'send_email', arguments: '{"to":"x@y.com"}' },
                     },
                 ],
-                ['get_weather', 'search_docs'],
-            ],
-            [
-                'Anthropic `tool_use` typed parts',
-                [
-                    {
-                        role: 'assistant',
-                        content: [
-                            { type: 'text', text: 'Looking it up.' },
-                            { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Berlin' } },
-                            { type: 'tool_use', id: 'toolu_2', name: 'search_docs', input: {} },
-                        ],
-                    },
-                ],
-                ['get_weather', 'search_docs'],
-            ],
-            [
-                'OpenAI Responses `function_call` items',
-                [
-                    { type: 'function_call', call_id: 'c1', name: 'get_weather', arguments: '{}' },
-                    { type: 'function_call', call_id: 'c2', name: 'search_docs', arguments: '{}' },
-                ],
-                ['get_weather', 'search_docs'],
-            ],
-            [
-                'Vercel SDK `tool-call` items',
-                [
-                    { type: 'tool-call', toolCallId: 'a', toolName: 'get_weather', input: { city: 'Berlin' } },
-                    { type: 'tool-call', toolCallId: 'b', toolName: 'search_docs', input: {} },
-                ],
-                ['get_weather', 'search_docs'],
-            ],
-            [
-                'OpenAI Responses built-in tool calls',
-                [
-                    { id: 'ws1', type: 'web_search_call', status: 'completed' },
-                    { id: 'mcp1', type: 'mcp_call', name: 'list_dashboards', status: 'completed' },
-                ],
-                ['web_search_call', 'list_dashboards'],
-            ],
-            [
-                'LiteLLM-style {choices:[{message:{tool_calls}}]} wrapper',
+            }
+            expectRecipe(input, 'assistant', [
                 {
-                    choices: [
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
                         {
-                            finish_reason: 'tool_calls',
-                            index: 0,
-                            message: {
-                                role: 'assistant',
-                                content: null,
-                                tool_calls: [
-                                    {
-                                        id: 'a',
-                                        type: 'function',
-                                        function: { name: 'get_weather', arguments: '{"city":"Berlin"}' },
-                                    },
-                                    {
-                                        id: 'b',
-                                        type: 'function',
-                                        function: { name: 'search_docs', arguments: '{}' },
-                                    },
-                                ],
-                            },
+                            type: 'function',
+                            id: 'call_1',
+                            function: { name: 'send_email', arguments: { to: 'x@y.com' } },
                         },
                     ],
                 },
-                ['get_weather', 'search_docs'],
-            ],
-        ])('returns tool names from %s in $ai_generation outputs', (_, outputChoices, expected) => {
-            const events = [generation('g1', '2026-05-11T00:00:00.000Z', outputChoices)]
-            expect(getToolNamesCalled(events)).toEqual(expected)
+            ])
         })
 
-        it('preserves duplicates in the raw call sequence — caller decides whether to dedupe', () => {
-            // Three identical tool calls across span + generation events should all appear.
-            // Dedup is a session-page concern, not part of "what tools were called".
-            const events = [
-                span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user'),
-                generation('g1', '2026-05-11T00:00:01.000Z', [
-                    {
-                        role: 'assistant',
-                        content: '',
-                        tool_calls: [{ id: 'a', type: 'function', function: { name: 'fetch_user', arguments: '{}' } }],
-                    },
-                ]),
-                span('s2', '2026-05-11T00:00:02.000Z', 'fetch_user'),
+        it('flattens a doubly-nested message array instead of stringifying it', () => {
+            const input = [
+                [
+                    { role: 'system', content: 'a' },
+                    { role: 'user', content: 'b' },
+                ],
             ]
-            expect(getToolNamesCalled(events)).toEqual(['fetch_user', 'fetch_user', 'fetch_user'])
+            expectRecipe(input, 'user', [
+                { role: 'system', content: 'a' },
+                { role: 'user', content: 'b' },
+            ])
         })
 
-        it('orders names chronologically regardless of input order', () => {
-            // Events come back from ClickHouse in whatever order the query produced.
-            const events = [
-                span('s3', '2026-05-11T00:00:02.000Z', 'send_email'),
-                span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user'),
-                span('s2', '2026-05-11T00:00:01.000Z', 'subscription_lookup'),
+        it('parses typed agent items (tool_call/tool_result) into real tool messages', () => {
+            // Flat type-discriminated agent stream (OpenAI Agents SDK and similar).
+            const input = [
+                { type: 'tool_call', callId: 'c1', name: 'getWeather', arguments: { city: 'NYC' } },
+                { type: 'tool_result', callId: 'c1', name: 'getWeather', output: { tempF: 71 } },
             ]
-            expect(getToolNamesCalled(events)).toEqual(['fetch_user', 'subscription_lookup', 'send_email'])
-        })
-
-        it('skips tool calls with missing or empty names', () => {
-            const events = [
-                generation('g1', '2026-05-11T00:00:00.000Z', [
-                    {
-                        role: 'assistant',
-                        content: '',
-                        tool_calls: [
-                            { id: 'a', type: 'function', function: { name: '', arguments: '{}' } },
-                            { id: 'b', type: 'function', function: { name: 'real_tool', arguments: '{}' } },
-                        ],
-                    },
-                ]),
-            ]
-            expect(getToolNamesCalled(events)).toEqual(['real_tool'])
-        })
-
-        it('returns [] when a generation has no $ai_output_choices', () => {
-            const events: LLMTraceEvent[] = [
+            expectRecipe(input, 'user', [
                 {
-                    id: 'g1',
-                    event: '$ai_generation',
-                    createdAt: '2026-05-11T00:00:00.000Z',
-                    properties: {},
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'c1',
+                            function: { name: 'getWeather', arguments: { city: 'NYC' } },
+                        },
+                    ],
                 },
-            ]
-            expect(getToolNamesCalled(events)).toEqual([])
+                { role: 'tool', content: '{"tempF":71}', tool_call_id: 'c1' },
+            ])
         })
     })
 })

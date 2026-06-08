@@ -1,22 +1,23 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
 import {
     BarChart,
     buildYTickFormatter,
     DEFAULT_Y_AXIS_ID,
+    MAX_CATEGORY_LABEL_WIDTH,
     ReferenceLines,
     TimeSeriesBarChart,
     ValueLabels,
-} from 'lib/hog-charts'
-import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
+} from '@posthog/quill-charts'
+import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
+
+import { buildTheme } from 'lib/charts/utils/theme'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -38,6 +39,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
     buildTrendsBarAggregatedSeries,
@@ -48,6 +50,8 @@ import {
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** True when rendered as a fixed-height dashboard/card tile, false on the full insight page. */
+    embedded?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
@@ -75,7 +79,11 @@ const resolveGroupTypeLabel = (
 
 const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
-export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
+export function TrendsBarChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -122,23 +130,13 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
     const getAggregatedDisplayLabel = useCallback(
-        (r: IndexedTrendResult): string => {
-            if (stackBreakdowns) {
-                // Breakdown values within the band are distinguished by color and the tooltip.
-                return getDisplayNameFromEntityFilter(r.action) ?? r.label ?? ''
-            }
-            if (r.breakdown_value != null) {
-                return formatBreakdownLabel(
-                    r.breakdown_value,
-                    breakdownFilter,
-                    allCohorts?.results,
-                    formatPropertyValueForDisplay,
-                    undefined,
-                    r.label
-                )
-            }
-            return r.label ?? ''
-        },
+        (r: IndexedTrendResult): string =>
+            getAggregatedDisplayLabelFn(r, {
+                stackBreakdowns,
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
@@ -247,6 +245,15 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
+            // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
+            // so they don't grow the margin and push the plot off screen. Full value shows on hover.
+            maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+            // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
+            // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
+            // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
+            // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
+            // instead of clamping them to 0.
+            bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
         yAxisScaleType,
@@ -255,6 +262,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
+        embedded,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -395,7 +403,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
 
     // Annotations are date-anchored, so they only make sense for the time-series bar
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
     // In compare-against-previous grouped layouts each band holds two bars (previous, current).
     // Anchor each period's annotations on its matching bar so they line up with what they describe.

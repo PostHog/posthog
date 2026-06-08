@@ -2411,6 +2411,385 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     password_required: zod.boolean().optional(),
 })
 
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemCreateBodyTypeMax = 100
+
+export const desktopFileSystemCreateBodyRefMax = 100
+
+export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemUpdateBodyTypeMax = 100
+
+export const desktopFileSystemUpdateBodyRefMax = 100
+
+export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemUpdateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemUpdateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemPartialUpdateBodyTypeMax = 100
+
+export const desktopFileSystemPartialUpdateBodyRefMax = 100
+
+export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().optional(),
+    type: zod.string().max(desktopFileSystemPartialUpdateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemPartialUpdateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Get count of all files in a folder.
+ */
+export const desktopFileSystemCountCreateBodyTypeMax = 100
+
+export const desktopFileSystemCountCreateBodyRefMax = 100
+
+export const DesktopFileSystemCountCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCountCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCountCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsUpdateBodyBaseVersionMin)
+        .optional()
+        .describe(
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
+        ),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
+        .optional()
+        .describe(
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
+        ),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemLinkCreateBodyTypeMax = 100
+
+export const desktopFileSystemLinkCreateBodyRefMax = 100
+
+export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemLinkCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemLinkCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemMoveCreateBodyTypeMax = 100
+
+export const desktopFileSystemMoveCreateBodyRefMax = 100
+
+export const DesktopFileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemMoveCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemMoveCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Get count of all files in a folder.
+ */
+export const desktopFileSystemCountByPathCreateBodyTypeMax = 100
+
+export const desktopFileSystemCountByPathCreateBodyRefMax = 100
+
+export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCountByPathCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCountByPathCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemLogViewCreateBodyTypeMax = 100
+
+export const desktopFileSystemLogViewCreateBodyRefMax = 100
+
+export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemLogViewCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemLogViewCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
+
+export const desktopFileSystemUndoDeleteCreateBodyRefMax = 100
+
+export const DesktopFileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemUndoDeleteCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemUndoDeleteCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
+behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+the default "web" surface.
+ */
+export const desktopFileSystemShortcutCreateBodyTypeMax = 100
+
+export const desktopFileSystemShortcutCreateBodyRefMax = 100
+
+export const desktopFileSystemShortcutCreateBodyOrderMin = -2147483648
+export const desktopFileSystemShortcutCreateBodyOrderMax = 2147483647
+
+export const DesktopFileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(desktopFileSystemShortcutCreateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(desktopFileSystemShortcutCreateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(desktopFileSystemShortcutCreateBodyOrderMin)
+        .max(desktopFileSystemShortcutCreateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
+behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+the default "web" surface.
+ */
+export const desktopFileSystemShortcutUpdateBodyTypeMax = 100
+
+export const desktopFileSystemShortcutUpdateBodyRefMax = 100
+
+export const desktopFileSystemShortcutUpdateBodyOrderMin = -2147483648
+export const desktopFileSystemShortcutUpdateBodyOrderMax = 2147483647
+
+export const DesktopFileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(desktopFileSystemShortcutUpdateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(desktopFileSystemShortcutUpdateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(desktopFileSystemShortcutUpdateBodyOrderMin)
+        .max(desktopFileSystemShortcutUpdateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
+behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+the default "web" surface.
+ */
+export const desktopFileSystemShortcutPartialUpdateBodyTypeMax = 100
+
+export const desktopFileSystemShortcutPartialUpdateBodyRefMax = 100
+
+export const desktopFileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
+export const desktopFileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
+
+export const DesktopFileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().optional().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(desktopFileSystemShortcutPartialUpdateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(desktopFileSystemShortcutPartialUpdateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(desktopFileSystemShortcutPartialUpdateBodyOrderMin)
+        .max(desktopFileSystemShortcutPartialUpdateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
+ */
+export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
+})
+
+/**
+ * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
+but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+"web" surface.
+ */
+export const desktopPersistedFolderCreateBodyProtocolMax = 64
+
+export const DesktopPersistedFolderCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['home', 'pinned', 'custom_products'])
+        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
+        .describe(
+            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
+        ),
+    protocol: zod
+        .string()
+        .max(desktopPersistedFolderCreateBodyProtocolMax)
+        .optional()
+        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
+    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
+})
+
+/**
+ * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
+but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+"web" surface.
+ */
+export const desktopPersistedFolderUpdateBodyProtocolMax = 64
+
+export const DesktopPersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['home', 'pinned', 'custom_products'])
+        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
+        .describe(
+            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
+        ),
+    protocol: zod
+        .string()
+        .max(desktopPersistedFolderUpdateBodyProtocolMax)
+        .optional()
+        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
+    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
+})
+
+/**
+ * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
+but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+"web" surface.
+ */
+export const desktopPersistedFolderPartialUpdateBodyProtocolMax = 64
+
+export const DesktopPersistedFolderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['home', 'pinned', 'custom_products'])
+        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
+        .optional()
+        .describe(
+            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
+        ),
+    protocol: zod
+        .string()
+        .max(desktopPersistedFolderPartialUpdateBodyProtocolMax)
+        .optional()
+        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
+    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
+})
+
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
@@ -2556,6 +2935,106 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+export const fileSystemShortcutCreateBodyTypeMax = 100
+
+export const fileSystemShortcutCreateBodyRefMax = 100
+
+export const fileSystemShortcutCreateBodyOrderMin = -2147483648
+export const fileSystemShortcutCreateBodyOrderMax = 2147483647
+
+export const FileSystemShortcutCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(fileSystemShortcutCreateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(fileSystemShortcutCreateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(fileSystemShortcutCreateBodyOrderMin)
+        .max(fileSystemShortcutCreateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+export const fileSystemShortcutUpdateBodyTypeMax = 100
+
+export const fileSystemShortcutUpdateBodyRefMax = 100
+
+export const fileSystemShortcutUpdateBodyOrderMin = -2147483648
+export const fileSystemShortcutUpdateBodyOrderMax = 2147483647
+
+export const FileSystemShortcutUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(fileSystemShortcutUpdateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(fileSystemShortcutUpdateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(fileSystemShortcutUpdateBodyOrderMin)
+        .max(fileSystemShortcutUpdateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+export const fileSystemShortcutPartialUpdateBodyTypeMax = 100
+
+export const fileSystemShortcutPartialUpdateBodyRefMax = 100
+
+export const fileSystemShortcutPartialUpdateBodyOrderMin = -2147483648
+export const fileSystemShortcutPartialUpdateBodyOrderMax = 2147483647
+
+export const FileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
+    path: zod.string().optional().describe('Display path of the shortcut in the sidebar.'),
+    type: zod
+        .string()
+        .max(fileSystemShortcutPartialUpdateBodyTypeMax)
+        .optional()
+        .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+    ref: zod
+        .string()
+        .max(fileSystemShortcutPartialUpdateBodyRefMax)
+        .nullish()
+        .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+    href: zod
+        .string()
+        .nullish()
+        .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+    order: zod
+        .number()
+        .min(fileSystemShortcutPartialUpdateBodyOrderMin)
+        .max(fileSystemShortcutPartialUpdateBodyOrderMax)
+        .optional()
+        .describe("Display order within the user's shortcut list, ascending."),
+})
+
+/**
+ * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
+ */
+export const FileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
+})
+
 /**
  * Create a new password for the sharing configuration.
  */
@@ -2584,6 +3063,58 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
+})
+
+export const persistedFolderCreateBodyProtocolMax = 64
+
+export const PersistedFolderCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['home', 'pinned', 'custom_products'])
+        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
+        .describe(
+            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
+        ),
+    protocol: zod
+        .string()
+        .max(persistedFolderCreateBodyProtocolMax)
+        .optional()
+        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
+    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
+})
+
+export const persistedFolderUpdateBodyProtocolMax = 64
+
+export const PersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['home', 'pinned', 'custom_products'])
+        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
+        .describe(
+            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
+        ),
+    protocol: zod
+        .string()
+        .max(persistedFolderUpdateBodyProtocolMax)
+        .optional()
+        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
+    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
+})
+
+export const persistedFolderPartialUpdateBodyProtocolMax = 64
+
+export const PersistedFolderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['home', 'pinned', 'custom_products'])
+        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
+        .optional()
+        .describe(
+            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
+        ),
+    protocol: zod
+        .string()
+        .max(persistedFolderPartialUpdateBodyProtocolMax)
+        .optional()
+        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
+    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
 })
 
 export const projectSecretApiKeysCreateBodyLabelMax = 40
@@ -2696,330 +3227,6 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.obj
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
-
-export const subscriptionsCreateBodyIntervalMin = -2147483648
-export const subscriptionsCreateBodyIntervalMax = 2147483647
-
-export const subscriptionsCreateBodyBysetposMin = -2147483648
-export const subscriptionsCreateBodyBysetposMax = 2147483647
-
-export const subscriptionsCreateBodyCountMin = -2147483648
-export const subscriptionsCreateBodyCountMax = 2147483647
-
-export const subscriptionsCreateBodyTitleMax = 100
-
-export const subscriptionsCreateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsCreateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(subscriptionsCreateBodyIntervalMin)
-            .max(subscriptionsCreateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsCreateBodyBysetposMin)
-            .max(subscriptionsCreateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsCreateBodyCountMin)
-            .max(subscriptionsCreateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsCreateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const subscriptionsUpdateBodyIntervalMin = -2147483648
-export const subscriptionsUpdateBodyIntervalMax = 2147483647
-
-export const subscriptionsUpdateBodyBysetposMin = -2147483648
-export const subscriptionsUpdateBodyBysetposMax = 2147483647
-
-export const subscriptionsUpdateBodyCountMin = -2147483648
-export const subscriptionsUpdateBodyCountMax = 2147483647
-
-export const subscriptionsUpdateBodyTitleMax = 100
-
-export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(subscriptionsUpdateBodyIntervalMin)
-            .max(subscriptionsUpdateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsUpdateBodyBysetposMin)
-            .max(subscriptionsUpdateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsUpdateBodyCountMin)
-            .max(subscriptionsUpdateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsUpdateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsUpdateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const subscriptionsPartialUpdateBodyIntervalMin = -2147483648
-export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
-export const subscriptionsPartialUpdateBodyBysetposMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyCountMin = -2147483648
-export const subscriptionsPartialUpdateBodyCountMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyTitleMax = 100
-
-export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
-            .optional()
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .optional()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
-            .optional()
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyIntervalMin)
-            .max(subscriptionsPartialUpdateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyBysetposMin)
-            .max(subscriptionsPartialUpdateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyCountMin)
-            .max(subscriptionsPartialUpdateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso
-            .datetime({ offset: true })
-            .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsPartialUpdateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.

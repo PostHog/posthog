@@ -14,6 +14,7 @@ import {
     hasPinnedContext,
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
     ExcludedOperators,
     InfiniteListLogicProps,
@@ -29,6 +30,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
@@ -1091,6 +1093,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
                     cache.lastEmptyResultDedupeKey = dedupeKey
                     posthog.capture('taxonomic filter empty result', {
+                        surface: legacyTaxonomicSurface(
+                            posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
+                        ),
                         groupType: props.listGroupType,
                         searchQuery: trimmedQuery,
                     })

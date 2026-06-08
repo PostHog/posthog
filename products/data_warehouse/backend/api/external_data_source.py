@@ -49,10 +49,7 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import (
-    is_custom_source_available_for_team,
-    manifest_request_hosts,
-)
+from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns, source_requires_ssl
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -63,6 +60,7 @@ from products.data_modeling.backend.models.datawarehouse_managed_viewset import 
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
+    source_supports_column_selection,
 )
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
@@ -267,6 +265,12 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
 # (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
 _SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
 
+# Top-level job_input fields that name the connection target. Changing any of them
+# repoints the source at a different server, so preserved credentials must not be
+# reused without re-entry (e.g. ServiceNow's `instance_url` could otherwise be swapped
+# to an attacker host that then receives the stored API key / password — VERIA-311).
+_CONNECTION_TARGET_FIELDS = ("host", "instance_url")
+
 
 def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     """True if the SSH tunnel's connection target (enabled/host/port) changed.
@@ -283,6 +287,42 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
         return "" if value is None else str(value)
 
     return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+
+
+# Nested SourceFieldSelectConfig containers (Stripe `auth_method`, Snowflake `auth_type`,
+# ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
+
+
+def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
+    """True if any stored secret would be reused because the update didn't re-supply it.
+
+    Checks both top-level secret fields and the nested auth containers where sources like
+    ServiceNow, Stripe and Snowflake keep their credentials. Used to force credential
+    re-entry when the connection target changes, so a redirected host can't receive a
+    preserved secret. A secret only counts as preserved when it would survive the merge:
+    an absent container carries the whole existing block over, a same-selection container
+    preserves any field the update omits, and a selection switch replaces the block wholesale.
+    """
+    if any(existing.get(key) and not incoming.get(key) for key in sensitive_fields):
+        return True
+
+    for container_key in _NESTED_AUTH_CONTAINERS:
+        existing_container = existing.get(container_key)
+        if not isinstance(existing_container, dict):
+            continue
+        incoming_container = incoming.get(container_key)
+        if not isinstance(incoming_container, dict):
+            # Container not re-supplied — the existing secrets carry over wholesale.
+            if any(existing_container.get(key) for key in sensitive_fields):
+                return True
+            continue
+        if existing_container.get("selection") != incoming_container.get("selection"):
+            continue
+        if any(existing_container.get(key) and not incoming_container.get(key) for key in sensitive_fields):
+            return True
+
+    return False
 
 
 def get_direct_postgres_connection_metadata(
@@ -322,6 +362,17 @@ def get_postgres_source_table_location(
             "source_table_name": source_schema.source_table_name if source_schema else None,
         },
         default_schema=default_schema,
+    )
+
+
+CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+
+
+def count_active_custom_sources(team_id: int) -> int:
+    return (
+        ExternalDataSource.objects.filter(team_id=team_id, source_type=ExternalDataSourceType.CUSTOM)
+        .exclude(deleted=True)
+        .count()
     )
 
 
@@ -625,13 +676,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return False
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
-        try:
-            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
-        except Exception as e:
-            capture_exception(e)
-            return False
-        # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
-        return bool(source.supports_column_selection)
+        return source_supports_column_selection(instance.source_type)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -717,10 +762,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
-        # If the connection host changed, require credentials to be re-entered.
-        connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
-            "host"
-        ] != existing_job_inputs.get("host")
+        # If the connection target changed, require credentials to be re-entered. Covers
+        # both the generic `host` field and source-specific URL fields like ServiceNow's
+        # `instance_url`, so a stored credential can't be redirected to a new host.
+        connection_host_changed = any(
+            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            for field in _CONNECTION_TARGET_FIELDS
+        )
+
+        # Some sources keep their connection target in a differently named field (e.g. Okta's
+        # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
+        # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
+        connection_host_changed = connection_host_changed or any(
+            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            for field in source.connection_host_fields
+        )
 
         # If the SSH tunnel's connection target changed, also require credentials. Without this an
         # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled
@@ -740,10 +796,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             manifest_host_added = bool(new_hosts - existing_hosts)
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
-            missing_credentials = [
-                key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
-            ]
-            if missing_credentials:
+            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, sensitive_fields):
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
@@ -1090,10 +1143,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        if source_type_model == ExternalDataSourceType.CUSTOM and not is_custom_source_available_for_team(self.team_id):
+        if (
+            source_type_model == ExternalDataSourceType.CUSTOM
+            and count_active_custom_sources(self.team_id) >= MAX_CUSTOM_SOURCES_PER_TEAM
+        ):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Custom REST source is not available for this team."},
+                data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
             )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
@@ -1402,6 +1458,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         enabled_columns,
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
+                        # Direct-postgres columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
@@ -1836,6 +1894,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "sync_type": None,
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
+                "webhook_only": schema.webhook_only,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [

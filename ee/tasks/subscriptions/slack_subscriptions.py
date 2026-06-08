@@ -8,10 +8,11 @@ import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.subscription import Subscription
 from posthog.utils import absolute_uri
+
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
@@ -53,6 +54,9 @@ class SlackMessageData:
     blocks: list[dict[str, Any]]
     title: str
     thread_messages: list[dict[str, Any]] = field(default_factory=list)
+    # When False, Slack won't auto-unfurl links in the message — set by callers delivering
+    # untrusted (e.g. LLM-generated) content to close the server-side link-fetch exfil channel.
+    unfurl: bool = True
 
 
 @dataclass
@@ -250,14 +254,24 @@ def send_slack_message_with_integration(
 
     # Send main message
     message_res = slack_integration.client.chat_postMessage(
-        channel=message_data.channel, blocks=message_data.blocks, text=message_data.title
+        channel=message_data.channel,
+        blocks=message_data.blocks,
+        text=message_data.title,
+        unfurl_links=message_data.unfurl,
+        unfurl_media=message_data.unfurl,
     )
 
     thread_ts = message_res.get("ts")
     if thread_ts:
         # Send thread messages
         for thread_msg in message_data.thread_messages:
-            slack_integration.client.chat_postMessage(channel=message_data.channel, thread_ts=thread_ts, **thread_msg)
+            slack_integration.client.chat_postMessage(
+                channel=message_data.channel,
+                thread_ts=thread_ts,
+                unfurl_links=message_data.unfurl,
+                unfurl_media=message_data.unfurl,
+                **thread_msg,
+            )
 
 
 async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs):
@@ -292,6 +306,62 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
             await asyncio.sleep(wait_time)
 
 
+async def deliver_slack_message_data(
+    integration: Integration,
+    subscription: Subscription,
+    message_data: SlackMessageData,
+) -> SlackDeliveryResult:
+    # shared send path: callers build the SlackMessageData; retry + partial-failure handling are shared
+    slack_integration = SlackIntegration(integration)
+
+    async with aiohttp.ClientSession(trust_env=True) as slack_session:
+        async_client = slack_integration.async_client(session=slack_session)
+
+        message_res = await _send_slack_message_with_retry(
+            async_client,
+            channel=message_data.channel,
+            blocks=message_data.blocks,
+            text=message_data.title,
+            unfurl_links=message_data.unfurl,
+            unfurl_media=message_data.unfurl,
+        )
+        logger.info("deliver_slack_message_data.main_message_sent", subscription_id=subscription.id)
+
+        thread_ts = message_res.get("ts")
+        failed_thread_messages = []
+
+        if thread_ts:
+            for idx, thread_msg in enumerate(message_data.thread_messages):
+                try:
+                    await _send_slack_message_with_retry(
+                        async_client,
+                        channel=message_data.channel,
+                        thread_ts=thread_ts,
+                        unfurl_links=message_data.unfurl,
+                        unfurl_media=message_data.unfurl,
+                        **thread_msg,
+                    )
+                except Exception as e:
+                    # Thread message failed, continue with others
+                    logger.error(
+                        "deliver_slack_message_data.slack_thread_message_failed_after_retries",
+                        subscription_id=subscription.id,
+                        channel=message_data.channel,
+                        thread_index=idx,
+                        total_thread_messages=len(message_data.thread_messages),
+                        thread_ts=thread_ts,
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    failed_thread_messages.append(idx)
+
+    return SlackDeliveryResult(
+        main_message_sent=True,
+        total_thread_messages=len(message_data.thread_messages),
+        failed_thread_message_indices=failed_thread_messages,
+    )
+
+
 async def send_slack_message_with_integration_async(
     integration: Integration,
     subscription: Subscription,
@@ -309,47 +379,4 @@ async def send_slack_message_with_integration_async(
         change_summary=change_summary,
         summary_skipped_over_budget=summary_skipped_over_budget,
     )
-    slack_integration = SlackIntegration(integration)
-
-    async with aiohttp.ClientSession(trust_env=True) as slack_session:
-        async_client = slack_integration.async_client(session=slack_session)
-
-        message_res = await _send_slack_message_with_retry(
-            async_client,
-            channel=message_data.channel,
-            blocks=message_data.blocks,
-            text=message_data.title,
-        )
-        logger.info("send_slack_message_with_integration_async.main_message_sent", subscription_id=subscription.id)
-
-        thread_ts = message_res.get("ts")
-        failed_thread_messages = []
-
-        if thread_ts:
-            for idx, thread_msg in enumerate(message_data.thread_messages):
-                try:
-                    await _send_slack_message_with_retry(
-                        async_client,
-                        channel=message_data.channel,
-                        thread_ts=thread_ts,
-                        **thread_msg,
-                    )
-                except Exception as e:
-                    # Thread message failed, continue with others
-                    logger.error(
-                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
-                        subscription_id=subscription.id,
-                        channel=message_data.channel,
-                        thread_index=idx,
-                        total_thread_messages=len(message_data.thread_messages),
-                        thread_ts=thread_ts,
-                        error=str(e),
-                        exc_info=True,
-                    )
-                    failed_thread_messages.append(idx)
-
-    return SlackDeliveryResult(
-        main_message_sent=True,
-        total_thread_messages=len(message_data.thread_messages),
-        failed_thread_message_indices=failed_thread_messages,
-    )
+    return await deliver_slack_message_data(integration, subscription, message_data)
