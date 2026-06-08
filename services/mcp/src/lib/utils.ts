@@ -10,16 +10,17 @@ export function hash(data: string): string {
 }
 
 // Extract the API token from a request. Prefers the `Authorization: Bearer
-// <token>` header. Outside of production, falls back to a `?token=` query param
-// for clients that can only customize the URL, not request headers (e.g. MCP UI
-// apps in an iframe). The query-param fallback is dev-only so tokens never leak
-// into URLs (logs, referrers, history) in production.
+// <token>` header. In dev/test only, falls back to a `?token=` query param for
+// clients that can only customize the URL, not request headers (e.g. MCP UI
+// apps in an iframe). The fallback uses a positive allowlist so it fails closed
+// when NODE_ENV is unset (e.g. on Cloudflare Workers) — keeping tokens out of
+// URLs (logs, referrers, history) in production.
 export function extractBearerToken(request: Request): string | undefined {
     const headerToken = request.headers.get('Authorization')?.split(' ')[1]
     if (headerToken) {
         return headerToken
     }
-    if (env.NODE_ENV !== 'production') {
+    if (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') {
         return new URL(request.url).searchParams.get('token') || undefined
     }
     return undefined
