@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS {{table_name}}
     person_id UUID,
     conversion_timestamp DateTime64(6, 'UTC'),
     conversion_math_value Float64,
+    session_id String,
 
     {_conversion_field_columns()}
 

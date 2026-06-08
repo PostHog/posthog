@@ -2897,6 +2897,7 @@
       person_id UUID,
       conversion_timestamp DateTime64(6, 'UTC'),
       conversion_math_value Float64,
+      session_id String,
   
       campaign_name String,
       source_name String,
@@ -5605,6 +5606,7 @@
       person_id UUID,
       conversion_timestamp DateTime64(6, 'UTC'),
       conversion_math_value Float64,
+      session_id String,
   
       campaign_name String,
       source_name String,
@@ -9150,6 +9152,7 @@
       person_id UUID,
       conversion_timestamp DateTime64(6, 'UTC'),
       conversion_math_value Float64,
+      session_id String,
   
       campaign_name String,
       source_name String,

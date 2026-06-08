@@ -24,6 +24,7 @@ def _build_fields() -> dict[str, FieldOrTable]:
         "person_id": StringDatabaseField(name="person_id"),
         "conversion_timestamp": DateTimeDatabaseField(name="conversion_timestamp"),
         "conversion_math_value": FloatDatabaseField(name="conversion_math_value"),
+        "session_id": StringDatabaseField(name="session_id"),
     }
     for tracked_name in MARKETING_CONVERSIONS_TRACKED_FIELD_NAMES:
         col = f"{tracked_name}_name"
