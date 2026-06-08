@@ -86,9 +86,14 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
-    apply_on_schema_clear as apply_postgres_warehouse_schema_clear_migration,
-    detect_schema_clear_transition as detect_postgres_schema_clear_transition,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
+)
+from products.data_warehouse.backend.sql_warehouse_migration import (
+    apply_on_refresh as apply_sql_warehouse_refresh_migration,
+    apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
+    detect_schema_clear_transition as detect_sql_schema_clear_transition,
+    is_multi_schema_capable_sql_source,
+    source_namespace_is_blank,
 )
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
@@ -870,14 +875,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
 
-        # Postgres: clearing `job_inputs.schema` migrates legacy rows before the config change lands.
-        old_schema = detect_postgres_schema_clear_transition(
+        # Clearing a multi-schema source's namespace migrates legacy rows to qualified naming.
+        old_schema = detect_sql_schema_clear_transition(
             source_type=instance.source_type,
             existing_job_inputs=existing_job_inputs,
             incoming_job_inputs=incoming_job_inputs,
         )
         if old_schema is not None:
-            apply_postgres_warehouse_schema_clear_migration(instance, old_schema)
+            apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
@@ -1775,7 +1780,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
-            # Postgres-only: dedupe + migrate legacy rows so sync_old_schemas doesn't create duplicates.
+            # Migrate/dedupe legacy rows before sync_old_schemas. Non-Postgres sources run the shared
+            # migration only once their namespace is cleared, so single-schema syncs are untouched.
             name_substitutions: dict[str, str] = {}
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 name_substitutions = reconcile_postgres_refresh_name_substitutions(
@@ -1783,6 +1789,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schemas=schemas,
                     team_id=self.team_id,
                 )
+            elif is_multi_schema_capable_sql_source(instance.source_type) and source_namespace_is_blank(instance):
+                name_substitutions = apply_sql_warehouse_refresh_migration(source=instance, team_id=self.team_id)
 
             if name_substitutions:
                 schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}

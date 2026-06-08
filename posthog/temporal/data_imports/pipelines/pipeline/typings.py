@@ -57,6 +57,11 @@ class SourceInputs:
     logger: FilteringBoundLogger
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
+    # Per-row namespace + storage key for multi-schema import; resolved by `resolve_source_location`.
+    source_schema: Optional[str] = None
+    source_table_name: Optional[str] = None
+    source_catalog: Optional[str] = None
+    dwh_storage_key: Optional[str] = None
 
 
 class PipelineResult(TypedDict):
