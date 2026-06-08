@@ -137,6 +137,67 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
+def test_person_delete_deferred_by_watermark_completes_once_it_advances(cluster: ClickhouseCluster):
+    # Person event deletion has no fallback path: the squash-gated `deletes_job` only loads
+    # Person deletions with created_at <= oldest person-override timestamp. This guards that the
+    # deferral is bounded — a deletion stranded behind the watermark must be processed (and its
+    # events removed) once squash advances the watermark past its created_at.
+    base = (datetime.now() + timedelta(days=62)).replace(microsecond=0)  # namespaced by time, not frozen
+    team_id = 4242
+    person_uuid = UUID(int=987654321)
+    event_ts = base - timedelta(hours=100)
+    created_at = base - timedelta(hours=50)
+
+    def insert_event(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
+            [(team_id, "distinct_id_x", person_uuid, event_ts)],
+        )
+
+    cluster.any_host(insert_event).result()
+
+    def count_person_events(client: Client) -> int:
+        result = client.execute(
+            "SELECT count() FROM writable_events WHERE team_id = %(team_id)s AND person_id = %(person_id)s",
+            {"team_id": team_id, "person_id": person_uuid},
+        )
+        return result[0][0] if result else 0
+
+    def set_oldest_override(hours_before_base: int) -> None:
+        # Squash removes applied override rows, so min(_timestamp) advances over time. Emulate that
+        # by replacing the override set so the oldest row sits `hours_before_base` before `base`.
+        def _reset(client: Client) -> None:
+            client.execute(f"TRUNCATE TABLE {PERSON_DISTINCT_ID_OVERRIDES_TABLE}")
+            client.execute(
+                "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES",
+                [("override_distinct_id", UUID(int=1), base - timedelta(hours=hours_before_base), 1)],
+            )
+
+        cluster.any_host(_reset).result()
+
+    deletion = AsyncDeletion.objects.create(team_id=team_id, deletion_type=DeletionType.Person, key=str(person_uuid))
+    deletion.created_at = created_at
+    deletion.save()
+
+    # Phase 1: oldest override (base-80h) is older than created_at (base-50h) -> not yet eligible.
+    set_oldest_override(hours_before_base=80)
+    assert cluster.any_host(count_person_events).result() == 1
+    deletes_job.execute_in_process(resources={"cluster": cluster})
+
+    deletion.refresh_from_db()
+    assert deletion.delete_verified_at is None, "deletion behind the watermark must be deferred, not verified"
+    assert cluster.any_host(count_person_events).result() == 1, "events must remain while deletion is deferred"
+
+    # Phase 2: watermark advances past created_at (oldest override now base-40h) -> eligible.
+    set_oldest_override(hours_before_base=40)
+    deletes_job.execute_in_process(resources={"cluster": cluster})
+
+    deletion.refresh_from_db()
+    assert deletion.delete_verified_at is not None, "deletion must be processed once the watermark advances past it"
+    assert cluster.any_host(count_person_events).result() == 0, "events must be removed once the deletion is eligible"
+
+
+@pytest.mark.django_db
 def test_full_job_team_deletes(cluster: ClickhouseCluster):
     timestamp = (datetime.now() + timedelta(days=31)).replace(
         microsecond=0
