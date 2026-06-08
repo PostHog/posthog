@@ -61,9 +61,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // and are skipped; only a depth-0 `AS` is the CTE alias.
         let mut depth: i32 = 1;
         loop {
-            let tok = match probe.next_token() {
-                Ok(t) => t,
-                Err(_) => return false,
+            let Ok(tok) = probe.next_token() else {
+                return false;
             };
             match tok.kind {
                 TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
@@ -80,9 +79,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // alias: it is not a column-form CTE.
                 TokenKind::Comma if depth == 0 => return false,
                 TokenKind::Keyword(Kw::As) if depth == 0 => {
-                    let ident = match probe.next_token() {
-                        Ok(t) => t,
-                        Err(_) => return false,
+                    let Ok(ident) = probe.next_token() else {
+                        return false;
                     };
                     return matches!(
                         ident.kind,
@@ -291,6 +289,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 mod tests {
     use crate::parse::parse_select;
 
+    fn assert_parses(src: &str) {
+        parse_select(src).unwrap_or_else(|e| panic!("expected ok for {src:?}: {e:?}"));
+    }
+
     /// A non-first CTE whose column-form expression begins with a paren
     /// group followed by an operator tail (`(a - b) * 10 AS c`) must
     /// parse. Regression: the CTE-list loop terminated early because the
@@ -308,7 +310,7 @@ mod tests {
             // paren group followed by a postfix property access then operator
             "WITH x AS (SELECT 1 AS n), (x.n) * 2 AS y SELECT y FROM x",
         ] {
-            parse_select(src).unwrap_or_else(|e| panic!("expected ok for {src:?}: {e:?}"));
+            assert_parses(src);
         }
     }
 
@@ -323,7 +325,7 @@ mod tests {
             "WITH 1 AS a, (SELECT 2) AS c SELECT c",
             "WITH 1 AS a, (SELECT 2)",
         ] {
-            parse_select(src).unwrap_or_else(|e| panic!("expected ok for {src:?}: {e:?}"));
+            assert_parses(src);
         }
     }
 }
