@@ -1202,36 +1202,35 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
-        source_create_kwargs: dict[str, Any] = {
-            "source_id": str(uuid.uuid4()),
-            "connection_id": str(uuid.uuid4()),
-            "destination_id": str(uuid.uuid4()),
-            "created_by": request.user if isinstance(request.user, User) else None,
-            "created_via": created_via,
-            "team": self.team,
-            "status": "Running",
-            "source_type": source_type_model,
-            "job_inputs": source_config.to_dict(),
-            "prefix": prefix,
-            "description": description,
-            "access_method": access_method,
-        }
-
-        if source_type_model == ExternalDataSourceType.CUSTOM:
-            # Authoritative quota check: re-count under a per-team advisory lock so
-            # parallel submissions can't each pass the fast-path check and exceed the
-            # cap. The lock is taken here, after the credential probe, so it is never
-            # held across the outbound request.
-            with transaction.atomic():
+        # Short transaction around the insert so the custom-source quota can be enforced
+        # race-safely under a per-team advisory lock. For other source types this is just
+        # a single-statement transaction (no lock taken, negligible cost).
+        with transaction.atomic():
+            if source_type_model == ExternalDataSourceType.CUSTOM:
+                # Authoritative quota check: re-count under the lock so parallel
+                # submissions can't each pass the fast-path check and exceed the cap.
+                # The lock is taken here, after the credential probe, so it is never
+                # held across the outbound request.
                 acquire_custom_source_quota_lock(self.team_id)
                 if count_active_custom_sources(self.team_id) >= MAX_CUSTOM_SOURCES_PER_TEAM:
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
                     )
-                new_source_model = ExternalDataSource.objects.create(**source_create_kwargs)
-        else:
-            new_source_model = ExternalDataSource.objects.create(**source_create_kwargs)
+            new_source_model = ExternalDataSource.objects.create(
+                source_id=str(uuid.uuid4()),
+                connection_id=str(uuid.uuid4()),
+                destination_id=str(uuid.uuid4()),
+                created_by=request.user if isinstance(request.user, User) else None,
+                created_via=created_via,
+                team=self.team,
+                status="Running",
+                source_type=source_type_model,
+                job_inputs=source_config.to_dict(),
+                prefix=prefix,
+                description=description,
+                access_method=access_method,
+            )
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
         # can `if cdc_enabled` without repeating the source-type check.
