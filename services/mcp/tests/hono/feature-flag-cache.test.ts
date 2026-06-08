@@ -47,7 +47,9 @@ describe('FeatureFlagCache', () => {
     })
 
     it('round-trips evaluated flags through gzip', async () => {
-        const flags = { 'flag-a': true, 'flag-b': 'variant-x', 'flag-c': undefined }
+        // Only concrete values: `undefined` is dropped by JSON.stringify, so asserting
+        // it survived would pass trivially and prove nothing.
+        const flags = { 'flag-a': true, 'flag-b': 'variant-x', 'flag-c': false }
         await cache.set('user-1', ['flag-a', 'flag-b', 'flag-c'], flags)
 
         expect(await cache.get('user-1', ['flag-a', 'flag-b', 'flag-c'])).toEqual(flags)

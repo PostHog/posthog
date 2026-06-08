@@ -1,7 +1,8 @@
+import crypto from 'node:crypto'
+
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 
 import type { EvaluatedFlags, FlagGroups } from '@/lib/posthog/flags'
-import { hash } from '@/lib/utils'
 
 import { redisOperationsTotal } from '../metrics'
 import type { RedisLike } from './RedisCache'
@@ -17,6 +18,13 @@ import type { RedisLike } from './RedisCache'
 export const FLAG_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 const FLAG_CACHE_PREFIX = 'mcp:flags'
+
+// Cache keys need a fast, one-way, collision-resistant digest — not the slow
+// password-grade KDF in `hash()` (PBKDF2, 100k iterations), which would block
+// the event loop on every get/set and negate the round-trip this cache saves.
+function digest(data: string): string {
+    return crypto.createHash('sha256').update(data).digest('hex')
+}
 
 /**
  * Per-user Redis cache for evaluated feature flags, gzip-compressed before write.
@@ -36,8 +44,8 @@ export class FeatureFlagCache {
     buildKey(distinctId: string, flagKeys: string[], groups?: FlagGroups): string {
         const sortedKeys = [...flagKeys].sort()
         const sortedGroups = Object.entries(groups ?? {}).sort(([a], [b]) => a.localeCompare(b))
-        const signature = hash(JSON.stringify({ keys: sortedKeys, groups: sortedGroups }))
-        return `${FLAG_CACHE_PREFIX}:${hash(distinctId)}:${signature}`
+        const signature = digest(JSON.stringify({ keys: sortedKeys, groups: sortedGroups }))
+        return `${FLAG_CACHE_PREFIX}:${digest(distinctId)}:${signature}`
     }
 
     async get(distinctId: string, flagKeys: string[], groups?: FlagGroups): Promise<EvaluatedFlags | undefined> {
