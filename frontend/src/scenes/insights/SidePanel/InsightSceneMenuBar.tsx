@@ -95,7 +95,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
 
     const { createStaticCohort, startExport } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
+    const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
 

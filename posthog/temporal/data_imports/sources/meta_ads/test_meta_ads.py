@@ -6,8 +6,10 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsResumeConfig,
+    _is_permanent_auth_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
     _next_smaller_limit,
@@ -633,7 +635,9 @@ class TestMidChunkLimitFallback:
                     "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
                 },
             ),
-            _mock_response(401, {"error": {"message": "Invalid OAuth access token", "code": 190}}),
+            # Transient service error (code 2) — not a timeout and not an auth error, so it
+            # neither retries-with-smaller-limit nor gets reclassified as permanent.
+            _mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}}),
         ]
 
         with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
@@ -642,10 +646,39 @@ class TestMidChunkLimitFallback:
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Meta API request failed: 401"):
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
                 list(gen)
 
         # Exactly two requests: initial + the failed cursor. No retry happened.
+        assert mock_get.return_value.get.call_count == 2
+
+    def test_permanent_auth_error_raises_clean_message_and_does_not_retry(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # code 190 — invalidated session. Re-auth is the only fix, so no retry should happen.
+            _mock_response(
+                400,
+                {"error": {"message": "Error validating access token", "type": "OAuthException", "code": 190}},
+            ),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            gen = _iter_time_range_pagination(
+                self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+            )
+            assert next(gen) == [{"ad_id": "1"}]
+            with pytest.raises(Exception, match="Please re-authorize the integration"):
+                list(gen)
+
+        # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
         assert mock_get.return_value.get.call_count == 2
 
 
@@ -662,6 +695,15 @@ class TestNonRetryableErrors:
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+            # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
+            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
+            'instructions given.","type":"OAuthException","code":190,"error_subcode":459}})',
+            # code 190 / subcode 460 — session invalidated after a password change.
+            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"Error validating access token: The session has been invalidated because the '
+            "user changed their password or Facebook has changed the session for security "
+            'reasons.","type":"OAuthException","code":190,"error_subcode":460}})',
         ],
     )
     def test_errors_match_pattern(self, error_message: str) -> None:
@@ -669,3 +711,24 @@ class TestNonRetryableErrors:
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
         )
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            # Permanent auth/permission failures.
+            ({"error": {"code": 190, "error_subcode": 459}}, True),
+            ({"error": {"code": 190, "error_subcode": 460}}, True),
+            ({"error": {"code": 102}}, True),
+            ({"error": {"code": 10}}, True),
+            ({"error": {"code": 200}}, True),
+            ({"error": {"code": 299}}, True),
+            # Transient / retryable errors — Meta still tags some of these OAuthException.
+            ({"error": {"code": 2, "type": "OAuthException"}}, False),
+            ({"error": {"code": 1, "error_subcode": 99}}, False),
+            ({"error": {"code": 4}}, False),
+            ({"error": {}}, False),
+            ({}, False),
+        ],
+    )
+    def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
+        assert _is_permanent_auth_error(_mock_response(400, body)) is expected

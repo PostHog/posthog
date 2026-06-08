@@ -4,25 +4,27 @@ Business logic for business_knowledge.
 All ORM access, chunking, quota enforcement, and search queries.
 """
 
-import re
 import uuid
 import datetime
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
 from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
 
+from posthog.helpers.full_text_search import process_query
 from posthog.models.scoping import with_team_scope
 from posthog.security.url_validation import is_url_allowed
 
@@ -39,6 +41,9 @@ from .constants import (
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
+    PENDING_EMBEDDING_SCAN_CAP,
+    RECONCILE_EMBEDDING_GRACE,
+    RECONCILE_EMBEDDING_SCAN_CAP,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -159,7 +164,7 @@ def _bulk_create_chunks(
     team_id: int,
     chunks: list[_Chunk],
 ) -> None:
-    KnowledgeChunk.objects.bulk_create(
+    created = KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
                 id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
@@ -174,6 +179,14 @@ def _bulk_create_chunks(
             for c in chunks
         ]
     )
+    # Populate the FTS vector here (the single chunk-creation choke point) so it
+    # stays correct everywhere — including the test schema, which is built from
+    # model state with migrations disabled and so would never run a DB trigger.
+    # Computed in Postgres via `to_tsvector('english', content)`.
+    if created:
+        KnowledgeChunk.objects.filter(team_id=team_id, id__in=[c.id for c in created]).update(
+            content_search_vector=SearchVector("content", config="english")
+        )
 
 
 # --- Quota enforcement -------------------------------------------------------
@@ -1125,10 +1138,13 @@ def _insert_document_and_chunks(
         document.tombstoned_at = None
         # Content changed (caller only reaches this branch on a hash diff), so
         # the prior safety verdict no longer applies — re-queue for
-        # classification with a fresh attempt budget.
+        # classification with a fresh attempt budget. The old chunk vectors are
+        # stale too (and the chunk ids may shift), so clear the embedding stamp
+        # to re-embed once the new content is re-classified SAFE.
         document.safety_verdict = SafetyVerdict.UNKNOWN
         document.safety_reason = ""
         document.classification_attempts = 0
+        document.embeddings_emitted_at = None
         document.save(
             update_fields=[
                 "title",
@@ -1141,6 +1157,7 @@ def _insert_document_and_chunks(
                 "safety_verdict",
                 "safety_reason",
                 "classification_attempts",
+                "embeddings_emitted_at",
                 "updated_at",
             ]
         )
@@ -1464,8 +1481,6 @@ def has_ready_sources(team_id: int) -> bool:
 
 _SEARCH_LIMIT_CAP = 20
 
-_WORD_RE = re.compile(r"\w{2,}", re.UNICODE)
-
 
 @dataclass(frozen=True)
 class KnowledgeSearchResult:
@@ -1490,34 +1505,49 @@ def search_knowledge(
     limit: int = 10,
 ) -> list[KnowledgeSearchResult]:
     """
-    Word-level ILIKE search over chunks belonging to READY sources.
+    Full-text relevance search over chunks belonging to READY sources.
 
-    Splits the query into words (>=2 chars) and matches chunks containing
-    ANY of them (OR). Uses the GIN trigram index for performance. The top
-    `limit` matches (shortest, most focused chunks first) anchor the result;
-    each anchor is expanded to its ordinal-adjacent neighbours (ordinal n-1,
-    n, n+1 within the same document) so the agent gets continuous context
-    instead of isolated fragments. `ordinal` is document-global and
-    contiguous, so neighbours never cross into a different document.
+    Builds an `english`-config `tsquery` from the user query (stemming +
+    stopword removal + prefix match on the last term, via `process_query`) with
+    OR semantics, and matches it against the chunk `content_search_vector` using
+    the GIN index. The top `limit` matches by `ts_rank` (so chunks hitting more
+    query terms rank first) anchor the result; each anchor is expanded to its
+    ordinal-adjacent neighbours (ordinal n-1, n, n+1 within the same document)
+    so the agent gets continuous context instead of isolated fragments.
+    `ordinal` is document-global and contiguous, so neighbours never cross into
+    a different document.
     """
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
-    words = _WORD_RE.findall(query)
-    if not words:
+    # `process_query` strips tsquery metacharacters and joins terms with a
+    # trailing prefix match; returns None only when the result is an empty
+    # string (i.e. the query contained nothing but unsafe characters).
+    # Stopword-only inputs are not caught here — they pass through as a
+    # non-empty string and PostgreSQL discards the stopwords inside
+    # to_tsquery, yielding no matches.
+    processed = process_query(query)
+    if processed is None:
         return []
-
-    word_filters = reduce(or_, (Q(content__icontains=w) for w in words))
+    # OR rather than AND the terms: the agent sends natural-language questions,
+    # and AND drops any chunk missing a single term (e.g. "can a customer get a
+    # refund within 30 days" wouldn't match a focused refund chunk). `ts_rank`
+    # still surfaces chunks matching more terms first. `process_query` only ever
+    # inserts " & " as a separator, so the replace is unambiguous.
+    processed = processed.replace(" & ", " | ")
+    search_query = SearchQuery(processed, config="english", search_type="raw")
 
     anchors = list(
         KnowledgeChunk.objects.filter(
-            word_filters,
             team_id=team_id,
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
             document__safety_verdict=SafetyVerdict.SAFE,
+            content_search_vector=search_query,
         )
+        .annotate(rank=SearchRank(F("content_search_vector"), search_query))
         .only("id", "document_id", "ordinal", "char_count")
-        .order_by("char_count")[:limit]
+        # `id` is the final tiebreaker so rank+length ties order deterministically.
+        .order_by("-rank", "char_count", "id")[:limit]
     )
     if not anchors:
         return []
@@ -1740,3 +1770,183 @@ def sweep_tombstoned_documents(*, older_than: datetime.timedelta = datetime.time
         KnowledgeDocument.objects.unscoped().filter(tombstoned_at__isnull=False, tombstoned_at__lt=cutoff).delete()
     )
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# Embedding-pipeline coordinator helpers (cross-team)
+#
+# Like the classification helpers above, these run inside Temporal activities
+# and scan across teams via `.unscoped()`. They only read/write Postgres; the
+# actual produce-to-Kafka and ClickHouse presence check live in the coordinator
+# activity so this module stays free of Kafka / ClickHouse dependencies.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChunkToEmbed:
+    chunk_id: UUID
+    content: str
+
+
+@dataclass(frozen=True)
+class DocumentToEmbed:
+    """A SAFE document whose chunks need producing to the embedding pipeline."""
+
+    team_id: int
+    document_id: UUID
+    # The document's stable `created_at`, passed as the embedding row `timestamp`
+    # so a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    timestamp: datetime.datetime
+    chunks: list[ChunkToEmbed]
+
+
+@dataclass(frozen=True)
+class EmittedDocument:
+    """An already-emitted SAFE document, for ClickHouse-presence reconciliation."""
+
+    team_id: int
+    document_id: UUID
+    chunk_ids: list[UUID]
+
+
+def _embeddable_documents_qs() -> QuerySet[KnowledgeDocument]:
+    """Base queryset of docs eligible to be embedded: SAFE, live, READY source,
+    and an org that approved AI data processing (we must not send content to the
+    embedding service otherwise — same gate as classification). Cross-team.
+
+    Zero-chunk docs are excluded: there's nothing to embed, and letting one
+    through would loop forever — emit stamps it with no produce, then
+    reconciliation finds no vectors in ClickHouse and clears the stamp, putting
+    it right back in the pending queue. A SAFE doc with no chunks is unlikely but
+    reachable (e.g. whitespace-only content), so we filter it out at the source.
+    """
+    return (
+        KnowledgeDocument.objects.unscoped()
+        .filter(
+            safety_verdict=SafetyVerdict.SAFE,
+            tombstoned_at__isnull=True,
+            source__status=SourceStatus.READY,
+            team__organization__is_ai_data_processing_approved=True,
+        )
+        .filter(Exists(KnowledgeChunk.objects.unscoped().filter(document_id=OuterRef("pk"))))
+    )
+
+
+def _chunks_to_embed_by_document(document_ids: list[UUID]) -> dict[UUID, list[ChunkToEmbed]]:
+    """Load chunk content for many docs in ONE query, grouped by document_id and
+    ordered by ordinal within each doc. Avoids an N+1 (one query per pending
+    doc). Cross-team."""
+    by_doc: dict[UUID, list[ChunkToEmbed]] = defaultdict(list)
+    for document_id, chunk_id, content in (
+        KnowledgeChunk.objects.unscoped()
+        .filter(document_id__in=document_ids)
+        .order_by("document_id", "ordinal")
+        .values_list("document_id", "id", "content")
+    ):
+        by_doc[document_id].append(ChunkToEmbed(chunk_id=chunk_id, content=content))
+    return by_doc
+
+
+def _chunk_ids_by_document(document_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+    """Load chunk ids for many docs in ONE query, grouped by document_id. Avoids
+    an N+1 in reconciliation. Cross-team."""
+    by_doc: dict[UUID, list[UUID]] = defaultdict(list)
+    for document_id, chunk_id in (
+        KnowledgeChunk.objects.unscoped().filter(document_id__in=document_ids).values_list("document_id", "id")
+    ):
+        by_doc[document_id].append(chunk_id)
+    return by_doc
+
+
+def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP) -> list[DocumentToEmbed]:
+    """
+    Return SAFE documents that have not yet had their chunks produced to the
+    embedding pipeline (``embeddings_emitted_at IS NULL``).
+
+    Bounded by ``limit`` (loads chunk content per doc into memory, same rationale
+    as ``list_documents_pending_classification``). The first post-deploy pass
+    backfills every existing SAFE doc across all teams, so the cap is what lets
+    the hourly coordinator drain that over many passes. Cross-team — coordinator
+    only.
+    """
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=True)
+        .values_list("team_id", "id", "created_at")[:limit]
+    )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, _created_at in rows])
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=created_at,
+            chunks=chunks_by_doc.get(document_id, []),
+        )
+        for team_id, document_id, created_at in rows
+    ]
+
+
+def list_documents_for_embedding_reconciliation(
+    *,
+    now: datetime.datetime | None = None,
+    grace: datetime.timedelta = RECONCILE_EMBEDDING_GRACE,
+    limit: int = RECONCILE_EMBEDDING_SCAN_CAP,
+) -> list[EmittedDocument]:
+    """
+    Return already-emitted SAFE docs (oldest first) whose vectors should by now
+    be in ClickHouse, so the coordinator can re-verify they actually landed.
+
+    ``embeddings_emitted_at`` only means "produced to Kafka", not "present in
+    ClickHouse": a transient produce failure that did NOT raise, or a worker
+    that dropped the message, leaves a SAFE doc permanently serving FTS-only.
+    The grace window skips docs whose vectors are merely still in flight.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - grace
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    chunk_ids_by_doc = _chunk_ids_by_document([document_id for _team_id, document_id in rows])
+    return [
+        EmittedDocument(
+            team_id=team_id,
+            document_id=document_id,
+            chunk_ids=chunk_ids_by_doc.get(document_id, []),
+        )
+        for team_id, document_id in rows
+    ]
+
+
+@with_team_scope(canonical=True)
+def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Stamp ``embeddings_emitted_at`` after a successful produce.
+
+    Gated on the doc still being SAFE and unstamped: a concurrent content change
+    resets the verdict to ``unknown`` and the stamp to NULL, and we must never
+    mark that new (unembedded) content as emitted. The guard makes this a no-op
+    in that race, so the new content is re-embedded on a later pass.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=True,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def clear_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Reset the emission stamp to NULL so the next pending pass re-emits.
+
+    Used by reconciliation when a doc's vectors never landed in ClickHouse.
+    """
+    KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
+        embeddings_emitted_at=None, updated_at=timezone.now()
+    )

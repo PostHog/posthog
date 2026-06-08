@@ -241,8 +241,8 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             assert str(person.uuid) == "00000000-0000-0000-0000-000000000042"
             assert person.properties == {"email": "test@example.com"}
             assert set(dids) == {"d1", "d2"}
-            fake.assert_called("get_person_by_distinct_id")
-            fake.assert_called("get_distinct_ids_for_person")
+            fake.assert_called("get_persons_by_distinct_ids_in_team")
+            fake.assert_called("get_distinct_ids_for_persons")
 
     def test_lookup_by_person_id(self):
         with fake_personhog_client() as fake:
@@ -270,7 +270,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
 
             assert person is None
             assert dids == []
-            fake.assert_called("get_person_by_distinct_id")
+            fake.assert_called("get_persons_by_distinct_ids_in_team")
 
     def test_distinct_ids_from_personhog_used_directly(self):
         with fake_personhog_client() as fake:
@@ -316,7 +316,7 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, Ba
         assert str(result_person.uuid) == str(person.uuid)
         assert result_person.properties == {"email": "test@example.com"}
         assert set(result_dids) == {"d1", "d2"}
-        self._assert_personhog_called("get_person_by_distinct_id")
+        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
 
     def test_lookup_by_person_id(self):
         person = self._seed_person(

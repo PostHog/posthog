@@ -446,7 +446,14 @@ class SnowflakeImplementation(
 
                     # We cant control the batch size from snowflake when using the arrow function
                     # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
-                    yield from streaming_cursor.fetch_arrow_batches()
+                    #
+                    # Force microsecond precision so every batch shares one timestamp unit.
+                    # Otherwise the connector picks the unit per batch from the data — `ns` for
+                    # values in the nanosecond range (~1677–2262) and `us` for anything outside it
+                    # (e.g. a `0001-01-01`/`9999-12-31` sentinel) — and the mixed units make
+                    # pyarrow fail to assemble the batches ("Schema at index N was different").
+                    # The pipeline normalizes timestamps to `us` downstream regardless.
+                    yield from streaming_cursor.fetch_arrow_batches(force_microsecond_precision=True)
 
         name = NamingConvention.normalize_identifier(table_name)
 

@@ -6,6 +6,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
 
 logger = get_logger(__name__)
 
@@ -232,6 +233,7 @@ class RelaySlackMessageInput:
 
 
 @activity.defn
+@close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler

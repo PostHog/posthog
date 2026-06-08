@@ -260,25 +260,6 @@ describe('IngestionTestingConsumer', () => {
         })
     })
 
-    describe('client ingestion warnings', () => {
-        it('should process client ingestion warning events', async () => {
-            const events = [
-                createEvent({
-                    event: '$$client_ingestion_warning',
-                    properties: {
-                        $$client_ingestion_warning_message: 'test warning',
-                    },
-                }),
-            ]
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            const allMessages = mockProducerObserver.getProducedKafkaMessages()
-            // Client ingestion warnings produce to the ingestion_warnings topic
-            const warningMessages = allMessages.filter((m) => m.topic === 'clickhouse_ingestion_warnings_test')
-            expect(warningMessages).toHaveLength(1)
-        })
-    })
-
     describe('heatmap subpipeline', () => {
         it('should produce heatmap events to the heatmaps topic', async () => {
             const events = [
@@ -404,11 +385,6 @@ describe('IngestionTestingConsumer', () => {
                         $ai_output: 'world',
                     },
                 }),
-                createEvent({
-                    event: '$$client_ingestion_warning',
-                    distinct_id: 'user-4',
-                    properties: { $$client_ingestion_warning_message: 'warning' },
-                }),
             ]
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
@@ -421,10 +397,6 @@ describe('IngestionTestingConsumer', () => {
             // Heatmap → clickhouse_heatmap_events
             const heatmapMessages = allMessages.filter((m) => m.topic === 'clickhouse_heatmap_events_test')
             expect(heatmapMessages).toHaveLength(1)
-
-            // Client ingestion warning → clickhouse_ingestion_warnings
-            const warningMessages = allMessages.filter((m) => m.topic === 'clickhouse_ingestion_warnings_test')
-            expect(warningMessages).toHaveLength(1)
 
             // No person messages from any subpipeline
             const personMessages = allMessages.filter(
