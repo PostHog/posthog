@@ -1,9 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import _create_event, _create_person
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import (
     EventsNode,
@@ -168,6 +172,53 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         assert direct_result.baseline is not None
         assert direct_result.baseline.number_of_samples == 3
         assert direct_result.baseline.sum == 2.0
+
+    @parameterized.expand(
+        [
+            ("flag_off_skips_metric_events", False, False),
+            ("flag_on_runs_metric_events", True, True),
+        ]
+    )
+    def test_metric_events_kill_switch_gates_only_metric_events_precompute(
+        self, _name: str, flag_enabled: bool, expect_metric_events_precomputed: bool
+    ) -> None:
+        """The metric-events kill switch must not affect exposure pre-aggregation.
+
+        With precomputation otherwise active (team setting on, runtime gate passed), exposures are
+        always precomputed; metric events are precomputed only when the kill-switch flag is on.
+        """
+        feature_flag = self.create_feature_flag(key=f"kill-switch-{_name}")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        # Ordered funnel, no breakdown, no CUPED → otherwise eligible for metric-events precompute.
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="$pageview"), EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+
+        with (
+            patch.object(ExperimentQueryRunner, "_should_precompute", return_value=True),
+            patch.object(ExperimentQueryRunner, "_metric_events_precomputation_enabled", return_value=flag_enabled),
+            patch.object(
+                ExperimentQueryRunner,
+                "_ensure_exposures_precomputed",
+                return_value=MagicMock(ready=True, job_ids=[uuid4()]),
+            ) as mock_exposures,
+            patch.object(
+                ExperimentQueryRunner,
+                "_ensure_metric_events_precomputed",
+                return_value=MagicMock(ready=True, job_ids=[uuid4()]),
+            ) as mock_metric_events,
+        ):
+            runner._get_experiment_query()
+
+        mock_exposures.assert_called_once()
+        assert mock_metric_events.called is expect_metric_events_precomputed
 
     def test_three_step_funnel(self):
         feature_flag = self.create_feature_flag(key="three-step-test")

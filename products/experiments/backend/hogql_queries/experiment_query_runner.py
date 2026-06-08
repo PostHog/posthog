@@ -29,6 +29,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.constants import EXPERIMENTS_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -293,6 +294,27 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         )
 
+    def _metric_events_precomputation_enabled(self) -> bool:
+        """Kill switch for metric-events pre-aggregation, independent of exposure pre-aggregation.
+
+        Default-off and fail-safe: returns False unless the flag is explicitly enabled, so a
+        flag-eval failure (or the flag not existing yet) leaves metric events on the direct-scan
+        path while exposures keep using their precomputed table.
+        """
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENTS_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id), "uuid": str(self.team.uuid)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
     def _resolve_funnel_steps_data_disabled(self) -> bool:
         """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
         parameters = self.experiment.parameters or {}
@@ -369,8 +391,12 @@ class ExperimentQueryRunner(QueryRunner):
             # funnel scan back by `lookback_days` to source the pre-exposure covariate;
             # the precomputed metric_events table only covers the experiment window, so
             # skip precomputation here and let the builder issue a fresh scan.
+            # Gated by a default-off kill switch so it can be disabled fleet-wide
+            # independently of exposure pre-aggregation; when off, the builder falls
+            # back to a direct event scan for metric events.
             if (
-                isinstance(self.metric, ExperimentFunnelMetric)
+                self._metric_events_precomputation_enabled()
+                and isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
                 and not self.cuped_config.enabled

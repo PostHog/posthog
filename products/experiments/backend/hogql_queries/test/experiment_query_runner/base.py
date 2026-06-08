@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -20,7 +21,10 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.experiments.backend.hogql_queries.experiment_query_runner import MIN_PRECOMPUTATION_DURATION_SECONDS
+from products.experiments.backend.hogql_queries.experiment_query_runner import (
+    MIN_PRECOMPUTATION_DURATION_SECONDS,
+    ExperimentQueryRunner,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -64,6 +68,13 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = True
         config.save()
+        # Metric-events pre-aggregation has an additional default-off kill-switch flag;
+        # force it on so tests still exercise the precomputed metric-events path.
+        if not getattr(self, "_metric_events_precompute_patched", False):
+            patcher = patch.object(ExperimentQueryRunner, "_metric_events_precomputation_enabled", return_value=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+            self._metric_events_precompute_patched = True
 
     def _disable_precomputation(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
