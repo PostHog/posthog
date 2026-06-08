@@ -202,7 +202,7 @@ pub fn process_event(
                 person_id,
                 event,
                 event_ms,
-                prev.as_ref(),
+                prev,
             ),
             Apply::Person {
                 condition_hash,
@@ -215,7 +215,7 @@ pub fn process_event(
                 person_id,
                 event,
                 event_ms,
-                prev.as_ref(),
+                prev,
             ),
         };
 
@@ -344,20 +344,27 @@ fn mutate_behavioral(
     person_id: Uuid,
     event: &CohortStreamEvent,
     event_ms: i64,
-    prev: Option<&StatefulRecord>,
+    prev: Option<StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
-    let (prev_last_event, mut applied) = match prev {
-        None => (i64::MIN, AppliedOffsets::default()),
-        Some(record) => match &record.state {
-            Stage1State::BehavioralSingle {
-                last_event_at_ms, ..
-            } => (*last_event_at_ms, record.applied_offsets.clone()),
-            // The LSK pins the variant; a non-behavioral value here means corruption, skip it.
-            _ => {
-                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                return None;
+    // Taken by value so the prior offset map moves into the new record instead of cloning on this
+    // per-event hot path. `predicate_before` is read off the prior state here, before the map is
+    // moved out; `predicate` is a trivial field read, so computing it on the replay-skip path too
+    // is free.
+    let (prev_last_event, predicate_before, mut applied) = match prev {
+        None => (i64::MIN, false, AppliedOffsets::default()),
+        Some(record) => {
+            let predicate_before = predicate(&record.state);
+            match record.state {
+                Stage1State::BehavioralSingle {
+                    last_event_at_ms, ..
+                } => (last_event_at_ms, predicate_before, record.applied_offsets),
+                // The LSK pins the variant; a non-behavioral value here means corruption, skip it.
+                _ => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    return None;
+                }
             }
-        },
+        }
     };
 
     if applied.is_replay(event.source_partition, event.source_offset) {
@@ -367,7 +374,6 @@ fn mutate_behavioral(
     }
     applied.record(event.source_partition, event.source_offset);
 
-    let predicate_before = prev.is_some_and(|record| predicate(&record.state));
     let last_event_at_ms = prev_last_event.max(event_ms);
     let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
     // Tracks the newest matching event; a late event must not pull the deadline earlier.
@@ -406,20 +412,22 @@ fn mutate_person(
     person_id: Uuid,
     event: &CohortStreamEvent,
     event_ms: i64,
-    prev: Option<&StatefulRecord>,
+    prev: Option<StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
+    // Taken by value so the prior offset map moves into the new record instead of cloning on this
+    // per-event hot path.
     let (prev_matches, prev_updated_at, prev_updated_offset, mut applied) = match prev {
         None => (false, i64::MIN, i64::MIN, AppliedOffsets::default()),
-        Some(record) => match &record.state {
+        Some(record) => match record.state {
             Stage1State::PersonProperty {
                 matches,
                 last_updated_at_ms,
                 last_updated_offset,
             } => (
-                *matches,
-                *last_updated_at_ms,
-                *last_updated_offset,
-                record.applied_offsets.clone(),
+                matches,
+                last_updated_at_ms,
+                last_updated_offset,
+                record.applied_offsets,
             ),
             _ => {
                 counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
