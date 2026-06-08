@@ -240,6 +240,7 @@ mod tests {
             .iter()
             .map(|message| match message {
                 ShuffleMessage::Event { event, .. } => event.source_offset,
+                ShuffleMessage::Sweep { .. } => unreachable!("router tests route only events"),
             })
             .collect()
     }

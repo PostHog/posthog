@@ -13,8 +13,10 @@
 //! `ShuffleMessage::Sweep` to each owned worker, which pops its due keys, drops the bucket,
 //! recomputes the predicate, and emits any `left`) and spawns [`run_sweep_loop`] in `main.rs`.
 
+pub mod dispatch;
 pub mod eviction_queue;
 pub mod scheduler;
 
+pub use dispatch::DispatchSweeper;
 pub use eviction_queue::EvictionQueue;
 pub use scheduler::{due_before_ms, run_sweep_loop, Sweeper};

@@ -3,6 +3,7 @@
 //! alone, because the bytecode omits the window and threshold.
 
 pub mod bucket_tz;
+pub mod daily;
 pub mod key;
 pub mod pick_state;
 pub mod predicate;

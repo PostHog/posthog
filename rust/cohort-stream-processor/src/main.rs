@@ -22,6 +22,7 @@ use cohort_stream_processor::partitions::{
 };
 use cohort_stream_processor::producer::{KafkaMembershipSink, MembershipSink};
 use cohort_stream_processor::store::CohortStore;
+use cohort_stream_processor::sweep::{run_sweep_loop, DispatchSweeper};
 
 common_alloc::used!();
 
@@ -162,6 +163,16 @@ async fn async_main(config: Config) -> Result<()> {
         rebalance_rx,
         dispatcher.clone(),
         consumer_command_tx,
+        consumer_handle.shutdown_token(),
+    ));
+
+    // The time-driven eviction sweep: each tick routes a `Sweep` to every owned partition's worker,
+    // which drains its own queue and emits any `left`. Shares the consumer's shutdown token so it
+    // stops on coordinated shutdown. Grab the token + dispatcher clone before the consumer takes
+    // ownership of both (mirrors the rebalance-worker spawn above).
+    tokio::spawn(run_sweep_loop(
+        DispatchSweeper::new(dispatcher.clone(), config.sweep_safety_margin_ms as i64),
+        config.sweep_interval(),
         consumer_handle.shutdown_token(),
     ));
 

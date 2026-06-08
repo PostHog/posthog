@@ -2,6 +2,7 @@
 //! [`crate::stage1`].
 
 pub mod event_path;
+pub mod sweep_callback;
 pub mod worker;
 
 pub use event_path::{process_event, EventOutcome, SkipReason};

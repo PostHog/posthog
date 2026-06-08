@@ -5,7 +5,6 @@
 //! flipped. Its step order is a parity + replay-idempotence contract preserved from the Node
 //! consumer, and transitions are surfaced only after the commit succeeds.
 
-use chrono_tz::Tz;
 use metrics::counter;
 use uuid::Uuid;
 
@@ -18,7 +17,8 @@ use crate::observability::metrics::{
     STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
-use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz, start_of_day_ms_in_tz};
+use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
+use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 use crate::stage1::predicate::{daily_predicate, predicate};
 use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
@@ -54,16 +54,23 @@ impl SkipReason {
 }
 
 /// Either skipped whole (`skipped = Some`, no transitions) or processed (`skipped = None`).
+///
+/// `schedules` carries every behavioral write with a finite eviction deadline so the worker can
+/// (re)schedule it into its [`EvictionQueue`](crate::sweep::EvictionQueue) — including writes that
+/// produced no transition (e.g. a daily back-fill that pulls the deadline *earlier*). It is empty on
+/// any skip path, so a scheduled key always has durably-committed backing state.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct EventOutcome {
     pub transitions: Vec<LeafTransition>,
+    pub schedules: Vec<(Stage1Key, i64)>,
     pub skipped: Option<SkipReason>,
 }
 
 impl EventOutcome {
-    fn processed(transitions: Vec<LeafTransition>) -> Self {
+    fn processed(transitions: Vec<LeafTransition>, schedules: Vec<(Stage1Key, i64)>) -> Self {
         Self {
             transitions,
+            schedules,
             skipped: None,
         }
     }
@@ -71,6 +78,7 @@ impl EventOutcome {
     fn skipped(reason: SkipReason) -> Self {
         Self {
             transitions: Vec::new(),
+            schedules: Vec::new(),
             skipped: Some(reason),
         }
     }
@@ -160,7 +168,7 @@ pub fn process_event(
         person_globals.as_ref(),
     );
     if applies.is_empty() {
-        return Ok(EventOutcome::processed(Vec::new()));
+        return Ok(EventOutcome::processed(Vec::new(), Vec::new()));
     }
 
     // Parsed once; load-bearing for deadlines + argMax, so an unparseable value with work to do
@@ -173,6 +181,7 @@ pub fn process_event(
     // (store::keys docs the negative-id caveat).
     let team_id = event.team_id as u64;
     let mut transitions = Vec::new();
+    let mut schedules: Vec<(Stage1Key, i64)> = Vec::new();
     let mut pending = Vec::new();
 
     for apply in &applies {
@@ -245,6 +254,13 @@ pub fn process_event(
         if let Some(transition) = transition {
             transitions.push(transition);
         }
+        // Schedule every behavioral write with a finite deadline (an explicit-window single or an
+        // all-zero daily yields `i64::MAX` → permanent / nothing to evict, so it is not scheduled).
+        // Eager and idempotent: a reschedule supersedes, so a back-fill that pulls the deadline
+        // earlier is honored.
+        if let Some(deadline) = schedule_deadline(&record.state) {
+            schedules.push((key, deadline));
+        }
         pending.push(PendingWrite {
             variant: record.state.variant(),
             bytes: record.encode(),
@@ -281,8 +297,27 @@ pub fn process_event(
         }
     }
 
-    // Surfaced only now that the backing state is committed.
-    Ok(EventOutcome::processed(transitions))
+    // Surfaced only now that the backing state is committed; the schedules ride alongside so the
+    // worker only ever queues an eviction for state that is durable.
+    Ok(EventOutcome::processed(transitions, schedules))
+}
+
+/// The finite eviction deadline to schedule for a just-written state, or [`None`] when it never
+/// evicts (a person-property leaf, an explicit-window single, or an all-zero daily — all carry an
+/// `i64::MAX` "never" sentinel and are left out of the sweep queue).
+fn schedule_deadline(state: &Stage1State) -> Option<i64> {
+    let deadline = match state {
+        Stage1State::BehavioralSingle {
+            earliest_eviction_at_ms,
+            ..
+        }
+        | Stage1State::BehavioralDailyBuckets {
+            earliest_eviction_at_ms,
+            ..
+        } => *earliest_eviction_at_ms,
+        Stage1State::PersonProperty { .. } => return None,
+    };
+    (deadline != i64::MAX).then_some(deadline)
 }
 
 /// Evaluate each conditionHash once and gather the leaves to fold this event into. Behavioral fans
@@ -512,18 +547,10 @@ fn mutate_behavioral_daily(
 
     let cur_now_day = window_start_day + window_days_idx; // = window_start_day + (len − 1)
     if event_day > cur_now_day {
-        // AHEAD: the event is newer than the window's "now" day. Slide the dense array forward by
-        // `shift` days, zero the vacated tail, then count the event in the new last bucket.
-        let shift = (event_day - cur_now_day) as usize;
-        if shift >= len {
-            buckets.iter_mut().for_each(|count| *count = 0);
-        } else {
-            buckets.copy_within(shift.., 0);
-            buckets[len - shift..]
-                .iter_mut()
-                .for_each(|count| *count = 0);
-        }
-        window_start_day += shift as i32;
+        // AHEAD: the event is newer than the window's "now" day. Slide the dense array forward to the
+        // event's day (zeroing the vacated tail), then count the event in the new last bucket. The
+        // sweep performs the same slide minus this increment.
+        slide_window_forward(&mut buckets, &mut window_start_day, window_days, event_day);
         let last = len - 1;
         buckets[last] = buckets[last].saturating_add(1);
     } else if event_day < window_start_day {
@@ -564,24 +591,6 @@ fn mutate_behavioral_daily(
         kind,
     });
     Some((record, transition))
-}
-
-/// The day-boundary (epoch ms, team tz) at which the oldest non-zero bucket leaves the window — its
-/// eviction deadline. A day-`d` bucket is in-window while `now_day ≤ d + window_days`, so it leaves
-/// at the start of day `d + window_days + 1`. An all-zero array never evicts → [`i64::MAX`].
-fn daily_eviction_deadline(
-    buckets: &[u32],
-    window_start_day: i32,
-    window_days: u32,
-    tz: Tz,
-) -> i64 {
-    match buckets.iter().position(|&count| count > 0) {
-        Some(oldest) => {
-            let oldest_day = window_start_day + oldest as i32;
-            start_of_day_ms_in_tz(oldest_day + window_days as i32 + 1, tz)
-        }
-        None => i64::MAX,
-    }
 }
 
 /// Fold a person-property evaluation into a leaf's state, guarding against Kafka replay and then

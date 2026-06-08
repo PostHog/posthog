@@ -10,7 +10,7 @@
 //!
 //! The TDD originally specced a per-worker `BinaryHeap<Reverse<(deadline_ms, Stage1Key)>>` plus an
 //! epoch map to lazily discard stale entries. A PR 2.2 investigation found that a key's deadline can
-//! move *earlier*, not just later: `daily_eviction_deadline` (`workers/event_path.rs:572-585`)
+//! move *earlier*, not just later: `daily_eviction_deadline` (`stage1/daily.rs`)
 //! returns the boundary of the **oldest non-zero bucket**, so a late event landing in a bucket older
 //! than the current oldest pulls the deadline backward. With a lazily-deleted heap, an
 //! earlier-reschedule leaves the superseded, far-future entry in the heap until its stale deadline

@@ -30,6 +30,11 @@ use crate::stage1::state::StateVariant;
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
     pub variant: StateVariant,
+    /// The leaf's `conditionHash` (the event-matcher hash). The sweep starts from a [`LeafStateKey`]
+    /// rather than an event, so it reads this to build a [`LeafTransition`](crate::stage1::transition::LeafTransition)
+    /// for a time-driven `Left`. `LeafStateKey → conditionHash` is a function (the hash is the first
+    /// input to [`LeafStateKey::for_behavioral`]), so a last-write-wins insert is unambiguous.
+    pub condition_hash: [u8; 16],
     /// The eviction window — `BehavioralSingle` only; `None` for the bucket and person variants.
     pub window: Option<EvictionWindow>,
     /// The daily-bucket window length in days (`buckets.len() − 1`) — `Some` only for
@@ -274,6 +279,7 @@ fn collect_leaf_meta(
                     leaf.leaf_state_key,
                     LeafStateMeta {
                         variant,
+                        condition_hash: leaf.condition_hash,
                         window,
                         window_days,
                         predicate_op,
@@ -287,6 +293,7 @@ fn collect_leaf_meta(
                 leaf.leaf_state_key,
                 LeafStateMeta {
                     variant: StateVariant::PersonProperty,
+                    condition_hash: leaf.condition_hash,
                     window: None,
                     window_days: None,
                     predicate_op: None,

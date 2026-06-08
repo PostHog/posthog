@@ -236,6 +236,35 @@ impl EventDispatcher {
         self.owned.contains(&partition)
     }
 
+    /// A snapshot of the partitions currently owned by this consumer. Authoritative: a sync revoke
+    /// clears `owned` *before* the async drain runs, so a revoking partition is already absent here.
+    pub fn owned_partitions(&self) -> Vec<i32> {
+        self.owned.iter().map(|entry| *entry).collect()
+    }
+
+    /// Route a time-driven [`ShuffleMessage::Sweep`] to every owned partition's worker, so each
+    /// drains its own [`EvictionQueue`](crate::sweep::EvictionQueue) for keys past `due_before_ms`.
+    ///
+    /// Deliberately routes through [`PartitionRouter::route_batch`](crate::partitions::PartitionRouter::route_batch)
+    /// — **not** [`dispatch`](Self::dispatch)/[`ensure_worker`](Self::ensure_worker), which would
+    /// resurrect a revoked partition. A `Sweep` to a worker-less or just-revoked partition is a benign
+    /// [`RouteError`](crate::partitions::RouteError): it is dropped and counted, and the next tick's
+    /// true owner re-derives the eviction.
+    pub async fn route_sweep(&self, due_before_ms: i64) {
+        let messages: Vec<(i32, ShuffleMessage)> = self
+            .owned_partitions()
+            .into_iter()
+            .map(|partition| (partition, ShuffleMessage::Sweep { due_before_ms }))
+            .collect();
+        if messages.is_empty() {
+            return;
+        }
+        let errors = self.router.route_batch(messages).await;
+        if !errors.is_empty() {
+            counter!(COHORT_STREAM_ROUTE_ERRORS).increment(errors.len() as u64);
+        }
+    }
+
     /// Record a newly-assigned partition. The worker spawns lazily on the first message
     /// ([`ensure_worker`](Self::ensure_worker)), so there is no eager setup here.
     pub fn assign_partition(&self, partition: i32) {
@@ -1151,6 +1180,66 @@ mod tests {
         assert!(dispatcher.owns(3));
         dispatcher.revoke_partition_sync(3);
         assert!(!dispatcher.owns(3));
+    }
+
+    #[tokio::test]
+    async fn owned_partitions_reflects_assign_and_revoke() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        assert!(dispatcher.owned_partitions().is_empty());
+        dispatcher.assign_partition(3);
+        dispatcher.assign_partition(7);
+        let mut owned = dispatcher.owned_partitions();
+        owned.sort_unstable();
+        assert_eq!(owned, vec![3, 7]);
+
+        dispatcher.revoke_partition_sync(3);
+        assert_eq!(dispatcher.owned_partitions(), vec![7]);
+    }
+
+    #[tokio::test]
+    async fn route_sweep_delivers_the_cutoff_to_each_owned_worker() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        // Own two partitions and register their worker channels so a routed Sweep is inspectable.
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        let mut rx0 = dispatcher.router.add_partition(0).unwrap();
+        let mut rx1 = dispatcher.router.add_partition(1).unwrap();
+
+        let cutoff = 1_700_000_000_000;
+        dispatcher.route_sweep(cutoff).await;
+
+        for rx in [&mut rx0, &mut rx1] {
+            let batch = rx.recv().await.expect("a sweep was routed");
+            assert_eq!(batch.len(), 1);
+            match &batch[0] {
+                ShuffleMessage::Sweep { due_before_ms } => assert_eq!(*due_before_ms, cutoff),
+                other => panic!("expected Sweep, got {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn route_sweep_is_benign_for_workerless_or_no_owned_partitions() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        // Owned but no worker channel → a dropped RouteError, never a panic or a resurrected worker.
+        dispatcher.assign_partition(0);
+        dispatcher.route_sweep(123).await;
+        assert_eq!(dispatcher.workers.len(), 0, "a sweep never spawns a worker");
+        assert_eq!(
+            dispatcher.router.partition_count(),
+            0,
+            "no channel registered"
+        );
+
+        // No owned partitions at all → a clean no-op.
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.route_sweep(123).await;
     }
 
     #[tokio::test]

@@ -155,6 +155,11 @@ pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
 /// Wall-clock duration of one sweep cycle (histogram, seconds): how long a single
 /// [`Sweeper::run_once`](crate::sweep::Sweeper::run_once) took.
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
+/// Keys the sweep evicted — state deleted (full expiry) or its window advanced — labelled by
+/// `variant` (counter). The `Left`s these emit reuse `output_membership_changes_emitted_total{status=left}`
+/// and `stage1_transitions_total`, so this counts eviction *work*, not just membership flips (a daily
+/// slide that drops a bucket but keeps the member is counted here with no `Left`).
+pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
 
 /// Install the global Prometheus recorder. Call once at startup.
 ///

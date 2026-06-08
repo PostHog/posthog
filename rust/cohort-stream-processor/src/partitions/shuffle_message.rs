@@ -6,7 +6,12 @@
 use crate::consumers::events::CohortStreamEvent;
 
 /// A unit of work routed to the partition worker that owns its `(team_id, person_id)` key.
+///
+/// The hot `Event` variant is deliberately unboxed (see its doc), so it dwarfs the rare `Sweep`
+/// tick — boxing the common variant to shrink the enum would add a per-event allocation on the
+/// hot path, the opposite of what we want. A `Sweep` is at most one per partition per cycle.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ShuffleMessage {
     /// A re-keyed event from `cohort_stream_events`, paired with its offset on that topic
     /// (`cse_offset`); the partition is implicit (the worker's own). The worker marks this offset
@@ -21,6 +26,12 @@ pub enum ShuffleMessage {
         event: CohortStreamEvent,
         cse_offset: i64,
     },
+    /// A time-driven eviction tick, carrying the cutoff `due_before_ms = now − safety_margin`
+    /// computed once per cycle by the sweeper and shipped to every owned worker. Riding the same
+    /// per-partition channel as [`Event`](Self::Event) serializes the sweep behind in-flight events
+    /// on the owning worker, so the worker drains its own `EvictionQueue` with no locks (the
+    /// worker-affinity invariant). The cutoff is the queue's only clock input.
+    Sweep { due_before_ms: i64 },
 }
 
 #[cfg(test)]
@@ -57,6 +68,18 @@ mod tests {
                 assert_eq!(event.source_partition, 3);
                 assert_eq!(cse_offset, 7);
             }
+            ShuffleMessage::Sweep { .. } => unreachable!("constructed an Event"),
+        }
+    }
+
+    #[test]
+    fn sweep_variant_carries_the_due_before_cutoff() {
+        let message = ShuffleMessage::Sweep {
+            due_before_ms: 1_700_000_000_000,
+        };
+        match message {
+            ShuffleMessage::Sweep { due_before_ms } => assert_eq!(due_before_ms, 1_700_000_000_000),
+            ShuffleMessage::Event { .. } => unreachable!("constructed a Sweep"),
         }
     }
 }

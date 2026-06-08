@@ -58,7 +58,10 @@ impl TimeInterval {
 pub enum EvictionWindow {
     /// A rolling window of `seconds` relative to each matching event.
     Relative { seconds: i64 },
-    /// A fixed end instant (epoch ms); [`None`] when unparseable (treated as "never evict").
+    /// A fixed explicit date range `[from, to_ms]`. `to_ms` is retained for documentation/parity but
+    /// is **not** an eviction deadline: a `performed_event` over an explicit range is a fixed
+    /// historical question, so once matched the person is a member permanently — see
+    /// [`earliest_eviction_at_ms`](Self::earliest_eviction_at_ms). [`None`] when `to` is unparseable.
     Explicit { to_ms: Option<i64> },
 }
 
@@ -66,12 +69,18 @@ impl EvictionWindow {
     /// The earliest epoch-ms at which state seeded by the newest matching event may be evicted.
     /// Pass the *newest* matching event time so a late (out-of-order) event cannot pull the
     /// deadline earlier.
+    ///
+    /// An explicit window never evicts ([`i64::MAX`]): re-evaluating an explicit `[from, to]` range
+    /// always finds the matched event still inside it, so membership is permanent. Returning `to_ms`
+    /// here instead would have the sweep emit a spurious `Left` at `to`, diverging unboundedly from
+    /// the existing pipeline. The sweep filters out the `i64::MAX` deadline, so such a leaf is never
+    /// scheduled.
     pub fn earliest_eviction_at_ms(self, newest_event_ms: i64) -> i64 {
         match self {
             Self::Relative { seconds } => {
                 newest_event_ms.saturating_add(seconds.saturating_mul(1_000))
             }
-            Self::Explicit { to_ms } => to_ms.unwrap_or(i64::MAX),
+            Self::Explicit { .. } => i64::MAX,
         }
     }
 }
@@ -436,10 +445,14 @@ mod tests {
     }
 
     #[test]
-    fn explicit_window_deadline_is_the_bound_or_never() {
+    fn explicit_window_never_evicts_for_permanent_membership() {
+        // An explicit `[from, to]` range is a fixed historical question: once matched, the person is
+        // a member permanently, so the deadline is always `i64::MAX` regardless of `to_ms`. Returning
+        // `to` would make the sweep emit a spurious `Left` at `to`; `i64::MAX` keeps the leaf out of
+        // the sweep queue entirely.
         assert_eq!(
             EvictionWindow::Explicit { to_ms: Some(5_000) }.earliest_eviction_at_ms(1_000),
-            5_000,
+            i64::MAX,
         );
         assert_eq!(
             EvictionWindow::Explicit { to_ms: None }.earliest_eviction_at_ms(1_000),
