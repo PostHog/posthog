@@ -1110,7 +1110,11 @@ Third paragraph`,
             })
         )
 
-        await waitFor(() => expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull())
+        await waitFor(() => {
+            if (container.querySelector('.MarkdownNotebook__ai-prompt-tag')) {
+                throw new Error('Expected AI prompt tag to be removed')
+            }
+        })
         expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('AI response')
     })
 
@@ -1725,10 +1729,87 @@ Second paragraph`,
         const selectedText = window.getSelection()?.toString() ?? ''
         expect(selectedText).toContain('rst paragraph')
         expect(selectedText).toContain('Seco')
+        expect(window.getSelection()?.anchorNode).toEqual(secondTextNode)
+        expect(window.getSelection()?.anchorOffset).toEqual(4)
+        expect(window.getSelection()?.focusNode).toEqual(firstTextNode)
+        expect(window.getSelection()?.focusOffset).toEqual(2)
 
         Object.defineProperty(document, 'caretRangeFromPoint', {
             configurable: true,
             value: originalCaretRangeFromPoint,
+        })
+    })
+
+    it('keeps upward drag selection when the caret range stays on the anchor row', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const secondTextNode = textBlocks[1].firstChild
+
+        expect(secondTextNode).toBeInstanceOf(Text)
+
+        const staleAnchorRange = document.createRange()
+        staleAnchorRange.setStart(secondTextNode as Text, 4)
+        staleAnchorRange.collapse(true)
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 200,
+                top: 0,
+                width: 200,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => staleAnchorRange),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? textBlocks[1] : textBlocks[0])),
+        })
+
+        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 40, clientY: 40 })
+
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 4 })).toBe(false)
+
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('First paragraph')
+        expect(selectedText).toContain('Seco')
+        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('false')
+        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('false')
+
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+            document.dispatchEvent(new Event('selectionchange'))
+        })
+
+        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
+        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
         })
     })
 

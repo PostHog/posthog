@@ -160,6 +160,11 @@ type CrossBlockSelectionDragState = {
     isDragging: boolean
 }
 
+type EditableBlockContentEditableState = {
+    element: HTMLElement
+    contentEditable: string | null
+}
+
 type CommitDocumentOptions = {
     addToHistory?: boolean
 }
@@ -284,6 +289,7 @@ export function MarkdownNotebook({
     const tableCellRefs = useRef<Record<string, HTMLElement | null>>({})
     const aiThinkingTagRefs = useRef<Record<string, HTMLButtonElement | null>>({})
     const crossBlockSelectionRef = useRef<CrossBlockSelectionDragState | null>(null)
+    const crossBlockSelectionEditableStateRef = useRef<EditableBlockContentEditableState[] | null>(null)
     const focusNodeRef = useRef<string | null>(null)
     const restoreSelectionRef = useRef<RestoreSelectionRequest | null>(null)
     const notebookClipboardMarkdownRef = useRef<string | null>(null)
@@ -295,6 +301,39 @@ export function MarkdownNotebook({
     const initialInsertMenuAppliedRef = useRef(false)
     const emptyNodeRef = useRef<NotebookTextBlockNode>(makeEmptyParagraph('initial-empty'))
     const initializedComponentPanelNodeIdsRef = useRef<Set<string> | null>(null)
+
+    const disableEditableBlocksForCrossBlockSelection = useCallback((): void => {
+        const notebookElement = notebookRef.current
+        if (!notebookElement || crossBlockSelectionEditableStateRef.current) {
+            return
+        }
+
+        const editableElements = Array.from(
+            notebookElement.querySelectorAll<HTMLElement>(NOTEBOOK_EDITABLE_BLOCK_SELECTOR)
+        )
+        crossBlockSelectionEditableStateRef.current = editableElements.map((element) => ({
+            element,
+            contentEditable: element.getAttribute('contenteditable'),
+        }))
+        editableElements.forEach((element) => element.setAttribute('contenteditable', 'false'))
+    }, [])
+
+    const restoreEditableBlocksForCrossBlockSelection = useCallback((): void => {
+        const editableState = crossBlockSelectionEditableStateRef.current
+        if (!editableState) {
+            return
+        }
+
+        crossBlockSelectionEditableStateRef.current = null
+        editableState.forEach(({ element, contentEditable }) => {
+            if (contentEditable === null) {
+                element.removeAttribute('contenteditable')
+                return
+            }
+
+            element.setAttribute('contenteditable', contentEditable)
+        })
+    }, [])
 
     useEffect(() => {
         if (!showDebug) {
@@ -840,24 +879,59 @@ export function MarkdownNotebook({
             setFloatingToolbar(null)
             setSelectedComponentNodeIds(new Set())
             crossBlockSelectionRef.current = null
+            restoreEditableBlocksForCrossBlockSelection()
+            return
+        }
+
+        const notebookElement = notebookRef.current
+        if (!notebookElement) {
             return
         }
 
         const handleDocumentSelectionChange = (): void => {
+            const selection = window.getSelection()
+            if (
+                crossBlockSelectionEditableStateRef.current &&
+                (!selection ||
+                    selection.rangeCount === 0 ||
+                    selection.isCollapsed ||
+                    !rangeIntersectsNode(selection.getRangeAt(0), notebookElement))
+            ) {
+                restoreEditableBlocksForCrossBlockSelection()
+            }
             updateFloatingToolbarFromSelection()
             updateSelectedComponentBlocksFromSelection()
         }
 
+        const handleDocumentMouseDown = (event: MouseEvent): void => {
+            if (!crossBlockSelectionEditableStateRef.current) {
+                return
+            }
+
+            if (event.target instanceof HTMLElement && event.target.closest('.MarkdownNotebook__format-toolbar')) {
+                return
+            }
+
+            restoreEditableBlocksForCrossBlockSelection()
+        }
+
         window.document.addEventListener('selectionchange', handleDocumentSelectionChange)
+        window.document.addEventListener('mousedown', handleDocumentMouseDown, true)
         window.addEventListener('resize', handleDocumentSelectionChange)
         window.addEventListener('scroll', handleDocumentSelectionChange, true)
 
         return () => {
             window.document.removeEventListener('selectionchange', handleDocumentSelectionChange)
+            window.document.removeEventListener('mousedown', handleDocumentMouseDown, true)
             window.removeEventListener('resize', handleDocumentSelectionChange)
             window.removeEventListener('scroll', handleDocumentSelectionChange, true)
         }
-    }, [mode, updateFloatingToolbarFromSelection])
+    }, [
+        mode,
+        restoreEditableBlocksForCrossBlockSelection,
+        updateFloatingToolbarFromSelection,
+        updateSelectedComponentBlocksFromSelection,
+    ])
 
     const handleSelectionChange = (): void => {
         updateFloatingToolbarFromSelection()
@@ -881,7 +955,7 @@ export function MarkdownNotebook({
                 return
             }
 
-            const focusRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
+            let focusRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
             if (!focusRange) {
                 return
             }
@@ -892,6 +966,13 @@ export function MarkdownNotebook({
             }
 
             dragState.isDragging = true
+            if (!crossBlockSelectionEditableStateRef.current) {
+                disableEditableBlocksForCrossBlockSelection()
+                focusRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
+                if (!focusRange) {
+                    return
+                }
+            }
             event.preventDefault()
             selectBetweenRanges(dragState.anchorRange, focusRange)
             setFloatingToolbar(null)
@@ -907,14 +988,19 @@ export function MarkdownNotebook({
             }
         }
 
-        window.document.addEventListener('mousemove', handleMouseMove)
+        window.document.addEventListener('mousemove', handleMouseMove, true)
         window.document.addEventListener('mouseup', handleMouseUp)
 
         return () => {
-            window.document.removeEventListener('mousemove', handleMouseMove)
+            window.document.removeEventListener('mousemove', handleMouseMove, true)
             window.document.removeEventListener('mouseup', handleMouseUp)
         }
-    }, [mode, updateFloatingToolbarFromSelection, updateSelectedComponentBlocksFromSelection])
+    }, [
+        disableEditableBlocksForCrossBlockSelection,
+        mode,
+        updateFloatingToolbarFromSelection,
+        updateSelectedComponentBlocksFromSelection,
+    ])
 
     const startCrossBlockSelection = (event: ReactMouseEvent<HTMLElement>): void => {
         const notebookElement = notebookRef.current
@@ -5029,30 +5115,39 @@ function getNotebookBlockCaretRangeFromPoint(
     clientY: number,
     notebookElement: HTMLElement
 ): Range | null {
+    const pointedElement =
+        typeof document.elementFromPoint === 'function' ? document.elementFromPoint(clientX, clientY) : null
+    const pointedBlockElement = getPointedNotebookBlockElement(pointedElement, notebookElement)
     const range = getCaretRangeFromPoint(clientX, clientY)
     if (range) {
         const element = getElementForNode(range.startContainer)
         const editableTextElement = getClosestEditableBlockElement(element)
         if (editableTextElement && notebookElement.contains(editableTextElement)) {
-            return range
+            const pointedEditableTextElement = getClosestEditableBlockElement(pointedElement)
+            if (!pointedBlockElement || pointedEditableTextElement === editableTextElement) {
+                return range
+            }
         }
     }
 
-    const pointedElement = document.elementFromPoint(clientX, clientY)
-    const blockElement = pointedElement?.closest(NOTEBOOK_SELECTABLE_BLOCK_SELECTOR)
-    if (!blockElement || !notebookElement.contains(blockElement)) {
+    if (!pointedBlockElement) {
         return null
     }
 
-    const blockRect = blockElement.getBoundingClientRect()
+    const blockRect = pointedBlockElement.getBoundingClientRect()
     const blockRange = document.createRange()
     if (clientY < blockRect.top + blockRect.height / 2) {
-        blockRange.setStartBefore(blockElement)
+        blockRange.setStartBefore(pointedBlockElement)
     } else {
-        blockRange.setStartAfter(blockElement)
+        blockRange.setStartAfter(pointedBlockElement)
     }
     blockRange.collapse(true)
     return blockRange
+}
+
+function getPointedNotebookBlockElement(element: Element | null, notebookElement: HTMLElement): HTMLElement | null {
+    const blockElement = element?.closest(NOTEBOOK_SELECTABLE_BLOCK_SELECTOR)
+    return blockElement instanceof HTMLElement && notebookElement.contains(blockElement) ? blockElement : null
 }
 
 function getCaretRangeFromPoint(clientX: number, clientY: number): Range | null {
@@ -5087,6 +5182,27 @@ function getEditableBlockElementForRange(range: Range): HTMLElement | null {
 function selectBetweenRanges(anchorRange: Range, focusRange: Range): void {
     const selection = window.getSelection()
     if (!selection) {
+        return
+    }
+
+    if (typeof selection.setBaseAndExtent === 'function') {
+        selection.setBaseAndExtent(
+            anchorRange.startContainer,
+            anchorRange.startOffset,
+            focusRange.startContainer,
+            focusRange.startOffset
+        )
+        return
+    }
+
+    if (typeof selection.extend === 'function') {
+        const anchorOnlyRange = document.createRange()
+        anchorOnlyRange.setStart(anchorRange.startContainer, anchorRange.startOffset)
+        anchorOnlyRange.collapse(true)
+
+        selection.removeAllRanges()
+        selection.addRange(anchorOnlyRange)
+        selection.extend(focusRange.startContainer, focusRange.startOffset)
         return
     }
 
