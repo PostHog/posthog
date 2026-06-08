@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+    ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
@@ -101,6 +102,16 @@ describe('isCliModeEnabledClient', () => {
             expect(fragment.length).toBeGreaterThan(0)
         }
     })
+
+    it('keeps the Anthropic client fragment list non-empty, lowercased, and separator-free', () => {
+        // Fragments are compared against the normalized header value (separators
+        // stripped, lowercased), so they must be pre-normalized to match.
+        expect(ANTHROPIC_CLIENT_NAME_FRAGMENTS.length).toBeGreaterThan(0)
+        for (const fragment of ANTHROPIC_CLIENT_NAME_FRAGMENTS) {
+            expect(fragment).toBe(fragment.toLowerCase().replace(/[-_\s]+/g, ''))
+            expect(fragment.length).toBeGreaterThan(0)
+        }
+    })
 })
 
 describe('isPostHogCodeConsumer', () => {
@@ -196,17 +207,36 @@ describe('MCPClientProfile', () => {
 
         describe('Anthropic vendor client', () => {
             it.each([['ClaudeCode'], ['ClaudeAI'], ['Cowork'], ['Anthropic/ClaudeAI']])(
-                'enables CLI mode for any Anthropic client %s regardless of clientName',
+                'enables CLI mode for known Anthropic client %s regardless of clientName',
                 (vendorClient) => {
                     // Anthropic pools MCP transports across all its products and
-                    // reports the live one in `x-anthropic-client`. Every Anthropic
-                    // client runs in CLI mode, even when the initialize body's
-                    // clientName looks non-coding (e.g. the pool owner).
+                    // reports the live one in `x-anthropic-client`. Every known
+                    // Anthropic client runs in CLI mode, even when the initialize
+                    // body's clientName looks non-coding (e.g. the pool owner).
                     expect(
                         new MCPClientProfile({ clientName: 'Claude Desktop', vendorClient }).isCliModeEnabled()
                     ).toBe(true)
                 }
             )
+
+            it('does not enable CLI mode for an unknown vendorClient value', () => {
+                // Detection matches the known-header list, not mere presence.
+                expect(
+                    new MCPClientProfile({
+                        clientName: 'Claude Desktop',
+                        vendorClient: 'SomeUnknownClient',
+                    }).isCliModeEnabled()
+                ).toBe(false)
+            })
+
+            it('falls back to clientName for coding agents when vendorClient is unknown', () => {
+                expect(
+                    new MCPClientProfile({
+                        clientName: 'claude-code',
+                        vendorClient: 'SomeUnknownClient',
+                    }).isCliModeEnabled()
+                ).toBe(true)
+            })
 
             it('falls back to clientName when vendorClient is missing', () => {
                 expect(new MCPClientProfile({ clientName: 'claude-code' }).isCliModeEnabled()).toBe(true)
