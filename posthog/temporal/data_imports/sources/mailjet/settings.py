@@ -60,7 +60,9 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
         name="campaigndraft",
         path="campaigndraft",
         partition_key="CreatedAt",
-        sort="CreatedAt",
+        # Mailjet rejects Sort=CreatedAt on campaigndraft ("Cannot sort on field createdat"),
+        # so fall back to the monotonic ID for deterministic offset pagination.
+        sort="ID",
     ),
     "message": MailjetEndpointConfig(
         name="message",
