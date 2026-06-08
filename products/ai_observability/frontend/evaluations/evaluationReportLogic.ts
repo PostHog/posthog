@@ -440,6 +440,11 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         updateReportSuccess: () => {
             actions.loadReports()
         },
+        setReportsEnabledFailure: () => {
+            // The reports reducer is left untouched on failure, so the toggle reverts —
+            // surface a toast so the revert doesn't look like a no-op to the user.
+            lemonToast.error('Failed to update report status. Please try again.')
+        },
         saveDraft: () => {
             const { configDraft, activeReport } = values
             const targets = buildDeliveryTargets(configDraft)

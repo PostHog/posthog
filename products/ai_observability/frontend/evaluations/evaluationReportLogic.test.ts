@@ -80,28 +80,20 @@ describe('evaluationReportLogic', () => {
         expect(logic.values.activeReport).toEqual(expect.objectContaining({ id: 'report-1', enabled: false }))
     })
 
-    it('disabling persists enabled:false without soft-deleting', async () => {
-        reports = [makeReport({ enabled: true })]
+    it.each([
+        { label: 'disabling persists enabled:false without soft-deleting', initialEnabled: true, target: false },
+        { label: 're-enables a paused report', initialEnabled: false, target: true },
+    ])('$label', async ({ initialEnabled, target }) => {
+        reports = [makeReport({ enabled: initialEnabled })]
         logic.actions.loadReports()
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.setReportsEnabled(false)
+        logic.actions.setReportsEnabled(target)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(patchBodies).toEqual([{ enabled: false }])
-        expect(logic.values.activeReport).toEqual(expect.objectContaining({ enabled: false }))
-    })
-
-    it('re-enables a paused report', async () => {
-        reports = [makeReport({ enabled: false })]
-        logic.actions.loadReports()
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.setReportsEnabled(true)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(patchBodies).toEqual([{ enabled: true }])
-        expect(logic.values.activeReport).toEqual(expect.objectContaining({ enabled: true }))
+        // Only `enabled` is PATCHed — never `deleted` — so the config is preserved either way.
+        expect(patchBodies).toEqual([{ enabled: target }])
+        expect(logic.values.activeReport).toEqual(expect.objectContaining({ enabled: target }))
     })
 
     it('disables every non-deleted report so duplicates cannot keep delivering', async () => {
