@@ -1,5 +1,6 @@
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, HEATMAPS_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputsBuilder } from '../../outputs/ingestion-outputs-builder'
+import { HEATMAPS_OUTPUT } from './index'
 
 /**
  * Register the outputs the heatmaps pipeline produces to. Call

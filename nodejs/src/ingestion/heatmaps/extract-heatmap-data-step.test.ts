@@ -3,10 +3,10 @@ import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestio
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
-import { HEATMAPS_OUTPUT, HeatmapsOutput } from '../analytics/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineResultType } from '../pipelines/results'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
+import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'
 
 const createTestEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => ({
     eventUuid: '018eebf3-cb48-750b-bfad-36409ea6f2b2',

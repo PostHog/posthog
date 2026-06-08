@@ -1,11 +1,4 @@
-import {
-    AI_EVENTS_OUTPUT,
-    ASYNC_OUTPUT,
-    EVENTS_OUTPUT,
-    HEATMAPS_OUTPUT,
-    PERSONS_OUTPUT,
-    PERSON_DISTINCT_IDS_OUTPUT,
-} from '.'
+import { AI_EVENTS_OUTPUT, ASYNC_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '.'
 
 import {
     APP_METRICS_OUTPUT,
@@ -38,15 +31,6 @@ export function createOutputsRegistry() {
             modeKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_MODE',
             percentageKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_PERCENTAGE',
             teamDenylistKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_TEAM_DENYLIST',
-        })
-        .registerDualWriteWithDenylist(HEATMAPS_OUTPUT, {
-            topicKey: 'INGESTION_OUTPUT_HEATMAPS_TOPIC',
-            producerKey: 'INGESTION_OUTPUT_HEATMAPS_PRODUCER',
-            secondaryTopicKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_TOPIC',
-            secondaryProducerKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_PRODUCER',
-            modeKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_MODE',
-            percentageKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_PERCENTAGE',
-            teamDenylistKey: 'INGESTION_OUTPUT_HEATMAPS_SECONDARY_TEAM_DENYLIST',
         })
         .registerDualWrite(INGESTION_WARNINGS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC',

@@ -4,7 +4,7 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventFilterManager } from '../common/event-filters'
-import { AppMetricsOutput, DlqOutput, HeatmapsOutput, IngestionWarningsOutput } from '../common/outputs'
+import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { createAllowEventsStep } from '../common/steps/allow-events'
 import {
     EventFiltersBatchContext,
@@ -22,16 +22,17 @@ import {
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
-import { createCheckHeatmapOptInStep } from '../event-processing/check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
-import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
+import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
+import { HeatmapsOutput } from './outputs'
 
 export interface HeatmapsPipelineConfig {
     outputs: IngestionOutputs<HeatmapsOutput | IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
