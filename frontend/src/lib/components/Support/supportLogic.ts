@@ -257,8 +257,8 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Logs',
     },
     {
-        value: 'max-ai',
-        'data-attr': `support-form-target-area-max-ai`,
+        value: 'posthog-ai',
+        'data-attr': `support-form-target-area-posthog-ai`,
         label: 'PostHog AI',
     },
     {
