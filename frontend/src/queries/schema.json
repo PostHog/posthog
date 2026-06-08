@@ -17168,6 +17168,49 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingLongRunningIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "first_seen": {
+                    "type": "string"
+                },
+                "occurrences": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["occurrences", "first_seen", "status"],
+            "type": "object"
+        },
+        "ErrorTrackingLongRunningIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ErrorTrackingLongRunningIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "error_tracking",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "long_running_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "ErrorTrackingOrderBy": {
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
             "title": "ErrorTrackingOrderBy",
@@ -39193,6 +39236,9 @@
                     "$ref": "#/definitions/ErrorTrackingSignalInput"
                 },
                 {
+                    "$ref": "#/definitions/ErrorTrackingLongRunningIssueSignalInput"
+                },
+                {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 },
                 {
@@ -39255,6 +39301,7 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
+                "long_running_issue",
                 "endpoint_execution_failed",
                 "cross_source_issue",
                 "alert_state_change"

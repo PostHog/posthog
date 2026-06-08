@@ -52,3 +52,14 @@ def compute_error_tracking_recommendation(recommendation_id: str, team_id: int) 
         status=ErrorTrackingRecommendation.Status.READY,
         status_changed_at=now,
     )
+
+    try:
+        rec.emit_signals(obj.team, obj.meta or {}, meta)
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(
+            "error_tracking_recommendation_emit_signals_failed",
+            team_id=obj.team_id,
+            recommendation_type=obj.type,
+            exc_info=True,
+        )

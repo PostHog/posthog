@@ -26,6 +26,7 @@ export enum SignalSourceType {
     ISSUE_CREATED = 'issue_created',
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
+    LONG_RUNNING_ISSUE = 'long_running_issue',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
@@ -244,6 +245,23 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// Error tracking long-running issue (emitted per newly-surfaced issue in the long_running_issues recommendation)
+
+export interface ErrorTrackingLongRunningIssueSignalExtra {
+    occurrences: number
+    first_seen: string
+    status: string
+}
+
+export interface ErrorTrackingLongRunningIssueSignalInput {
+    source_type: 'long_running_issue'
+    source_product: 'error_tracking'
+    source_id: string
+    description: string
+    weight: number
+    extra: ErrorTrackingLongRunningIssueSignalExtra
+}
+
 // pganalyze issue (database performance finding)
 
 export interface PgAnalyzeIssueReference {
@@ -396,6 +414,7 @@ export type SignalInput =
     | LinearIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
+    | ErrorTrackingLongRunningIssueSignalInput
     | EndpointExecutionFailedSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput

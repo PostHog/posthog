@@ -17,3 +17,7 @@ class Recommendation(ABC):
 
     def is_completed(self, meta: dict[str, Any]) -> bool:
         return False
+
+    def emit_signals(self, team: Team, old_meta: dict[str, Any], new_meta: dict[str, Any]) -> None:
+        """Emit signals for entries that are new relative to the previously computed meta."""
+        return

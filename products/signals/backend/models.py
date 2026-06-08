@@ -37,6 +37,7 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_CREATED = "issue_created", "Issue created"
         ISSUE_REOPENED = "issue_reopened", "Issue reopened"
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        LONG_RUNNING_ISSUE = "long_running_issue", "Long running issue"
         CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
         ALERT_STATE_CHANGE = "alert_state_change", "Alert state change"
 

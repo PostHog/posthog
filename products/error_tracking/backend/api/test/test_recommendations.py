@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
@@ -276,6 +276,48 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
 
         self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.ACTIVE)
+
+    def _issue_meta(self, issue_id, occurrences=5):
+        return {
+            "id": str(issue_id),
+            "name": "Boom",
+            "description": "kaboom",
+            "created_at": _days_ago(30),
+            "occurrences": occurrences,
+            "status": ErrorTrackingIssue.Status.ACTIVE,
+        }
+
+    @patch("products.error_tracking.backend.recommendations.long_running_issues.emit_signal", new_callable=AsyncMock)
+    def test_long_running_emit_signals_only_for_new_issues(self, mock_emit):
+        old_meta = {"issues": [self._issue_meta("a")]}
+        new_meta = {"issues": [self._issue_meta("a"), self._issue_meta("b", occurrences=9)]}
+
+        LongRunningIssuesRecommendation().emit_signals(self.team, old_meta, new_meta)
+
+        self.assertEqual(mock_emit.call_count, 1)
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["source_product"], "error_tracking")
+        self.assertEqual(kwargs["source_type"], "long_running_issue")
+        self.assertEqual(kwargs["source_id"], "b")
+        self.assertEqual(kwargs["weight"], 0.5)
+        self.assertEqual(kwargs["extra"]["occurrences"], 9)
+
+    @patch("products.error_tracking.backend.recommendations.long_running_issues.emit_signal", new_callable=AsyncMock)
+    def test_long_running_emit_signals_for_all_when_no_prior(self, mock_emit):
+        new_meta = {"issues": [self._issue_meta("a"), self._issue_meta("b")]}
+
+        LongRunningIssuesRecommendation().emit_signals(self.team, {}, new_meta)
+
+        self.assertEqual(mock_emit.call_count, 2)
+
+    @patch("products.error_tracking.backend.recommendations.long_running_issues.emit_signal", new_callable=AsyncMock)
+    def test_long_running_emit_signals_none_when_no_new_issues(self, mock_emit):
+        old_meta = {"issues": [self._issue_meta("a"), self._issue_meta("b")]}
+        new_meta = {"issues": [self._issue_meta("a")]}
+
+        LongRunningIssuesRecommendation().emit_signals(self.team, old_meta, new_meta)
+
+        mock_emit.assert_not_called()
 
     def test_long_running_is_completed_when_no_issues(self):
         self.assertTrue(LongRunningIssuesRecommendation().is_completed({"issues": []}))

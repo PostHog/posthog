@@ -1848,6 +1848,27 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingLongRunningIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    first_seen: str
+    occurrences: float
+    status: str
+
+
+class ErrorTrackingLongRunningIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingLongRunningIssueSignalExtra
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: Literal["long_running_issue"] = "long_running_issue"
+    weight: float
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -4730,6 +4751,7 @@ class SignalSourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+    LONG_RUNNING_ISSUE = "long_running_issue"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
     CROSS_SOURCE_ISSUE = "cross_source_issue"
     ALERT_STATE_CHANGE = "alert_state_change"
@@ -8968,6 +8990,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | ErrorTrackingLongRunningIssueSignalInput
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
@@ -8983,6 +9006,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | ErrorTrackingLongRunningIssueSignalInput
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput

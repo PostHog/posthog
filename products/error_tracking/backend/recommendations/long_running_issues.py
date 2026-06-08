@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Any
 
+from asgiref.sync import async_to_sync
+
 from posthog.schema import HogQLFilters, ProductKey
 
 from posthog.hogql import ast
@@ -9,10 +11,12 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.signals.backend.facade.api import emit_signal
 
 from .base import Recommendation
 
 ISSUE_LIMIT = 10
+SIGNAL_WEIGHT = 0.5
 
 
 class LongRunningIssuesRecommendation(Recommendation):
@@ -86,3 +90,28 @@ class LongRunningIssuesRecommendation(Recommendation):
             **meta,
             "issues": [{**issue, "status": statuses.get(issue["id"], issue.get("status"))} for issue in issues],
         }
+
+    def emit_signals(self, team: Team, old_meta: dict[str, Any], new_meta: dict[str, Any]) -> None:
+        old_ids = {issue["id"] for issue in (old_meta.get("issues") or [])}
+        for issue in new_meta.get("issues") or []:
+            if issue["id"] in old_ids:
+                continue
+            description = (
+                f"Long-running error tracking issue, still active 7+ days after it first appeared:\n"
+                f"{issue['name']}: {issue.get('description') or ''}\n"
+                f"Occurrences (last 7 days): {issue['occurrences']}\n"
+                f"First seen: {issue['created_at']}"
+            )
+            async_to_sync(emit_signal)(
+                team=team,
+                source_product="error_tracking",
+                source_type="long_running_issue",
+                source_id=issue["id"],
+                description=description,
+                weight=SIGNAL_WEIGHT,
+                extra={
+                    "occurrences": issue["occurrences"],
+                    "first_seen": issue["created_at"],
+                    "status": str(issue["status"]),
+                },
+            )
