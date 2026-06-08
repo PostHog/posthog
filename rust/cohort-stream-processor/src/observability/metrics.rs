@@ -147,6 +147,15 @@ pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total
 /// back so Kafka replays; re-produce is idempotent for the parity diff.
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
+// ── Sweep (time-driven eviction) ─────────────────────────────────────────────────
+/// Sweep cycles that fired (counter). One per [`run_sweep_loop`](crate::sweep::run_sweep_loop) tick;
+/// ticks skipped under lag (`MissedTickBehavior::Skip`) are not counted, so graph its rate against
+/// `sweep_interval` to spot a starved sweep.
+pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
+/// Wall-clock duration of one sweep cycle (histogram, seconds): how long a single
+/// [`Sweeper::run_once`](crate::sweep::Sweeper::run_once) took.
+pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
+
 /// Install the global Prometheus recorder. Call once at startup.
 ///
 /// # Panics

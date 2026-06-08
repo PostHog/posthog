@@ -196,6 +196,18 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub offset_commit_interval_ms: u64,
 
+    // ── Sweep (time-driven eviction) ───────────────────────────────────────
+    /// How often the sweep fires to evict state whose eviction deadline has passed (D11; TDD §2.6).
+    #[envconfig(default = "30000")]
+    pub sweep_interval_ms: u64,
+
+    /// Grace period added to every eviction deadline before the sweep acts. Set high enough to
+    /// absorb consumer-lag spikes during deploys/rebalances, so a late event still lands in its
+    /// bucket before the bucket is evicted (TDD §2.6). The sweep evicts a key only once its
+    /// `deadline + safety_margin < now` — i.e. the deadline is strictly before `now − safety_margin`.
+    #[envconfig(default = "300000")]
+    pub sweep_safety_margin_ms: u64,
+
     // ── State store (RocksDB) ──────────────────────────────────────────────
     /// On-disk path for the per-process RocksDB state store.
     #[envconfig(default = "cohort-store")]
@@ -245,6 +257,17 @@ impl Config {
 
     pub fn offset_commit_interval(&self) -> Duration {
         Duration::from_millis(self.offset_commit_interval_ms)
+    }
+
+    /// How often the time-driven eviction sweep fires.
+    pub fn sweep_interval(&self) -> Duration {
+        Duration::from_millis(self.sweep_interval_ms)
+    }
+
+    /// The grace period subtracted from `now` before a deadline is considered due (see
+    /// [`sweep_safety_margin_ms`](Self::sweep_safety_margin_ms)).
+    pub fn sweep_safety_margin(&self) -> Duration {
+        Duration::from_millis(self.sweep_safety_margin_ms)
     }
 
     /// RocksDB settings for the state store. Only the path and the wipe-on-start flag are
@@ -372,6 +395,8 @@ mod tests {
             recv_batch_size: 1000,
             recv_batch_timeout_ms: 500,
             offset_commit_interval_ms: 5000,
+            sweep_interval_ms: 30000,
+            sweep_safety_margin_ms: 300000,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
         }
@@ -388,6 +413,13 @@ mod tests {
             config.filter_catalog_refresh_jitter(),
             Duration::from_secs(60)
         );
+    }
+
+    #[test]
+    fn sweep_interval_and_safety_margin_map_from_millis() {
+        let config = test_config();
+        assert_eq!(config.sweep_interval(), Duration::from_millis(30_000));
+        assert_eq!(config.sweep_safety_margin(), Duration::from_millis(300_000));
     }
 
     #[test]
