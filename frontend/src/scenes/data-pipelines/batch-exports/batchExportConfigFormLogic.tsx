@@ -21,7 +21,7 @@ import {
 import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { DESTINATIONS } from './destinations'
-import { genericPersonEventFields } from './destinations/common'
+import { genericPersonEventFields, isSelectedCompressionOptionValid } from './destinations/common'
 import { humanizeBatchExportName } from './utils'
 
 export interface BatchExportConfigFormLogicProps {
@@ -840,6 +840,16 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         },
         setConfigurationValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
+
+            if (fieldName === 'file_format') {
+                if (values.isNew && value === 'JSONLines') {
+                    actions.setConfigurationValue('compression', null)
+                } else if (values.isNew && value === 'Parquet') {
+                    actions.setConfigurationValue('compression', 'zstd')
+                } else if (!isSelectedCompressionOptionValid(value, values.configuration.compression)) {
+                    actions.setConfigurationValue('compression', null)
+                }
+            }
 
             if (fieldName === 'interval') {
                 // if changing to day or week, set the timezone to the team's timezone if not already set

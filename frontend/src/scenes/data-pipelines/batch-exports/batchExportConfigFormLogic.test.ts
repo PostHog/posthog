@@ -545,6 +545,37 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
+    describe('compression resets when file_format changes', () => {
+        it.each([
+            { newFormat: 'JSONLines', expected: null },
+            { newFormat: 'Parquet', expected: 'zstd' },
+        ])('new export: switching to $newFormat sets compression to $expected', async ({ newFormat, expected }) => {
+            await initLogic({ service: 'S3', id: null })
+
+            logic.actions.setConfigurationValue('file_format', newFormat)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.configuration.compression).toBe(expected)
+        })
+
+        it.each([
+            { startCompression: 'snappy', expected: null },
+            { startCompression: 'gzip', expected: 'gzip' },
+        ])(
+            'existing export: Parquet/$startCompression -> JSONLines yields $expected',
+            async ({ startCompression, expected }) => {
+                await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+                logic.actions.setConfigurationValues({ compression: startCompression })
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.setConfigurationValue('file_format', 'JSONLines')
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.configuration.compression).toBe(expected)
+            }
+        )
+    })
+
     describe('Redshift bucket validation only runs in COPY mode', () => {
         // Validates that Redshift's mode-conditional validation only kicks in for COPY mode.
         // INSERT mode shouldn't validate the (irrelevant) bucket name field.
