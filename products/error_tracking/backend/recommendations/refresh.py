@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from datetime import datetime, timedelta
 
 from django.db import IntegrityError
@@ -22,12 +23,25 @@ logger = structlog.get_logger(__name__)
 COMPUTING_STUCK_AFTER = timedelta(minutes=5)
 
 
+def _refresh_window(ts: datetime, phase_seconds: float, interval_seconds: float) -> int:
+    return int((ts.timestamp() - phase_seconds) // interval_seconds)
+
+
+def _stable_phase_seconds(team_id: int, rec_type: str, interval_seconds: float) -> float:
+    digest = hashlib.sha256(f"{team_id}:{rec_type}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % int(interval_seconds)
+
+
 def is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:
     if obj.computed_at is None:
         return True
     if rec.refresh_interval is None:
         return True
-    return now >= obj.computed_at + rec.refresh_interval
+    interval_seconds = rec.refresh_interval.total_seconds()
+    phase_seconds = _stable_phase_seconds(obj.team_id, rec.type, interval_seconds)
+    return _refresh_window(now, phase_seconds, interval_seconds) > _refresh_window(
+        obj.computed_at, phase_seconds, interval_seconds
+    )
 
 
 def ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTrackingRecommendation:
