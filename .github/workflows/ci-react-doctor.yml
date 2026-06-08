@@ -1,0 +1,95 @@
+name: React Doctor
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        paths:
+            - '**/*.ts'
+            - '**/*.tsx'
+            - '**/*.js'
+            - '**/*.jsx'
+            - '.github/workflows/ci-react-doctor.yml'
+            - '.github/scripts/react-doctor-comment.mjs'
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    react-doctor:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+              with:
+                  node-version-file: .nvmrc
+                  package-manager-cache: false
+
+            - id: scan
+              name: Run react-doctor on changed files
+              shell: bash
+              env:
+                  NO_COLOR: '1'
+                  REACT_DOCTOR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -uo pipefail
+                  CHANGED="${RUNNER_TEMP}/react-doctor-changed-files.txt"
+                  if ! git diff --name-only --diff-filter=ACMR "${REACT_DOCTOR_BASE_SHA}...${HEAD_SHA}" > "$CHANGED"; then
+                      echo "Could not diff ${REACT_DOCTOR_BASE_SHA}...${HEAD_SHA}; failing rather than skipping the scan." >&2
+                      echo "exit-code=1" >> "$GITHUB_OUTPUT"
+                      exit 1
+                  fi
+                  if [ ! -s "$CHANGED" ]; then
+                      echo "No changed files; nothing for react-doctor to scan."
+                      echo "exit-code=0" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  REPORT="${RUNNER_TEMP}/react-doctor-report.json"
+                  npx --yes react-doctor@0.4.2 . --blocking error --changed-files-from "$CHANGED" --json --json-compact > "$REPORT"
+                  status=$?
+                  echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+                  echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+
+            - name: Upsert sticky PR comment
+              if: ${{ always() && steps.scan.outputs.report != '' }}
+              continue-on-error: true
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  GITHUB_SERVER_URL: ${{ github.server_url }}
+                  REACT_DOCTOR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPORT: ${{ steps.scan.outputs.report }}
+              run: |
+                  set -uo pipefail
+                  BODY="${RUNNER_TEMP}/react-doctor-comment.md"
+                  node "${GITHUB_WORKSPACE}/.github/scripts/react-doctor-comment.mjs" "$REPORT" "$BODY"
+                  cat "$BODY" >> "$GITHUB_STEP_SUMMARY"
+                  jq -Rs '{body: .}' "$BODY" > "${RUNNER_TEMP}/react-doctor-payload.json"
+                  marker="<!-- react-doctor:summary -->"
+                  existing=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+                      --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -n1 || true)
+                  if [ -n "$existing" ]; then
+                      gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --input "${RUNNER_TEMP}/react-doctor-payload.json" >/dev/null
+                  else
+                      gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input "${RUNNER_TEMP}/react-doctor-payload.json" >/dev/null
+                  fi
+
+            - name: Enforce blocking findings
+              if: ${{ always() }}
+              shell: bash
+              env:
+                  STATUS: ${{ steps.scan.outputs.exit-code }}
+              run: exit "${STATUS:-1}"
