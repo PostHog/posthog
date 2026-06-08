@@ -251,11 +251,12 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'issue_created',
             'issue_reopened',
             'issue_spiking',
+            'long_running_issue',
             'cross_source_issue',
             'alert_state_change',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `long_running_issue` - Long running issue\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -287,11 +288,12 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'issue_created',
             'issue_reopened',
             'issue_spiking',
+            'long_running_issue',
             'cross_source_issue',
             'alert_state_change',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `long_running_issue` - Long running issue\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -324,12 +326,13 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'issue_created',
             'issue_reopened',
             'issue_spiking',
+            'long_running_issue',
             'cross_source_issue',
             'alert_state_change',
         ])
         .optional()
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `long_running_issue` - Long running issue\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),

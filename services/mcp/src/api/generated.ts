@@ -25849,6 +25849,7 @@ export namespace Schemas {
     * `issue_created` - Issue created
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
+    * `long_running_issue` - Long running issue
     * `cross_source_issue` - Cross source issue
     * `alert_state_change` - Alert state change
      */
@@ -25863,6 +25864,7 @@ export namespace Schemas {
       IssueCreated: 'issue_created',
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
+      LongRunningIssue: 'long_running_issue',
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
     } as const;
