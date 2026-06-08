@@ -82,6 +82,14 @@ For HogQL queries, three ways to get from HogQL to executable ClickHouse SQL; pi
 
 Before reaching for tools, eyeball the SQL for the patterns that account for most slow ClickHouse queries.
 
+The smells below are the view from the SQL: shapes that are bad on sight. When you instead have a
+specific slow query (usually pulled from production) and need to work backwards from its runtime cost to
+the cause, [`references/investigation-playbook.md`](references/investigation-playbook.md) is the deep
+dive: pulling the full query, reading bytes vs CPU vs duration, the fuller list of runtime causes
+(high-cardinality breakdowns, function-wrapped sort keys that defeat granule pruning, ratio-metric double
+scans), tracing a query back to the product code that issued it, and using EXPLAIN to confirm a
+hypothesis.
+
 ### `FROM <table> FINAL`
 
 `FROM person FINAL`, `FROM groups FINAL`, `FROM cohortpeople FINAL`, or any other `FINAL` on a ReplacingMergeTree / CollapsingMergeTree / AggregatingMergeTree table forces ClickHouse to run an on-the-fly merge across every part it reads, deduplicating to the latest version per sort-key row. It defeats parallel reads, blows up memory, and scales badly with part count. On large tables (`person`, anything sharded) it is rarely the right answer.
@@ -142,7 +150,7 @@ ClickHouse `EXPLAIN` works on a dev instance even without representative data, b
 - `EXPLAIN ESTIMATE SELECT ...` for per-part row/mark estimates
 - `EXPLAIN SYNTAX SELECT ...` for the normalized SQL after parsing
 
-See the [ClickHouse EXPLAIN docs](https://clickhouse.com/docs/sql-reference/statements/explain) for the full option matrix.
+See the [ClickHouse EXPLAIN docs](https://clickhouse.com/docs/sql-reference/statements/explain) for the full option matrix. For the hypothesis-testing technique — EXPLAINing the suspect query and a fixed variant side by side and diffing `Granules`, `ReadType`, and Prewhere-vs-primary-key — plus which variants do a small metadata read rather than being entirely free, see [`references/investigation-playbook.md`](references/investigation-playbook.md).
 
 ## Step 4: measure for real
 

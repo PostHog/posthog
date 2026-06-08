@@ -89,15 +89,17 @@ Read `lc_query__query` on the slow set; the recurring causes:
 
 - **Unmaterialized JSON extraction.** The AI writes `JSONExtractString(properties, 'x')` or
   `properties.x` on event or person properties. The `JSONExtract*(...)` call form bypasses
-  materialization (see `investigation-playbook.md` and `materialization-analysis.md`), forcing a full
-  JSON-blob read per row.
+  materialization (see the
+  [`optimizing-clickhouse-and-hogql-queries`](../../optimizing-clickhouse-and-hogql-queries/references/investigation-playbook.md)
+  investigation playbook and `materialization-analysis.md`), forcing a full JSON-blob read per row.
 - **Self-joins and cross joins on `events`.** e.g. `events e1 JOIN events e2` on person within a time
   window, or `CROSS JOIN` with a per-person aggregate. Multiplies the scan.
 - **Cross-source joins.** Joining warehouse tables (`postgres.*`, `vitally.*`, `s3(...)`) against
   events; the external side has no ClickHouse indexing.
 - **No or wide date range.** Ad-hoc SQL often omits a tight `timestamp` filter, scanning all history.
 - **Full exports ordered by a wide column.** See the function-wrapped sort/filter-key anti-pattern in
-  `investigation-playbook.md`.
+  the [`optimizing-clickhouse-and-hogql-queries`](../../optimizing-clickhouse-and-hogql-queries/references/investigation-playbook.md)
+  investigation playbook.
 
 To inspect one AI query, pull both forms:
 

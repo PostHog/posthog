@@ -1,9 +1,15 @@
 # Root-causing an individual slow query
 
-Once a finding points at a specific query or pattern, this is how to explain _why_ it is slow. Run
-everything via the `query-clickhouse-via-metabase` skill against `posthog.query_log_archive`. You do not
-need certainty: a concrete, falsifiable hypothesis ("the sort key is function-wrapped, so the date
-filter can't prune granules") is what drives the next step. Always state one, then test it.
+This is the deep-dive behind the main skill's [Step 2 (smells)](../SKILL.md) and
+[Step 3 (EXPLAIN)](../SKILL.md): once you have a specific slow query in front of you, this is how to
+explain _why_ it is slow before you reach for a fix. Where Step 2 scans the SQL for known-bad shapes,
+this reference works the other way round, from the runtime cost back to the cause.
+
+It is written for a query you pulled from production (via `/query-clickhouse-via-metabase` against
+`posthog.query_log_archive` — the slowest real example beats a synthesized one), but the reasoning
+applies to any slow query. You do not need certainty: a concrete, falsifiable hypothesis ("the sort key
+is function-wrapped, so the date filter can't prune granules") is what drives the next step. Always state
+one, then test it.
 
 ## Pull the full query, never a substring
 
@@ -58,9 +64,9 @@ diagnosis, and stay open to a cause that is not listed here.
 1. **Unmaterialized property access (JSONExtract).** The number-one cause of extreme byte reads.
    `JSONExtract*(events.properties, …)` or `JSONExtract*(person_properties, …)` forces a read of the
    full JSON blob per matching row. Confirm by searching the query text for `JSONExtract` / `JSONHas`;
-   then check whether the property has a `mat_<property>` column. Fix: materialize it (see
-   `materialization-analysis.md`) or drop the property filter. Person properties are the worst because
-   the blobs are large.
+   then check whether the property has a `mat_<property>` column. Fix: materialize it (see the
+   JSON-operations smell in [`SKILL.md`](../SKILL.md) and the migration layer in its Step 5) or drop the
+   property filter. Person properties are the worst because the blobs are large.
 2. **Session joins.** Joining `raw_sessions` / `sharded_sessions` (for `$session_duration` etc.) adds a
    full sessions scan. Look for `raw_sessions` in the text.
 3. **High-cardinality breakdowns.** A `breakdown_value` on something like a URL or an ID explodes the

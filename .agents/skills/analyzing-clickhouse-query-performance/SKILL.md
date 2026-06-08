@@ -100,9 +100,12 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
    user- and AI-authored SQL) deserves its own deep dive, including how much is AI-written and why it is
    slow; see `references/hogql-deep-dive.md`.
 7. **Root-cause the worst offenders.** For the top findings, do not stop at "team X is slow": pull the
-   full query and form a hypothesis for _why_, then test it with EXPLAIN. See
-   `references/investigation-playbook.md`. A useful finding includes a why ("scans full history because
-   the time filter is function-wrapped and can't prune granules"), even if stated as a hypothesis.
+   full query and form a hypothesis for _why_, then test it with EXPLAIN. Root-causing an individual
+   query is the [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md)
+   skill's job; its [`references/investigation-playbook.md`](../optimizing-clickhouse-and-hogql-queries/references/investigation-playbook.md)
+   is the playbook (pull the full query, bytes vs CPU vs duration, the runtime causes, origin tracing,
+   EXPLAIN). A useful finding includes a why ("scans full history because the time filter is
+   function-wrapped and can't prune granules"), even if stated as a hypothesis.
 8. **Examples + write-up.** Capture `query_id` + `event_date` for the worst offenders in each finding,
    then write the report (structure below). Because `system.query_log` retention is short, examples are
    resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the old Metabase
@@ -117,7 +120,8 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
   OOM count. Always call this distinction out; do not let timeout volume masquerade as slowness.
 - **Bytes read is the truest cost signal**, more than duration (which varies with cache and cluster
   load). High bytes against low rows means heavy columns, almost always JSONExtract over a `properties`
-  blob. See `references/investigation-playbook.md` for root-causing individual queries.
+  blob. For root-causing individual queries, see the
+  [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md) skill.
 - **Background pipelines usually dominate raw cluster-time** (data-modeling DAGs, web-analytics
   pre-aggregation). That is expected; weigh them by whether their scan volume is necessary, separately
   from user-facing latency.
@@ -131,8 +135,9 @@ A report should contain, in order:
 3. Daily distribution table (flag any incident window).
 4. Findings, worst first. **Every finding needs at least one concrete `query_id` + `event_date`,
    linked via the shareable `query_link` URL** (see `references/query-patterns.md`) so a reader clicks
-   straight through to the exact query, plus a **hypothesis for why it is slow** (from
-   `references/investigation-playbook.md`). Group findings by what they are: a per-tenant incident, the
+   straight through to the exact query, plus a **hypothesis for why it is slow** (from the
+   [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md)
+   skill's investigation playbook). Group findings by what they are: a per-tenant incident, the
    heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
 5. A **JSON-extracted property table**: the top event and person property names pulled from JSON blobs
    in the slow set, with the teams using each (`references/query-patterns.md` §7). These are the
@@ -143,11 +148,16 @@ A report should contain, in order:
 ## References
 
 - `references/query-patterns.md`: ready-to-run SQL for every step above, against `query_log_archive`.
-- `references/investigation-playbook.md`: root-causing a specific slow query (bytes-vs-rows, the
-  JSONExtract/session-join/breakdown patterns, `EXPLAIN indexes=1`, `log_comment` origin tracing, and
-  the relevant PostHog codebase paths).
 - `references/materialization-analysis.md`: finding properties to materialize and columns to drop,
   run across both US and EU.
 - `references/hogql-deep-dive.md`: analyzing `HogQLQuery` (arbitrary user/AI SQL) specifically,
   including how to identify AI-written HogQL (`lc_product`/`lc_feature`, not `ai_query_source`) and the
   causes that make ad-hoc and AI queries slow.
+
+## Related skills
+
+This skill is fleet-level: it finds and ranks slow queries across all teams and writes the report. Once a
+finding points at one query you want to explain or fix, switch to
+[`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md) — it
+owns root-causing an individual query (its `references/investigation-playbook.md`) and applying the fix at
+the right layer (printer, query runner, or ClickHouse migration).
