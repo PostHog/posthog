@@ -2,8 +2,12 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart as QuillBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
+import {
+    buildTrendsBarValueConfig,
+    buildTrendsBarValueSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsBarValueChart/trendsBarValueChartTransforms'
 import {
     buildTrendsLineTimeSeriesConfig,
     buildTrendsSeries,
@@ -87,6 +91,29 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const total = calculateTotal(results)
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return <BigNumber value={total} label={label} />
+    }
+
+    // ActionsBarValue returns aggregated_value per series (empty data[]/days[]) — render a
+    // horizontal bar of totals, not a time series, so there's no line/bar mode toggle.
+    if (displayType === 'ActionsBarValue') {
+        const items = results.map((item, i) => ({
+            label: getSeriesLabel(item, i),
+            value: typeof item.aggregated_value === 'number' ? item.aggregated_value : 0,
+        }))
+        const barSeries = buildTrendsBarValueSeries(items, {
+            getColor: (i) => CHART_COLORS[i % CHART_COLORS.length]!,
+        })
+        const barConfig = buildTrendsBarValueConfig()
+        return (
+            <div className="flex flex-col w-full h-[400px]">
+                <QuillBarChart
+                    series={barSeries}
+                    labels={items.map((item) => item.label)}
+                    theme={CHART_THEME}
+                    config={barConfig}
+                />
+            </div>
+        )
     }
 
     const lineResults = results.map((item, i) => ({
