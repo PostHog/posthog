@@ -1452,7 +1452,8 @@ describe('Workflows E2E (email queue)', () => {
         const parked = (await queryCyclotronJobs()).find(
             (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
         )
-        expect(parked.queue_name).toBe('email')
+        expect(parked).toBeDefined()
+        expect(parked?.queue_name).toBe('email')
         expect(emailsSent()).toBe(1)
 
         // The subscribed event fires for this person — the matcher wakes the parked job even though
