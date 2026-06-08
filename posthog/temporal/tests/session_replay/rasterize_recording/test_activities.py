@@ -117,6 +117,40 @@ class TestBuildRasterizationInput:
         assert ai.mouse_tail is False
         assert ai.max_virtual_time == 300.0
 
+    def test_auto_adjusts_skip_inactivity_for_long_exports(self):
+        asset = _make_asset(
+            pk=42,
+            team_id=7,
+            export_context={
+                "session_recording_id": "abc123",
+                "duration": 3815,
+                "skip_inactivity": False,
+            },
+        )
+        recording = MagicMock()
+        recording.duration = 3815
+        recording.active_seconds = 570
+
+        patches, _ = _patches(asset)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patch(
+                "posthog.temporal.session_replay.rasterize_recording.activities.rasterize.SessionRecording.objects.filter"
+            ) as mock_filter,
+        ):
+            mock_filter.return_value.first.return_value = recording
+            result = build_rasterization_input(42)
+
+        ai = result.activity_input
+        assert ai is not None
+        assert ai.skip_inactivity is True
+        asset.save.assert_called_once_with(update_fields=["export_context"])
+        assert asset.export_context["skip_inactivity_auto_adjusted"] is True
+
     def test_defaults(self):
         asset = _make_asset(pk=10, team_id=3, export_context={"session_recording_id": "sess-1"})
         patches, _ = _patches(asset)

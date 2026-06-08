@@ -4,10 +4,12 @@ from django.db import close_old_connections, transaction
 import structlog
 from temporalio import activity
 
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.storage import object_storage
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
+from ..estimate import adjust_replay_export_context_for_timeout
 from ..types import (
     BuildRasterizationResult,
     FinalizeRasterizationInput,
@@ -30,11 +32,31 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     close_old_connections()
 
     asset = ExportedAsset.objects.select_related("team").get(pk=exported_asset_id)
-    ctx = asset.export_context or {}
+    ctx = dict(asset.export_context or {})
 
     session_id = ctx.get("session_recording_id")
     if not session_id:
         raise ValueError(f"ExportedAsset {exported_asset_id} has no session_recording_id in export_context")
+
+    recording = SessionRecording.objects.filter(team_id=asset.team_id, session_id=session_id).first()
+    adjusted_ctx = adjust_replay_export_context_for_timeout(
+        ctx,
+        team_id=asset.team_id,
+        session_duration_s=float(recording.duration) if recording and recording.duration is not None else None,
+        active_seconds_s=float(recording.active_seconds)
+        if recording and recording.active_seconds is not None
+        else None,
+    )
+    if adjusted_ctx != ctx:
+        asset.export_context = adjusted_ctx
+        asset.save(update_fields=["export_context"])
+        ctx = adjusted_ctx
+        logger.info(
+            "rasterize.skip_inactivity_auto_adjusted",
+            asset_id=asset.id,
+            session_id=session_id,
+            team_id=asset.team_id,
+        )
 
     format_map = {"video/webm": "webm", "video/mp4": "mp4", "image/gif": "gif"}
     output_format = format_map.get(asset.export_format, "mp4")

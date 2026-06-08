@@ -23,12 +23,14 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
 from posthog.security.url_validation import is_url_allowed
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
+from posthog.temporal.session_replay.rasterize_recording.estimate import adjust_replay_export_context_for_timeout
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
@@ -177,6 +179,24 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
+
+            session_recording_id = export_context.get("session_recording_id")
+            recording = (
+                SessionRecording.objects.filter(
+                    team_id=self.context["team_id"],
+                    session_id=session_recording_id,
+                ).first()
+                if session_recording_id
+                else None
+            )
+            data["export_context"] = adjust_replay_export_context_for_timeout(
+                export_context,
+                team_id=self.context["team_id"],
+                session_duration_s=float(recording.duration) if recording and recording.duration is not None else None,
+                active_seconds_s=float(recording.active_seconds)
+                if recording and recording.active_seconds is not None
+                else None,
+            )
 
         if export_context and export_context.get("heatmap_url"):
             ok, err = is_url_allowed(export_context["heatmap_url"])
