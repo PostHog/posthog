@@ -83,8 +83,32 @@ class TestMetricBreakdownInjector:
 
         select_aliases = [c.alias for c in query.select if isinstance(c, ast.Alias)]
         assert "breakdown_value_1" in select_aliases
+        # The limit relabel groups by the output alias (the relabeled column), not the raw
+        # entity_metrics column, so "Other" rows merge.
         assert query.group_by is not None
-        assert ast.Field(chain=["entity_metrics", "breakdown_value_1"]) in query.group_by
+        assert ast.Field(chain=["breakdown_value_1"]) in query.group_by
+
+    def test_final_breakdown_column_applies_top_n_other_relabel(self):
+        metric = _funnel_metric()
+        metric.breakdownFilter.breakdown_limit = 3
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _optimized_query()
+
+        injector.inject_funnel_breakdown_columns_optimized(query)
+
+        final_alias = next(c for c in query.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
+        # if(<in top-N>, value, 'Other')
+        assert isinstance(final_alias.expr, ast.Call)
+        assert final_alias.expr.name == "if"
+        in_top = final_alias.expr.args[0]
+        assert isinstance(in_top, ast.CompareOperation)
+        assert in_top.op == ast.CompareOperationOp.In
+        assert isinstance(in_top.right, ast.SelectQuery)
+        assert isinstance(in_top.right.limit, ast.Constant)
+        assert in_top.right.limit.value == 3
+        other = final_alias.expr.args[2]
+        assert isinstance(other, ast.Constant)
+        assert other.value == "$$_posthog_breakdown_other_$$"
 
     def test_step_attribution_out_of_range_raises(self):
         metric = _funnel_metric(attribution=BreakdownAttributionType.STEP, attribution_value=5, num_steps=2)
