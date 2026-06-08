@@ -9,8 +9,7 @@ import structlog
 import redis.exceptions as redis_exceptions
 from asgiref.sync import async_to_sync
 
-from posthog.redis import get_async_client
-
+from products.tasks.backend.redis import get_tasks_redis_async
 from products.tasks.backend.services.connection_token import SANDBOX_EVENT_INGEST_TOKEN_TTL
 from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 
@@ -116,7 +115,7 @@ class TaskRunRedisStream:
         max_length: int = TASK_RUN_STREAM_MAX_LENGTH,
     ):
         self._stream_key = stream_key
-        self._redis_client = get_async_client(settings.REDIS_URL)
+        self._redis_client = get_tasks_redis_async()
         self._timeout = timeout
         self._sequence_timeout = max(timeout, TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
         self._max_length = max_length

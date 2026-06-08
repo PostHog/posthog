@@ -11,7 +11,6 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
@@ -75,6 +74,7 @@ from .models import (
     TaskPresence,
     TaskRun,
 )
+from .redis import get_tasks_cache
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -1152,7 +1152,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task_run.save(update_fields=["artifacts", "updated_at"])
 
             for artifact_id in pending_user_artifact_ids:
-                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+                get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)

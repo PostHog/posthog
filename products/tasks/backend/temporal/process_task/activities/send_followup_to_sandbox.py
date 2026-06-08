@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from django_redis import get_redis_connection
 from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import get_tasks_redis_sync
 from products.tasks.backend.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
@@ -218,14 +218,14 @@ def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN) -
             "params": {"source": "posthog", "stopReason": stop_reason},
         },
     }
-    conn = get_redis_connection("default")
+    conn = get_tasks_redis_sync()
     conn.xadd(stream_key, {"data": json.dumps(event)}, maxlen=2000)
 
 
 def _write_error_and_complete(run_id: str, error_message: str) -> None:
     """Write an error event followed by turn_complete to the Redis stream."""
     stream_key = get_task_run_stream_key(run_id)
-    conn = get_redis_connection("default")
+    conn = get_tasks_redis_sync()
 
     error_event = {
         "type": "notification",
