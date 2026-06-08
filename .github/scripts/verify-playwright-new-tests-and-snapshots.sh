@@ -29,8 +29,16 @@ echo "Detecting changed Playwright test files since $BASE_SHA..."
 RESULTS_FILE="playwright/flake-verification-results.json"
 rm -f "$RESULTS_FILE"
 
-# All spec files touched by the PR (added or modified).
-changed_test_files=$(git diff --name-only "$BASE_SHA..HEAD" -- 'playwright/**/*.spec.ts')
+# All spec files touched by the PR (added or modified). Playwright tests live in two
+# places: cross-cutting tests under playwright/e2e/, and product-owned tests under
+# products/*/frontend/e2e/. Both are picked up by playwright.config.ts.
+#
+# --diff-filter=AM excludes renames: a `git mv` (with at most a trivial import-path
+# update) doesn't change test logic, so re-running it 10x for flake verification is
+# noise. If a file is moved AND substantively edited in the same PR, the verifier
+# won't catch it — but that's a rare pattern, and the alternative (re-verifying every
+# moved test) blocks routine reorganizations.
+changed_test_files=$(git diff --name-only --diff-filter=AM "$BASE_SHA..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
 
 if [ -z "$changed_test_files" ]; then
     echo "No changed Playwright test files found — skipping flake verification"
@@ -43,8 +51,14 @@ while IFS= read -r test_file; do
         continue
     fi
 
-    # Strip the playwright/ prefix — Playwright runs relative to its project root.
-    tests_to_run+=("${test_file#playwright/}")
+    # Convert repo-relative paths to playwright-cwd-relative paths. The CI step runs
+    # `pnpm --filter=@posthog/playwright exec playwright test`, which sets cwd to
+    # playwright/, so files outside that directory need a `../` prefix.
+    if [[ "$test_file" == playwright/* ]]; then
+        tests_to_run+=("${test_file#playwright/}")
+    else
+        tests_to_run+=("../${test_file}")
+    fi
 done <<< "$changed_test_files"
 
 if [ ${#tests_to_run[@]} -eq 0 ]; then

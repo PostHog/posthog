@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -29,7 +29,12 @@ export function IssueRateLimitSettings(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="font-semibold text-base mb-1">Per-issue rate limit</h3>
+                <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-semibold text-base mb-0">Per-issue rate limit</h3>
+                    <LemonTag type="warning" size="small">
+                        Experimental
+                    </LemonTag>
+                </div>
                 <p className="text-muted-foreground">
                     This limit applies to each issue per window. Once an issue exceeds the configured rate, further
                     exceptions for it are dropped at ingestion.

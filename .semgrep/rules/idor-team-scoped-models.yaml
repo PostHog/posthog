@@ -121,6 +121,7 @@ rules:
                               |Evaluation
                               |Experiment
                               |ExperimentHoldout
+                              |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
@@ -359,6 +360,7 @@ rules:
                         |Evaluation
                         |Experiment
                         |ExperimentHoldout
+                        |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
                         |ExportedAsset
                         |ExportedRecording
@@ -568,6 +570,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -634,6 +637,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
                         |RoleMembership

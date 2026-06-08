@@ -6,12 +6,14 @@ from typing import Any, Optional
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.functions.aggregations import COMBINATORS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
@@ -50,6 +52,21 @@ def _add_series_index_to_select(query: ast.SelectQuery, index: int) -> None:
         query.group_by = [*list(query.group_by), ast.Field(chain=["__series_index"])]
 
 
+def _print_materialized_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
+    """Like to_printed_hogql, but without the implicit top-level row cap — a materialized table must hold every row."""
+    return prepare_and_print_ast(
+        clone_expr(query),
+        dialect="hogql",
+        context=HogQLContext(
+            team_id=team.pk,
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
+        ),
+        pretty=True,
+    )[0]
+
+
 def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[str, Any]:
     query_kind = query.get("kind")
 
@@ -70,7 +87,7 @@ def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[st
     if query_kind in SERIES_INDEX_QUERY_TYPES:
         inject_series_index(combined_query_ast)
 
-    hogql_string = to_printed_hogql(combined_query_ast, team=team, modifiers=query_runner.modifiers)
+    hogql_string = _print_materialized_hogql(combined_query_ast, team, query_runner.modifiers)
 
     result = HogQLQuery(query=hogql_string, modifiers=query_runner.modifiers).model_dump()
     if "variables" in query:
@@ -1102,7 +1119,7 @@ def transform_query_for_materialization(
     transformer = MaterializationTransformer(variable_infos)
     transformed_ast = transformer.visit(parsed_ast)
 
-    transformed_query_str = to_printed_hogql(transformed_ast, team=team)
+    transformed_query_str = _print_materialized_hogql(transformed_ast, team)
 
     return {
         **hogql_query,
