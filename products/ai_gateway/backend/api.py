@@ -5,21 +5,48 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models.gateway import Gateway, validate_gateway_slug
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team import Team
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 _CREDENTIAL_TYPE_PERSONAL_API_KEY = "personal_api_key"
 _CREDENTIAL_TYPE_OAUTH_APPLICATION = "oauth_application"
+
+
+class GatewayManagementPermission(TeamMemberStrictManagementPermission):
+    """Authorize against the canonical (parent) team that owns the gateway.
+
+    Gateways are project-scoped and live on the parent team; a child environment's
+    URL team_id resolves to that parent in the queryset. Measuring membership against
+    the URL team would let a child-environment-only admin manage the parent's shared
+    gateway, so resolve the parent and check there — matching the resource's owner.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        team = view.team  # type: ignore[attr-defined]
+        canonical = team if team.parent_team_id is None else Team.objects.get(id=team.parent_team_id)
+        level = view.user_permissions.team(canonical).effective_membership_level  # type: ignore[attr-defined]
+        if level is None:
+            return False
+        minimum = (
+            OrganizationMembership.Level.MEMBER
+            if request.method in SAFE_METHODS
+            else OrganizationMembership.Level.ADMIN
+        )
+        return level >= minimum
 
 
 class GatewaySerializer(serializers.ModelSerializer):
@@ -109,7 +136,7 @@ class BindCredentialSerializer(serializers.Serializer):
 
 class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_gateway"
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [GatewayManagementPermission]
     serializer_class = GatewaySerializer
     # Placeholder safe at import time — the fail-closed manager would raise
     # without team context. safely_get_queryset re-scopes per request.

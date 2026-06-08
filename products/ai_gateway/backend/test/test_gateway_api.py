@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock
 
 from rest_framework import status
 
@@ -7,6 +8,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.ai_gateway.backend.api import GatewayManagementPermission
 
 
 class TestGatewayAPI(APIBaseTest):
@@ -108,6 +111,27 @@ class TestGatewayAPI(APIBaseTest):
         self.organization_membership.save()
         response = self.client.post(self._url(), {"slug": "members_blocked"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_management_permission_authorizes_against_parent_not_child_env(self):
+        # The gateway is parent-owned, but the URL team_id can be a child environment.
+        # Authorization must resolve to the parent, else a child-env-only admin could
+        # manage the parent's shared gateway. (Differing per-team levels need the
+        # access-control feature, so assert the permission's resolution directly.)
+        child = Team.objects.create(organization=self.organization, name="child", parent_team=self.team)
+        permission = GatewayManagementPermission()
+        levels = {self.team.id: OrganizationMembership.Level.MEMBER}
+
+        view = MagicMock()
+        view.team = child
+        view.user_permissions.team.side_effect = lambda team: MagicMock(effective_membership_level=levels[team.id])
+
+        # Member on the parent → write denied, even though the URL points at the child env.
+        self.assertFalse(permission.has_permission(MagicMock(method="DELETE"), view))
+        view.user_permissions.team.assert_called_with(self.team)  # resolved to parent, not child
+
+        # Admin on the parent → write allowed.
+        levels[self.team.id] = OrganizationMembership.Level.ADMIN
+        self.assertTrue(permission.has_permission(MagicMock(method="DELETE"), view))
 
     def test_bound_credentials_count(self):
         gateway = self._gateway()
