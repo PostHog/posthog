@@ -92,6 +92,7 @@ class TestEndpointAccessControl(ClickhouseTestMixin, APIBaseTest):
             ("viewer", "DELETE", status.HTTP_403_FORBIDDEN, None),
             ("editor", "GET", status.HTTP_200_OK, None),
             ("editor", "PATCH", status.HTTP_200_OK, {"description": "updated"}),
+            ("editor", "DELETE", status.HTTP_204_NO_CONTENT, None),
             ("none", "GET", status.HTTP_403_FORBIDDEN, None),
         ]
     )
