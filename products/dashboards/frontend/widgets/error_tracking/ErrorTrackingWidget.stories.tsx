@@ -8,7 +8,7 @@ import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../../components/WidgetCard/WidgetCardHeader'
 import {
     mockMoreOverlay,
-    WIDGET_STORYBOOK_MOCK_DATE,
+    widgetStorybookParameters,
     widgetTileFrameDecorator,
     withErrorTrackingProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
@@ -64,7 +64,7 @@ const meta: Meta<typeof ErrorTrackingWidgetTileStory> = {
     component: ErrorTrackingWidgetTileStory,
     parameters: {
         layout: 'padded',
-        mockDate: WIDGET_STORYBOOK_MOCK_DATE,
+        ...widgetStorybookParameters,
     },
     decorators: [...widgetTileFrameDecorator],
     args: {

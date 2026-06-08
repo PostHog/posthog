@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import {
-    WIDGET_STORYBOOK_MOCK_DATE,
+    widgetStorybookParameters,
     withErrorTrackingProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
@@ -43,7 +43,7 @@ const meta: Meta<typeof EditErrorTrackingWidgetModalStory> = {
     component: EditErrorTrackingWidgetModalStory,
     parameters: {
         layout: 'fullscreen',
-        mockDate: WIDGET_STORYBOOK_MOCK_DATE,
+        ...widgetStorybookParameters,
     },
     decorators: [],
     args: {
