@@ -11,6 +11,7 @@ def register_routes(routers: RouterRegistry) -> None:
     # EE installs override the insights viewset with EnterpriseInsightsViewSet.
     # The non-EE InsightViewSet is the fallback. Either way, the route name and
     # nested sub-routes (sharing, thresholds) stay identical.
+    insights_viewset: type[InsightViewSet]
     if EE_AVAILABLE:
         from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
 
