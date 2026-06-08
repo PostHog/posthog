@@ -1037,8 +1037,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Short IDs of insight tiles that returned a permanent permission error (401/403).
          * The periodic auto-refresh skips these so an open tab doesn't re-request forbidden
-         * tiles forever. Cleared on full dashboard load and on any user-initiated refresh,
-         * so a genuine access change is picked up the next time the user acts.
+         * tiles forever. A tile leaves the set as soon as it refreshes successfully (e.g. a
+         * single-tile refresh after access is granted), and the whole set is cleared on full
+         * dashboard load and on any user-initiated refresh — so a genuine access change is
+         * always picked up the next time the tile loads or the user acts.
          */
         forbiddenTiles: [
             {} as Record<string, boolean>,
@@ -1047,6 +1049,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     error instanceof ApiError && (error.status === 403 || error.status === 401)
                         ? { ...state, [shortId]: true }
                         : state,
+                setRefreshStatus: (state, { shortId, loading, queued }) => {
+                    // a successful refresh (not the loading/queued markers) clears the breaker
+                    if (loading || queued || !state[shortId]) {
+                        return state
+                    }
+                    const rest = { ...state }
+                    delete rest[shortId]
+                    return rest
+                },
                 loadDashboardSuccess: () => ({}),
                 refreshDashboardItems: (state, { isAutoRefresh }) => (isAutoRefresh ? state : {}),
             },
@@ -2365,9 +2376,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
-                // circuit breaker: the periodic auto-refresh skips tiles that returned a
-                // permission error, so an open tab doesn't re-request forbidden tiles forever
-                .filter((t) => !isAutoRefresh || !values.forbiddenTiles[t.insight.short_id])
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
@@ -2403,6 +2411,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lastDashboardRefresh,
                     isAnalyzing,
                     refreshAnalysisCacheKey,
+                    forbiddenTiles,
                 } = values
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
@@ -2410,6 +2419,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const queryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
+
+                    // Circuit breaker: on the periodic auto-refresh, don't re-request a tile that
+                    // previously returned a permission error — an open tab would otherwise hammer
+                    // forbidden tiles forever. Keep the errored status visible and skip the network
+                    // call. A user-initiated refresh clears `forbiddenTiles` and tries again.
+                    if (isAutoRefresh && forbiddenTiles[insight.short_id]) {
+                        actions.setRefreshError(insight.short_id)
+                        tilesErroredCount++
+                        return
+                    }
 
                     // Set insight as refreshing
                     actions.setRefreshStatus(insight.short_id, true, true)

@@ -1095,6 +1095,8 @@ describe('dashboardLogic', () => {
 
                     expect(refreshedShortIds()).toContain(okInsight.short_id)
                     expect(refreshedShortIds()).not.toContain(forbiddenInsight.short_id)
+                    // ...but the tile keeps showing its error instead of silently going blank
+                    expect(logic.values.refreshStatus[forbiddenInsight.short_id]?.errored).toBe(true)
 
                     // a user-initiated refresh clears the breaker and tries the tile again
                     getInsightWithRetrySpy.mockClear()
