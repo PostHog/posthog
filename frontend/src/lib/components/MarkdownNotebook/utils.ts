@@ -22,6 +22,37 @@ export function createStableNodeId(fingerprint: string, occurrence: number): str
     return `mdn-${hashString(fingerprint)}-${occurrence}`
 }
 
+export function ensureUniqueNodeIds(nodes: NotebookBlockNode[]): NotebookBlockNode[] {
+    const seenIds = new Set<string>()
+    let didChange = false
+
+    const uniqueNodes = nodes.map((node, index) => {
+        if (node.id && !seenIds.has(node.id)) {
+            seenIds.add(node.id)
+            return node
+        }
+
+        didChange = true
+        let occurrence = 0
+        let nextId = createStableNodeId(
+            `${node.id || 'empty'}:${getNodeFingerprint(node)}:${String(index)}`,
+            occurrence
+        )
+        while (seenIds.has(nextId)) {
+            occurrence += 1
+            nextId = createStableNodeId(
+                `${node.id || 'empty'}:${getNodeFingerprint(node)}:${String(index)}`,
+                occurrence
+            )
+        }
+
+        seenIds.add(nextId)
+        return { ...node, id: nextId }
+    })
+
+    return didChange ? uniqueNodes : nodes
+}
+
 export function cloneNotebookDocument(document: NotebookDocument): NotebookDocument {
     return JSON.parse(JSON.stringify(document)) as NotebookDocument
 }

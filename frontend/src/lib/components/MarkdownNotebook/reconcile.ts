@@ -1,5 +1,12 @@
 import { NotebookBlockNode, NotebookDocument, NotebookReconcileChange } from './types'
-import { cloneNotebookNode, getNodeFingerprint, getNodeSignature, getNodeText, textSimilarity } from './utils'
+import {
+    cloneNotebookNode,
+    ensureUniqueNodeIds,
+    getNodeFingerprint,
+    getNodeSignature,
+    getNodeText,
+    textSimilarity,
+} from './utils'
 
 type PreviousNodeEntry = {
     node: NotebookBlockNode
@@ -26,29 +33,32 @@ export function reconcileNotebookDocuments(
     preserveSameIndexIds(previousEntries, nextNodes)
     preserveExactFingerprintIds(previousEntries, nextNodes)
     preserveSimilarNodeIds(previousEntries, nextNodes)
+    const uniqueNextNodes = ensureUniqueNodeIds(nextNodes)
 
     const document: NotebookDocument = {
         ...nextDocument,
-        nodes: nextNodes,
+        nodes: uniqueNextNodes,
     }
 
     return {
         document,
-        changes: getReconcileChanges(previousDocument.nodes, nextNodes),
+        changes: getReconcileChanges(previousDocument.nodes, uniqueNextNodes),
     }
 }
 
 function preserveSameIndexIds(previousEntries: PreviousNodeEntry[], nextNodes: NotebookBlockNode[]): void {
     nextNodes.forEach((nextNode, index) => {
         const previousEntry = previousEntries[index]
-        if (!previousEntry || previousEntry.matched || nextNode.id === previousEntry.node.id) {
+        if (!previousEntry || previousEntry.matched) {
             return
         }
 
-        if (getNodeFingerprint(previousEntry.node) === getNodeFingerprint(nextNode)) {
-            nextNode.id = previousEntry.node.id
-            previousEntry.matched = true
+        if (getNodeFingerprint(previousEntry.node) !== getNodeFingerprint(nextNode)) {
+            return
         }
+
+        nextNode.id = previousEntry.node.id
+        previousEntry.matched = true
     })
 }
 

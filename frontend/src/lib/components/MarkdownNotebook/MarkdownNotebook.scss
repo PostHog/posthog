@@ -84,6 +84,10 @@
     margin: 0 auto;
 }
 
+.MarkdownNotebook__canvas:focus {
+    outline: none;
+}
+
 .MarkdownNotebook__row {
     position: relative;
     width: 100%;
@@ -270,6 +274,10 @@
 .MarkdownNotebook__text-block:empty::before {
     color: var(--color-text-secondary);
     content: attr(data-placeholder);
+}
+
+.MarkdownNotebook__text-block--title:empty::before {
+    color: var(--color-text-tertiary);
 }
 
 .MarkdownNotebook__text-block--insert-placeholder:empty::before {

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createElement, useEffect } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
@@ -12,6 +12,39 @@ import {
 import { MarkdownNotebook } from './MarkdownNotebook'
 import { reconcileNotebookDocuments } from './reconcile'
 import { createMarkdownNotebookRegistry } from './registry'
+
+const NOTEBOOK_TEST_EDITABLE_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-item-content[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+const TEST_NOTEBOOK_TITLE = 'Notebook title'
+const TEST_NOTEBOOK_TITLE_MARKDOWN = `# ${TEST_NOTEBOOK_TITLE}`
+
+function withNotebookTitle(markdown: string): string {
+    return markdown ? `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}` : TEST_NOTEBOOK_TITLE_MARKDOWN
+}
+
+function getEditableTextBlocks(container: HTMLElement): HTMLElement[] {
+    return Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
+}
+
+function getBodyTextBlock(container: HTMLElement, bodyIndex = 0): HTMLElement {
+    const textBlock = getEditableTextBlocks(container)[bodyIndex + 1]
+
+    expect(textBlock).toBeInstanceOf(HTMLElement)
+
+    return textBlock
+}
+
+function getFormattingStyleButton(container: HTMLElement): HTMLButtonElement {
+    const button = container.querySelector('.MarkdownNotebook__format-style-button')
+
+    expect(button).toBeInstanceOf(HTMLButtonElement)
+
+    return button as HTMLButtonElement
+}
+
+async function waitForFormattingStyleMenuItem(label: string): Promise<HTMLElement> {
+    return await waitFor(() => screen.getByRole('menuitem', { name: label }))
+}
 
 function getFirstTextNode(element: HTMLElement): Text {
     const textNode = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()
@@ -75,6 +108,20 @@ function selectTextNode(textNode: Text, start: number, end: number, showToolbar 
     })
 }
 
+function selectTextNodeWithRect(textNode: Text, start: number, end: number, rect: DOMRect): void {
+    act(() => {
+        const range = document.createRange()
+        range.setStart(textNode, start)
+        range.setEnd(textNode, end)
+        Object.defineProperty(range, 'getBoundingClientRect', { value: () => rect })
+        Object.defineProperty(range, 'getClientRects', { value: () => [rect] })
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+    })
+}
+
 function selectTextAcrossNodes(
     startTextNode: Text,
     start: number,
@@ -110,90 +157,6 @@ function selectTextAcrossNodes(
     })
 }
 
-function mockEditableCharacterRects(editableElement: HTMLElement, characterWidth = 8): () => void {
-    const rangePrototype = Range.prototype as Range & {
-        getBoundingClientRect?: Range['getBoundingClientRect']
-        getClientRects?: Range['getClientRects']
-    }
-    const originalGetBoundingClientRect = rangePrototype.getBoundingClientRect
-    const originalGetClientRects = rangePrototype.getClientRects
-
-    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-        configurable: true,
-        value: function getBoundingClientRect(this: Range): DOMRect {
-            if (this.startContainer instanceof Text && editableElement.contains(this.startContainer)) {
-                const elementRect = editableElement.getBoundingClientRect()
-                const startOffset = getTextOffsetForTest(editableElement, this.startContainer, this.startOffset)
-                const endOffset = getTextOffsetForTest(editableElement, this.endContainer, this.endOffset)
-                const left = elementRect.left + startOffset * characterWidth
-                const right = Math.max(left + 1, elementRect.left + endOffset * characterWidth)
-
-                return {
-                    bottom: elementRect.bottom,
-                    height: elementRect.height,
-                    left,
-                    right,
-                    top: elementRect.top,
-                    width: right - left,
-                    x: left,
-                    y: elementRect.top,
-                    toJSON: () => ({}),
-                } as DOMRect
-            }
-
-            return (
-                originalGetBoundingClientRect?.call(this) ??
-                ({
-                    bottom: 0,
-                    height: 0,
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    width: 0,
-                    x: 0,
-                    y: 0,
-                    toJSON: () => ({}),
-                } as DOMRect)
-            )
-        },
-    })
-    Object.defineProperty(Range.prototype, 'getClientRects', {
-        configurable: true,
-        value: function getClientRects(this: Range): DOMRect[] {
-            const rect = this.getBoundingClientRect()
-            return rect.width || rect.height ? [rect] : []
-        },
-    })
-
-    return () => {
-        Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-            configurable: true,
-            value: originalGetBoundingClientRect,
-        })
-        Object.defineProperty(Range.prototype, 'getClientRects', {
-            configurable: true,
-            value: originalGetClientRects,
-        })
-    }
-}
-
-function getTextOffsetForTest(root: HTMLElement, container: Node, offset: number): number {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let textOffset = 0
-    let currentNode = walker.nextNode()
-
-    while (currentNode) {
-        if (currentNode === container) {
-            return textOffset + offset
-        }
-
-        textOffset += currentNode.textContent?.length ?? 0
-        currentNode = walker.nextNode()
-    }
-
-    return textOffset
-}
-
 function pastePlainText(element: HTMLElement, text: string): void {
     fireEvent.paste(element, {
         clipboardData: {
@@ -202,10 +165,14 @@ function pastePlainText(element: HTMLElement, text: string): void {
     })
 }
 
-function fireHistoryBeforeInput(element: HTMLElement, inputType: 'historyUndo' | 'historyRedo'): void {
+function fireBeforeInput(element: HTMLElement, inputType: string): void {
     const event = new Event('beforeinput', { bubbles: true, cancelable: true }) as InputEvent
     Object.defineProperty(event, 'inputType', { value: inputType })
     fireEvent(element, event)
+}
+
+function fireHistoryBeforeInput(element: HTMLElement, inputType: 'historyUndo' | 'historyRedo'): void {
+    fireBeforeInput(element, inputType)
 }
 
 function createTouchList(touches: Touch[]): TouchList {
@@ -394,6 +361,19 @@ Second paragraph stays stable.`)
         expect(reconciled.changes).toEqual([{ type: 'updated', nodeId: previous.nodes[0].id, index: 0 }])
     })
 
+    it('deduplicates reconciled node ids for repeated markdown blocks', () => {
+        const previous = parseMarkdownNotebook('Different block')
+        const next = parseMarkdownNotebook(`Repeated block
+
+Repeated block`)
+        next.nodes[1].id = next.nodes[0].id
+
+        const reconciled = reconcileNotebookDocuments(previous, next)
+        const nodeIds = reconciled.document.nodes.map((node) => node.id)
+
+        expect(new Set(nodeIds).size).toEqual(nodeIds.length)
+    })
+
     it('sanitizes edited HTML into supported inline nodes', () => {
         const element = document.createElement('div')
         element.innerHTML = 'Hello <strong>bold</strong> <script>alert(1)</script><u>underlined</u>'
@@ -446,10 +426,298 @@ Activation improved today.`
         expect(result.mergedMarkdown).toEqual(localMarkdown)
     })
 
+    it('normalizes the first rendered row into a notebook title', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange }))
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+        const body = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
+
+        expect(title).toBeInstanceOf(HTMLElement)
+        expect(title.textContent).toEqual('Notebook name')
+        expect(body.textContent).toEqual('Body line')
+
+        title.textContent = 'Updated name'
+        fireEvent.input(title)
+
+        expect(onChange).toHaveBeenLastCalledWith(`# Updated name\n\nBody line`)
+    })
+
+    it('copies the selected notebook title with heading markdown', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('Body line') }))
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+        const clipboardData = {
+            setData: jest.fn(),
+        }
+
+        selectTextInElement(title, 0, TEST_NOTEBOOK_TITLE.length)
+        fireEvent.copy(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', TEST_NOTEBOOK_TITLE_MARKDOWN)
+        expect(clipboardData.setData).toHaveBeenCalledWith('text/markdown', TEST_NOTEBOOK_TITLE_MARKDOWN)
+    })
+
+    it('splits the notebook title into the first body line when pressing enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# NotebookTitle', onChange }))
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 'Notebook'.length, 'Notebook'.length)
+        fireEvent.keyDown(title, { key: 'Enter' })
+
+        const textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['Notebook', 'Title'])
+        expect(textBlocks[0].tagName).toEqual('H1')
+        expect(textBlocks[1].tagName).toEqual('P')
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(onChange).toHaveBeenLastCalledWith(`# Notebook\n\nTitle`)
+    })
+
+    it('splits the notebook title from root-targeted enter events', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# NotebookTitle', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 0, 0)
+        fireEvent.keyDown(canvas, { key: 'Enter' })
+
+        const textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.tagName)).toEqual(['H1', 'P'])
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['', 'NotebookTitle'])
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(onChange).toHaveBeenLastCalledWith(`# \n\nNotebookTitle`)
+    })
+
+    it('splits the notebook title from native insertParagraph events', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# NotebookTitle', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 0, 0)
+        act(() => {
+            canvas.dispatchEvent(
+                new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertParagraph' })
+            )
+        })
+
+        let textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.tagName)).toEqual(['H1', 'P'])
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['', 'NotebookTitle'])
+
+        textBlocks[0].textContent = 'New title'
+        fireEvent.input(textBlocks[0])
+
+        textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.tagName)).toEqual(['H1', 'P'])
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['New title', 'NotebookTitle'])
+        expect(onChange).toHaveBeenLastCalledWith(`# New title\n\nNotebookTitle`)
+    })
+
+    it('merges the notebook title split back together when backspacing after Enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `# title
+
+line of text
+
+another line`,
+                onChange,
+            })
+        )
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 'ti'.length, 'ti'.length)
+        fireEvent.keyDown(title, { key: 'Enter' })
+
+        let textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['ti', 'tle', 'line of text', 'another line'])
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+
+        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+
+        textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['title', 'line of text', 'another line'])
+        expect(document.activeElement).toEqual(textBlocks[0])
+        expect(window.getSelection()?.focusOffset).toEqual('ti'.length)
+        expect(onChange).toHaveBeenLastCalledWith(`# title
+
+line of text
+
+another line`)
+    })
+
+    it('splits the notebook title again after merging an Enter split with Backspace', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `# title
+
+line of text
+
+another line`,
+                onChange,
+            })
+        )
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 'ti'.length, 'ti'.length)
+        fireEvent.keyDown(title, { key: 'Enter' })
+
+        let textBlocks = getEditableTextBlocks(container)
+        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+
+        textBlocks = getEditableTextBlocks(container)
+        fireEvent.keyDown(textBlocks[0], { key: 'Enter' })
+
+        textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['ti', 'tle', 'line of text', 'another line'])
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`# ti
+
+tle
+
+line of text
+
+another line`)
+    })
+
+    it('splits the notebook title again after native Enter Backspace Enter input events', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `# title
+
+line of text
+
+another line`,
+                onChange,
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 'ti'.length, 'ti'.length)
+        fireBeforeInput(canvas, 'insertParagraph')
+
+        let textBlocks = getEditableTextBlocks(container)
+        fireBeforeInput(canvas, 'deleteContentBackward')
+
+        textBlocks = getEditableTextBlocks(container)
+        fireBeforeInput(canvas, 'insertParagraph')
+
+        textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['ti', 'tle', 'line of text', 'another line'])
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`# ti
+
+tle
+
+line of text
+
+another line`)
+    })
+
+    it('merges the notebook title split back together after native insertParagraph', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `# title
+
+line of text
+
+another line`,
+                onChange,
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(title, 'ti'.length, 'ti'.length)
+        act(() => {
+            canvas.dispatchEvent(
+                new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertParagraph' })
+            )
+        })
+
+        let textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['ti', 'tle', 'line of text', 'another line'])
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+
+        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+
+        textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['title', 'line of text', 'another line'])
+        expect(document.activeElement).toEqual(textBlocks[0])
+        expect(window.getSelection()?.focusOffset).toEqual('ti'.length)
+        expect(onChange).toHaveBeenLastCalledWith(`# title
+
+line of text
+
+another line`)
+    })
+
+    it('keeps only the first pasted line in the notebook title', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Old title', onChange }))
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectElementContents(title)
+        pastePlainText(
+            title,
+            `New title
+Body line
+## Body heading`
+        )
+
+        const textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['New title', 'Body line', 'Body heading'])
+        expect(textBlocks.map((block) => block.tagName)).toEqual(['H1', 'P', 'P'])
+        expect(onChange).toHaveBeenLastCalledWith(`# New title\n\nBody line\n\nBody heading`)
+    })
+
+    it('keeps repeated text rows independent while editing', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Repeated block
+
+Repeated block
+
+Repeated block`),
+                onChange,
+            })
+        )
+        const firstRepeatedBlock = getBodyTextBlock(container, 0)
+        const secondRepeatedBlock = getBodyTextBlock(container, 1)
+        const thirdRepeatedBlock = getBodyTextBlock(container, 2)
+        const nodeIds = [firstRepeatedBlock, secondRepeatedBlock, thirdRepeatedBlock].map(
+            (block) => block.dataset.markdownNotebookNodeId
+        )
+
+        expect(new Set(nodeIds).size).toEqual(nodeIds.length)
+
+        secondRepeatedBlock.textContent = 'Changed block'
+        fireEvent.input(secondRepeatedBlock)
+
+        expect([firstRepeatedBlock, secondRepeatedBlock, thirdRepeatedBlock].map((block) => block.textContent)).toEqual(
+            ['Repeated block', 'Changed block', 'Repeated block']
+        )
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nRepeated block\n\nChanged block\n\nRepeated block`
+        )
+    })
+
     it('keeps rapid text input stable while the editable DOM owns the active keystrokes', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]')
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)
 
         expect(textBlock).toBeInstanceOf(HTMLElement)
         const editableTextBlock = textBlock as HTMLElement
@@ -462,14 +730,14 @@ Activation improved today.`
             fireEvent.input(editableTextBlock)
         })
 
-        expect(onChange).toHaveBeenLastCalledWith('here is another one')
+        expect(onChange).toHaveBeenLastCalledWith('# here is another one')
         expect(editableTextBlock.textContent).toEqual('here is another one')
     })
 
     it('undoes and redoes notebook text edits with keyboard shortcuts', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]')
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)
 
         expect(textBlock).toBeInstanceOf(HTMLElement)
         const editableTextBlock = textBlock as HTMLElement
@@ -482,23 +750,23 @@ Activation improved today.`
 
         fireEvent.keyDown(editableTextBlock, { key: 'z', metaKey: true })
 
-        expect(onChange).toHaveBeenLastCalledWith('hello')
+        expect(onChange).toHaveBeenLastCalledWith('# hello')
         expect(editableTextBlock.textContent).toEqual('hello')
         expect(document.activeElement).toEqual(editableTextBlock)
 
         fireEvent.keyDown(editableTextBlock, { key: 'z', metaKey: true, shiftKey: true })
 
-        expect(onChange).toHaveBeenLastCalledWith('hello world')
+        expect(onChange).toHaveBeenLastCalledWith('# hello world')
         expect(editableTextBlock.textContent).toEqual('hello world')
 
         fireEvent.keyDown(editableTextBlock, { key: 'z', ctrlKey: true })
 
-        expect(onChange).toHaveBeenLastCalledWith('hello')
+        expect(onChange).toHaveBeenLastCalledWith('# hello')
         expect(editableTextBlock.textContent).toEqual('hello')
 
         fireEvent.keyDown(editableTextBlock, { key: 'y', ctrlKey: true })
 
-        expect(onChange).toHaveBeenLastCalledWith('hello world')
+        expect(onChange).toHaveBeenLastCalledWith('# hello world')
         expect(editableTextBlock.textContent).toEqual('hello world')
     })
 
@@ -562,20 +830,27 @@ Activation improved today.`
             },
         ])
         const { container, rerender } = render(
-            createElement(MarkdownNotebook, { value: '', remoteValue: '', onChange, registry })
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' '),
+                remoteValue: withNotebookTitle(' '),
+                onChange,
+                registry,
+            })
         )
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
         editableTextBlock.textContent = 'iframe'
         fireEvent.input(editableTextBlock)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
 
         const savedMarkdown = onChange.mock.calls[onChange.mock.calls.length - 1][0]
-        expect(savedMarkdown).toEqual('<Embed src="https://posthog.com" title="PostHog" />')
+        expect(savedMarkdown).toEqual(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Embed src="https://posthog.com" title="PostHog" />`
+        )
 
         const renderCountBeforeRemoteSave = renderComponent.mock.calls.length
         const mountCountBeforeRemoteSave = mountComponent.mock.calls.length
@@ -670,8 +945,10 @@ Activation improved today.`
     it('marks interaction active before clearing slash command text', () => {
         const onChange = jest.fn()
         const onInteractionStateChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange, onInteractionStateChange }))
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange, onInteractionStateChange })
+        )
+        const editableTextBlock = getBodyTextBlock(container)
 
         editableTextBlock.textContent = '/'
         fireEvent.input(editableTextBlock)
@@ -679,7 +956,7 @@ Activation improved today.`
         const firstActiveInteractionCall = onInteractionStateChange.mock.calls.findIndex(([isActive]) => isActive)
 
         expect(firstActiveInteractionCall).toBeGreaterThanOrEqual(0)
-        expect(onChange).toHaveBeenCalledWith('')
+        expect(onChange).toHaveBeenCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
         expect(onInteractionStateChange.mock.invocationCallOrder[firstActiveInteractionCall]).toBeLessThan(
             onChange.mock.invocationCallOrder[0]
         )
@@ -688,10 +965,11 @@ Activation improved today.`
     it('only shows the writing placeholder for an empty notebook', () => {
         const { container: emptyContainer } = render(createElement(MarkdownNotebook, { value: '' }))
 
-        expect(emptyContainer.querySelectorAll('[data-placeholder="Start writing..."]')).toHaveLength(1)
+        expect(emptyContainer.querySelectorAll('[data-placeholder="Untitled notebook"]')).toHaveLength(1)
+        expect(emptyContainer.querySelectorAll('[data-placeholder="Start writing..."]')).toHaveLength(0)
 
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
-        const textBlock = container.querySelector('[contenteditable="true"]')
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)
 
         expect(textBlock).toBeInstanceOf(HTMLElement)
         fireEvent.keyDown(textBlock as HTMLElement, { key: 'Enter' })
@@ -713,18 +991,18 @@ Activation improved today.`
         const debugTextarea = container.querySelector('.MarkdownNotebook__debug-markdown') as HTMLTextAreaElement
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeInstanceOf(HTMLElement)
         expect(debugTextarea).toBeInstanceOf(HTMLTextAreaElement)
-        expect(debugTextarea.value).toEqual('First paragraph')
+        expect(debugTextarea.value).toEqual('# First paragraph')
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         editableTextBlock.textContent = 'Updated paragraph'
         fireEvent.input(editableTextBlock)
 
-        expect(debugTextarea.value).toEqual('Updated paragraph')
+        expect(debugTextarea.value).toEqual('# Updated paragraph')
 
         fireEvent.change(debugTextarea, { target: { value: '# Edited from debug' } })
 
         expect(debugTextarea.value).toEqual('# Edited from debug')
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Edited from debug')
+        expect(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)?.textContent).toEqual('Edited from debug')
 
         const closeButton = Array.from(container.querySelectorAll('.MarkdownNotebook__debug-drawer button')).find(
             (button) => button.textContent?.includes('Close')
@@ -737,7 +1015,9 @@ Activation improved today.`
 
     it('uses the boundary add button to insert a blank row after populated rows', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph', onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Intro paragraph'), onChange })
+        )
         const boundaryButtons = Array.from(
             container.querySelectorAll('.MarkdownNotebook__insert-boundary-button')
         ) as HTMLButtonElement[]
@@ -747,9 +1027,9 @@ Activation improved today.`
         fireEvent.click(addAfterButton)
 
         expect(container.querySelector('.MarkdownNotebook__row--insert-menu-open')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph\n\n ')
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const slashTextBlock = textBlocks[1]
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
+        const textBlocks = getEditableTextBlocks(container)
+        const slashTextBlock = textBlocks[2]
         expect(document.activeElement).toEqual(slashTextBlock)
         expect(slashTextBlock.textContent).toEqual('')
         expect(container.querySelectorAll('.MarkdownNotebook__insert-boundary-button')).toHaveLength(1)
@@ -776,19 +1056,19 @@ Activation improved today.`
 
         slashTextBlock.textContent = 'zzzz'
         fireEvent.input(slashTextBlock)
-        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph\n\nzzzz')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\nzzzz`)
 
         expect(container.querySelector('.MarkdownNotebook__empty-menu')?.textContent).toEqual('No components found')
 
         fireEvent.keyDown(slashTextBlock, { key: 'Enter' })
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph\n\n ')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
         expect(document.activeElement).toEqual(slashTextBlock)
         expect(slashTextBlock.textContent).toEqual('')
 
         slashTextBlock.textContent = 'tr'
         fireEvent.input(slashTextBlock)
-        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph\n\ntr')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\ntr`)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
 
@@ -803,14 +1083,18 @@ Activation improved today.`
         expect(trendButton).toBeInstanceOf(HTMLButtonElement)
         fireEvent.click(trendButton as HTMLButtonElement)
 
-        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('Intro paragraph\n\n<Query'))
+        expect(onChange).toHaveBeenLastCalledWith(
+            expect.stringContaining(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n<Query`)
+        )
         expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
     })
 
     it('keeps inserted blank rows after receiving the serialized markdown value', () => {
         const onChange = jest.fn()
-        const { container, rerender } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph', onChange }))
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Intro paragraph'), onChange })
+        )
         const addAfterButton = Array.from(
             container.querySelectorAll('.MarkdownNotebook__insert-boundary-button')
         )[1] as HTMLButtonElement
@@ -820,15 +1104,17 @@ Activation improved today.`
         const nextValue = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] as string
         rerender(createElement(MarkdownNotebook, { value: nextValue, onChange }))
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        expect(nextValue).toEqual('Intro paragraph\n\n ')
-        expect(textBlocks).toHaveLength(2)
-        expect(textBlocks[1].textContent).toEqual('')
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
+        expect(nextValue).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
+        expect(textBlocks).toHaveLength(3)
+        expect(textBlocks[2].textContent).toEqual('')
     })
 
     it('adds and focuses a trailing blank row when clicking below the notebook canvas', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph', onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Intro paragraph'), onChange })
+        )
         const main = container.querySelector('.MarkdownNotebook__main') as HTMLElement
         const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
 
@@ -849,10 +1135,10 @@ Activation improved today.`
 
         fireEvent.mouseDown(main, { button: 0, clientY: 140 })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph\n\n ')
-        expect(textBlocks).toHaveLength(2)
-        expect(document.activeElement).toEqual(textBlocks[1])
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
+        expect(textBlocks).toHaveLength(3)
+        expect(document.activeElement).toEqual(textBlocks[2])
     })
 
     it('renders one boundary add button per gap', () => {
@@ -867,7 +1153,7 @@ Second paragraph`,
         const boundaryButtons = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-boundary-button'))
 
         expect(rows).toHaveLength(2)
-        expect(boundaryButtons).toHaveLength(3)
+        expect(boundaryButtons).toHaveLength(2)
     })
 
     it('only reveals the closest boundary add button while hovering populated rows', () => {
@@ -882,7 +1168,7 @@ Third paragraph`,
         )
         const canvas = container.querySelector('.MarkdownNotebook__canvas')
         const rows = Array.from(container.querySelectorAll('.MarkdownNotebook__row'))
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
         const setRowRect = (row: Element, top: number, height: number): void => {
             Object.defineProperty(row, 'getBoundingClientRect', {
                 configurable: true,
@@ -923,7 +1209,10 @@ Third paragraph`,
         expect(boundaryHoverZones).toHaveLength(4)
 
         fireEvent.mouseEnter(boundaryHoverZones[0])
-        expect(getVisibleBoundaryIndexes()).toEqual(['0'])
+        expect(getVisibleBoundaryIndexes()).toEqual([])
+
+        fireEvent.mouseEnter(boundaryHoverZones[1])
+        expect(getVisibleBoundaryIndexes()).toEqual(['1'])
 
         fireEvent.focus(textBlocks[1])
         expect(getVisibleBoundaryIndexes()).toEqual([])
@@ -939,12 +1228,12 @@ Third paragraph`,
         expect(getVisibleBoundaryIndexes()).toEqual([])
     })
 
-    it('uses a line menu button for empty notebooks instead of boundary add buttons', () => {
+    it('uses a line menu button for empty body rows instead of boundary add buttons', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
         const lineInsertMenuButton = container.querySelector('.MarkdownNotebook__line-insert-menu-button')
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
 
         expect(row).toBeInstanceOf(HTMLElement)
         expect(editableTextBlock).toBeInstanceOf(HTMLElement)
@@ -987,7 +1276,7 @@ Third paragraph`,
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
-        expect(container.querySelector('[data-placeholder="Start writing..."]')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('[data-placeholder="Start writing..."]')).toBeNull()
         expect(
             container
                 .querySelector('.MarkdownNotebook__line-insert-menu-button')
@@ -1006,6 +1295,9 @@ Third paragraph`,
         fireEvent.input(editableTextBlock)
 
         expect(editableTextBlock.textContent).toEqual('')
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
 
         fireEvent.mouseLeave(container.querySelector('.MarkdownNotebook__canvas') as HTMLElement)
@@ -1060,14 +1352,14 @@ Third paragraph`,
 
     it('clears the slash command query with Cmd+A then Backspace', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
 
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = getBodyTextBlock(container)
         textBlock.textContent = 'zzzz'
         fireEvent.input(textBlock)
 
@@ -1085,12 +1377,12 @@ Third paragraph`,
         expect(container.querySelector('.MarkdownNotebook__empty-menu')).toBeNull()
         expect(lineInsertMenuButton?.getAttribute('aria-expanded')).toEqual('true')
         expect(lineInsertMenuButton?.classList.contains('LemonButton--active')).toBe(true)
-        expect(onChange).toHaveBeenLastCalledWith('')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
     })
 
     it('closes the slash menu when clicking outside it', () => {
-        const { container } = render(createElement(MarkdownNotebook, { value: '' }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' ') }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
         fireEvent.mouseEnter(row as HTMLElement)
@@ -1110,14 +1402,14 @@ Third paragraph`,
 
     it('moves slash menu selection with arrow keys', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
 
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = getBodyTextBlock(container)
         const getSelectedLabel = (): string | null =>
             container.querySelector('.MarkdownNotebook__insert-item[aria-selected="true"]')?.textContent ?? null
 
@@ -1143,8 +1435,8 @@ Third paragraph`,
 
     it('shows Ask PostHog AI first when AI is enabled and submits from the inline prompt', () => {
         const onAskAI = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
         fireEvent.mouseEnter(row as HTMLElement)
@@ -1162,7 +1454,7 @@ Third paragraph`,
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
         editableTextBlock.textContent = 'Add a summary here'
         fireEvent.input(editableTextBlock)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
@@ -1175,26 +1467,30 @@ Third paragraph`,
             query: 'Add a summary here',
             placeholderNodeId: expect.any(String),
             insertionPlaceholder: expect.any(String),
-            markdown: '',
+            markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `,
             markdownWithPlaceholder: expect.any(String),
         })
         expect(aiRequest.insertionPlaceholder).toEqual(
             `<!-- Ask PostHog AI insertion placeholder block id: ${aiRequest.placeholderNodeId} -->`
         )
-        expect(aiRequest.markdownWithPlaceholder).toEqual(aiRequest.insertionPlaceholder)
+        expect(aiRequest.markdownWithPlaceholder).toEqual(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${aiRequest.insertionPlaceholder}`
+        )
     })
 
     it('removes a stuck AI thinking placeholder when selected and deleted', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI, onChange }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI, onChange })
+        )
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
         editableTextBlock.textContent = 'Add a summary here'
         fireEvent.input(editableTextBlock)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
@@ -1207,9 +1503,9 @@ Third paragraph`,
         fireEvent.keyDown(thinkingTag, { key: 'Backspace' })
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith('')
-        expect(document.activeElement).toEqual(container.querySelector('[contenteditable="true"]'))
-        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(TEST_NOTEBOOK_TITLE_MARKDOWN)
+        expect(document.activeElement).toEqual(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR))
+        expect(window.getSelection()?.focusOffset).toEqual(TEST_NOTEBOOK_TITLE.length)
     })
 
     it('applies remote markdown updates while showing an AI thinking placeholder', async () => {
@@ -1217,19 +1513,19 @@ Third paragraph`,
         const onInteractionStateChange = jest.fn()
         const { container, rerender } = render(
             createElement(MarkdownNotebook, {
-                value: '',
-                remoteValue: '',
+                value: withNotebookTitle(' '),
+                remoteValue: withNotebookTitle(' '),
                 onAskAI,
                 onInteractionStateChange,
             })
         )
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
         editableTextBlock.textContent = 'Add a summary here'
         fireEvent.input(editableTextBlock)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
@@ -1239,8 +1535,8 @@ Third paragraph`,
 
         rerender(
             createElement(MarkdownNotebook, {
-                value: '',
-                remoteValue: 'AI response',
+                value: withNotebookTitle(' '),
+                remoteValue: withNotebookTitle('AI response'),
                 onAskAI,
                 onInteractionStateChange,
             })
@@ -1251,7 +1547,7 @@ Third paragraph`,
                 throw new Error('Expected AI prompt tag to be removed')
             }
         })
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('AI response')
+        expect(getBodyTextBlock(container).textContent).toEqual('AI response')
     })
 
     it('moves focus through an AI thinking placeholder and deletes it from keyboard focus', () => {
@@ -1268,7 +1564,9 @@ After`,
                 onChange,
             })
         )
-        const initialTextBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const initialTextBlocks = Array.from(
+            container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+        ) as HTMLElement[]
 
         expect(initialTextBlocks.map((block) => block.textContent)).toEqual(['Before', '', 'After'])
 
@@ -1281,7 +1579,7 @@ After`,
         fireEvent.keyDown(initialTextBlocks[1], { key: 'Enter' })
 
         const thinkingTag = container.querySelector('.MarkdownNotebook__ai-prompt-tag') as HTMLButtonElement
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
 
         expect(thinkingTag.textContent).toEqual('Thinking ...')
         expect(textBlocks.map((block) => block.textContent)).toEqual(['Before', 'After'])
@@ -1305,7 +1603,7 @@ After`,
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
         expect(document.activeElement).toEqual(textBlocks[1])
         expect(window.getSelection()?.focusOffset).toEqual(0)
-        expect(onChange).toHaveBeenLastCalledWith(`Before
+        expect(onChange).toHaveBeenLastCalledWith(`# Before
 
 After`)
     })
@@ -1313,14 +1611,16 @@ After`)
     it('creates a blank row below an AI thinking placeholder when clicking below the canvas', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI, onChange }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI, onChange })
+        )
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
         editableTextBlock.textContent = 'Add a summary here'
         fireEvent.input(editableTextBlock)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
@@ -1345,36 +1645,36 @@ After`)
 
         fireEvent.mouseDown(main, { button: 0, clientY: 140 })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Thinking ...')
-        expect(textBlocks).toHaveLength(1)
-        expect(document.activeElement).toEqual(textBlocks[0])
+        expect(textBlocks).toHaveLength(2)
+        expect(document.activeElement).toEqual(textBlocks[1])
         expect(window.getSelection()?.focusOffset).toEqual(0)
     })
 
     it('turns an Ask AI prompt back into regular text when backspacing at the start', () => {
         const onAskAI = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         fireEvent.mouseEnter(row as HTMLElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
 
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const editableTextBlock = getBodyTextBlock(container)
         editableTextBlock.textContent = 'Add a summary here'
         fireEvent.input(editableTextBlock)
         selectTextInElement(editableTextBlock, 0, 0)
         fireEvent.keyDown(editableTextBlock, { key: 'Backspace' })
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Add a summary here')
+        expect(getBodyTextBlock(container).textContent).toEqual('Add a summary here')
     })
 
     it('adds heading blocks from slash menu h aliases', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const editableTextBlock = getBodyTextBlock(container)
 
         editableTextBlock.textContent = '/'
         fireEvent.input(editableTextBlock)
@@ -1388,16 +1688,16 @@ After`)
 
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
 
-        const heading = container.querySelector('h1.MarkdownNotebook__text-block')
+        const heading = getBodyTextBlock(container)
         expect(heading).toBeInstanceOf(HTMLElement)
         expect(document.activeElement).toEqual(heading)
-        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n#`)
     })
 
     it('keeps newly inserted components active for keyboard row actions', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const row = container.querySelector('.MarkdownNotebook__row')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
         fireEvent.mouseEnter(row as HTMLElement)
@@ -1418,9 +1718,9 @@ After`)
 
         fireEvent.keyDown(shell, { key: 'Enter' })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        expect(textBlocks).toHaveLength(1)
-        expect(document.activeElement).toEqual(textBlocks[0])
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
+        expect(textBlocks).toHaveLength(2)
+        expect(document.activeElement).toEqual(textBlocks[1])
 
         shell.focus()
         expect(document.activeElement).toEqual(shell)
@@ -1428,12 +1728,12 @@ After`)
         fireEvent.keyDown(shell, { key: 'Backspace' })
 
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith('')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
     })
 
     it('positions the slash menu as a fixed popover within the viewport', () => {
-        const { container } = render(createElement(MarkdownNotebook, { value: '' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' ') }))
+        const textBlock = getBodyTextBlock(container)
 
         Object.defineProperty(window, 'innerHeight', { configurable: true, value: 760 })
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 480 })
@@ -1468,16 +1768,18 @@ After`)
 
     it('uses the boundary add button to insert a blank row before populated rows', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph', onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Intro paragraph'), onChange })
+        )
         const addBeforeButton = container.querySelector('.MarkdownNotebook__insert-boundary-button')
 
         expect(addBeforeButton).toBeInstanceOf(HTMLButtonElement)
         fireEvent.click(addBeforeButton as HTMLButtonElement)
 
-        expect(onChange).toHaveBeenLastCalledWith(' \n\nIntro paragraph')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n \n\nIntro paragraph`)
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
 
-        const insertedTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const insertedTextBlock = getBodyTextBlock(container)
         insertedTextBlock.textContent = '/'
         fireEvent.input(insertedTextBlock)
 
@@ -1488,12 +1790,12 @@ After`)
         expect(trendButton).toBeInstanceOf(HTMLButtonElement)
         fireEvent.click(trendButton as HTMLButtonElement)
 
-        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('/>\n\nIntro paragraph'))
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining(`/>\n\nIntro paragraph`))
     })
 
     it('floats and closes the formatting toolbar based on the active text selection', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'Select this text' }))
-        const textBlock = container.querySelector('[contenteditable="true"]')
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)
 
         expect(textBlock).toBeInstanceOf(HTMLElement)
         const editableTextBlock = textBlock as HTMLElement
@@ -1545,11 +1847,33 @@ After`)
 
     it('shows the formatting toolbar when selecting text across text rows', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph\n\nSecond paragraph' }))
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
 
         selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
 
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
+    })
+
+    it('shows the shared block style for same-style text row selections', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('First paragraph\n\nSecond paragraph') })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
+
+        expect(getFormattingStyleButton(container).textContent?.trim()).toEqual('Text')
+    })
+
+    it('shows an empty block style for mixed text row selections', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('## First heading\n\nSecond paragraph') })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
+
+        expect(getFormattingStyleButton(container).textContent?.trim()).toEqual('')
     })
 
     it('delays the formatting toolbar after a mouse drag selection ends', () => {
@@ -1560,7 +1884,7 @@ After`)
         const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
         const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const textNode = getFirstTextNode(textBlock)
         const startRange = document.createRange()
         startRange.setStart(textNode, 0)
@@ -1615,7 +1939,7 @@ After`)
         const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
         const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const textNode = getFirstTextNode(textBlock)
         const startRange = document.createRange()
         startRange.setStart(textNode, 0)
@@ -1659,7 +1983,7 @@ After`)
         const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
         const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const textNode = getFirstTextNode(textBlock)
         const startRange = document.createRange()
         startRange.setStart(textNode, 0)
@@ -1709,12 +2033,219 @@ After`)
         const { container } = render(
             createElement(MarkdownNotebook, { value: 'First paragraph\n\nSecond paragraph', onChange })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
 
         selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
-        fireEvent.click(container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement)
+        const boldButton = container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement
+        fireEvent.click(boldButton)
 
-        expect(onChange).toHaveBeenLastCalledWith('**First paragraph**\n\n**Second** paragraph')
+        expect(onChange).toHaveBeenLastCalledWith('# **First paragraph**\n\n**Second** paragraph')
+        expect(window.getSelection()?.toString()).toContain('First paragraph')
+        expect(window.getSelection()?.toString()).toContain('Second')
+
+        fireEvent.click(boldButton)
+
+        expect(onChange).toHaveBeenLastCalledWith('# First paragraph\n\nSecond paragraph')
+    })
+
+    it('normalizes mixed inline formatting across selected text rows', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: 'First **paragraph**\n\nSecond paragraph', onChange })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
+        const boldButton = container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement
+        fireEvent.click(boldButton)
+
+        expect(onChange).toHaveBeenLastCalledWith('# **First paragraph**\n\n**Second** paragraph')
+
+        fireEvent.click(boldButton)
+
+        expect(onChange).toHaveBeenLastCalledWith('# First paragraph\n\nSecond paragraph')
+    })
+
+    it('selects the notebook contents with Cmd+A and applies a formatting shortcut', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph\n\nSecond paragraph'),
+                onChange,
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        fireEvent.keyDown(textBlocks[1], { key: 'a', metaKey: true })
+        fireEvent.keyDown(textBlocks[1], { key: 'b', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN.replace(TEST_NOTEBOOK_TITLE, `**${TEST_NOTEBOOK_TITLE}**`)}\n\n**First paragraph**\n\n**Second paragraph**`
+        )
+    })
+
+    it('selects text and components with Cmd+A from a focused component', () => {
+        const onChange = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Do not copy me'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Before paragraph
+
+<Embed />
+
+After paragraph`),
+                onChange,
+                registry,
+            })
+        )
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+
+        component.focus()
+        fireEvent.keyDown(component, { key: 'a', metaKey: true })
+
+        expect(window.getSelection()?.toString()).toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).toContain('Before paragraph')
+        expect(window.getSelection()?.toString()).toContain('After paragraph')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(true)
+
+        const clipboardData = {
+            setData: jest.fn(),
+        }
+        fireEvent.copy(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith(
+            'text/plain',
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Before paragraph
+
+<Embed />
+
+After paragraph`
+        )
+        expect(clipboardData.setData).not.toHaveBeenCalledWith('text/plain', expect.stringContaining('Do not copy me'))
+
+        fireEvent.keyDown(component, { key: 'b', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN.replace(
+            TEST_NOTEBOOK_TITLE,
+            `**${TEST_NOTEBOOK_TITLE}**`
+        )}
+
+**Before paragraph**
+
+<Embed />
+
+**After paragraph**`)
+    })
+
+    it('supports Ctrl+A as the non-Apple select-all shortcut', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph\n\nSecond paragraph'),
+                onChange,
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        fireEvent.keyDown(textBlocks[1], { key: 'a', ctrlKey: true })
+        fireEvent.keyDown(textBlocks[1], { key: 'u', ctrlKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN.replace(TEST_NOTEBOOK_TITLE, `<u>${TEST_NOTEBOOK_TITLE}</u>`)}\n\n<u>First paragraph</u>\n\n<u>Second paragraph</u>`
+        )
+    })
+
+    it('applies keyboard inline formatting shortcuts to selected text', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Bold line\n\nItalic line\n\nUnderline line'),
+                onChange,
+            })
+        )
+        let textBlocks = getEditableTextBlocks(container)
+
+        selectTextInElement(textBlocks[1], 0, 'Bold'.length)
+        fireEvent.keyDown(textBlocks[1], { key: 'b', metaKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Bold** line\n\nItalic line\n\nUnderline line`
+        )
+
+        textBlocks = getEditableTextBlocks(container)
+        selectTextInElement(textBlocks[2], 0, 'Italic'.length)
+        fireEvent.keyDown(textBlocks[2], { key: 'i', ctrlKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Bold** line\n\n*Italic* line\n\nUnderline line`
+        )
+
+        textBlocks = getEditableTextBlocks(container)
+        selectTextInElement(textBlocks[3], 0, 'Underline'.length)
+        fireEvent.keyDown(textBlocks[3], { key: 'u', metaKey: true })
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Bold** line\n\n*Italic* line\n\n<u>Underline</u> line`
+        )
+    })
+
+    it('applies block style across selected text rows and preserves selection', async () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph\n\nSecond paragraph'),
+                onChange,
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
+        fireEvent.click(getFormattingStyleButton(container))
+        fireEvent.click(await waitForFormattingStyleMenuItem('Heading 2'))
+
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n## First paragraph\n\n## Second paragraph`
+        )
+        expect(window.getSelection()?.toString()).toContain('First paragraph')
+        expect(window.getSelection()?.toString()).toContain('Second')
+    })
+
+    it('keeps the formatting toolbar position fixed while toolbar actions update selected text', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
+
+        selectTextNode(getFirstTextNode(textBlock), 0, 5, true)
+
+        const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar') as HTMLElement
+        expect(toolbar.style.getPropertyValue('--markdown-notebook-format-toolbar-left')).toEqual('140px')
+        expect(toolbar.style.getPropertyValue('--markdown-notebook-format-toolbar-top')).toEqual('100px')
+
+        const boldButton = container.querySelector('button[aria-label="Bold"]') as HTMLButtonElement
+        fireEvent.mouseDown(boldButton)
+        fireEvent.click(boldButton)
+
+        selectTextNodeWithRect(getFirstTextNode(textBlock), 0, 5, {
+            bottom: 240,
+            height: 20,
+            left: 300,
+            right: 460,
+            top: 220,
+            width: 160,
+            x: 300,
+            y: 220,
+            toJSON: () => ({}),
+        } as DOMRect)
+
+        const lockedToolbar = container.querySelector('.MarkdownNotebook__format-toolbar') as HTMLElement
+        expect(lockedToolbar.style.getPropertyValue('--markdown-notebook-format-toolbar-left')).toEqual('140px')
+        expect(lockedToolbar.style.getPropertyValue('--markdown-notebook-format-toolbar-top')).toEqual('100px')
     })
 
     it('asks AI about highlighted text from the formatting toolbar', () => {
@@ -1722,16 +2253,16 @@ After`)
         const { container } = render(
             createElement(MarkdownNotebook, { value: 'First paragraph\n\nSecond paragraph', onAskAI })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
 
         selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 0, getFirstTextNode(textBlocks[1]), 6, true)
         fireEvent.click(container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement)
 
         const aiRequest = onAskAI.mock.calls[0][0]
         expect(aiRequest.query).toContain('Highlighted markdown:')
-        expect(aiRequest.query).toContain('First paragraph\n\nSecond')
+        expect(aiRequest.query).toContain('# First paragraph\n\nSecond')
         expect(aiRequest.query).toContain('replace the highlighted content')
-        expect(aiRequest.markdown).toEqual('First paragraph\n\nSecond paragraph')
+        expect(aiRequest.markdown).toEqual('# First paragraph\n\nSecond paragraph')
         expect(aiRequest.insertionPlaceholder).toEqual(
             `<!-- Ask PostHog AI insertion placeholder block id: ${aiRequest.placeholderNodeId} -->`
         )
@@ -1742,7 +2273,7 @@ After`)
     it('adds a link from the formatting toolbar', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
 
         selectTextNode(getFirstTextNode(textBlock), 0, 7, true)
         fireEvent.click(container.querySelector('button[aria-label="Link"]') as HTMLButtonElement)
@@ -1754,7 +2285,7 @@ After`)
         fireEvent.keyDown(linkInput, { key: 'Enter' })
 
         expect(textBlock.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
-        expect(onChange).toHaveBeenLastCalledWith('[PostHog](https://posthog.com/docs) docs')
+        expect(onChange).toHaveBeenLastCalledWith('# [PostHog](https://posthog.com/docs) docs')
     })
 
     it('edits an existing link from the formatting toolbar', () => {
@@ -1762,7 +2293,7 @@ After`)
         const { container } = render(
             createElement(MarkdownNotebook, { value: '[PostHog](https://posthog.com) docs', onChange })
         )
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const linkedTextNode = textBlock.querySelector('a')?.firstChild
 
         expect(linkedTextNode).toBeInstanceOf(Text)
@@ -1781,12 +2312,12 @@ After`)
         )
 
         expect(textBlock.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
-        expect(onChange).toHaveBeenLastCalledWith('[PostHog](https://posthog.com/docs) docs')
+        expect(onChange).toHaveBeenLastCalledWith('# [PostHog](https://posthog.com/docs) docs')
     })
 
     it('does not open the link editor for a collapsed selection inside an existing link', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: '[PostHog](https://posthog.com) docs' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const linkedTextNode = textBlock.querySelector('a')?.firstChild
 
         expect(linkedTextNode).toBeInstanceOf(Text)
@@ -1800,7 +2331,7 @@ After`)
 
     it('shows the formatting toolbar when selecting text on a line containing a link', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: '[PostHog](https://posthog.com) docs' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const textAfterLink = textBlock.lastChild
 
         expect(textAfterLink).toBeInstanceOf(Text)
@@ -1813,7 +2344,7 @@ After`)
 
     it('keeps the formatting toolbar available after adding or removing a link on the row', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
 
         selectTextNode(getFirstTextNode(textBlock), 0, 7, true)
         fireEvent.click(container.querySelector('button[aria-label="Link"]') as HTMLButtonElement)
@@ -1844,39 +2375,45 @@ After`)
 
     it('deletes selected text when pressing Enter and splits at the selection', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Hello selected text tail', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Hello selected text tail'), onChange })
+        )
+        const textBlock = getBodyTextBlock(container)
 
         selectTextInElement(textBlock, 6, 19)
         fireEvent.keyDown(textBlock, { key: 'Enter' })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        expect(textBlocks.map((block) => block.textContent)).toEqual(['Hello ', ' tail'])
-        expect(onChange).toHaveBeenLastCalledWith('Hello \n\n tail')
-        expect(document.activeElement).toEqual(textBlocks[1])
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
+        expect(textBlocks.map((block) => block.textContent)).toEqual([TEST_NOTEBOOK_TITLE, 'Hello ', ' tail'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nHello \n\n tail`)
+        expect(document.activeElement).toEqual(textBlocks[2])
     })
 
     it('deletes selected text with Backspace through notebook history', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Hello selected text tail', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Hello selected text tail'), onChange })
+        )
+        const textBlock = getBodyTextBlock(container)
 
         selectTextInElement(textBlock, 6, 19)
         fireEvent.keyDown(textBlock, { key: 'Backspace' })
 
         expect(textBlock.textContent).toEqual('Hello  tail')
-        expect(onChange).toHaveBeenLastCalledWith('Hello  tail')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nHello  tail`)
 
         fireEvent.keyDown(textBlock, { key: 'z', metaKey: true })
 
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Hello selected text tail')
-        expect(onChange).toHaveBeenLastCalledWith('Hello selected text tail')
+        expect(getBodyTextBlock(container).textContent).toEqual('Hello selected text tail')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nHello selected text tail`)
     })
 
     it('clears a focused row when all row text is selected and Backspace is pressed', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Delete me', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Delete me'), onChange })
+        )
+        const textBlock = getBodyTextBlock(container)
 
         textBlock.focus()
         selectElementContents(textBlock)
@@ -1885,676 +2422,263 @@ After`)
         expect(textBlock.textContent).toEqual('')
         expect(document.activeElement).toEqual(textBlock)
         expect(window.getSelection()?.focusOffset).toEqual(0)
-        expect(onChange).toHaveBeenLastCalledWith('')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
     })
 
     it('clears a row when the selection wraps the whole editable row element', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `Keep
+                value: withNotebookTitle(`Keep
 
 Delete me
 
-After`,
+After`),
                 onChange,
             })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = getEditableTextBlocks(container)
 
-        textBlocks[1].focus()
-        selectAroundElement(textBlocks[1])
-        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+        textBlocks[2].focus()
+        selectAroundElement(textBlocks[2])
+        fireEvent.keyDown(textBlocks[2], { key: 'Backspace' })
 
-        expect(textBlocks.map((block) => block.textContent)).toEqual(['Keep', '', 'After'])
-        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(textBlocks.map((block) => block.textContent)).toEqual([TEST_NOTEBOOK_TITLE, 'Keep', '', 'After'])
+        expect(document.activeElement).toEqual(textBlocks[2])
         expect(window.getSelection()?.focusOffset).toEqual(0)
-        expect(onChange).toHaveBeenLastCalledWith(`Keep
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
- 
+Keep
 
-After`)
+${' '}
+
+After`
+        )
+    })
+
+    it('deletes multiple selected text blocks with Backspace', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Keep before
+
+Delete one
+
+Delete two
+
+Keep after`),
+                onChange,
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[2]), 0, getFirstTextNode(textBlocks[3]), 'Delete two'.length)
+        fireEvent.keyDown(textBlocks[2], { key: 'Backspace' })
+
+        const nextTextBlocks = getEditableTextBlocks(container)
+        expect(nextTextBlocks.map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Keep before',
+            'Keep after',
+        ])
+        expect(document.activeElement).toEqual(nextTextBlocks[2])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nKeep before\n\nKeep after`)
+    })
+
+    it('deletes a Cmd+A selection that includes component blocks', () => {
+        const onChange = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Do not delete me'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Before paragraph
+
+<Embed />
+
+After paragraph`),
+                onChange,
+                registry,
+            })
+        )
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+
+        component.focus()
+        fireEvent.keyDown(component, { key: 'a', metaKey: true })
+        fireEvent.keyDown(component, { key: 'Backspace' })
+
+        const nextTextBlocks = getEditableTextBlocks(container)
+        expect(nextTextBlocks.map((block) => block.textContent)).toEqual([''])
+        expect(document.activeElement).toEqual(nextTextBlocks[0])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+        expect(onChange).toHaveBeenLastCalledWith('#')
     })
 
     it('merges a text row into the previous text row with Backspace and supports undo', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `First row
+                value: withNotebookTitle(`First row
 
-Second row`,
+Second row`),
                 onChange,
             })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = getEditableTextBlocks(container)
 
-        selectTextInElement(textBlocks[1], 0, 0)
-        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+        selectTextInElement(textBlocks[2], 0, 0)
+        fireEvent.keyDown(textBlocks[2], { key: 'Backspace' })
 
-        expect(container.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('First rowSecond row')
-        expect(onChange).toHaveBeenLastCalledWith('First rowSecond row')
+        expect(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)).toHaveLength(2)
+        expect(getBodyTextBlock(container).textContent).toEqual('First rowSecond row')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst rowSecond row`)
 
-        fireEvent.keyDown(container.querySelector('[contenteditable="true"]') as HTMLElement, {
+        fireEvent.keyDown(getBodyTextBlock(container), {
             key: 'z',
             metaKey: true,
         })
 
-        const restoredTextBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        expect(restoredTextBlocks.map((block) => block.textContent)).toEqual(['First row', 'Second row'])
-        expect(onChange).toHaveBeenLastCalledWith(`First row
+        const restoredTextBlocks = getEditableTextBlocks(container)
+        expect(restoredTextBlocks.map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'First row',
+            'Second row',
+        ])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First row
 
 Second row`)
     })
 
-    it('supports drag selection across text blocks', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+    it('uses the canvas as the native editable surface and keeps component atoms non-editable', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('div', null, 'Embedded output'),
+            },
+        ])
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: `First paragraph
 
-Second paragraph`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const firstTextNode = textBlocks[0].firstChild
-        const secondTextNode = textBlocks[1].firstChild
-
-        expect(firstTextNode).toBeInstanceOf(Text)
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        const startRange = document.createRange()
-        startRange.setStart(firstTextNode as Text, 2)
-        startRange.collapse(true)
-        const endRange = document.createRange()
-        endRange.setStart(secondTextNode as Text, 4)
-        endRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn((clientX: number) => (clientX === 10 ? startRange : endRange)),
-        })
-
-        fireEvent.mouseDown(textBlocks[0], { button: 0, clientX: 10, clientY: 10 })
-        fireEvent.mouseMove(window.document, { clientX: 40, clientY: 40 })
-        fireEvent.mouseUp(window.document)
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('rst paragraph')
-        expect(selectedText).toContain('Seco')
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-    })
-
-    it('supports reversed drag selection within a text block', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
-        const textNode = textBlock.firstChild
-
-        expect(textNode).toBeInstanceOf(Text)
-
-        const rightRange = document.createRange()
-        rightRange.setStart(textNode as Text, 10)
-        rightRange.collapse(true)
-        const leftRange = document.createRange()
-        leftRange.setStart(textNode as Text, 2)
-        leftRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn((clientX: number) => (clientX === 40 ? rightRange : leftRange)),
-        })
-
-        fireEvent.mouseDown(textBlock, { button: 0, clientX: 40, clientY: 10 })
-
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })).toBe(false)
-
-        fireEvent.mouseUp(window.document)
-
-        expect(window.getSelection()?.toString()).toEqual('rst para')
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-    })
-
-    it('supports reversed drag selection across text blocks', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `First paragraph
+<Embed />
 
 Second paragraph`,
+                registry,
             })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const firstTextNode = textBlocks[0].firstChild
-        const secondTextNode = textBlocks[1].firstChild
+        const canvas = container.querySelector('.MarkdownNotebook__canvas')
+        const component = container.querySelector('.MarkdownNotebook__component-shell')
 
-        expect(firstTextNode).toBeInstanceOf(Text)
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        const firstRange = document.createRange()
-        firstRange.setStart(firstTextNode as Text, 2)
-        firstRange.collapse(true)
-        const secondRange = document.createRange()
-        secondRange.setStart(secondTextNode as Text, 4)
-        secondRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? secondRange : firstRange)),
-        })
-
-        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 40, clientY: 40 })
-
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })).toBe(false)
-
-        fireEvent.mouseUp(window.document)
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('rst paragraph')
-        expect(selectedText).toContain('Seco')
-        expect(window.getSelection()?.anchorNode).toEqual(secondTextNode)
-        expect(window.getSelection()?.anchorOffset).toEqual(4)
-        expect(window.getSelection()?.focusNode).toEqual(firstTextNode)
-        expect(window.getSelection()?.focusOffset).toEqual(2)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
+        expect(canvas?.getAttribute('contenteditable')).toEqual('true')
+        expect(canvas?.getAttribute('data-markdown-notebook-editor')).toEqual('true')
+        expect(component?.getAttribute('contenteditable')).toEqual('false')
     })
 
-    it('keeps upward drag selection when the caret range stays on the anchor row', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `First paragraph
+    it('syncs text edits when native input is dispatched from the root editable surface', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'Original text', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
 
-Second paragraph`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const secondTextNode = textBlocks[1].firstChild
-
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        const staleAnchorRange = document.createRange()
-        staleAnchorRange.setStart(secondTextNode as Text, 4)
-        staleAnchorRange.collapse(true)
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 200,
-                top: 0,
-                width: 200,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => staleAnchorRange),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? textBlocks[1] : textBlocks[0])),
-        })
-
-        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 40, clientY: 40 })
-
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 4 })).toBe(false)
-
-        fireEvent.mouseUp(window.document)
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('First paragraph')
-        expect(selectedText).toContain('Seco')
-        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('false')
-        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('false')
-
+        textBlock.innerHTML = 'Changed <strong>text</strong>'
         act(() => {
-            window.getSelection()?.removeAllRanges()
-            document.dispatchEvent(new Event('selectionchange'))
-        })
-
-        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
-        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-    })
-
-    it('keeps the right side of an exact marked link row when dragging down from an element caret hit', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const markedLinkRow =
-            "bo? Here's a [***funnel**](http://localhost:8010/project/1/notebooks/hjH8ysXW)[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data wrrrrwefwef"
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `${markedLinkRow}
-
-Below paragraph`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 400,
-                top: 0,
-                width: 400,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 64,
-                height: 24,
-                left: 0,
-                right: 400,
-                top: 40,
-                width: 400,
-                x: 0,
-                y: 40,
-                toJSON: () => ({}),
-            }),
-        })
-
-        const restoreRangeRects = mockEditableCharacterRects(textBlocks[0])
-        const elementBoundaryRange = document.createRange()
-        elementBoundaryRange.setStart(textBlocks[0], 0)
-        elementBoundaryRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => elementBoundaryRange),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 12 ? textBlocks[0] : textBlocks[1])),
-        })
-
-        fireEvent.mouseDown(textBlocks[0], { button: 0, clientX: 176, clientY: 12 })
-        act(() => {
-            const nativeSelectionRange = document.createRange()
-            nativeSelectionRange.setStart(textBlocks[0], 0)
-            nativeSelectionRange.collapse(true)
+            const range = document.createRange()
+            range.selectNodeContents(textBlock)
+            range.collapse(false)
             const selection = window.getSelection()
             selection?.removeAllRanges()
-            selection?.addRange(nativeSelectionRange)
+            selection?.addRange(range)
         })
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 52 })).toBe(false)
-        fireEvent.mouseUp(window.document)
+        fireEvent.input(canvas)
 
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('with no data wrrrrwefwef')
-        expect(selectedText).not.toContain("bo? Here's")
-
-        restoreRangeRects()
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
+        expect(onChange).toHaveBeenLastCalledWith('# Changed **text**')
     })
 
-    it('keeps the left side of an exact marked link row when dragging up from an element caret hit', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const markedLinkRow =
-            "bo? Here's a [***funnel**](http://localhost:8010/project/1/notebooks/hjH8ysXW)[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data wrrrrwefwef"
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `Above paragraph
+    it('opens the slash menu when native slash input is dispatched from the root editable surface', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const textBlock = getBodyTextBlock(container)
 
-${markedLinkRow}`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 400,
-                top: 0,
-                width: 400,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 64,
-                height: 24,
-                left: 0,
-                right: 400,
-                top: 40,
-                width: 400,
-                x: 0,
-                y: 40,
-                toJSON: () => ({}),
-            }),
-        })
-
-        const restoreRangeRects = mockEditableCharacterRects(textBlocks[1])
-        const elementBoundaryRange = document.createRange()
-        elementBoundaryRange.setStart(textBlocks[1], 0)
-        elementBoundaryRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => elementBoundaryRange),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 52 ? textBlocks[1] : textBlocks[0])),
-        })
-
-        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 176, clientY: 52 })
+        textBlock.textContent = '/'
         act(() => {
-            const nativeSelectionRange = document.createRange()
-            nativeSelectionRange.setStart(textBlocks[1], 0)
-            nativeSelectionRange.collapse(true)
+            const range = document.createRange()
+            range.selectNodeContents(textBlock)
+            range.collapse(false)
             const selection = window.getSelection()
             selection?.removeAllRanges()
-            selection?.addRange(nativeSelectionRange)
+            selection?.addRange(range)
         })
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 4 })).toBe(false)
-        fireEvent.mouseUp(window.document)
+        fireEvent.input(canvas)
 
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('Above paragraph')
-        expect(selectedText).toContain("bo? Here's a")
-        expect(selectedText).not.toContain('with no data wrrrrwefwef')
-
-        restoreRangeRects()
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-    })
-
-    it('keeps anchor row text when upward drag starts from a marked link row without a caret hit', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const markedLinkRow =
-            "bo? Here's a **[*funnel](http://localhost:8010/project/1/notebooks/hjH8ysXW)**[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data w"
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `Above paragraph
-
-${markedLinkRow}`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 300,
-                top: 0,
-                width: 300,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 64,
-                height: 24,
-                left: 0,
-                right: 300,
-                top: 40,
-                width: 300,
-                x: 0,
-                y: 40,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => null),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 52 ? textBlocks[1] : textBlocks[0])),
-        })
-
-        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 80, clientY: 52 })
-
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 4 })).toBe(false)
-        fireEvent.mouseUp(window.document)
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('Above paragraph')
-        expect(selectedText).toContain('bo? ')
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-    })
-
-    it('does not select the entire marked link row when dragging down from it without a caret hit', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const markedLinkRow =
-            "bo? Here's a **[*funnel](http://localhost:8010/project/1/notebooks/hjH8ysXW)**[*](http://localhost:8010/project/1/notebooks/hjH8ysXW) with no data w"
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `${markedLinkRow}
-
-Below paragraph`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 300,
-                top: 0,
-                width: 300,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(textBlocks[1], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 64,
-                height: 24,
-                left: 0,
-                right: 300,
-                top: 40,
-                width: 300,
-                x: 0,
-                y: 40,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => null),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 12 ? textBlocks[0] : textBlocks[1])),
-        })
-
-        fireEvent.mouseDown(textBlocks[0], { button: 0, clientX: 220, clientY: 12 })
-        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 52 })).toBe(false)
-        fireEvent.mouseUp(window.document)
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain(' no data w')
-        expect(selectedText).not.toContain("bo? Here's")
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-    })
-
-    it('supports touch drag selection across text blocks', () => {
-        act(() => {
-            window.getSelection()?.removeAllRanges()
-        })
-        jest.useFakeTimers()
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `First paragraph
-
-Second paragraph`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const secondTextNode = textBlocks[1].firstChild
-
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        const staleAnchorRange = document.createRange()
-        staleAnchorRange.setStart(secondTextNode as Text, 4)
-        staleAnchorRange.collapse(true)
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 200,
-                top: 0,
-                width: 200,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => staleAnchorRange),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? textBlocks[1] : textBlocks[0])),
-        })
-
-        const startTouch = { identifier: 1, clientX: 40, clientY: 40 } as Touch
-        const moveTouch = { identifier: 1, clientX: 10, clientY: 4 } as Touch
-
-        fireEvent.touchStart(textBlocks[1], {
-            touches: createTouchList([startTouch]),
-            changedTouches: createTouchList([startTouch]),
-        })
-
-        act(() => {
-            jest.advanceTimersByTime(300)
-        })
-
+        expect(textBlock.textContent).toEqual('')
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
         expect(
-            fireEvent.touchMove(window.document, {
-                touches: createTouchList([moveTouch]),
-                changedTouches: createTouchList([moveTouch]),
-            })
-        ).toBe(false)
-
-        fireEvent.touchEnd(window.document, {
-            touches: createTouchList([]),
-            changedTouches: createTouchList([moveTouch]),
-        })
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('First paragraph')
-        expect(selectedText).toContain('Seco')
-        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('false')
-        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('false')
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-        jest.useRealTimers()
+            container.querySelector('.MarkdownNotebook__line-insert-menu-button')?.getAttribute('aria-expanded')
+        ).toEqual('true')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
     })
 
-    it('supports delayed touch drag selection within a text block', () => {
+    it('derives component active state and copy payload from native root selections', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Do not copy me'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `Before paragraph
+
+<Embed />
+
+After paragraph`,
+                registry,
+            })
+        )
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+
+        selectTextAcrossNodes(getFirstTextNode(textBlocks[0]), 3, getFirstTextNode(textBlocks[1]), 5, true)
+
+        expect(window.getSelection()?.toString()).toContain('ore paragraph')
+        expect(window.getSelection()?.toString()).toContain('After')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(true)
+
+        const clipboardData = {
+            setData: jest.fn(),
+        }
+        fireEvent.copy(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith(
+            'text/plain',
+            `# ore paragraph
+
+<Embed />
+
+After`
+        )
+        expect(clipboardData.setData).not.toHaveBeenCalledWith('text/plain', expect.stringContaining('Do not copy me'))
+    })
+
+    it('lets native touch movement scroll without custom selection interception', () => {
         act(() => {
             window.getSelection()?.removeAllRanges()
         })
-        jest.useFakeTimers()
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: `First paragraph
@@ -2562,111 +2686,7 @@ Second paragraph`,
 Second paragraph`,
             })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const firstTextNode = textBlocks[0].firstChild
-
-        expect(firstTextNode).toBeInstanceOf(Text)
-
-        const anchorRange = document.createRange()
-        anchorRange.setStart(firstTextNode as Text, 10)
-        anchorRange.collapse(true)
-        const focusRange = document.createRange()
-        focusRange.setStart(firstTextNode as Text, 2)
-        focusRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn((clientX: number) => (clientX === 80 ? anchorRange : focusRange)),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn(() => textBlocks[0]),
-        })
-
-        const startTouch = { identifier: 1, clientX: 80, clientY: 10 } as Touch
-        const moveTouch = { identifier: 1, clientX: 20, clientY: 10 } as Touch
-
-        fireEvent.touchStart(textBlocks[0], {
-            touches: createTouchList([startTouch]),
-            changedTouches: createTouchList([startTouch]),
-        })
-
-        act(() => {
-            jest.advanceTimersByTime(300)
-        })
-
-        expect(
-            fireEvent.touchMove(window.document, {
-                touches: createTouchList([moveTouch]),
-                changedTouches: createTouchList([moveTouch]),
-            })
-        ).toBe(false)
-
-        fireEvent.touchEnd(window.document, {
-            touches: createTouchList([]),
-            changedTouches: createTouchList([moveTouch]),
-        })
-
-        expect(window.getSelection()?.toString()).toEqual('rst para')
-        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
-        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-        jest.useRealTimers()
-    })
-
-    it('lets touch movement scroll before cross-block selection is ready', () => {
-        act(() => {
-            window.getSelection()?.removeAllRanges()
-        })
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const originalElementFromPoint = document.elementFromPoint
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `First paragraph
-
-Second paragraph`,
-            })
-        )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const secondTextNode = textBlocks[1].firstChild
-
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        const staleAnchorRange = document.createRange()
-        staleAnchorRange.setStart(secondTextNode as Text, 4)
-        staleAnchorRange.collapse(true)
-
-        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
-            configurable: true,
-            value: () => ({
-                bottom: 24,
-                height: 24,
-                left: 0,
-                right: 200,
-                top: 0,
-                width: 200,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }),
-        })
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn(() => staleAnchorRange),
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? textBlocks[1] : textBlocks[0])),
-        })
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
 
         const startTouch = { identifier: 1, clientX: 40, clientY: 40 } as Touch
         const moveTouch = { identifier: 1, clientX: 10, clientY: 4 } as Touch
@@ -2691,95 +2711,12 @@ Second paragraph`,
             touches: createTouchList([]),
             changedTouches: createTouchList([moveTouch]),
         })
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
-        Object.defineProperty(document, 'elementFromPoint', {
-            configurable: true,
-            value: originalElementFromPoint,
-        })
-    })
-
-    it('selects component blocks as active blocks when dragging upward across them', () => {
-        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
-        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
-        const registry = createMarkdownNotebookRegistry([
-            {
-                tagName: 'Embed',
-                label: 'Embed',
-                category: 'Media',
-                ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Do not copy me'),
-            },
-        ])
-        const { container } = render(
-            createElement(MarkdownNotebook, {
-                value: `Before paragraph
-
-<Embed />
-
-After paragraph`,
-                registry,
-            })
-        )
-        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
-        const firstTextNode = textBlocks[0].firstChild
-        const secondTextNode = textBlocks[1].firstChild
-
-        expect(notebook).toBeInstanceOf(HTMLElement)
-        expect(component).toBeInstanceOf(HTMLElement)
-        expect(firstTextNode).toBeInstanceOf(Text)
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        const firstRange = document.createRange()
-        firstRange.setStart(firstTextNode as Text, 3)
-        firstRange.collapse(true)
-        const secondRange = document.createRange()
-        secondRange.setStart(secondTextNode as Text, 5)
-        secondRange.collapse(true)
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? secondRange : firstRange)),
-        })
-
-        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 40, clientY: 40 })
-        fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })
-        fireEvent.mouseUp(window.document)
-
-        const selectedText = window.getSelection()?.toString() ?? ''
-        expect(selectedText).toContain('ore paragraph')
-        expect(selectedText).toContain('After')
-        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(true)
-
-        const clipboardData = {
-            setData: jest.fn(),
-        }
-        fireEvent.copy(notebook, { clipboardData })
-
-        expect(clipboardData.setData).toHaveBeenCalledWith(
-            'text/plain',
-            `ore paragraph
-
-<Embed />
-
-After`
-        )
-        expect(clipboardData.setData).not.toHaveBeenCalledWith('text/plain', expect.stringContaining('Do not copy me'))
-
-        Object.defineProperty(document, 'caretRangeFromPoint', {
-            configurable: true,
-            value: originalCaretRangeFromPoint,
-        })
     })
 
     it('keeps text visible when changing a paragraph to a heading', () => {
         const { container, rerender } = render(createElement(MarkdownNotebook, { value: 'Selected heading text' }))
 
-        expect(container.querySelector('p.MarkdownNotebook__text-block')?.textContent).toEqual('Selected heading text')
+        expect(container.querySelector('h1.MarkdownNotebook__text-block')?.textContent).toEqual('Selected heading text')
 
         rerender(createElement(MarkdownNotebook, { value: '# Selected heading text' }))
 
@@ -2794,7 +2731,7 @@ After`
 Closing paragraph`
         const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
         const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
         const firstTextNode = textBlocks[0].firstChild
         const secondTextNode = textBlocks[1].firstChild
 
@@ -2818,7 +2755,7 @@ Closing paragraph`
 
         expect(clipboardData.setData).toHaveBeenCalledWith(
             'text/plain',
-            `paragraph
+            `# paragraph
 
 <Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
 
@@ -2826,7 +2763,7 @@ Closing`
         )
         expect(clipboardData.setData).toHaveBeenCalledWith(
             'text/markdown',
-            `paragraph
+            `# paragraph
 
 <Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
 
@@ -2923,7 +2860,7 @@ Closing`
 
             expect(components).toHaveLength(2)
             expect(clipboard.readText).toHaveBeenCalled()
-            expect(onChange).toHaveBeenLastCalledWith(`${markdown}\n\n${markdown}`)
+            expect(onChange).toHaveBeenLastCalledWith(`# \n\n${markdown}\n\n${markdown}`)
             expect(document.activeElement).toEqual(components[1])
         } finally {
             Object.defineProperty(navigator, 'clipboard', {
@@ -2940,8 +2877,8 @@ Closing`
 <Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
 
 Tail with **bold** text`
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
 
         fireEvent.paste(textBlock, {
             clipboardData: {
@@ -2949,16 +2886,16 @@ Tail with **bold** text`
             },
         })
 
-        expect(container.querySelector('h1.MarkdownNotebook__text-block')?.textContent).toEqual('Pasted heading')
+        expect(getEditableTextBlocks(container)[1].textContent).toEqual('Pasted heading')
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('p.MarkdownNotebook__text-block')?.textContent).toEqual('Tail with bold text')
-        expect(onChange).toHaveBeenLastCalledWith(pastedMarkdown)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${pastedMarkdown}`)
     })
 
     it('pastes inline markdown into the active text block', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'Hello ', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
         const textNode = textBlock.firstChild
 
         expect(textNode).toBeInstanceOf(Text)
@@ -2979,13 +2916,15 @@ Tail with **bold** text`
         })
 
         expect(textBlock.textContent).toEqual('Hello bold')
-        expect(onChange).toHaveBeenLastCalledWith('Hello **bold**')
+        expect(onChange).toHaveBeenLastCalledWith('# Hello **bold**')
     })
 
     it('undoes pasted markdown blocks as one notebook history step', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Intro paragraph'), onChange })
+        )
+        const textBlock = getBodyTextBlock(container)
         const textNode = textBlock.firstChild
 
         expect(textNode).toBeInstanceOf(Text)
@@ -3006,7 +2945,9 @@ Tail with **bold** text`
 Tail with **bold** text`
         )
 
-        expect(onChange).toHaveBeenLastCalledWith(`Intro paragraph
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Intro paragraph
 
 # Pasted heading
 
@@ -3014,49 +2955,51 @@ Tail with **bold** text`)
 
         fireEvent.keyDown(textBlock, { key: 'z', metaKey: true })
 
-        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph`)
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Intro paragraph')
+        expect(getBodyTextBlock(container).textContent).toEqual('Intro paragraph')
     })
 
     it('routes native contenteditable undo and redo through notebook history after paste', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'Hello there', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
 
         selectTextInElement(textBlock, 6, 6)
         pastePlainText(textBlock, '**bold** ')
 
-        expect(onChange).toHaveBeenLastCalledWith('Hello **bold** there')
+        expect(onChange).toHaveBeenLastCalledWith('# Hello **bold** there')
         expect(textBlock.textContent).toEqual('Hello bold there')
 
         fireHistoryBeforeInput(textBlock, 'historyUndo')
 
-        expect(onChange).toHaveBeenLastCalledWith('Hello there')
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Hello there')
+        expect(onChange).toHaveBeenLastCalledWith('# Hello there')
+        expect(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)?.textContent).toEqual('Hello there')
 
-        fireHistoryBeforeInput(container.querySelector('[contenteditable="true"]') as HTMLElement, 'historyRedo')
+        fireHistoryBeforeInput(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement, 'historyRedo')
 
-        expect(onChange).toHaveBeenLastCalledWith('Hello **bold** there')
-        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Hello bold there')
+        expect(onChange).toHaveBeenLastCalledWith('# Hello **bold** there')
+        expect(container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)?.textContent).toEqual('Hello bold there')
     })
 
     it('pastes a URL over selected text as a link', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
 
         selectTextInElement(textBlock, 0, 7)
         pastePlainText(textBlock, 'https://posthog.com/docs')
 
         expect(textBlock.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
         expect(textBlock.textContent).toEqual('PostHog docs')
-        expect(onChange).toHaveBeenLastCalledWith('[PostHog](https://posthog.com/docs) docs')
+        expect(onChange).toHaveBeenLastCalledWith('# [PostHog](https://posthog.com/docs) docs')
     })
 
     it('pastes a URL over selected list item text as a link', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '- PostHog docs', onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- PostHog docs'), onChange })
+        )
         const listItem = container.querySelector('.MarkdownNotebook__list-item-content') as HTMLElement
 
         selectTextInElement(listItem, 0, 7)
@@ -3064,16 +3007,18 @@ Tail with **bold** text`)
 
         expect(listItem.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
         expect(listItem.textContent).toEqual('PostHog docs')
-        expect(onChange).toHaveBeenLastCalledWith('- [PostHog](https://posthog.com/docs) docs')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [PostHog](https://posthog.com/docs) docs`
+        )
     })
 
     it('pastes a URL over selected table cell text as a link', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `| Name | Count |
+                value: withNotebookTitle(`| Name | Count |
 | --- | --- |
-| PostHog | 12 |`,
+| PostHog | 12 |`),
                 onChange,
             })
         )
@@ -3084,7 +3029,9 @@ Tail with **bold** text`)
 
         expect(cells[2].querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
         expect(cells[2].textContent).toEqual('PostHog')
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |
 | --- | --- |
 | [PostHog](https://posthog.com/docs) | 12 |`)
     })
@@ -3093,9 +3040,9 @@ Tail with **bold** text`)
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `- Parent
+                value: withNotebookTitle(`- Parent
   - Child
-- Sibling`,
+- Sibling`),
                 onChange,
             })
         )
@@ -3113,17 +3060,19 @@ Tail with **bold** text`)
         listItems[1].textContent = 'Updated child'
         fireEvent.input(listItems[1])
 
-        expect(onChange).toHaveBeenLastCalledWith(`- Parent
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
   - Updated child
 - Sibling`)
     })
 
     it('converts an ordered list shortcut at the start of a text row into a list', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
 
-        textBlock.textContent = '1.'
+        textBlock.textContent = '1. '
         fireEvent.input(textBlock)
 
         const listBlock = container.querySelector('.MarkdownNotebook__list-block')
@@ -3132,15 +3081,15 @@ Tail with **bold** text`)
         expect(listBlock?.querySelector('ol')).toBeInstanceOf(HTMLElement)
         expect(listItem).toBeInstanceOf(HTMLElement)
         expect(document.activeElement).toEqual(listItem)
-        expect(onChange).toHaveBeenLastCalledWith('1.')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n1.`)
     })
 
     it.each(['- ', '* ', '+ ', '• '])(
         'converts a bullet list shortcut "%s" at the start of a text row into a list',
         (shortcut) => {
             const onChange = jest.fn()
-            const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-            const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+            const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+            const textBlock = getBodyTextBlock(container)
 
             textBlock.textContent = shortcut
             fireEvent.input(textBlock)
@@ -3151,72 +3100,76 @@ Tail with **bold** text`)
             expect(listBlock?.querySelector('ul')).toBeInstanceOf(HTMLElement)
             expect(listItem).toBeInstanceOf(HTMLElement)
             expect(document.activeElement).toEqual(listItem)
-            expect(onChange).toHaveBeenLastCalledWith('-')
+            expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n-`)
         }
     )
 
     it('converts repeated heading shortcuts into heading levels up to h3', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
 
-        let textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        let textBlock = getBodyTextBlock(container)
         textBlock.textContent = '#'
         fireEvent.input(textBlock)
 
-        expect(container.querySelector('h1.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(getBodyTextBlock(container).tagName).toEqual('H1')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n#`)
 
-        textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        textBlock = getBodyTextBlock(container)
         textBlock.textContent = '#'
         fireEvent.input(textBlock)
 
-        expect(container.querySelector('h2.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith('##')
+        expect(getBodyTextBlock(container).tagName).toEqual('H2')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n##`)
 
-        textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        textBlock = getBodyTextBlock(container)
         textBlock.textContent = '#'
         fireEvent.input(textBlock)
 
-        expect(container.querySelector('h3.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith('###')
+        expect(getBodyTextBlock(container).tagName).toEqual('H3')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n###`)
 
-        fireEvent.keyDown(container.querySelector('[contenteditable="true"]') as HTMLElement, { key: 'Backspace' })
+        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Backspace' })
 
         expect(container.querySelector('p.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
-        expect(onChange).toHaveBeenLastCalledWith('')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
     })
 
     it('splits headings while preserving heading style except at the start', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '# HelloWorld', onChange }))
-        let heading = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('# HelloWorld'), onChange })
+        )
+        let heading = getBodyTextBlock(container)
 
         selectTextInElement(heading, 5, 5)
         fireEvent.keyDown(heading, { key: 'Enter' })
 
         expect(
             Array.from(container.querySelectorAll('h1.MarkdownNotebook__text-block')).map((node) => node.textContent)
-        ).toEqual(['Hello', 'World'])
-        expect(onChange).toHaveBeenLastCalledWith(`# Hello
+        ).toEqual([TEST_NOTEBOOK_TITLE, 'Hello', 'World'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+# Hello
 
 # World`)
 
-        heading = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+        heading = getBodyTextBlock(container)
         selectTextInElement(heading, 0, 0)
         fireEvent.keyDown(heading, { key: 'Enter' })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = getEditableTextBlocks(container)
 
-        expect(textBlocks[0].tagName).toEqual('P')
-        expect(textBlocks[0].textContent).toEqual('')
-        expect(textBlocks[1].tagName).toEqual('H1')
-        expect(textBlocks[1].textContent).toEqual('Hello')
+        expect(textBlocks[1].tagName).toEqual('P')
+        expect(textBlocks[1].textContent).toEqual('')
+        expect(textBlocks[2].tagName).toEqual('H1')
+        expect(textBlocks[2].textContent).toEqual('Hello')
     })
 
     it('converts a blockquote shortcut at the start of a text row into a quote block', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
 
         textBlock.textContent = '>'
         fireEvent.input(textBlock)
@@ -3225,15 +3178,15 @@ Tail with **bold** text`)
 
         expect(blockquote).toBeInstanceOf(HTMLElement)
         expect(document.activeElement).toEqual(blockquote)
-        expect(onChange).toHaveBeenLastCalledWith('>')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n>`)
     })
 
     it('indents list items with tab while preserving selection', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `- Parent
-- Child`,
+                value: withNotebookTitle(`- Parent
+- Child`),
                 onChange,
             })
         )
@@ -3255,7 +3208,9 @@ Tail with **bold** text`)
 
         fireEvent.keyDown(listItems[1], { key: 'Tab' })
 
-        expect(onChange).toHaveBeenLastCalledWith(`- Parent
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- Parent
   - Child`)
         expect(document.activeElement?.textContent).toEqual('Child')
         expect(window.getSelection()?.focusOffset).toEqual(3)
@@ -3301,9 +3256,9 @@ Tail with **bold** text`)
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `| Name | Count |
+                value: withNotebookTitle(`| Name | Count |
 | --- | --- |
-| Pageview | 12 |`,
+| Pageview | 12 |`),
                 onChange,
             })
         )
@@ -3320,7 +3275,9 @@ Tail with **bold** text`)
         cells[2].textContent = 'Signup'
         fireEvent.input(cells[2])
 
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |
 | --- | --- |
 | Signup | 12 |`)
     })
@@ -3346,9 +3303,9 @@ Tail with **bold** text`)
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `| Name | Count |
+                value: withNotebookTitle(`| Name | Count |
 | --- | --- |
-| Pageview | 12 |`,
+| Pageview | 12 |`),
                 onChange,
             })
         )
@@ -3361,7 +3318,9 @@ Tail with **bold** text`)
 
         fireEvent.keyDown(getCells()[2], { key: 'Enter' })
 
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |
 | --- | --- |
 | Pageview | 12 |
 |  |  |`)
@@ -3372,9 +3331,9 @@ Tail with **bold** text`)
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `| Name | Count |
+                value: withNotebookTitle(`| Name | Count |
 | --- | --- |
-| Pageview | 12 |`,
+| Pageview | 12 |`),
                 onChange,
             })
         )
@@ -3386,7 +3345,9 @@ Tail with **bold** text`)
 
         fireEvent.click(getButton('Add column after column 2'))
 
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |  |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |  |
 | --- | --- | --- |
 | Pageview | 12 |  |`)
         expect(document.activeElement).toEqual(
@@ -3395,20 +3356,26 @@ Tail with **bold** text`)
 
         fireEvent.click(getButton('Remove column 3'))
 
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |
 | --- | --- |
 | Pageview | 12 |`)
 
         fireEvent.click(getButton('Add row after row 1'))
 
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |
 | --- | --- |
 | Pageview | 12 |
 |  |  |`)
 
         fireEvent.click(getButton('Remove row 2'))
 
-        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+| Name | Count |
 | --- | --- |
 | Pageview | 12 |`)
     })
@@ -3418,8 +3385,8 @@ Tail with **bold** text`)
         const pastedMarkdown = `| Name | Count |
 | --- | ---: |
 | Pageview | **12** |`
-        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
-        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
 
         fireEvent.paste(textBlock, {
             clipboardData: {
@@ -3429,7 +3396,7 @@ Tail with **bold** text`)
 
         expect(container.querySelector('.MarkdownNotebook__table-block')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__table-cell-content')?.textContent).toEqual('Name')
-        expect(onChange).toHaveBeenLastCalledWith(pastedMarkdown)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${pastedMarkdown}`)
     })
 
     it('copies selected tables as markdown', () => {
@@ -3464,7 +3431,7 @@ Tail with **bold** text`)
 
     it('moves the formatting toolbar below selections at the top of the viewport', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'Select this text' }))
-        const textBlock = container.querySelector('[contenteditable="true"]')
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR)
 
         expect(textBlock).toBeInstanceOf(HTMLElement)
         const editableTextBlock = textBlock as HTMLElement
@@ -3508,8 +3475,8 @@ Tail with **bold** text`)
     it('adds an editable blank row after a terminal component', () => {
         const onChange = jest.fn()
         const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
-        const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
-        const trailingTextBlock = container.querySelector('[contenteditable="true"]')
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(markdown), onChange }))
+        const trailingTextBlock = getEditableTextBlocks(container).at(-1)
 
         expect(trailingTextBlock).toBeInstanceOf(HTMLElement)
 
@@ -3525,9 +3492,9 @@ Tail with **bold** text`)
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `First paragraph
+                value: withNotebookTitle(`First paragraph
 
-Second paragraph`,
+Second paragraph`),
                 onChange,
             })
         )
@@ -3553,14 +3520,16 @@ Second paragraph`,
 
         fireEvent.mouseDown(main as HTMLElement, { button: 0, clientY: 260 })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        expect(onChange).toHaveBeenLastCalledWith(`First paragraph
+        const textBlocks = getEditableTextBlocks(container)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First paragraph
 
 Second paragraph
 
  `)
-        expect(textBlocks).toHaveLength(3)
-        expect(document.activeElement).toEqual(textBlocks[2])
+        expect(textBlocks).toHaveLength(4)
+        expect(document.activeElement).toEqual(textBlocks[3])
         expect(window.getSelection()?.focusOffset).toEqual(0)
     })
 
@@ -3568,40 +3537,42 @@ Second paragraph
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `First paragraph
+                value: withNotebookTitle(`First paragraph
 
-Second paragraph`,
+Second paragraph`),
                 onChange,
             })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = getEditableTextBlocks(container)
 
-        selectTextInElement(textBlocks[1], 0, 0)
-        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+        selectTextInElement(textBlocks[2], 0, 0)
+        fireEvent.keyDown(textBlocks[2], { key: 'Backspace' })
 
-        expect(onChange).toHaveBeenLastCalledWith('First paragraphSecond paragraph')
-        expect(container.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraphSecond paragraph`)
+        expect(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)).toHaveLength(2)
         expect(document.activeElement?.textContent).toEqual('First paragraphSecond paragraph')
         expect(window.getSelection()?.focusOffset).toEqual('First paragraph'.length)
     })
 
     it('deletes an empty text row and moves the cursor to the previous text block on backspace', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph', onChange }))
-        const firstTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('First paragraph'), onChange })
+        )
+        const firstTextBlock = getBodyTextBlock(container)
 
         selectTextInElement(firstTextBlock, 'First paragraph'.length, 'First paragraph'.length)
         fireEvent.keyDown(firstTextBlock, { key: 'Enter' })
 
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = getEditableTextBlocks(container)
 
-        expect(textBlocks).toHaveLength(2)
-        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(textBlocks).toHaveLength(3)
+        expect(document.activeElement).toEqual(textBlocks[2])
 
-        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+        fireEvent.keyDown(textBlocks[2], { key: 'Backspace' })
 
-        expect(onChange).toHaveBeenLastCalledWith('First paragraph')
-        expect(container.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nFirst paragraph`)
+        expect(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)).toHaveLength(2)
         expect(document.activeElement?.textContent).toEqual('First paragraph')
         expect(window.getSelection()?.focusOffset).toEqual('First paragraph'.length)
     })
@@ -3618,7 +3589,7 @@ Second
 After component`,
             })
         )
-        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const textBlocks = Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
         const componentShell = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
         const firstTextNode = textBlocks[0].firstChild
         const secondTextNode = textBlocks[1].firstChild

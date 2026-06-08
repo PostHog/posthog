@@ -77,6 +77,7 @@ import {
 import {
     cloneNotebookDocument,
     cloneNotebookNode,
+    ensureUniqueNodeIds,
     getInlineText,
     getNodeFingerprint,
     normalizeInlineNodes,
@@ -109,13 +110,19 @@ export type MarkdownNotebookAskAIRequest = {
     markdownWithPlaceholder: string
 }
 
-type RestoreSelectionRequest = {
+type RestoreInlineSelectionRequest = {
     nodeId: string
     start: number
     end: number
     listItemIndex?: number
     tableCell?: TableCellPosition
 }
+
+type RestoreTextSelectionRequest = {
+    textRanges: NotebookTextSelectionRange[]
+}
+
+type RestoreSelectionRequest = RestoreInlineSelectionRequest | RestoreTextSelectionRequest
 
 type InsertCommand = {
     key: string
@@ -165,6 +172,9 @@ type FloatingToolbarPointerAnchor = {
     placement: 'above' | 'below'
 }
 
+type FloatingToolbarPosition = Pick<FloatingToolbarState, 'placement' | 'top' | 'left'>
+type TextBlockStyle = 'paragraph' | 'blockquote' | 1 | 2 | 3
+
 type TextSelectionPointerState = {
     originX: number
     originY: number
@@ -172,28 +182,10 @@ type TextSelectionPointerState = {
     lastY: number
 }
 
-type CrossBlockSelectionDragState = {
-    anchorRange: Range
-    anchorEditableElement: HTMLElement | null
-    originX: number
-    originY: number
-    source: 'mouse' | 'pointer' | 'touch'
-    pointerId?: number
-    touchIdentifier?: number
-    isTouchSelectionReady?: boolean
-    touchSelectionDelayTimeout?: number
-    isDragging: boolean
-}
-
-type CrossBlockSelectionStartEvent =
+type TextSelectionPointerStartEvent =
     | ReactMouseEvent<HTMLElement>
     | ReactPointerEvent<HTMLElement>
     | ReactTouchEvent<HTMLElement>
-
-type EditableBlockContentEditableState = {
-    element: HTMLElement
-    contentEditable: string | null
-}
 
 type CommitDocumentOptions = {
     addToHistory?: boolean
@@ -245,6 +237,7 @@ type NotebookComponentShellProps = {
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     deleteNode: () => void
+    deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
 }
@@ -260,9 +253,6 @@ const INSERTED_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
 }
 
 const FLOATING_TOOLBAR_ESTIMATED_HEIGHT = 36
-const CROSS_BLOCK_SELECTION_DRAG_THRESHOLD = 4
-const TOUCH_CROSS_BLOCK_SELECTION_DELAY_MS = 300
-const TOUCH_SCROLL_CANCEL_THRESHOLD = 8
 const INSERT_MENU_GAP = 12
 const INSERT_MENU_MAX_HEIGHT = 448
 const INSERT_MENU_MIN_HEIGHT = 120
@@ -271,9 +261,9 @@ const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
 const MAX_UNDO_HISTORY_ENTRIES = 100
 const FLOATING_TOOLBAR_REVEAL_DELAY_MS = 200
+const NOTEBOOK_TITLE_PLACEHOLDER = 'Untitled notebook'
 const NOTEBOOK_EDITABLE_BLOCK_SELECTOR =
     '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content'
-const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR = `${NOTEBOOK_EDITABLE_BLOCK_SELECTOR}, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block`
 
 function getAskAIMarkdownPlaceholder(placeholderNodeId: string): string {
     return `<!-- Ask PostHog AI insertion placeholder block id: ${placeholderNodeId} -->`
@@ -301,7 +291,7 @@ export function MarkdownNotebook({
         [registry]
     )
     const [document, setDocument] = useState<NotebookDocument>(() =>
-        ensureEditableTrailingParagraph(parseMarkdownNotebook(value))
+        ensureEditableNotebookDocument(parseMarkdownNotebook(value))
     )
     const [floatingToolbar, setFloatingToolbar] = useState<FloatingToolbarState | null>(null)
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
@@ -312,7 +302,7 @@ export function MarkdownNotebook({
     const [componentPanels, setComponentPanels] = useState<Record<string, ComponentPanelVisibility>>({})
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [isDebugOpen, setIsDebugOpen] = useState(false)
-    const [debugMarkdown, setDebugMarkdown] = useState(value)
+    const [debugMarkdown, setDebugMarkdown] = useState(() => serializeMarkdownNotebook(document))
     const debugDrawerId = useId()
     const notebookRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLDivElement | null>(null)
@@ -321,13 +311,12 @@ export function MarkdownNotebook({
     const listItemRefs = useRef<Record<string, HTMLElement | null>>({})
     const tableCellRefs = useRef<Record<string, HTMLElement | null>>({})
     const aiThinkingTagRefs = useRef<Record<string, HTMLButtonElement | null>>({})
-    const crossBlockSelectionRef = useRef<CrossBlockSelectionDragState | null>(null)
-    const crossBlockSelectionEditableStateRef = useRef<EditableBlockContentEditableState[] | null>(null)
     const isTextSelectionPointerActiveRef = useRef(false)
     const floatingToolbarRevealTimeoutRef = useRef<number | null>(null)
     const floatingToolbarRevealAfterRef = useRef(0)
     const textSelectionPointerStateRef = useRef<TextSelectionPointerState | null>(null)
     const floatingToolbarPointerAnchorRef = useRef<FloatingToolbarPointerAnchor | null>(null)
+    const floatingToolbarPositionLockRef = useRef<FloatingToolbarPosition | null>(null)
     const focusNodeRef = useRef<string | null>(null)
     const restoreSelectionRef = useRef<RestoreSelectionRequest | null>(null)
     const notebookClipboardMarkdownRef = useRef<string | null>(null)
@@ -349,39 +338,6 @@ export function MarkdownNotebook({
         floatingToolbarRevealTimeoutRef.current = null
     }, [])
 
-    const disableEditableBlocksForCrossBlockSelection = useCallback((): void => {
-        const notebookElement = notebookRef.current
-        if (!notebookElement || crossBlockSelectionEditableStateRef.current) {
-            return
-        }
-
-        const editableElements = Array.from(
-            notebookElement.querySelectorAll<HTMLElement>(NOTEBOOK_EDITABLE_BLOCK_SELECTOR)
-        )
-        crossBlockSelectionEditableStateRef.current = editableElements.map((element) => ({
-            element,
-            contentEditable: element.getAttribute('contenteditable'),
-        }))
-        editableElements.forEach((element) => element.setAttribute('contenteditable', 'false'))
-    }, [])
-
-    const restoreEditableBlocksForCrossBlockSelection = useCallback((): void => {
-        const editableState = crossBlockSelectionEditableStateRef.current
-        if (!editableState) {
-            return
-        }
-
-        crossBlockSelectionEditableStateRef.current = null
-        editableState.forEach(({ element, contentEditable }) => {
-            if (contentEditable === null) {
-                element.removeAttribute('contenteditable')
-                return
-            }
-
-            element.setAttribute('contenteditable', contentEditable)
-        })
-    }, [])
-
     useEffect(() => {
         if (!showDebug) {
             setIsDebugOpen(false)
@@ -395,7 +351,7 @@ export function MarkdownNotebook({
 
         setDocument((currentDocument) => {
             const nextDocument = parseMarkdownNotebook(value)
-            const reconciledDocument = ensureEditableTrailingParagraph(
+            const reconciledDocument = ensureEditableNotebookDocument(
                 reconcileNotebookDocuments(currentDocument, nextDocument).document
             )
             documentRef.current = reconciledDocument
@@ -411,6 +367,11 @@ export function MarkdownNotebook({
         const request = restoreSelectionRef.current
         if (request) {
             restoreSelectionRef.current = null
+            if ('textRanges' in request) {
+                restoreTextSelectionRanges(request.textRanges, blockRefs.current)
+                return
+            }
+
             const element =
                 request.tableCell !== undefined
                     ? tableCellRefs.current[getTableCellRefKey(request.nodeId, request.tableCell)]
@@ -458,7 +419,7 @@ export function MarkdownNotebook({
 
     const commitDocument = useCallback(
         (nextDocument: NotebookDocument, options: CommitDocumentOptions = {}): void => {
-            const editableDocument = ensureEditableTrailingParagraph(nextDocument)
+            const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
             if ((options.addToHistory ?? true) && !areNotebookDocumentsEqual(previousDocument, editableDocument)) {
                 historyRef.current = {
@@ -543,7 +504,7 @@ export function MarkdownNotebook({
 
     const restoreHistoryDocument = useCallback(
         (targetDocument: NotebookDocument): void => {
-            const editableDocument = ensureEditableTrailingParagraph(cloneNotebookDocument(targetDocument))
+            const editableDocument = ensureEditableNotebookDocument(cloneNotebookDocument(targetDocument))
             restoreSelectionRef.current = getHistoryRestoreSelection(editableDocument)
             commitDocument(editableDocument, { addToHistory: false })
         },
@@ -584,6 +545,318 @@ export function MarkdownNotebook({
         return true
     }, [restoreHistoryDocument])
 
+    const deleteSelectedNotebookBlocks = useCallback((): boolean => {
+        const notebookElement = notebookRef.current
+        const selection = window.getSelection()
+        if (!notebookElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return false
+        }
+
+        const range = selection.getRangeAt(0)
+        if (!rangeIntersectsNode(range, notebookElement)) {
+            return false
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const selectedEntries = nodes
+            .map((node, index) => ({ node, index, element: blockRefs.current[node.id] }))
+            .filter(
+                (entry): entry is { node: NotebookBlockNode; index: number; element: HTMLElement } =>
+                    !!entry.element && rangeIntersectsNode(range, entry.element)
+            )
+
+        if (selectedEntries.length <= 1) {
+            return false
+        }
+
+        const requestFocusForDeletedSelection = (nextNodes: NotebookBlockNode[], selectionStartIndex: number): void => {
+            const requestFocusForNode = (node: NotebookBlockNode, placement: 'start' | 'end'): boolean => {
+                const offsetForChildren = (children: NotebookInlineNode[]): number =>
+                    placement === 'start' ? 0 : getInlineText(children).length
+
+                if (isTextBlockNode(node)) {
+                    const offset = offsetForChildren(node.children)
+                    restoreSelectionRef.current = { nodeId: node.id, start: offset, end: offset }
+                    return true
+                }
+
+                if (node.type === 'component') {
+                    focusNodeRef.current = node.id
+                    return true
+                }
+
+                if (node.type === 'list' && node.items.length) {
+                    const listItemIndex = placement === 'start' ? 0 : node.items.length - 1
+                    const offset = offsetForChildren(node.items[listItemIndex].children)
+                    restoreSelectionRef.current = { nodeId: node.id, listItemIndex, start: offset, end: offset }
+                    return true
+                }
+
+                if (node.type === 'table') {
+                    const tableCell = getTableEdgeCellPosition(node, placement === 'start' ? 'next' : 'previous')
+                    if (!tableCell) {
+                        return false
+                    }
+
+                    const offset = offsetForChildren(getTableCellAtPosition(node, tableCell)?.children ?? [])
+                    restoreSelectionRef.current = { nodeId: node.id, tableCell, start: offset, end: offset }
+                    return true
+                }
+
+                return false
+            }
+
+            for (const node of nextNodes.slice(selectionStartIndex)) {
+                if (requestFocusForNode(node, 'start')) {
+                    return
+                }
+            }
+
+            for (const node of nextNodes.slice(0, selectionStartIndex).reverse()) {
+                if (requestFocusForNode(node, 'end')) {
+                    return
+                }
+            }
+        }
+
+        const firstEntry = selectedEntries[0]
+        const lastEntry = selectedEntries[selectedEntries.length - 1]
+        const selectedIndexes = new Set(selectedEntries.map((entry) => entry.index))
+        let replacementNode: NotebookTextBlockNode | null = null
+        let restoreOffset = 0
+
+        if (isTextBlockNode(firstEntry.node)) {
+            const firstBounds = getNormalizedSelectionBounds(firstEntry.node, firstEntry.element)
+            const [beforeSelection] = splitInlineNodesAt(firstEntry.node.children, firstBounds.start)
+            const beforeTextLength = getInlineText(beforeSelection).length
+
+            if (isTextBlockNode(lastEntry.node)) {
+                const lastBounds = getNormalizedSelectionBounds(lastEntry.node, lastEntry.element)
+                const [, afterSelection] = splitInlineNodesAt(lastEntry.node.children, lastBounds.end)
+                const hasRemainingText = firstBounds.start > 0 || lastBounds.end < lastBounds.textLength
+
+                if (hasRemainingText || firstEntry.index === 0) {
+                    replacementNode = {
+                        ...firstEntry.node,
+                        children: normalizeInlineNodes([...beforeSelection, ...afterSelection]),
+                    }
+                    restoreOffset = beforeTextLength
+                }
+            } else if (firstBounds.start > 0 || firstEntry.index === 0) {
+                replacementNode = {
+                    ...firstEntry.node,
+                    children: normalizeInlineNodes(beforeSelection),
+                }
+                restoreOffset = beforeTextLength
+            }
+        } else if (isTextBlockNode(lastEntry.node)) {
+            const lastBounds = getNormalizedSelectionBounds(lastEntry.node, lastEntry.element)
+            const [, afterSelection] = splitInlineNodesAt(lastEntry.node.children, lastBounds.end)
+            if (lastBounds.end < lastBounds.textLength) {
+                replacementNode = {
+                    ...lastEntry.node,
+                    children: normalizeInlineNodes(afterSelection),
+                }
+            }
+        }
+
+        if (!replacementNode && firstEntry.index === 0) {
+            replacementNode = makeEmptyNotebookTitle(`delete-selection-${firstEntry.node.id}`)
+        }
+
+        const replacementNodes = replacementNode ? [replacementNode] : []
+        const nextNodes = nodes.flatMap((node, index) => {
+            if (index === firstEntry.index) {
+                return replacementNodes
+            }
+            return selectedIndexes.has(index) ? [] : [node]
+        })
+
+        if (replacementNode) {
+            restoreSelectionRef.current = {
+                nodeId: replacementNode.id,
+                start: restoreOffset,
+                end: restoreOffset,
+            }
+        } else {
+            requestFocusForDeletedSelection(nextNodes, firstEntry.index)
+        }
+
+        selection.removeAllRanges()
+        setSelectedComponentNodeIds(new Set())
+        floatingToolbarPositionLockRef.current = null
+        setFloatingToolbar(null)
+        commitDocument({
+            ...currentDocument,
+            nodes: nextNodes,
+        })
+        return true
+    }, [commitDocument])
+
+    const splitTextBlockAtCurrentSelection = useCallback((): boolean => {
+        const notebookElement = notebookRef.current
+        if (!notebookElement) {
+            return false
+        }
+
+        const selection = window.getSelection()
+        const inlineEditableElement = getInlineEditableElementForSelection(selection, notebookElement)
+        if (!inlineEditableElement?.classList.contains('MarkdownNotebook__text-block')) {
+            return false
+        }
+
+        const nodeId = inlineEditableElement.dataset.markdownNotebookNodeId
+        if (!nodeId || insertMenu?.nodeId === nodeId) {
+            return false
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+        const node = nodes[nodeIndex]
+        if (!node || !isTextBlockNode(node)) {
+            return false
+        }
+
+        const expandedSelection = getSelectionRange(inlineEditableElement, node.id)
+        const textLength = getInlineText(node.children).length
+        const selectionStart = expandedSelection
+            ? Math.max(0, Math.min(Math.min(expandedSelection.start, expandedSelection.end), textLength))
+            : textLength
+        const selectionEnd = expandedSelection
+            ? Math.max(selectionStart, Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength))
+            : selectionStart
+        const [before, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
+        const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+        let replacementNodes: NotebookBlockNode[]
+
+        if (nodeIndex === 0) {
+            const nextParagraph = makeEmptyParagraph(`after-title-${node.id}`)
+            nextParagraph.children = after
+            replacementNodes = [{ ...node, type: 'heading', level: 1, children: before }, nextParagraph]
+            restoreSelectionRef.current = { nodeId: nextParagraph.id, start: 0, end: 0 }
+        } else if (node.type === 'heading') {
+            if (selectionStart === 0) {
+                const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
+                replacementNodes = [previousParagraph, { ...node, children: after }]
+                restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
+            } else {
+                const nextHeading = { ...node, id: makeEmptyParagraph(`after-${node.id}`).id, children: after }
+                replacementNodes = [{ ...node, children: before }, nextHeading]
+                restoreSelectionRef.current = { nodeId: nextHeading.id, start: 0, end: 0 }
+            }
+        } else {
+            const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
+            nextParagraph.children = after
+            replacementNodes = [{ ...node, children: before }, nextParagraph]
+            restoreSelectionRef.current = { nodeId: nextParagraph.id, start: 0, end: 0 }
+        }
+
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+        })
+        return true
+    }, [commitDocument, insertMenu?.nodeId])
+
+    const deleteTextAtCurrentSelection = useCallback(
+        (direction: 'backward' | 'forward'): boolean => {
+            const notebookElement = notebookRef.current
+            if (!notebookElement) {
+                return false
+            }
+
+            const selection = window.getSelection()
+            const inlineEditableElement = getInlineEditableElementForSelection(selection, notebookElement)
+            if (!inlineEditableElement?.classList.contains('MarkdownNotebook__text-block')) {
+                return false
+            }
+
+            const nodeId = inlineEditableElement.dataset.markdownNotebookNodeId
+            if (!nodeId) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+            const node = nodes[nodeIndex]
+            if (!node || !isTextBlockNode(node)) {
+                return false
+            }
+
+            const expandedSelection = getSelectionRange(inlineEditableElement, node.id)
+            const textLength = getInlineText(node.children).length
+            const selectionStart = expandedSelection
+                ? Math.max(0, Math.min(Math.min(expandedSelection.start, expandedSelection.end), textLength))
+                : textLength
+            const selectionEnd = expandedSelection
+                ? Math.max(
+                      selectionStart,
+                      Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength)
+                  )
+                : selectionStart
+
+            if (selectionStart !== selectionEnd) {
+                const [beforeSelection, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
+                const [, afterSelection] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+                const nextChildren = normalizeInlineNodes([...beforeSelection, ...afterSelection])
+
+                restoreSelectionRef.current = { nodeId: node.id, start: selectionStart, end: selectionStart }
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id && isTextBlockNode(currentNode)
+                            ? { ...currentNode, children: nextChildren }
+                            : currentNode
+                    ),
+                })
+                return true
+            }
+
+            if (direction === 'forward' || selectionStart !== 0 || nodeIndex <= 0) {
+                return false
+            }
+
+            const previousNode = nodes[nodeIndex - 1]
+            if (isTextBlockNode(previousNode)) {
+                const previousTextLength = getInlineText(previousNode.children).length
+                const mergedNode: NotebookTextBlockNode = {
+                    ...previousNode,
+                    children: normalizeInlineNodes([...previousNode.children, ...node.children]),
+                }
+
+                restoreSelectionRef.current = {
+                    nodeId: previousNode.id,
+                    start: previousTextLength,
+                    end: previousTextLength,
+                }
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.flatMap((currentNode, index) => {
+                        if (index === nodeIndex - 1) {
+                            return [mergedNode]
+                        }
+                        if (index === nodeIndex) {
+                            return []
+                        }
+                        return [currentNode]
+                    }),
+                })
+                return true
+            }
+
+            restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.filter((_, index) => index !== nodeIndex - 1),
+            })
+            return true
+        },
+        [commitDocument]
+    )
+
     useEffect(() => {
         const notebookElement = notebookRef.current
         if (!notebookElement) {
@@ -596,6 +869,32 @@ export function MarkdownNotebook({
             }
 
             const nativeEvent = event as InputEvent
+            if (nativeEvent.inputType === 'insertParagraph' && splitTextBlockAtCurrentSelection()) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
+            if (
+                (nativeEvent.inputType === 'deleteContentBackward' ||
+                    nativeEvent.inputType === 'deleteContentForward') &&
+                deleteSelectedNotebookBlocks()
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
+            if (
+                (nativeEvent.inputType === 'deleteContentBackward' ||
+                    nativeEvent.inputType === 'deleteContentForward') &&
+                deleteTextAtCurrentSelection(nativeEvent.inputType === 'deleteContentBackward' ? 'backward' : 'forward')
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
             if (nativeEvent.inputType !== 'historyUndo' && nativeEvent.inputType !== 'historyRedo') {
                 return
             }
@@ -619,16 +918,25 @@ export function MarkdownNotebook({
 
         notebookElement.addEventListener('beforeinput', handleBeforeInput, true)
         return () => notebookElement.removeEventListener('beforeinput', handleBeforeInput, true)
-    }, [mode, redoHistory, undoHistory])
+    }, [
+        deleteSelectedNotebookBlocks,
+        deleteTextAtCurrentSelection,
+        mode,
+        redoHistory,
+        splitTextBlockAtCurrentSelection,
+        undoHistory,
+    ])
 
     const updateNode = useCallback(
         (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null): void => {
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            let didUpdate = false
             const nextNodes = nodes.flatMap((node) => {
-                if (node.id !== nodeId) {
+                if (didUpdate || node.id !== nodeId) {
                     return [node]
                 }
+                didUpdate = true
                 const updatedNode = updater(cloneNotebookNode(node))
                 return updatedNode ? [updatedNode] : []
             })
@@ -664,9 +972,16 @@ export function MarkdownNotebook({
         (nodeId: string, replacementNodes: NotebookBlockNode[]): void => {
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            let didReplace = false
             commitDocument({
                 ...currentDocument,
-                nodes: nodes.flatMap((node) => (node.id === nodeId ? replacementNodes : [node])),
+                nodes: nodes.flatMap((node) => {
+                    if (didReplace || node.id !== nodeId) {
+                        return [node]
+                    }
+                    didReplace = true
+                    return replacementNodes
+                }),
             })
         },
         [commitDocument]
@@ -846,6 +1161,7 @@ export function MarkdownNotebook({
         floatingToolbarPointerAnchorRef.current = null
 
         if (mode !== 'edit') {
+            floatingToolbarPositionLockRef.current = null
             setFloatingToolbar(null)
             return
         }
@@ -855,6 +1171,7 @@ export function MarkdownNotebook({
             if (isFormattingToolbarFocused()) {
                 return
             }
+            floatingToolbarPositionLockRef.current = null
             setFloatingToolbar(null)
             return
         }
@@ -874,6 +1191,7 @@ export function MarkdownNotebook({
             if (isFormattingToolbarFocused()) {
                 return
             }
+            floatingToolbarPositionLockRef.current = null
             setFloatingToolbar(null)
             return
         }
@@ -882,6 +1200,7 @@ export function MarkdownNotebook({
 
         const selectionRect = getSelectionClientRect(domRange)
         if (!selectionRect) {
+            floatingToolbarPositionLockRef.current = null
             setFloatingToolbar(null)
             return
         }
@@ -897,13 +1216,14 @@ export function MarkdownNotebook({
         const toolbarLeft = pointerAnchor
             ? Math.round(pointerAnchor.x)
             : Math.round(selectionRect.left + selectionRect.width / 2)
+        const lockedPosition = floatingToolbarPositionLockRef.current
 
         setFloatingToolbar({
             textRanges,
             selectedMarkdown,
-            placement: shouldPlaceBelow ? 'below' : 'above',
-            top: toolbarTop,
-            left: Math.min(window.innerWidth - 16, Math.max(16, toolbarLeft)),
+            placement: lockedPosition?.placement ?? (shouldPlaceBelow ? 'below' : 'above'),
+            top: lockedPosition?.top ?? toolbarTop,
+            left: lockedPosition?.left ?? Math.min(window.innerWidth - 16, Math.max(16, toolbarLeft)),
         })
     }, [clearFloatingToolbarRevealTimeout, mode])
 
@@ -945,11 +1265,8 @@ export function MarkdownNotebook({
             setFloatingToolbar(null)
             setSelectedComponentNodeIds(new Set())
             clearFloatingToolbarRevealTimeout()
-            clearTouchSelectionDelay(crossBlockSelectionRef.current)
-            crossBlockSelectionRef.current = null
             isTextSelectionPointerActiveRef.current = false
             floatingToolbarRevealAfterRef.current = 0
-            restoreEditableBlocksForCrossBlockSelection()
             return
         }
 
@@ -959,16 +1276,6 @@ export function MarkdownNotebook({
         }
 
         const handleDocumentSelectionChange = (): void => {
-            const selection = window.getSelection()
-            if (
-                crossBlockSelectionEditableStateRef.current &&
-                (!selection ||
-                    selection.rangeCount === 0 ||
-                    selection.isCollapsed ||
-                    !rangeIntersectsNode(selection.getRangeAt(0), notebookElement))
-            ) {
-                restoreEditableBlocksForCrossBlockSelection()
-            }
             if (isTextSelectionPointerActiveRef.current) {
                 setFloatingToolbar(null)
             } else {
@@ -980,15 +1287,11 @@ export function MarkdownNotebook({
         }
 
         const handleDocumentPointerStart = (event: MouseEvent | PointerEvent | TouchEvent): void => {
-            if (!crossBlockSelectionEditableStateRef.current) {
-                return
-            }
-
             if (event.target instanceof HTMLElement && event.target.closest('.MarkdownNotebook__format-toolbar')) {
                 return
             }
 
-            restoreEditableBlocksForCrossBlockSelection()
+            floatingToolbarPositionLockRef.current = null
         }
 
         window.document.addEventListener('selectionchange', handleDocumentSelectionChange)
@@ -1009,7 +1312,6 @@ export function MarkdownNotebook({
     }, [
         mode,
         clearFloatingToolbarRevealTimeout,
-        restoreEditableBlocksForCrossBlockSelection,
         scheduleFloatingToolbarUpdateFromSelection,
         updateSelectedComponentBlocksFromSelection,
     ])
@@ -1060,8 +1362,6 @@ export function MarkdownNotebook({
 
     useEffect(() => {
         if (mode !== 'edit') {
-            clearTouchSelectionDelay(crossBlockSelectionRef.current)
-            crossBlockSelectionRef.current = null
             isTextSelectionPointerActiveRef.current = false
             floatingToolbarRevealAfterRef.current = 0
             textSelectionPointerStateRef.current = null
@@ -1069,160 +1369,64 @@ export function MarkdownNotebook({
             return
         }
 
-        const updateCrossBlockSelectionDrag = (
-            clientX: number,
-            clientY: number,
-            preventDefault: () => void
-        ): boolean => {
-            const dragState = crossBlockSelectionRef.current
-            const notebookElement = notebookRef.current
-            if (!dragState || !notebookElement) {
-                return false
-            }
-
-            updateTextSelectionPointerPoint(clientX, clientY)
-            const distance = Math.hypot(clientX - dragState.originX, clientY - dragState.originY)
-            if (distance < CROSS_BLOCK_SELECTION_DRAG_THRESHOLD) {
-                return false
-            }
-
-            let focusRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
-            if (!focusRange) {
-                return false
-            }
-
-            const focusEditableElement = getEditableBlockElementForRange(focusRange)
-            const isSameEditableElement =
-                dragState.anchorEditableElement && focusEditableElement === dragState.anchorEditableElement
-
-            dragState.isDragging = true
-            if (!isSameEditableElement && !crossBlockSelectionEditableStateRef.current) {
-                const shouldRecalculateFocusRangeAfterDisabling =
-                    !focusEditableElement || focusEditableElement === dragState.anchorEditableElement
-                disableEditableBlocksForCrossBlockSelection()
-                if (shouldRecalculateFocusRangeAfterDisabling) {
-                    focusRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
-                    if (!focusRange) {
-                        dragState.isDragging = false
-                        restoreEditableBlocksForCrossBlockSelection()
-                        return false
-                    }
-                }
-            }
-            preventDefault()
-            selectBetweenRanges(dragState.anchorRange, focusRange)
-            setFloatingToolbar(null)
-            updateSelectedComponentBlocksFromSelection()
-            return true
-        }
-
         const handleMouseMove = (event: MouseEvent): void => {
-            const dragState = crossBlockSelectionRef.current
-            if (!dragState || dragState.source !== 'mouse') {
-                return
+            if (isTextSelectionPointerActiveRef.current) {
+                updateTextSelectionPointerPoint(event.clientX, event.clientY)
             }
-
-            updateCrossBlockSelectionDrag(event.clientX, event.clientY, () => event.preventDefault())
         }
 
         const handleMouseUp = (event: MouseEvent): void => {
-            const dragState = crossBlockSelectionRef.current
-            if (!dragState && !isTextSelectionPointerActiveRef.current) {
-                return
-            }
-            if (dragState && dragState.source !== 'mouse') {
+            if (!isTextSelectionPointerActiveRef.current) {
                 return
             }
 
-            clearTouchSelectionDelay(dragState)
-            crossBlockSelectionRef.current = null
             finishTextSelectionPointer(event.clientX, event.clientY)
-            if (dragState?.isDragging) {
-                updateSelectedComponentBlocksFromSelection()
-            }
         }
 
         const handlePointerMove = (event: PointerEvent): void => {
-            const dragState = crossBlockSelectionRef.current
-            if (!dragState || dragState.source !== 'pointer' || dragState.pointerId !== event.pointerId) {
-                return
+            if (isTextSelectionPointerActiveRef.current) {
+                updateTextSelectionPointerPoint(event.clientX, event.clientY)
             }
-
-            updateCrossBlockSelectionDrag(event.clientX, event.clientY, () => event.preventDefault())
         }
 
         const handlePointerEnd = (event: PointerEvent): void => {
-            const dragState = crossBlockSelectionRef.current
-            if (!dragState || dragState.source !== 'pointer' || dragState.pointerId !== event.pointerId) {
+            if (!isTextSelectionPointerActiveRef.current) {
                 return
             }
 
-            crossBlockSelectionRef.current = null
             finishTextSelectionPointer(event.clientX, event.clientY)
-            if (dragState.isDragging) {
-                updateSelectedComponentBlocksFromSelection()
-            }
         }
 
         const handleTouchMove = (event: TouchEvent): void => {
-            const dragState = crossBlockSelectionRef.current
-            if (!dragState || dragState.source !== 'touch') {
+            if (!isTextSelectionPointerActiveRef.current) {
                 return
             }
 
-            const touch = getTouchByIdentifier(event.touches, dragState.touchIdentifier)
-            if (!touch) {
-                return
+            const touch = event.touches[0]
+            if (touch) {
+                updateTextSelectionPointerPoint(touch.clientX, touch.clientY)
             }
-
-            updateTextSelectionPointerPoint(touch.clientX, touch.clientY)
-            if (!dragState.isTouchSelectionReady) {
-                const distance = Math.hypot(touch.clientX - dragState.originX, touch.clientY - dragState.originY)
-                if (distance >= TOUCH_SCROLL_CANCEL_THRESHOLD) {
-                    clearTouchSelectionDelay(dragState)
-                    crossBlockSelectionRef.current = null
-                    textSelectionPointerStateRef.current = null
-                    floatingToolbarPointerAnchorRef.current = null
-                    isTextSelectionPointerActiveRef.current = false
-                }
-                return
-            }
-
-            updateCrossBlockSelectionDrag(touch.clientX, touch.clientY, () => event.preventDefault())
         }
 
         const handleTouchEnd = (event: TouchEvent): void => {
-            const dragState = crossBlockSelectionRef.current
-            if (!dragState || dragState.source !== 'touch') {
+            if (!isTextSelectionPointerActiveRef.current) {
                 return
             }
 
-            if (!hasTouchWithIdentifier(event.changedTouches, dragState.touchIdentifier) && event.touches.length > 0) {
-                return
-            }
-
-            clearTouchSelectionDelay(dragState)
-            crossBlockSelectionRef.current = null
-            const changedTouch = getTouchByIdentifier(event.changedTouches, dragState.touchIdentifier)
+            const changedTouch = event.changedTouches[0]
             finishTextSelectionPointer(changedTouch?.clientX, changedTouch?.clientY)
-            if (dragState.isDragging) {
-                updateSelectedComponentBlocksFromSelection()
-            }
         }
-
-        const touchMoveOptions: AddEventListenerOptions = { capture: true, passive: false }
 
         window.document.addEventListener('mousemove', handleMouseMove, true)
         window.document.addEventListener('mouseup', handleMouseUp)
         window.document.addEventListener('pointermove', handlePointerMove, true)
         window.document.addEventListener('pointerup', handlePointerEnd, true)
         window.document.addEventListener('pointercancel', handlePointerEnd, true)
-        window.document.addEventListener('touchmove', handleTouchMove, touchMoveOptions)
+        window.document.addEventListener('touchmove', handleTouchMove, true)
         window.document.addEventListener('touchend', handleTouchEnd, true)
         window.document.addEventListener('touchcancel', handleTouchEnd, true)
 
         return () => {
-            clearTouchSelectionDelay(crossBlockSelectionRef.current)
             window.document.removeEventListener('mousemove', handleMouseMove, true)
             window.document.removeEventListener('mouseup', handleMouseUp)
             window.document.removeEventListener('pointermove', handlePointerMove, true)
@@ -1232,78 +1436,35 @@ export function MarkdownNotebook({
             window.document.removeEventListener('touchend', handleTouchEnd, true)
             window.document.removeEventListener('touchcancel', handleTouchEnd, true)
         }
-    }, [
-        disableEditableBlocksForCrossBlockSelection,
-        finishTextSelectionPointer,
-        mode,
-        restoreEditableBlocksForCrossBlockSelection,
-        updateSelectedComponentBlocksFromSelection,
-        updateTextSelectionPointerPoint,
-    ])
+    }, [finishTextSelectionPointer, mode, updateTextSelectionPointerPoint])
 
-    const beginCrossBlockSelection = (
-        clientX: number,
-        clientY: number,
-        currentTarget: HTMLElement,
-        source: CrossBlockSelectionDragState['source'],
-        options: Pick<CrossBlockSelectionDragState, 'pointerId' | 'touchIdentifier'> = {}
-    ): void => {
-        const notebookElement = notebookRef.current
-        if (mode !== 'edit' || !notebookElement) {
+    const startTextSelectionPointer = (event: TextSelectionPointerStartEvent): void => {
+        if (mode !== 'edit') {
             return
         }
 
-        const anchorEditableElement = getClosestEditableBlockElement(currentTarget)
-        const anchorRange =
-            (anchorEditableElement ? getEditableCaretRangeFromPoint(clientX, clientY, anchorEditableElement) : null) ??
-            getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
-        if (!anchorRange) {
-            return
+        const beginTextSelectionPointer = (clientX: number, clientY: number): void => {
+            clearFloatingToolbarRevealTimeout()
+            isTextSelectionPointerActiveRef.current = true
+            floatingToolbarRevealAfterRef.current = 0
+            textSelectionPointerStateRef.current = {
+                originX: clientX,
+                originY: clientY,
+                lastX: clientX,
+                lastY: clientY,
+            }
+            floatingToolbarPointerAnchorRef.current = null
+            floatingToolbarPositionLockRef.current = null
+            setFloatingToolbar(null)
         }
 
-        clearTouchSelectionDelay(crossBlockSelectionRef.current)
-        clearFloatingToolbarRevealTimeout()
-        isTextSelectionPointerActiveRef.current = true
-        floatingToolbarRevealAfterRef.current = 0
-        textSelectionPointerStateRef.current = { originX: clientX, originY: clientY, lastX: clientX, lastY: clientY }
-        floatingToolbarPointerAnchorRef.current = null
-        setFloatingToolbar(null)
-
-        const dragState: CrossBlockSelectionDragState = {
-            anchorRange: anchorRange.cloneRange(),
-            anchorEditableElement,
-            originX: clientX,
-            originY: clientY,
-            source,
-            ...options,
-            isDragging: false,
-        }
-
-        crossBlockSelectionRef.current = dragState
-
-        if (source === 'touch') {
-            dragState.isTouchSelectionReady = false
-            dragState.touchSelectionDelayTimeout = window.setTimeout(() => {
-                if (crossBlockSelectionRef.current !== dragState) {
-                    return
-                }
-
-                dragState.isTouchSelectionReady = true
-                dragState.touchSelectionDelayTimeout = undefined
-            }, TOUCH_CROSS_BLOCK_SELECTION_DELAY_MS)
-        }
-    }
-
-    const startCrossBlockSelection = (event: CrossBlockSelectionStartEvent): void => {
         if ('touches' in event) {
             if (event.touches.length !== 1) {
                 return
             }
 
             const touch = event.touches[0]
-            beginCrossBlockSelection(touch.clientX, touch.clientY, event.currentTarget, 'touch', {
-                touchIdentifier: touch.identifier,
-            })
+            beginTextSelectionPointer(touch.clientX, touch.clientY)
             return
         }
 
@@ -1312,9 +1473,7 @@ export function MarkdownNotebook({
                 return
             }
 
-            beginCrossBlockSelection(event.clientX, event.clientY, event.currentTarget, 'pointer', {
-                pointerId: event.pointerId,
-            })
+            beginTextSelectionPointer(event.clientX, event.clientY)
             return
         }
 
@@ -1322,7 +1481,7 @@ export function MarkdownNotebook({
             return
         }
 
-        beginCrossBlockSelection(event.clientX, event.clientY, event.currentTarget, 'mouse')
+        beginTextSelectionPointer(event.clientX, event.clientY)
     }
 
     const copyMarkdownToNotebookClipboard = (markdown: string): void => {
@@ -1354,6 +1513,22 @@ export function MarkdownNotebook({
             return
         }
 
+        const notebookElement = notebookRef.current
+        const markdown = notebookElement
+            ? getSelectedNotebookMarkdown(
+                  selection,
+                  notebookElement,
+                  documentRef.current.nodes,
+                  blockRefs.current,
+                  listItemRefs.current
+              )
+            : null
+        if (markdown) {
+            event.preventDefault()
+            setClipboardMarkdown(event.clipboardData, markdown)
+            return
+        }
+
         const focusedComponentNode = getFocusedComponentNode(
             window.document.activeElement,
             documentRef.current.nodes,
@@ -1366,23 +1541,6 @@ export function MarkdownNotebook({
             setClipboardMarkdown(event.clipboardData, markdown)
             return
         }
-
-        const notebookElement = notebookRef.current
-        const markdown = notebookElement
-            ? getSelectedNotebookMarkdown(
-                  selection,
-                  notebookElement,
-                  documentRef.current.nodes,
-                  blockRefs.current,
-                  listItemRefs.current
-              )
-            : null
-        if (!markdown) {
-            return
-        }
-
-        event.preventDefault()
-        setClipboardMarkdown(event.clipboardData, markdown)
     }
 
     const handleNotebookPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
@@ -1416,31 +1574,48 @@ export function MarkdownNotebook({
     const handleDebugMarkdownChange = (event: ReactChangeEvent<HTMLTextAreaElement>): void => {
         const nextMarkdown = event.currentTarget.value
         const nextDocument = parseMarkdownNotebook(nextMarkdown)
-        const reconciledDocument = ensureEditableTrailingParagraph(
+        const reconciledDocument = ensureEditableNotebookDocument(
             reconcileNotebookDocuments(documentRef.current, nextDocument).document
         )
+        const serialized = serializeMarkdownNotebook(reconciledDocument)
 
         documentRef.current = reconciledDocument
-        lastSerializedValueRef.current = nextMarkdown
-        lastBaseValueRef.current = nextMarkdown
-        setDebugMarkdown(nextMarkdown)
+        lastSerializedValueRef.current = serialized
+        lastBaseValueRef.current = serialized
+        setDebugMarkdown(serialized)
         setDocument(reconciledDocument)
-        onChange?.(nextMarkdown)
+        onChange?.(serialized)
     }
 
-    const updateSelectedTextRanges = (
+    const getCurrentSelectionTextRanges = (): FloatingToolbarTextRange[] => {
+        const notebookElement = notebookRef.current
+        const selection = window.getSelection()
+        if (!notebookElement || !selection || selection.rangeCount === 0) {
+            return []
+        }
+
+        const range = selection.getRangeAt(0)
+        if (!rangeIntersectsNode(range, notebookElement)) {
+            return []
+        }
+
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        return getSelectedTextRanges(selection, nodes, blockRefs.current)
+    }
+
+    const updateTextRanges = (
+        activeTextRanges: FloatingToolbarTextRange[] | null | undefined,
         updater: (children: NotebookInlineNode[], range: NotebookTextSelectionRange) => NotebookInlineNode[]
-    ): void => {
-        const activeTextRanges = floatingToolbar?.textRanges
+    ): boolean => {
         if (!activeTextRanges?.length) {
-            return
+            return false
         }
 
         const rangesByNodeId = new Map(activeTextRanges.map(({ range }) => [range.nodeId, range]))
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
-        restoreSelectionRef.current = activeTextRanges[0].range
+        restoreSelectionRef.current = { textRanges: activeTextRanges.map(({ range }) => range) }
         commitDocument({
             ...currentDocument,
             nodes: nodes.map((node) => {
@@ -1454,14 +1629,43 @@ export function MarkdownNotebook({
                 }
             }),
         })
+        return true
     }
 
-    const applyInlineMark = (markType: NotebookInlineMark['type']): void => {
-        updateSelectedTextRanges((children, range) => toggleInlineMark(children, range, markType))
+    const updateSelectedTextRanges = (
+        updater: (children: NotebookInlineNode[], range: NotebookTextSelectionRange) => NotebookInlineNode[]
+    ): boolean => {
+        return updateTextRanges(floatingToolbar?.textRanges, updater)
+    }
+
+    const applyInlineMark = (
+        markType: NotebookInlineMark['type'],
+        activeTextRanges: FloatingToolbarTextRange[] | null | undefined = floatingToolbar?.textRanges
+    ): boolean => {
+        if (!activeTextRanges?.length) {
+            return false
+        }
+
+        const currentNodesById = new Map(
+            (documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current])
+                .filter(isTextBlockNode)
+                .map((node) => [node.id, node])
+        )
+        const currentTextRanges =
+            activeTextRanges?.map(({ node, range }) => ({
+                node: currentNodesById.get(node.id) ?? node,
+                range,
+            })) ?? []
+        const shouldApplyMark = !areSelectedTextRangesFullyMarked(currentTextRanges, markType)
+
+        return updateTextRanges(currentTextRanges, (children, range) =>
+            setInlineMark(children, range, markType, shouldApplyMark)
+        )
     }
 
     const applyInlineLink = (href: string | null): void => {
         updateSelectedTextRanges((children, range) => setInlineLinkMark(children, range, href))
+        floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
     }
 
@@ -1475,6 +1679,7 @@ export function MarkdownNotebook({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
+        restoreSelectionRef.current = { textRanges: activeTextRanges.map(({ range }) => range) }
         commitDocument({
             ...currentDocument,
             nodes: nodes.map((node) => {
@@ -1509,6 +1714,7 @@ export function MarkdownNotebook({
             insertionPlaceholder
         )
 
+        floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
         onAskAI({
             query: getAskAISelectionQuery(floatingToolbar.selectedMarkdown),
@@ -1586,10 +1792,14 @@ export function MarkdownNotebook({
     }, [insertMenu])
 
     const insertEmptyParagraphAtBoundary = (boundaryIndex: number): void => {
+        if (boundaryIndex <= 0) {
+            return
+        }
+
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes
         const insertedNode = makeEmptyParagraph(`boundary-${String(boundaryIndex)}`)
-        const clampedBoundaryIndex = Math.max(0, Math.min(boundaryIndex, nodes.length))
+        const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
 
         commitDocument({
             ...currentDocument,
@@ -1945,6 +2155,37 @@ export function MarkdownNotebook({
         [moveFocusToAdjacentNode]
     )
 
+    const selectNotebookContents = (): boolean => {
+        const canvasElement = canvasRef.current
+        const selection = window.getSelection()
+        if (!canvasElement || !selection) {
+            return false
+        }
+
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const firstNode = nodes.find((node) => blockRefs.current[node.id])
+        const lastNode = [...nodes].reverse().find((node) => blockRefs.current[node.id])
+        if (!firstNode || !lastNode) {
+            return false
+        }
+
+        const firstElement = blockRefs.current[firstNode.id]
+        const lastElement = blockRefs.current[lastNode.id]
+        if (!firstElement || !lastElement) {
+            return false
+        }
+
+        const range = canvasElement.ownerDocument.createRange()
+        setNotebookSelectionStart(range, firstNode, firstElement)
+        setNotebookSelectionEnd(range, lastNode, lastElement)
+        selection.removeAllRanges()
+        selection.addRange(range)
+
+        setSelectedComponentNodeIds(getSelectedComponentNodeIds(selection, nodes, blockRefs.current))
+        scheduleFloatingToolbarUpdateFromSelection()
+        return true
+    }
+
     const handleNotebookKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || event.altKey || !(event.metaKey || event.ctrlKey)) {
             return
@@ -1958,6 +2199,37 @@ export function MarkdownNotebook({
         }
 
         const key = event.key.toLowerCase()
+        const inlineMarkShortcuts: Partial<Record<string, NotebookInlineMark['type']>> = {
+            b: 'bold',
+            i: 'italic',
+            u: 'underline',
+        }
+
+        if (!event.shiftKey && key === 'a') {
+            if (insertMenu) {
+                return
+            }
+
+            if (selectNotebookContents()) {
+                event.preventDefault()
+                event.stopPropagation()
+            }
+            return
+        }
+
+        const inlineMarkType = event.shiftKey ? null : inlineMarkShortcuts[key]
+        if (inlineMarkType) {
+            if (insertMenu) {
+                return
+            }
+
+            if (applyInlineMark(inlineMarkType, getCurrentSelectionTextRanges())) {
+                event.preventDefault()
+                event.stopPropagation()
+            }
+            return
+        }
+
         const focusedComponentNode = getFocusedComponentNode(
             window.document.activeElement,
             documentRef.current.nodes,
@@ -2064,6 +2336,162 @@ export function MarkdownNotebook({
         setActiveBoundaryIndex(null)
     }
 
+    const handleRootEditableInput = (event: FormEvent<HTMLDivElement>): void => {
+        if (event.target !== event.currentTarget) {
+            return
+        }
+
+        const inlineEditableElement = getInlineEditableElementForSelection(window.getSelection(), event.currentTarget)
+        if (!inlineEditableElement) {
+            return
+        }
+
+        const nodeId = inlineEditableElement.dataset.markdownNotebookNodeId
+        if (!nodeId) {
+            return
+        }
+
+        const nextChildren = htmlElementToInlineNodes(inlineEditableElement)
+        if (inlineEditableElement.classList.contains('MarkdownNotebook__text-block')) {
+            const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+            const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+            const node = nodes[nodeIndex]
+            const nextText = getInlineText(nextChildren)
+            const slashQuery = getSlashCommandQuery(nextText)
+            if (nodeIndex > 0 && node && isTextBlockNode(node) && slashQuery !== null) {
+                const queryChildren: NotebookInlineNode[] = slashQuery ? [{ type: 'text', text: slashQuery }] : []
+                const nextHtml = inlineNodesToHtml(queryChildren)
+                if (inlineEditableElement.innerHTML !== nextHtml) {
+                    inlineEditableElement.innerHTML = nextHtml
+                }
+                restoreSelection(
+                    inlineEditableElement,
+                    getInlineText(queryChildren).length,
+                    getInlineText(queryChildren).length
+                )
+                updateNode(nodeId, (currentNode) => {
+                    if (!isTextBlockNode(currentNode)) {
+                        return currentNode
+                    }
+                    return { ...currentNode, children: queryChildren }
+                })
+                openInsertMenu(nodeId, slashQuery)
+                return
+            }
+
+            updateNode(nodeId, (currentNode) => {
+                if (!isTextBlockNode(currentNode)) {
+                    return currentNode
+                }
+                return { ...currentNode, children: nextChildren }
+            })
+            if (insertMenu?.nodeId === nodeId && insertMenu.mode === 'tools') {
+                openInsertMenu(nodeId, nextText)
+            } else if (insertMenu?.nodeId === nodeId && insertMenu.mode === 'ai') {
+                updateAIPromptQuery(nodeId, nextText)
+            }
+            return
+        }
+
+        if (inlineEditableElement.classList.contains('MarkdownNotebook__list-item-content')) {
+            const itemIndex = Number(inlineEditableElement.dataset.markdownNotebookListItemIndex)
+            if (!Number.isInteger(itemIndex)) {
+                return
+            }
+
+            updateNode(nodeId, (currentNode) => {
+                if (currentNode.type !== 'list') {
+                    return currentNode
+                }
+                return {
+                    ...currentNode,
+                    items: currentNode.items.map((item, index) =>
+                        index === itemIndex ? { ...item, children: nextChildren } : item
+                    ),
+                }
+            })
+            return
+        }
+
+        if (inlineEditableElement.classList.contains('MarkdownNotebook__table-cell-content')) {
+            const section = inlineEditableElement.dataset.markdownNotebookTableSection
+            const rowIndex = Number(inlineEditableElement.dataset.markdownNotebookTableRowIndex)
+            const columnIndex = Number(inlineEditableElement.dataset.markdownNotebookTableColumnIndex)
+            if (
+                (section !== 'header' && section !== 'body') ||
+                !Number.isInteger(rowIndex) ||
+                !Number.isInteger(columnIndex)
+            ) {
+                return
+            }
+
+            updateNode(nodeId, (currentNode) => {
+                if (currentNode.type !== 'table') {
+                    return currentNode
+                }
+
+                const columnCount = getTableColumnCount(currentNode)
+                if (section === 'header') {
+                    const nextHeaders = normalizeTableRow(currentNode.headers, columnCount)
+                    nextHeaders[columnIndex] = { children: nextChildren }
+                    return { ...currentNode, headers: nextHeaders }
+                }
+
+                const nextRows = currentNode.rows.map((row) => normalizeTableRow(row, columnCount))
+                const nextRow = nextRows[rowIndex] ?? makeEmptyTableRow(columnCount)
+                nextRow[columnIndex] = { children: nextChildren }
+                nextRows[rowIndex] = nextRow
+                return { ...currentNode, rows: nextRows }
+            })
+        }
+    }
+
+    const handleRootEditableKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (
+            mode === 'edit' &&
+            event.target === event.currentTarget &&
+            (event.key === 'Backspace' || event.key === 'Delete') &&
+            !event.shiftKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            deleteSelectedNotebookBlocks()
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
+        if (
+            mode !== 'edit' ||
+            event.target !== event.currentTarget ||
+            event.key !== 'Enter' ||
+            event.shiftKey ||
+            event.altKey ||
+            event.metaKey ||
+            event.ctrlKey
+        ) {
+            return
+        }
+
+        if (splitTextBlockAtCurrentSelection()) {
+            event.preventDefault()
+            event.stopPropagation()
+        }
+    }
+
+    const lockFloatingToolbarPosition = (): void => {
+        if (!floatingToolbar) {
+            return
+        }
+
+        floatingToolbarPositionLockRef.current = {
+            placement: floatingToolbar.placement,
+            top: floatingToolbar.top,
+            left: floatingToolbar.left,
+        }
+    }
+
     return (
         <div
             className={clsx('MarkdownNotebook', isDebugOpen && 'MarkdownNotebook--debug-open', className)}
@@ -2096,7 +2524,16 @@ export function MarkdownNotebook({
                             ))}
                         </div>
                     ) : null}
-                    <div className="MarkdownNotebook__canvas" ref={canvasRef} onMouseLeave={handleCanvasMouseLeave}>
+                    <div
+                        className="MarkdownNotebook__canvas"
+                        ref={canvasRef}
+                        contentEditable={mode === 'edit'}
+                        suppressContentEditableWarning
+                        data-markdown-notebook-editor
+                        onInput={handleRootEditableInput}
+                        onKeyDown={handleRootEditableKeyDown}
+                        onMouseLeave={handleCanvasMouseLeave}
+                    >
                         {showInsertBoundaries ? (
                             <InsertBoundaryButton
                                 boundaryIndex={0}
@@ -2113,12 +2550,14 @@ export function MarkdownNotebook({
                             />
                         ) : null}
                         {renderedNodes.map((node, index) => {
+                            const isTitleRow = index === 0
                             const isInsertMenuOpen = insertMenu?.nodeId === node.id
                             const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
                             const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
                             const isAIPromptOpen = isInsertMenuOpen && insertMenuMode === 'ai'
                             const isAIThinking = isInsertMenuOpen && insertMenuMode === 'thinking'
                             const shouldShowInlineInsertMenuButton =
+                                !isTitleRow &&
                                 !isAIThinking &&
                                 (isBlankInsertMenuButtonRow(node) ||
                                     ((isToolInsertMenuOpen || isAIPromptOpen) && isTextBlockNode(node)))
@@ -2240,14 +2679,17 @@ export function MarkdownNotebook({
                                     >
                                         {renderNode({
                                             node,
+                                            nodeIndex: index,
                                             mode,
-                                            placeholder: isToolInsertMenuOpen
-                                                ? INSERT_MENU_PLACEHOLDER
-                                                : isAIPromptOpen
-                                                  ? ''
-                                                  : node.id === placeholderNodeId
-                                                    ? placeholder
-                                                    : undefined,
+                                            placeholder: isTitleRow
+                                                ? NOTEBOOK_TITLE_PLACEHOLDER
+                                                : isToolInsertMenuOpen
+                                                  ? INSERT_MENU_PLACEHOLDER
+                                                  : isAIPromptOpen
+                                                    ? ''
+                                                    : node.id === placeholderNodeId
+                                                      ? placeholder
+                                                      : undefined,
                                             registry: mergedRegistry,
                                             componentPanels:
                                                 componentPanels[node.id] ?? DEFAULT_COMPONENT_PANEL_VISIBILITY,
@@ -2285,6 +2727,7 @@ export function MarkdownNotebook({
                                                 requestFocusAfterRemovingNode(node.id)
                                                 updateNode(node.id, () => null)
                                             },
+                                            deleteSelectedNotebookBlocks,
                                             insertParagraphAfterNode: () => insertEmptyParagraphAfterNode(node.id),
                                             deleteNodeBefore,
                                             moveFocusToAdjacentNode,
@@ -2331,7 +2774,7 @@ export function MarkdownNotebook({
                                             submitInsertMenuSelection,
                                             submitAIPrompt,
                                             handleSelectionChange,
-                                            startCrossBlockSelection,
+                                            startTextSelectionPointer,
                                             restoreSelectionRef,
                                         })}
                                         {isToolInsertMenuOpen ? (
@@ -2370,7 +2813,7 @@ export function MarkdownNotebook({
                     </div>
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar
-                            node={floatingToolbar.textRanges[0].node}
+                            selectedBlockStyle={getSelectedTextBlockStyle(floatingToolbar.textRanges)}
                             placement={floatingToolbar.placement}
                             top={floatingToolbar.top}
                             left={floatingToolbar.left}
@@ -2387,6 +2830,7 @@ export function MarkdownNotebook({
                             initialLinkEditorOpen={floatingToolbar.isLinkEditorOpen ?? false}
                             setBlockStyle={setSelectedBlockStyle}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
+                            lockPosition={lockFloatingToolbarPosition}
                         />
                     ) : null}
                 </div>
@@ -2413,6 +2857,7 @@ export function MarkdownNotebook({
 
 function renderNode({
     node,
+    nodeIndex,
     mode,
     placeholder,
     registry,
@@ -2428,6 +2873,7 @@ function renderNode({
     replaceNodeWithNodes,
     deleteNode,
     deleteNodeAndFocusAdjacent,
+    deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
     deleteNodeBefore,
     moveFocusToAdjacentNode,
@@ -2447,10 +2893,11 @@ function renderNode({
     submitInsertMenuSelection,
     submitAIPrompt,
     handleSelectionChange,
-    startCrossBlockSelection,
+    startTextSelectionPointer,
     restoreSelectionRef,
 }: {
     node: NotebookBlockNode
+    nodeIndex: number
     mode: NotebookMode
     placeholder: string | undefined
     registry: NotebookComponentRegistry
@@ -2466,6 +2913,7 @@ function renderNode({
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
     deleteNodeAndFocusAdjacent: () => void
+    deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
     deleteNodeBefore: (nodeId: string) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
@@ -2495,7 +2943,7 @@ function renderNode({
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     if (node.type === 'component') {
@@ -2510,6 +2958,7 @@ function renderNode({
                 setBlockRef={setBlockRef}
                 updateNode={updateNode}
                 deleteNode={deleteNode}
+                deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                 insertParagraphAfterNode={insertParagraphAfterNode}
                 moveFocusToAdjacentNode={moveFocusToAdjacentNode}
             />
@@ -2528,7 +2977,7 @@ function renderNode({
                 deleteNodeBefore={deleteNodeBefore}
                 moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
                 handleSelectionChange={handleSelectionChange}
-                startCrossBlockSelection={startCrossBlockSelection}
+                startTextSelectionPointer={startTextSelectionPointer}
                 restoreSelectionRef={restoreSelectionRef}
             />
         )
@@ -2545,7 +2994,7 @@ function renderNode({
                 updateNode={updateNode}
                 moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
                 handleSelectionChange={handleSelectionChange}
-                startCrossBlockSelection={startCrossBlockSelection}
+                startTextSelectionPointer={startTextSelectionPointer}
                 restoreSelectionRef={restoreSelectionRef}
             />
         )
@@ -2553,7 +3002,7 @@ function renderNode({
 
     if (node.type === 'code') {
         return (
-            <pre className="MarkdownNotebook__code-block" ref={setBlockRef}>
+            <pre className="MarkdownNotebook__code-block" ref={setBlockRef} contentEditable={false}>
                 <code>{node.text}</code>
             </pre>
         )
@@ -2562,6 +3011,7 @@ function renderNode({
     return (
         <EditableTextBlock
             node={node}
+            isTitleBlock={nodeIndex === 0}
             mode={mode}
             placeholder={placeholder}
             setBlockRef={setBlockRef}
@@ -2569,6 +3019,7 @@ function renderNode({
             updateNode={updateNode}
             replaceNodeWithNodes={replaceNodeWithNodes}
             deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
+            deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
             deleteNodeBefore={deleteNodeBefore}
             moveFocusToAdjacentNode={moveFocusToAdjacentNode}
             openInsertMenu={openInsertMenu}
@@ -2585,7 +3036,7 @@ function renderNode({
             submitInsertMenuSelection={submitInsertMenuSelection}
             submitAIPrompt={submitAIPrompt}
             handleSelectionChange={handleSelectionChange}
-            startCrossBlockSelection={startCrossBlockSelection}
+            startTextSelectionPointer={startTextSelectionPointer}
             restoreSelectionRef={restoreSelectionRef}
         />
     )
@@ -2601,7 +3052,7 @@ function EditableListBlock({
     deleteNodeBefore,
     moveFocusToAdjacentListItem,
     handleSelectionChange,
-    startCrossBlockSelection,
+    startTextSelectionPointer,
     restoreSelectionRef,
 }: {
     node: NotebookListBlockNode
@@ -2618,7 +3069,7 @@ function EditableListBlock({
         offset: number
     ) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const renderedItems = useMemo(() => buildRenderedListItems(node.items), [node.items])
@@ -2749,7 +3200,7 @@ function EditableListBlock({
                                 deleteNodeBefore={deleteNodeBefore}
                                 moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
                                 handleSelectionChange={handleSelectionChange}
-                                startCrossBlockSelection={startCrossBlockSelection}
+                                startTextSelectionPointer={startTextSelectionPointer}
                                 restoreSelectionRef={restoreSelectionRef}
                             />
                             {item.childrenItems.length
@@ -2781,7 +3232,7 @@ function EditableListItemContent({
     deleteNodeBefore,
     moveFocusToAdjacentListItem,
     handleSelectionChange,
-    startCrossBlockSelection,
+    startTextSelectionPointer,
     restoreSelectionRef,
 }: {
     node: NotebookListBlockNode
@@ -2800,7 +3251,7 @@ function EditableListItemContent({
         offset: number
     ) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLDivElement | null>(null)
@@ -2959,14 +3410,16 @@ function EditableListItemContent({
         <div
             ref={setElementRef}
             className="MarkdownNotebook__list-item-content"
+            data-markdown-notebook-node-id={node.id}
+            data-markdown-notebook-list-item-index={item.index}
             contentEditable={mode === 'edit'}
             suppressContentEditableWarning
             onInput={handleInput}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
-            onMouseDown={startCrossBlockSelection}
-            onPointerDown={startCrossBlockSelection}
-            onTouchStart={startCrossBlockSelection}
+            onMouseDown={startTextSelectionPointer}
+            onPointerDown={startTextSelectionPointer}
+            onTouchStart={startTextSelectionPointer}
             onMouseUp={handleSelectionChange}
             onKeyUp={handleSelectionChange}
         />
@@ -3036,7 +3489,7 @@ function EditableTableBlock({
     updateNode,
     moveFocusToAdjacentTableCell,
     handleSelectionChange,
-    startCrossBlockSelection,
+    startTextSelectionPointer,
     restoreSelectionRef,
 }: {
     node: NotebookTableBlockNode
@@ -3052,7 +3505,7 @@ function EditableTableBlock({
         offset: number
     ) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const columnCount = getTableColumnCount(node)
@@ -3384,7 +3837,7 @@ function EditableTableBlock({
                                             moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
                                             handleTableCellEnter={handleTableCellEnter}
                                             handleSelectionChange={handleSelectionChange}
-                                            startCrossBlockSelection={startCrossBlockSelection}
+                                            startTextSelectionPointer={startTextSelectionPointer}
                                             restoreSelectionRef={restoreSelectionRef}
                                         />
                                     </th>
@@ -3406,7 +3859,7 @@ function EditableTableBlock({
                                                 moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
                                                 handleTableCellEnter={handleTableCellEnter}
                                                 handleSelectionChange={handleSelectionChange}
-                                                startCrossBlockSelection={startCrossBlockSelection}
+                                                startTextSelectionPointer={startTextSelectionPointer}
                                                 restoreSelectionRef={restoreSelectionRef}
                                             />
                                         </td>
@@ -3416,7 +3869,7 @@ function EditableTableBlock({
                         </tbody>
                     </table>
                     {mode === 'edit' ? (
-                        <div className="MarkdownNotebook__table-structure-overlay">
+                        <div className="MarkdownNotebook__table-structure-overlay" contentEditable={false}>
                             {rowInsertControls.map((control) => (
                                 <div
                                     className="MarkdownNotebook__table-add-zone MarkdownNotebook__table-row-add-zone"
@@ -3547,7 +4000,7 @@ function EditableTableCellContent({
     moveFocusToAdjacentTableCell,
     handleTableCellEnter,
     handleSelectionChange,
-    startCrossBlockSelection,
+    startTextSelectionPointer,
     restoreSelectionRef,
 }: {
     node: NotebookTableBlockNode
@@ -3564,7 +4017,7 @@ function EditableTableCellContent({
     ) => boolean
     handleTableCellEnter: (position: TableCellPosition) => void
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLDivElement | null>(null)
@@ -3683,14 +4136,18 @@ function EditableTableCellContent({
         <div
             ref={setElementRef}
             className="MarkdownNotebook__table-cell-content"
+            data-markdown-notebook-node-id={node.id}
+            data-markdown-notebook-table-section={position.section}
+            data-markdown-notebook-table-row-index={position.rowIndex}
+            data-markdown-notebook-table-column-index={position.columnIndex}
             contentEditable={mode === 'edit'}
             suppressContentEditableWarning
             onInput={handleInput}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
-            onMouseDown={startCrossBlockSelection}
-            onPointerDown={startCrossBlockSelection}
-            onTouchStart={startCrossBlockSelection}
+            onMouseDown={startTextSelectionPointer}
+            onPointerDown={startTextSelectionPointer}
+            onTouchStart={startTextSelectionPointer}
             onMouseUp={handleSelectionChange}
             onKeyUp={handleSelectionChange}
         />
@@ -3699,6 +4156,7 @@ function EditableTableCellContent({
 
 function EditableTextBlock({
     node,
+    isTitleBlock,
     mode,
     placeholder,
     setBlockRef,
@@ -3706,6 +4164,7 @@ function EditableTextBlock({
     updateNode,
     replaceNodeWithNodes,
     deleteNodeAndFocusAdjacent,
+    deleteSelectedNotebookBlocks,
     deleteNodeBefore,
     moveFocusToAdjacentNode,
     openInsertMenu,
@@ -3722,10 +4181,11 @@ function EditableTextBlock({
     submitInsertMenuSelection,
     submitAIPrompt,
     handleSelectionChange,
-    startCrossBlockSelection,
+    startTextSelectionPointer,
     restoreSelectionRef,
 }: {
     node: NotebookTextBlockNode
+    isTitleBlock: boolean
     mode: NotebookMode
     placeholder: string | undefined
     setBlockRef: (element: HTMLElement | null) => void
@@ -3733,6 +4193,7 @@ function EditableTextBlock({
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNodeAndFocusAdjacent: () => void
+    deleteSelectedNotebookBlocks: () => boolean
     deleteNodeBefore: (nodeId: string) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
     openInsertMenu: (query?: string) => void
@@ -3749,7 +4210,7 @@ function EditableTextBlock({
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLElement | null>(null)
@@ -3777,8 +4238,10 @@ function EditableTextBlock({
             return
         }
 
+        const selection = window.getSelection()
         const shouldSkipOwnInputSync =
-            document.activeElement === element && skipDomSyncForHtmlRef.current === renderedHtml
+            (document.activeElement === element || isSelectionAnchoredInsideElement(selection, element)) &&
+            skipDomSyncForHtmlRef.current === renderedHtml
         skipDomSyncForHtmlRef.current = null
 
         if (shouldSkipOwnInputSync || element.innerHTML === renderedHtml) {
@@ -3854,6 +4317,63 @@ function EditableTextBlock({
         const selectionEnd = selection ? Math.max(selection.start, selection.end) : currentTextLength
         const [beforeSelection, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
         const [, afterSelection] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+
+        if (isTitleBlock) {
+            const titlePaste = getTitlePasteParts(pastedMarkdown)
+            const firstPastedNode = freshPastedNodes[0]
+            const firstLineChildren: NotebookInlineNode[] = titlePaste.hasBodyMarkdown
+                ? getTitleChildrenFromMarkdownLine(titlePaste.titleMarkdown)
+                : firstPastedNode && isTextBlockNode(firstPastedNode)
+                  ? firstPastedNode.children
+                  : [{ type: 'text', text: titlePaste.titleMarkdown }]
+            const nextTitleChildren = normalizeInlineNodes([
+                ...beforeSelection,
+                ...firstLineChildren,
+                ...(titlePaste.hasBodyMarkdown ? [] : afterSelection),
+            ])
+
+            if (!titlePaste.hasBodyMarkdown) {
+                updateNode(node.id, (currentNode) => {
+                    if (!isTextBlockNode(currentNode)) {
+                        return currentNode
+                    }
+                    return { ...currentNode, type: 'heading', level: 1, children: nextTitleChildren }
+                })
+                restoreSelectionRef.current = {
+                    nodeId: node.id,
+                    start: getInlineText(nextTitleChildren).length,
+                    end: getInlineText(nextTitleChildren).length,
+                }
+                return
+            }
+
+            const bodyNodes = rekeyNotebookNodes(
+                parseMarkdownNotebook(titlePaste.bodyMarkdown).nodes.map(normalizeNotebookTitlePasteBodyNode),
+                `paste-title-body-${node.id}-${pastedMarkdown.length}`
+            )
+            const trailingParagraph =
+                afterSelection.length || !bodyNodes.length
+                    ? {
+                          ...makeEmptyParagraph(`paste-title-after-${node.id}`),
+                          children: afterSelection,
+                      }
+                    : null
+            const replacementNodes = [
+                { ...node, type: 'heading' as const, level: 1 as const, children: nextTitleChildren },
+                ...bodyNodes,
+                ...(trailingParagraph ? [trailingParagraph] : []),
+            ]
+
+            replaceNodeWithNodes(node.id, replacementNodes)
+
+            const focusNode = trailingParagraph ?? [...bodyNodes].reverse().find(isTextBlockNode)
+            if (focusNode && isTextBlockNode(focusNode)) {
+                const caretOffset = getInlineText(focusNode.children).length
+                restoreSelectionRef.current = { nodeId: focusNode.id, start: caretOffset, end: caretOffset }
+            }
+            return
+        }
+
         const firstPastedNode = freshPastedNodes[0]
 
         if (
@@ -3920,7 +4440,9 @@ function EditableTextBlock({
             return
         }
 
-        const headingShortcut = getHeadingShortcut(elementText, node.type === 'heading' ? (node.level ?? 1) : null)
+        const headingShortcut = isTitleBlock
+            ? null
+            : getHeadingShortcut(elementText, node.type === 'heading' ? (node.level ?? 1) : null)
         if (headingShortcut !== null) {
             closeInsertMenu()
             event.currentTarget.innerHTML = ''
@@ -3936,7 +4458,7 @@ function EditableTextBlock({
             return
         }
 
-        if (node.type === 'paragraph' && getBlockquoteShortcut(elementText)) {
+        if (!isTitleBlock && node.type === 'paragraph' && getBlockquoteShortcut(elementText)) {
             closeInsertMenu()
             replaceNodeWithNodes(node.id, [
                 {
@@ -3950,7 +4472,7 @@ function EditableTextBlock({
         }
 
         const listShortcut = getListShortcut(elementText)
-        if (node.type === 'paragraph' && listShortcut) {
+        if (!isTitleBlock && node.type === 'paragraph' && listShortcut) {
             closeInsertMenu()
             replaceNodeWithNodes(node.id, [
                 {
@@ -3971,13 +4493,7 @@ function EditableTextBlock({
         }
 
         const slashQuery = getSlashCommandQuery(elementText)
-        if (slashQuery !== null) {
-            if (isToolInsertMenuOpen) {
-                updateElementAndChildren(element, [])
-                closeInsertMenu()
-                return
-            }
-
+        if (!isTitleBlock && slashQuery !== null) {
             const queryChildren: NotebookInlineNode[] = slashQuery ? [{ type: 'text', text: slashQuery }] : []
             openInsertMenu(slashQuery)
             updateElementAndChildren(element, queryChildren)
@@ -4092,6 +4608,14 @@ function EditableTextBlock({
                 : selectionStart
             const [before, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
             const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+            if (isTitleBlock) {
+                const nextParagraph = makeEmptyParagraph(`after-title-${node.id}`)
+                nextParagraph.children = after
+                replaceNodeWithNodes(node.id, [{ ...node, type: 'heading', level: 1, children: before }, nextParagraph])
+                restoreSelectionRef.current = { nodeId: nextParagraph.id, start: 0, end: 0 }
+                return
+            }
+
             if (node.type === 'heading') {
                 if (selectionStart === 0) {
                     const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
@@ -4122,6 +4646,12 @@ function EditableTextBlock({
         }
 
         if (event.key === 'Backspace' || event.key === 'Delete') {
+            if (deleteSelectedNotebookBlocks()) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
             const expandedSelection = getSelectionRange(event.currentTarget, node.id)
             if (expandedSelection && expandedSelection.start !== expandedSelection.end) {
                 const textLength = getInlineText(node.children).length
@@ -4158,7 +4688,13 @@ function EditableTextBlock({
                 return
             }
 
-            if (event.key === 'Backspace' && node.type === 'heading' && selection?.start === 0 && selection.end === 0) {
+            if (
+                !isTitleBlock &&
+                event.key === 'Backspace' &&
+                node.type === 'heading' &&
+                selection?.start === 0 &&
+                selection.end === 0
+            ) {
                 event.preventDefault()
                 replaceWithParagraph(0)
                 return
@@ -4174,7 +4710,7 @@ function EditableTextBlock({
                 return
             }
 
-            if (isEmpty) {
+            if (isEmpty && !isTitleBlock) {
                 event.preventDefault()
                 updateNode(node.id, () => null)
             }
@@ -4225,6 +4761,7 @@ function EditableTextBlock({
             {showInlineInsertMenuButton ? (
                 <span
                     className="MarkdownNotebook__line-insert-menu-hit-area"
+                    contentEditable={false}
                     onMouseEnter={activateInlineInsertMenuButton}
                     onMouseMove={activateInlineInsertMenuButton}
                 >
@@ -4267,10 +4804,12 @@ function EditableTextBlock({
                 className={clsx(
                     'MarkdownNotebook__text-block',
                     `MarkdownNotebook__text-block--${node.type}`,
+                    isTitleBlock && 'MarkdownNotebook__text-block--title',
                     isToolInsertMenuOpen && 'MarkdownNotebook__text-block--insert-placeholder',
                     isAIPromptOpen && 'MarkdownNotebook__text-block--ai-prompt',
                     hasInvalidInsertMenuQuery && 'MarkdownNotebook__text-block--invalid-insert-filter'
                 )}
+                data-markdown-notebook-node-id={node.id}
                 contentEditable={mode === 'edit' && !isAIThinking}
                 suppressContentEditableWarning
                 data-placeholder={isEmpty ? placeholder : undefined}
@@ -4278,9 +4817,9 @@ function EditableTextBlock({
                 onPaste={handlePaste}
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
-                onMouseDown={startCrossBlockSelection}
-                onPointerDown={startCrossBlockSelection}
-                onTouchStart={startCrossBlockSelection}
+                onMouseDown={startTextSelectionPointer}
+                onPointerDown={startTextSelectionPointer}
+                onTouchStart={startTextSelectionPointer}
                 onMouseUp={handleSelectionChange}
                 onKeyUp={handleSelectionChange}
             />
@@ -4302,7 +4841,11 @@ function InsertBoundaryButton({
     setActiveBoundaryIndex: (boundaryIndex: number) => void
 }): JSX.Element {
     return (
-        <div className="MarkdownNotebook__insert-boundary" onMouseEnter={() => setActiveBoundaryIndex(boundaryIndex)}>
+        <div
+            className="MarkdownNotebook__insert-boundary"
+            contentEditable={false}
+            onMouseEnter={() => setActiveBoundaryIndex(boundaryIndex)}
+        >
             <div
                 className="MarkdownNotebook__insert-boundary-hover-zone"
                 aria-hidden="true"
@@ -4330,7 +4873,7 @@ function InsertBoundaryButton({
 }
 
 function FormattingToolbar({
-    node,
+    selectedBlockStyle,
     placement,
     top,
     left,
@@ -4340,8 +4883,9 @@ function FormattingToolbar({
     initialLinkEditorOpen,
     setBlockStyle,
     askAIAboutSelection,
+    lockPosition,
 }: {
-    node: NotebookTextBlockNode
+    selectedBlockStyle: TextBlockStyle | null
     placement: 'above' | 'below'
     top: number
     left: number
@@ -4351,6 +4895,7 @@ function FormattingToolbar({
     initialLinkEditorOpen: boolean
     setBlockStyle: (style: 'paragraph' | 'blockquote' | 1 | 2 | 3) => void
     askAIAboutSelection?: () => void
+    lockPosition: () => void
 }): JSX.Element {
     const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
     const [linkHref, setLinkHref] = useState(currentLinkHref ?? '')
@@ -4360,6 +4905,7 @@ function FormattingToolbar({
     } as CSSProperties
     const normalizedLinkHref = sanitizeNotebookLinkHref(linkHref)
     const hasExistingLink = !!currentLinkHref
+    const selectedBlockStyleLabel = getTextBlockStyleLabel(selectedBlockStyle)
 
     useEffect(() => {
         if (initialLinkEditorOpen) {
@@ -4396,7 +4942,11 @@ function FormattingToolbar({
         <div
             className={clsx('MarkdownNotebook__format-toolbar', `MarkdownNotebook__format-toolbar--${placement}`)}
             style={toolbarStyle}
+            onFocusCapture={lockPosition}
+            onPointerDownCapture={lockPosition}
+            onTouchStartCapture={lockPosition}
             onMouseDown={(event) => {
+                lockPosition()
                 if (
                     event.target instanceof HTMLElement &&
                     event.target.closest('.MarkdownNotebook__format-link-editor')
@@ -4415,8 +4965,13 @@ function FormattingToolbar({
                     { label: 'Quote', onClick: () => setBlockStyle('blockquote') },
                 ]}
             >
-                <LemonButton size="xsmall" tooltip="Text style">
-                    {node.type === 'heading' ? `H${node.level ?? 1}` : 'Text'}
+                <LemonButton
+                    size="xsmall"
+                    tooltip="Text style"
+                    aria-label="Text style"
+                    className="MarkdownNotebook__format-style-button"
+                >
+                    {selectedBlockStyleLabel}
                 </LemonButton>
             </LemonMenu>
             <LemonButton
@@ -4500,6 +5055,7 @@ function NotebookComponentShell({
     setBlockRef,
     updateNode,
     deleteNode,
+    deleteSelectedNotebookBlocks,
     insertParagraphAfterNode,
     moveFocusToAdjacentNode,
 }: NotebookComponentShellProps): JSX.Element {
@@ -4537,8 +5093,14 @@ function NotebookComponentShell({
             return
         }
 
-        if (event.key === 'Backspace') {
+        if (event.key === 'Backspace' || event.key === 'Delete') {
             event.preventDefault()
+            if (deleteSelectedNotebookBlocks()) {
+                return
+            }
+        }
+
+        if (event.key === 'Backspace') {
             deleteNode()
             return
         }
@@ -4564,6 +5126,7 @@ function NotebookComponentShell({
                 errors.length && 'MarkdownNotebook__component-shell--error'
             )}
             ref={setBlockRef}
+            contentEditable={false}
             tabIndex={mode === 'edit' ? 0 : undefined}
             onKeyDown={handleKeyDown}
         >
@@ -4654,6 +5217,7 @@ function areNotebookComponentShellPropsEqual(
     return (
         previousProps.mode === nextProps.mode &&
         previousProps.updateNode === nextProps.updateNode &&
+        previousProps.deleteSelectedNotebookBlocks === nextProps.deleteSelectedNotebookBlocks &&
         previousProps.moveFocusToAdjacentNode === nextProps.moveFocusToAdjacentNode &&
         previousDefinition === nextDefinition &&
         previousProps.node.id === nextProps.node.id &&
@@ -5276,12 +5840,52 @@ function getSlashCommandQuery(text: string): string | null {
     return trimmedText.startsWith('/') ? trimmedText.slice(1) : null
 }
 
+function getTitlePasteParts(markdown: string): {
+    titleMarkdown: string
+    bodyMarkdown: string
+    hasBodyMarkdown: boolean
+} {
+    const normalizedMarkdown = markdown.replace(/\r\n?/g, '\n')
+    const firstLineBreakIndex = normalizedMarkdown.indexOf('\n')
+    if (firstLineBreakIndex === -1) {
+        return { titleMarkdown: normalizedMarkdown, bodyMarkdown: '', hasBodyMarkdown: false }
+    }
+
+    return {
+        titleMarkdown: normalizedMarkdown.slice(0, firstLineBreakIndex),
+        bodyMarkdown: normalizedMarkdown.slice(firstLineBreakIndex + 1),
+        hasBodyMarkdown: true,
+    }
+}
+
+function getTitleChildrenFromMarkdownLine(markdown: string): NotebookInlineNode[] {
+    const firstNode = parseMarkdownNotebook(markdown).nodes[0]
+    if (firstNode && isTextBlockNode(firstNode)) {
+        return firstNode.children
+    }
+
+    return markdown ? [{ type: 'text', text: markdown }] : []
+}
+
+function normalizeNotebookTitlePasteBodyNode(node: NotebookBlockNode): NotebookBlockNode {
+    if (!isTextBlockNode(node)) {
+        return node
+    }
+
+    return {
+        ...node,
+        type: 'paragraph',
+        level: undefined,
+    }
+}
+
 function getListShortcut(text: string): { ordered: boolean } | null {
-    if (/^\d+[.)]\s?$/.test(text)) {
+    const normalizedText = text.replace(/\u00a0/g, ' ')
+    if (/^\d+[.)]\s*$/.test(normalizedText)) {
         return { ordered: true }
     }
 
-    if (/^[-*+•]\s$/.test(text)) {
+    if (/^[-*+•]\s+$/.test(normalizedText)) {
         return { ordered: false }
     }
 
@@ -5309,6 +5913,7 @@ function isInsertBoundaryAvailable(
     insertMenuNodeId?: string
 ): boolean {
     return (
+        boundaryIndex > 0 &&
         !isInlineInsertMenuRow(nodes[boundaryIndex - 1], insertMenuNodeId) &&
         !isInlineInsertMenuRow(nodes[boundaryIndex], insertMenuNodeId)
     )
@@ -5343,15 +5948,44 @@ function getClosestInsertBoundaryIndex(rowElement: HTMLElement, rowIndex: number
     return clientY <= rowRect.top + rowRect.height / 2 ? rowIndex : rowIndex + 1
 }
 
-function ensureEditableTrailingParagraph(document: NotebookDocument): NotebookDocument {
-    const lastNode = document.nodes[document.nodes.length - 1]
-    if (lastNode?.type !== 'component') {
-        return document
+function ensureEditableNotebookDocument(document: NotebookDocument): NotebookDocument {
+    const nodes = document.nodes.length ? [...document.nodes] : [makeEmptyNotebookTitle('notebook-title')]
+    let didChange = nodes.length !== document.nodes.length
+    const firstNode = nodes[0]
+
+    if (isTextBlockNode(firstNode)) {
+        if (firstNode.type !== 'heading' || firstNode.level !== 1) {
+            nodes[0] = {
+                ...firstNode,
+                type: 'heading',
+                level: 1,
+            }
+            didChange = true
+        }
+    } else {
+        nodes.unshift(makeEmptyNotebookTitle('notebook-title'))
+        didChange = true
     }
 
+    const lastNode = nodes[nodes.length - 1]
+    if (lastNode?.type === 'component') {
+        nodes.push(makeEmptyParagraph(`after-${lastNode.id}`))
+        didChange = true
+    }
+
+    const uniqueNodes = ensureUniqueNodeIds(nodes)
+    if (uniqueNodes !== nodes) {
+        didChange = true
+    }
+
+    return didChange ? { ...document, nodes: uniqueNodes } : document
+}
+
+function makeEmptyNotebookTitle(idSeed: string): NotebookTextBlockNode {
     return {
-        ...document,
-        nodes: [...document.nodes, makeEmptyParagraph(`after-${lastNode.id}`)],
+        ...makeEmptyParagraph(idSeed),
+        type: 'heading',
+        level: 1,
     }
 }
 
@@ -5470,6 +6104,21 @@ function getSelectionRange(element: HTMLElement, nodeId: string): NotebookTextSe
     }
 }
 
+function getNormalizedSelectionBounds(
+    node: NotebookTextBlockNode,
+    element: HTMLElement
+): { start: number; end: number; textLength: number } {
+    const textLength = getInlineText(node.children).length
+    const range = getSelectionRange(element, node.id)
+    if (!range) {
+        return { start: 0, end: textLength, textLength }
+    }
+
+    const start = Math.max(0, Math.min(Math.min(range.start, range.end), textLength))
+    const end = Math.max(start, Math.min(Math.max(range.start, range.end), textLength))
+    return { start, end, textLength }
+}
+
 function getSelectionClientRect(range: Range): DOMRect | null {
     if (typeof range.getBoundingClientRect !== 'function') {
         return null
@@ -5513,253 +6162,85 @@ function restoreSelection(element: HTMLElement, start: number, end: number): voi
     selection.addRange(range)
 }
 
-function getNotebookBlockCaretRangeFromPoint(
-    clientX: number,
-    clientY: number,
-    notebookElement: HTMLElement
-): Range | null {
-    const geometryRange = getNotebookBlockGeometryCaretRangeFromPoint(clientX, clientY, notebookElement)
-    if (geometryRange) {
-        return geometryRange
+function setNotebookSelectionStart(range: Range, node: NotebookBlockNode, element: HTMLElement): void {
+    if (isTextBlockNode(node)) {
+        const startPosition = findTextPosition(element, 0)
+        range.setStart(startPosition.node, startPosition.offset)
+        return
     }
 
-    const pointedElement =
-        typeof document.elementFromPoint === 'function' ? document.elementFromPoint(clientX, clientY) : null
-    const pointedBlockElement = getPointedNotebookBlockElement(pointedElement, notebookElement)
-    const range = getCaretRangeFromPoint(clientX, clientY)
-    if (range) {
-        const element = getElementForNode(range.startContainer)
-        const editableTextElement = getClosestEditableBlockElement(element)
-        if (editableTextElement && notebookElement.contains(editableTextElement)) {
-            const pointedEditableTextElement = getClosestEditableBlockElement(pointedElement)
-            if (!pointedBlockElement || pointedEditableTextElement === editableTextElement) {
-                return range
-            }
-        }
+    range.setStartBefore(element)
+}
+
+function setNotebookSelectionEnd(range: Range, node: NotebookBlockNode, element: HTMLElement): void {
+    if (isTextBlockNode(node)) {
+        const endPosition = findTextPosition(element, getInlineText(node.children).length)
+        range.setEnd(endPosition.node, endPosition.offset)
+        return
     }
 
-    if (!pointedBlockElement) {
+    range.setEndAfter(element)
+}
+
+function restoreTextSelectionRanges(
+    ranges: NotebookTextSelectionRange[],
+    blockRefs: Record<string, HTMLElement | null>
+): void {
+    const firstRange = ranges[0]
+    const lastRange = ranges[ranges.length - 1]
+    if (!firstRange || !lastRange) {
+        return
+    }
+
+    const firstElement = blockRefs[firstRange.nodeId]
+    const lastElement = blockRefs[lastRange.nodeId]
+    const selection = window.getSelection()
+    if (!firstElement || !lastElement || !selection) {
+        return
+    }
+
+    const range = document.createRange()
+    const startPosition = findTextPosition(firstElement, Math.min(firstRange.start, firstRange.end))
+    const endPosition = findTextPosition(lastElement, Math.max(lastRange.start, lastRange.end))
+    range.setStart(startPosition.node, startPosition.offset)
+    range.setEnd(endPosition.node, endPosition.offset)
+    selection.removeAllRanges()
+    selection.addRange(range)
+}
+
+function getTextBlockStyle(node: NotebookTextBlockNode): TextBlockStyle {
+    if (node.type === 'heading') {
+        const level = node.level ?? 1
+        return level === 1 || level === 2 || level === 3 ? level : 3
+    }
+
+    return node.type === 'blockquote' ? 'blockquote' : 'paragraph'
+}
+
+function getSelectedTextBlockStyle(textRanges: FloatingToolbarTextRange[]): TextBlockStyle | null {
+    const firstTextRange = textRanges[0]
+    if (!firstTextRange) {
         return null
     }
 
-    const blockRect = pointedBlockElement.getBoundingClientRect()
-    const blockRange = document.createRange()
-    if (clientY < blockRect.top + blockRect.height / 2) {
-        blockRange.setStartBefore(pointedBlockElement)
-    } else {
-        blockRange.setStartAfter(pointedBlockElement)
-    }
-    blockRange.collapse(true)
-    return blockRange
+    const firstStyle = getTextBlockStyle(firstTextRange.node)
+    return textRanges.every(({ node }) => getTextBlockStyle(node) === firstStyle) ? firstStyle : null
 }
 
-function getNotebookBlockGeometryCaretRangeFromPoint(
-    clientX: number,
-    clientY: number,
-    notebookElement: HTMLElement
-): Range | null {
-    const candidates = Array.from(notebookElement.querySelectorAll(NOTEBOOK_SELECTABLE_BLOCK_SELECTOR))
-        .filter((element): element is HTMLElement => element instanceof HTMLElement)
-        .map((element, index) => ({ element, index, rect: element.getBoundingClientRect() }))
-        .filter(({ rect }) => rect.width > 0 || rect.height > 0)
-
-    const containingCandidates = candidates.filter(({ rect }) => clientY >= rect.top && clientY <= rect.bottom)
-    const containingCandidate = containingCandidates
-        .sort(
-            (first, second) =>
-                getNotebookGeometryCandidateScore(first, clientX) - getNotebookGeometryCandidateScore(second, clientX)
-        )
-        .at(0)
-
-    if (containingCandidate) {
-        return getNotebookElementCaretRangeFromPoint(clientX, clientY, containingCandidate.element)
+function getTextBlockStyleLabel(style: TextBlockStyle | null): string {
+    if (style === null) {
+        return ''
     }
 
-    const closestCandidate = candidates
-        .map((candidate) => {
-            const distance =
-                clientY < candidate.rect.top ? candidate.rect.top - clientY : clientY - candidate.rect.bottom
-            return { ...candidate, distance }
-        })
-        .filter(({ distance }) => distance >= 0)
-        .sort((first, second) => first.distance - second.distance || first.index - second.index)
-        .at(0)
-
-    if (!closestCandidate) {
-        return null
+    if (style === 'paragraph') {
+        return 'Text'
     }
 
-    const range = document.createRange()
-    if (clientY < closestCandidate.rect.top + closestCandidate.rect.height / 2) {
-        range.setStartBefore(closestCandidate.element)
-    } else {
-        range.setStartAfter(closestCandidate.element)
-    }
-    range.collapse(true)
-    return range
-}
-
-function getNotebookGeometryCandidateScore(
-    candidate: { element: HTMLElement; rect: DOMRect; index: number },
-    clientX: number
-): number {
-    const editablePenalty = getClosestEditableBlockElement(candidate.element) === candidate.element ? 0 : 1_000_000
-    const horizontalDistance =
-        clientX < candidate.rect.left
-            ? candidate.rect.left - clientX
-            : clientX > candidate.rect.right
-              ? clientX - candidate.rect.right
-              : 0
-    const area = Math.max(1, candidate.rect.width * candidate.rect.height)
-
-    return editablePenalty + horizontalDistance * 1_000 + area + candidate.index
-}
-
-function getNotebookElementCaretRangeFromPoint(clientX: number, clientY: number, element: HTMLElement): Range | null {
-    const editableElement = getClosestEditableBlockElement(element)
-    if (editableElement === element) {
-        return getEditableCaretRangeFromPoint(clientX, clientY, editableElement)
+    if (style === 'blockquote') {
+        return 'Quote'
     }
 
-    const rect = element.getBoundingClientRect()
-    const range = document.createRange()
-    if (clientY < rect.top + rect.height / 2) {
-        range.setStartBefore(element)
-    } else {
-        range.setStartAfter(element)
-    }
-    range.collapse(true)
-    return range
-}
-
-function getPointedNotebookBlockElement(element: Element | null, notebookElement: HTMLElement): HTMLElement | null {
-    const blockElement = element?.closest(NOTEBOOK_SELECTABLE_BLOCK_SELECTOR)
-    return blockElement instanceof HTMLElement && notebookElement.contains(blockElement) ? blockElement : null
-}
-
-function getCaretRangeFromPoint(clientX: number, clientY: number): Range | null {
-    const caretDocument = document as Document & {
-        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
-        caretRangeFromPoint?: (x: number, y: number) => Range | null
-    }
-    const caretPosition = caretDocument.caretPositionFromPoint?.(clientX, clientY)
-    if (caretPosition) {
-        const range = document.createRange()
-        range.setStart(caretPosition.offsetNode, caretPosition.offset)
-        range.collapse(true)
-        return range
-    }
-
-    return caretDocument.caretRangeFromPoint?.(clientX, clientY) ?? null
-}
-
-function getEditableCaretRangeFromPoint(clientX: number, clientY: number, editableElement: HTMLElement): Range | null {
-    const measuredRange = getMeasuredEditableCaretRangeFromPoint(clientX, clientY, editableElement)
-    if (measuredRange) {
-        return measuredRange
-    }
-
-    const caretRange = getCaretRangeFromPoint(clientX, clientY)
-    if (caretRange && editableElement.contains(caretRange.startContainer)) {
-        if (caretRange.startContainer.nodeType !== Node.TEXT_NODE) {
-            return getTextCaretRangeFromElementOffset(
-                editableElement,
-                caretRange.startContainer,
-                caretRange.startOffset
-            )
-        }
-
-        return caretRange
-    }
-
-    const textLength = editableElement.textContent?.length ?? 0
-    const range = document.createRange()
-    if (textLength === 0) {
-        range.selectNodeContents(editableElement)
-        range.collapse(true)
-        return range
-    }
-
-    const rect = editableElement.getBoundingClientRect()
-    const offset =
-        rect.width > 0
-            ? Math.floor((Math.max(rect.left, Math.min(clientX, rect.right)) - rect.left) * (textLength / rect.width))
-            : clientY < rect.top + rect.height / 2
-              ? 0
-              : textLength
-    const position = findTextPosition(editableElement, Math.max(0, Math.min(offset, textLength)))
-    range.setStart(position.node, position.offset)
-    range.collapse(true)
-    return range
-}
-
-function getMeasuredEditableCaretRangeFromPoint(
-    clientX: number,
-    clientY: number,
-    editableElement: HTMLElement
-): Range | null {
-    const walker = document.createTreeWalker(editableElement, NodeFilter.SHOW_TEXT)
-    let textOffset = 0
-    let closestOffset: number | null = null
-    let closestDistance = Number.POSITIVE_INFINITY
-    let currentNode = walker.nextNode()
-
-    while (currentNode) {
-        const textNode = currentNode as Text
-        const text = textNode.textContent ?? ''
-        for (let characterIndex = 0; characterIndex < text.length; characterIndex++) {
-            const characterRange = document.createRange()
-            characterRange.setStart(textNode, characterIndex)
-            characterRange.setEnd(textNode, characterIndex + 1)
-
-            const rect = getSelectionClientRect(characterRange)
-            if (!rect) {
-                continue
-            }
-
-            const characterOffset = textOffset + characterIndex
-            const nextOffset = characterOffset + (clientX > rect.left + rect.width / 2 ? 1 : 0)
-            const distance = getDistanceToRect(clientX, clientY, rect)
-            if (distance < closestDistance) {
-                closestDistance = distance
-                closestOffset = nextOffset
-            }
-        }
-
-        textOffset += text.length
-        currentNode = walker.nextNode()
-    }
-
-    return closestOffset === null ? null : getTextCaretRangeAtOffset(editableElement, closestOffset)
-}
-
-function getTextCaretRangeFromElementOffset(
-    editableElement: HTMLElement,
-    container: Node,
-    offset: number
-): Range | null {
-    try {
-        return getTextCaretRangeAtOffset(editableElement, getTextOffset(editableElement, container, offset))
-    } catch {
-        return null
-    }
-}
-
-function getTextCaretRangeAtOffset(editableElement: HTMLElement, offset: number): Range {
-    const textLength = editableElement.textContent?.length ?? 0
-    const position = findTextPosition(editableElement, Math.max(0, Math.min(offset, textLength)))
-    const range = document.createRange()
-    range.setStart(position.node, position.offset)
-    range.collapse(true)
-    return range
-}
-
-function getDistanceToRect(clientX: number, clientY: number, rect: DOMRect): number {
-    const horizontalDistance =
-        clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0
-    const verticalDistance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0
-
-    return horizontalDistance * horizontalDistance + verticalDistance * verticalDistance
+    return `H${style}`
 }
 
 function getElementForNode(node: Node): Element | null {
@@ -5771,76 +6252,15 @@ function getClosestEditableBlockElement(element: Element | null): HTMLElement | 
     return editableElement instanceof HTMLElement ? editableElement : null
 }
 
-function getEditableBlockElementForRange(range: Range): HTMLElement | null {
-    return getClosestEditableBlockElement(getElementForNode(range.startContainer))
-}
-
-function clearTouchSelectionDelay(dragState: CrossBlockSelectionDragState | null): void {
-    if (dragState?.touchSelectionDelayTimeout === undefined) {
-        return
+function getInlineEditableElementForSelection(
+    selection: Selection | null,
+    rootElement: HTMLElement
+): HTMLElement | null {
+    if (!selection?.anchorNode || !rootElement.contains(selection.anchorNode)) {
+        return null
     }
 
-    window.clearTimeout(dragState.touchSelectionDelayTimeout)
-    dragState.touchSelectionDelayTimeout = undefined
-}
-
-function getTouchByIdentifier(touches: TouchList, identifier: number | undefined): Touch | null {
-    if (identifier === undefined) {
-        return touches[0] ?? null
-    }
-
-    for (let index = 0; index < touches.length; index++) {
-        const touch = typeof touches.item === 'function' ? touches.item(index) : (touches as unknown as Touch[])[index]
-        if (touch?.identifier === identifier) {
-            return touch
-        }
-    }
-
-    return null
-}
-
-function hasTouchWithIdentifier(touches: TouchList, identifier: number | undefined): boolean {
-    return getTouchByIdentifier(touches, identifier) !== null
-}
-
-function selectBetweenRanges(anchorRange: Range, focusRange: Range): void {
-    const selection = window.getSelection()
-    if (!selection) {
-        return
-    }
-
-    if (typeof selection.setBaseAndExtent === 'function') {
-        selection.setBaseAndExtent(
-            anchorRange.startContainer,
-            anchorRange.startOffset,
-            focusRange.startContainer,
-            focusRange.startOffset
-        )
-        return
-    }
-
-    if (typeof selection.extend === 'function') {
-        const anchorOnlyRange = document.createRange()
-        anchorOnlyRange.setStart(anchorRange.startContainer, anchorRange.startOffset)
-        anchorOnlyRange.collapse(true)
-
-        selection.removeAllRanges()
-        selection.addRange(anchorOnlyRange)
-        selection.extend(focusRange.startContainer, focusRange.startOffset)
-        return
-    }
-
-    const range = document.createRange()
-    if (anchorRange.compareBoundaryPoints(Range.START_TO_START, focusRange) <= 0) {
-        range.setStart(anchorRange.startContainer, anchorRange.startOffset)
-        range.setEnd(focusRange.startContainer, focusRange.startOffset)
-    } else {
-        range.setStart(focusRange.startContainer, focusRange.startOffset)
-        range.setEnd(anchorRange.startContainer, anchorRange.startOffset)
-    }
-
-    selection.removeAllRanges()
-    selection.addRange(range)
+    return getClosestEditableBlockElement(getElementForNode(selection.anchorNode))
 }
 
 function getSelectedNotebookMarkdown(
@@ -6088,6 +6508,15 @@ function isSelectionInsideElement(selection: Selection | null, element: HTMLElem
     return element.contains(range.startContainer) && element.contains(range.endContainer)
 }
 
+function isSelectionAnchoredInsideElement(selection: Selection | null, element: HTMLElement): boolean {
+    return Boolean(
+        selection?.anchorNode &&
+        selection.focusNode &&
+        element.contains(selection.anchorNode) &&
+        element.contains(selection.focusNode)
+    )
+}
+
 function getSelectedTextBlockNode(
     node: NotebookTextBlockNode,
     element: HTMLElement,
@@ -6285,10 +6714,11 @@ function findTextPosition(root: HTMLElement, offset: number): { node: Node; offs
     return { node: root, offset: root.childNodes.length }
 }
 
-function toggleInlineMark(
+function setInlineMark(
     nodes: NotebookInlineNode[],
     range: NotebookTextSelectionRange,
-    markType: NotebookInlineMark['type']
+    markType: NotebookInlineMark['type'],
+    shouldApplyMark: boolean
 ): NotebookInlineNode[] {
     const normalizedStart = Math.min(range.start, range.end)
     const normalizedEnd = Math.max(range.start, range.end)
@@ -6316,7 +6746,7 @@ function toggleInlineMark(
         output.push({
             ...node,
             text: node.text.slice(selectionStart, selectionEnd),
-            marks: toggleMark(node.marks ?? [], markType),
+            marks: setMark(node.marks ?? [], markType, shouldApplyMark),
         })
 
         if (selectionEnd < node.text.length) {
@@ -6325,6 +6755,65 @@ function toggleInlineMark(
     })
 
     return normalizeInlineNodes(output)
+}
+
+function areSelectedTextRangesFullyMarked(
+    textRanges: FloatingToolbarTextRange[],
+    markType: NotebookInlineMark['type']
+): boolean {
+    let hasSelectedText = false
+
+    for (const { node, range } of textRanges) {
+        const rangeHasText = doesInlineRangeContainText(node.children, range)
+        if (!rangeHasText) {
+            continue
+        }
+
+        hasSelectedText = true
+        if (!isInlineRangeFullyMarked(node.children, range, markType)) {
+            return false
+        }
+    }
+
+    return hasSelectedText
+}
+
+function doesInlineRangeContainText(nodes: NotebookInlineNode[], range: NotebookTextSelectionRange): boolean {
+    const normalizedStart = Math.min(range.start, range.end)
+    const normalizedEnd = Math.max(range.start, range.end)
+    let offset = 0
+
+    return nodes.some((node) => {
+        const length = node.type === 'hardBreak' ? 1 : node.text.length
+        const nodeStart = offset
+        const nodeEnd = offset + length
+        offset = nodeEnd
+
+        return node.type !== 'hardBreak' && Math.max(normalizedStart, nodeStart) < Math.min(normalizedEnd, nodeEnd)
+    })
+}
+
+function isInlineRangeFullyMarked(
+    nodes: NotebookInlineNode[],
+    range: NotebookTextSelectionRange,
+    markType: NotebookInlineMark['type']
+): boolean {
+    const normalizedStart = Math.min(range.start, range.end)
+    const normalizedEnd = Math.max(range.start, range.end)
+    let offset = 0
+
+    return nodes.every((node) => {
+        const length = node.type === 'hardBreak' ? 1 : node.text.length
+        const nodeStart = offset
+        const nodeEnd = offset + length
+        offset = nodeEnd
+
+        if (node.type === 'hardBreak' || Math.max(normalizedStart, nodeStart) >= Math.min(normalizedEnd, nodeEnd)) {
+            return true
+        }
+
+        return node.marks?.some((mark) => mark.type === markType) ?? false
+    })
 }
 
 function setInlineLinkMark(
@@ -6369,17 +6858,23 @@ function setInlineLinkMark(
     return normalizeInlineNodes(output)
 }
 
-function toggleMark(marks: NotebookInlineMark[], markType: NotebookInlineMark['type']): NotebookInlineMark[] {
-    const existing = marks.some((mark) => mark.type === markType)
-    if (existing) {
-        return marks.filter((mark) => mark.type !== markType)
-    }
-
+function setMark(
+    marks: NotebookInlineMark[],
+    markType: NotebookInlineMark['type'],
+    shouldApplyMark: boolean
+): NotebookInlineMark[] | undefined {
     if (markType === 'link') {
-        return marks
+        return marks.length ? marks : undefined
     }
 
-    return [...marks, { type: markType }]
+    const existing = marks.some((mark) => mark.type === markType)
+    if (shouldApplyMark) {
+        return existing ? marks : [...marks, { type: markType }]
+    }
+
+    const nextMarks = marks.filter((mark) => mark.type !== markType)
+
+    return nextMarks.length ? nextMarks : undefined
 }
 
 function setLinkMark(marks: NotebookInlineMark[], href: string | null): NotebookInlineMark[] | undefined {

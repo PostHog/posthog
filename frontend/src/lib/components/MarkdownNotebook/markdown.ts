@@ -13,7 +13,14 @@ import {
     NotebookPropValue,
     NotebookTextBlockNode,
 } from './types'
-import { createStableNodeId, getNodeFingerprint, hashString, isNotebookPropValue, normalizeInlineNodes } from './utils'
+import {
+    createStableNodeId,
+    ensureUniqueNodeIds,
+    getNodeFingerprint,
+    hashString,
+    isNotebookPropValue,
+    normalizeInlineNodes,
+} from './utils'
 
 type BlockParseResult = {
     node: NotebookBlockNode | null
@@ -34,6 +41,7 @@ const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+let generatedNodeIdCounter = 0
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
     const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
@@ -77,7 +85,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
 
-    return { type: 'doc', nodes, errors }
+    return { type: 'doc', nodes: ensureUniqueNodeIds(nodes), errors }
 }
 
 export function serializeMarkdownNotebook(document: NotebookDocument): string {
@@ -983,6 +991,10 @@ export function makeEmptyParagraph(idSeed: string = 'empty'): NotebookTextBlockN
         type: 'paragraph',
         children: [],
     }
-    node.id = createStableNodeId(`${idSeed}:${hashString(String(Date.now()))}`, 0)
+    node.id = createStableNodeId(
+        `${idSeed}:${hashString(`${String(Date.now())}:${String(generatedNodeIdCounter)}`)}`,
+        0
+    )
+    generatedNodeIdCounter += 1
     return node
 }
