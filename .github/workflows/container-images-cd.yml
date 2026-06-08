@@ -146,7 +146,7 @@ jobs:
             # A stale merge once shipped a red master commit to prod because the dispatch
             # fired regardless of test results; this is the backstop. Cross-workflow
             # check-waiting on the same SHA mirrors the pattern in ci-hobby.yml.
-            - name: Wait for backend tests to pass
+            - name: Wait for backend/product checks to pass
               # Only gate automatic master pushes. A manual workflow_dispatch is the
               # break-glass: it skips the wait so an operator can force a deploy.
               if: github.event_name == 'push'
@@ -162,23 +162,25 @@ jobs:
                   timeoutSeconds: 3300
                   intervalSeconds: 30
 
-            - name: Block deploy if backend tests did not pass
+            - name: Block deploy if backend/product checks did not pass
               if: github.event_name == 'push'
               env:
                   BACKEND_CONCLUSION: ${{ steps.wait-for-backend.outputs.conclusion }}
+                  BACKEND_CHECK_NAME: Django Tests Pass
               run: |
                   conclusion="$BACKEND_CONCLUSION"
                   # `skipped` = the backend suite didn't run for this commit; nothing to gate on.
                   if [ "$conclusion" = "skipped" ]; then
-                    echo "Backend tests skipped for this commit — proceeding with deploy."
+                    echo "Required backend check \"$BACKEND_CHECK_NAME\" skipped for this commit — proceeding with deploy."
                     exit 0
                   fi
                   if [ "$conclusion" != "success" ]; then
-                    echo "::error::Backend CI for this commit is '${conclusion:-incomplete/timed out}'. Not deploying."
-                    echo "Fix CI and re-run, or trigger this workflow via workflow_dispatch to override."
+                    echo "::error::Required backend check \"$BACKEND_CHECK_NAME\" concluded \"${conclusion:-incomplete/timed out}\". Not deploying."
+                    echo "Open the Backend CI aggregate check for dependency results; it lists failed, cancelled, and timed-out jobs separately."
+                    echo "Fix CI and rerun, or trigger this workflow via workflow_dispatch to override."
                     exit 1
                   fi
-                  echo "Backend tests passed — proceeding with deploy."
+                  echo "Required backend check \"$BACKEND_CHECK_NAME\" passed — proceeding with deploy."
 
             - name: get deployer token
               id: deployer
