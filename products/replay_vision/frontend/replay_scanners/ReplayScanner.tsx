@@ -12,7 +12,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -86,33 +85,29 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
             <ScannerOverview scannerId={scannerId} />
 
-            <SceneSection
-                title="Configuration"
-                actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
+            <LemonCollapse
+                panels={[
+                    {
+                        key: 'configuration',
+                        header: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                ]}
+            />
+            <div className="flex items-center justify-end">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton
+                        type="primary"
+                        to={urls.replayVisionScannerConfigure(scannerId)}
+                        data-attr="edit-replay-scanner"
                     >
-                        <LemonButton
-                            type="primary"
-                            to={urls.replayVisionScannerConfigure(scannerId)}
-                            data-attr="edit-replay-scanner"
-                        >
-                            Edit scanner
-                        </LemonButton>
-                    </AccessControlAction>
-                }
-            >
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'configuration',
-                            header: 'View settings',
-                            content: <ScannerConfigReadonly scanner={scanner} />,
-                        },
-                    ]}
-                />
-            </SceneSection>
+                        Edit scanner
+                    </LemonButton>
+                </AccessControlAction>
+            </div>
 
             <SummarizerMaxChat scannerId={scannerId} />
             <ScannerObservationsTable scannerId={scannerId} />

@@ -23,7 +23,6 @@ import {
 import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import type { replayScannerLogicType } from './replayScannerLogicType'
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { findScannerTemplate } from './scannerTemplates'
 import {
     DEFAULT_MODEL,
@@ -187,6 +186,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
+        setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -216,7 +216,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerEstimateFailure: true,
     }),
 
-    forms(({ props }) => ({
+    forms(({ props, values, actions }) => ({
         scanner: {
             defaults: newScanner(props.id === 'new' ? currentTemplateKey() : null),
             errors: (scanner: ReplayScanner) => {
@@ -257,7 +257,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
-                if (scannerEditorSceneLogic.findMounted()?.values.step === 'configure') {
+                if (values.submitIntent === 'advance') {
+                    actions.setSubmitIntent('save')
                     router.actions.push(urls.replayVisionScannerTriggers(props.id))
                     return
                 }
@@ -297,6 +298,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScanner: () => true,
                 loadScannerSuccess: () => false,
                 loadScannerFailure: () => false,
+            },
+        ],
+        submitIntent: [
+            'save' as 'save' | 'advance',
+            {
+                setSubmitIntent: (_, { intent }) => intent,
+                loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
         observations: [
@@ -584,7 +592,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...current,
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
-                })
+                } as ReplayScanner)
             },
 
             // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags

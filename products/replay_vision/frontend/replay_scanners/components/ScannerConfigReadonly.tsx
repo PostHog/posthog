@@ -4,8 +4,7 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 
 import { AnyPropertyFilter } from '~/types'
 
-import { ReplayScanner } from '../types'
-import { modelLabel, scannerTypeLabel } from '../types'
+import { ReplayScanner, modelLabel, scannerTypeLabel } from '../types'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
@@ -21,7 +20,6 @@ function Multiline({ value }: { value: string | null | undefined }): JSX.Element
 }
 
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
-    const config = scanner.scanner_config
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     const filters = (scanner.query?.properties ?? []) as AnyPropertyFilter[]
 
@@ -39,23 +37,23 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
             </Row>
 
             <Row label="Prompt">
-                <Multiline value={config?.prompt} />
+                <Multiline value={scanner.scanner_config.prompt} />
             </Row>
 
-            {scanner.scanner_type === 'summarizer' && config?.length && (
-                <Row label="Summary length">{config.length}</Row>
-            )}
+            {scanner.scanner_type === 'summarizer' && <Row label="Summary length">{scanner.scanner_config.length}</Row>}
 
             {scanner.scanner_type === 'monitor' && (
-                <Row label="Allow inconclusive verdicts">{config?.allow_inconclusive ? 'Yes' : 'No'}</Row>
+                <Row label="Allow inconclusive verdicts">
+                    {scanner.scanner_config.allow_inconclusive ? 'Yes' : 'No'}
+                </Row>
             )}
 
             {scanner.scanner_type === 'classifier' && (
                 <>
                     <Row label="Tag vocabulary">
-                        {config?.tags?.length ? (
+                        {scanner.scanner_config.tags.length ? (
                             <div className="flex flex-wrap gap-1">
-                                {config.tags.map((tag) => (
+                                {scanner.scanner_config.tags.map((tag) => (
                                     <LemonTag key={tag} type="option">
                                         {tag}
                                     </LemonTag>
@@ -66,16 +64,16 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                         )}
                     </Row>
                     <div className="grid grid-cols-2 gap-5">
-                        <Row label="Multiple tags per session">{config?.multi_label ? 'Yes' : 'No'}</Row>
-                        <Row label="Freeform tags">{config?.allow_freeform_tags ? 'Yes' : 'No'}</Row>
+                        <Row label="Multiple tags per session">{scanner.scanner_config.multi_label ? 'Yes' : 'No'}</Row>
+                        <Row label="Freeform tags">{scanner.scanner_config.allow_freeform_tags ? 'Yes' : 'No'}</Row>
                     </div>
                 </>
             )}
 
-            {scanner.scanner_type === 'scorer' && config?.scale && (
+            {scanner.scanner_type === 'scorer' && (
                 <Row label="Scale">
-                    {config.scale.min} – {config.scale.max}
-                    {config.scale.label ? ` (${config.scale.label})` : ''}
+                    {scanner.scanner_config.scale.min} – {scanner.scanner_config.scale.max}
+                    {scanner.scanner_config.scale.label ? ` (${scanner.scanner_config.scale.label})` : ''}
                 </Row>
             )}
 

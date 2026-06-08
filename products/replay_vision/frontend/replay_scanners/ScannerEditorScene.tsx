@@ -45,7 +45,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const { scanner, scannerLoading, isScannerSubmitting, scannerValidationErrors, showScannerErrors } =
         useValues(scannerLogic)
-    const { submitScanner } = useActions(scannerLogic)
+    const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -69,6 +69,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
             return
         }
         if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step as ScannerEditorStep]) {
+            setSubmitIntent('advance')
             submitScanner()
             return
         }
@@ -110,7 +111,14 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 scannerId={scannerId}
                                 isNew={isNew}
                                 isSubmitting={isScannerSubmitting}
-                                onSubmit={() => submitScanner()}
+                                onAdvance={() => {
+                                    setSubmitIntent('advance')
+                                    submitScanner()
+                                }}
+                                onSave={() => {
+                                    setSubmitIntent('save')
+                                    submitScanner()
+                                }}
                             />
                         </div>
                     </Form>
@@ -235,13 +243,15 @@ function EditorFooter({
     scannerId,
     isNew,
     isSubmitting,
-    onSubmit,
+    onAdvance,
+    onSave,
 }: {
     step: ScannerEditorStep
     scannerId: string
     isNew: boolean
     isSubmitting: boolean
-    onSubmit: () => void
+    onAdvance: () => void
+    onSave: () => void
 }): JSX.Element {
     return (
         <div className="flex items-center justify-between">
@@ -250,7 +260,7 @@ function EditorFooter({
                     <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
                         Back to templates
                     </LemonButton>
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onSubmit}>
+                    <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance}>
                         Next: triggers
                     </LemonButton>
                 </>
@@ -259,7 +269,7 @@ function EditorFooter({
                     <LemonButton type="tertiary" to={urls.replayVisionScannerConfigure(scannerId)}>
                         Back
                     </LemonButton>
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onSubmit}>
+                    <LemonButton type="primary" loading={isSubmitting} onClick={onSave}>
                         {isNew ? 'Create scanner' : 'Save changes'}
                     </LemonButton>
                 </>
