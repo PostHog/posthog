@@ -29,10 +29,9 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
-        "@storybook/addon-docs": "^8.6.14",
-        "@storybook/react": "catalog:",
-        "@storybook/react-vite": "^8.6.14",
-        "@storybook/theming": "^8.6.14",
+        "@storybook/addon-docs": "^10.2.17",
+        "@storybook/react": "^10.2.17",
+        "@storybook/react-vite": "^10.2.17",
         "@tailwindcss/postcss": "^4.1.17",
         "@tailwindcss/vite": "^4.1.17",
         "@types/node": "catalog:",
@@ -40,8 +39,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^4.3.4",
         "msw": "^2.12.14",
-        "storybook": "^8.6.14",
-        "storybook-dark-mode": "^4.0.2",
+        "storybook": "^10.2.17",
         "tailwindcss": "^4.1.17",
         "typescript": "catalog:",
         "vite": "^5.4.21"

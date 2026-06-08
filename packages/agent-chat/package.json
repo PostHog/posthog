@@ -24,7 +24,7 @@
         "yaml": "^2.5.1"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:",
+        "@storybook/react": "^10.2.17",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "react": "^19.2.0",

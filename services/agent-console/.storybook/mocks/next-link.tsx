@@ -8,13 +8,16 @@
  * `.storybook/main.ts`) so stories can render shells that use `<Link>`
  * without the runtime even loading the real Next module.
  *
- * Renders a plain `<a>` and forwards through `href` + arbitrary
- * anchor props. Next-specific props (`prefetch`, `replace`, `scroll`,
- * `shallow`, `passHref`, `legacyBehavior`, `as`) are accepted and
- * ignored — the goal is module-init parity, not feature parity.
+ * Renders a plain `<a>` whose `onClick` calls `navigate()` on the
+ * shared router store — so clicking a link inside the navigable
+ * AppShell story drives a soft route change rather than a browser
+ * navigation. Modifier-clicks (cmd/ctrl/shift/alt + click) fall
+ * through to the default browser behaviour, matching real `next/link`.
  */
 
 import * as React from 'react'
+
+import { navigate } from './router-store'
 
 interface NextLinkProps extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
     href: string | { pathname?: string; query?: Record<string, string | number | string[]> }
@@ -27,6 +30,10 @@ interface NextLinkProps extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElemen
     as?: string
 }
 
+function hrefToString(href: NextLinkProps['href']): string {
+    return typeof href === 'string' ? href : (href.pathname ?? '#')
+}
+
 const Link = React.forwardRef<HTMLAnchorElement, NextLinkProps>(function Link(
     {
         href,
@@ -37,15 +44,32 @@ const Link = React.forwardRef<HTMLAnchorElement, NextLinkProps>(function Link(
         passHref: _passHref,
         legacyBehavior: _legacyBehavior,
         as: _as,
+        onClick,
         children,
         ...rest
     },
     ref
 ) {
-    const resolved = typeof href === 'string' ? href : (href.pathname ?? '#')
+    const resolved = hrefToString(href)
+    const handleClick = (e: React.MouseEvent<HTMLAnchorElement>): void => {
+        onClick?.(e)
+        if (e.defaultPrevented) {
+            return
+        }
+        // Let modifier-clicks open in new tab / window etc.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+            return
+        }
+        // External / absolute hrefs: leave as real navigation.
+        if (/^[a-z]+:\/\//i.test(resolved) || resolved.startsWith('mailto:') || resolved.startsWith('tel:')) {
+            return
+        }
+        e.preventDefault()
+        navigate(resolved)
+    }
     return (
         // eslint-disable-next-line react/forbid-elements
-        <a ref={ref} href={resolved} {...rest}>
+        <a ref={ref} href={resolved} onClick={handleClick} {...rest}>
             {children}
         </a>
     )

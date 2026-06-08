@@ -6,12 +6,15 @@
  * (see `.storybook/main.ts`) so every story can render real components
  * that read from the router/path/search-params hooks.
  *
- * Story-local navigation is a no-op: `router.push()` logs to the
- * console, search params start empty, `usePathname()` returns `/`.
- * Add a Storybook decorator if a specific story needs to override.
+ * Navigation is backed by `./router-store` — a small in-memory pub-sub
+ * shared with the `<Link>` mock and the `<StoryRoutes>` switch the
+ * shell story uses. `router.push(href)` updates the store, every
+ * subscriber re-renders, the switch resolves the new path to a page.
  */
 
 import * as React from 'react'
+
+import { getSnapshot, navigate, subscribe } from './router-store'
 
 interface Router {
     push: (href: string) => void
@@ -22,9 +25,9 @@ interface Router {
     prefetch: () => void
 }
 
-const noopRouter: Router = {
-    push: (href: string) => console.info('[story router] push →', href),
-    replace: (href: string) => console.info('[story router] replace →', href),
+const router: Router = {
+    push: (href: string) => navigate(href),
+    replace: (href: string) => navigate(href),
     back: () => console.info('[story router] back'),
     forward: () => console.info('[story router] forward'),
     refresh: () => console.info('[story router] refresh'),
@@ -32,30 +35,50 @@ const noopRouter: Router = {
 }
 
 export function useRouter(): Router {
-    return noopRouter
+    return router
+}
+
+function usePathFull(): string {
+    return React.useSyncExternalStore(
+        subscribe,
+        () => getSnapshot().path,
+        () => '/'
+    )
+}
+
+function useParamsRecord(): Record<string, string> {
+    return React.useSyncExternalStore(
+        subscribe,
+        () => getSnapshot().params,
+        () => ({})
+    )
 }
 
 export function usePathname(): string {
-    return '/'
+    const full = usePathFull()
+    const qIdx = full.indexOf('?')
+    return qIdx === -1 ? full : full.slice(0, qIdx)
 }
 
 export function useSearchParams(): URLSearchParams {
-    return React.useMemo(() => new URLSearchParams(), [])
+    const full = usePathFull()
+    const qIdx = full.indexOf('?')
+    const qs = qIdx === -1 ? '' : full.slice(qIdx + 1)
+    return React.useMemo(() => new URLSearchParams(qs), [qs])
 }
 
 export function useParams<T = Record<string, string>>(): T {
-    return {} as T
+    return useParamsRecord() as T
 }
 
 export function notFound(): never {
-    // eslint-disable-next-line no-console
     console.warn('[story router] notFound() called')
     throw new Error('notFound() called in storybook')
 }
 
 export function redirect(href: string): never {
-    // eslint-disable-next-line no-console
     console.warn('[story router] redirect() →', href)
+    navigate(href)
     throw new Error(`redirect("${href}") called in storybook`)
 }
 

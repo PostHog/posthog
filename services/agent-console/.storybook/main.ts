@@ -16,20 +16,32 @@
  */
 
 import type { StorybookConfig } from '@storybook/react-vite'
+import { createRequire } from 'node:module'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// Storybook 10 loads main.ts as ESM, so CommonJS globals like __dirname
+// don't exist. Re-derive them from import.meta.url.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const localRequire = createRequire(import.meta.url)
+const reactVitePath = path.dirname(localRequire.resolve('@storybook/react-vite/package.json'))
 
 const config: StorybookConfig = {
     stories: [
         '../src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
         '../../../packages/agent-chat/src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
     ],
-    addons: ['@storybook/addon-docs', 'storybook-dark-mode'],
+    addons: ['@storybook/addon-docs'],
     // `mockServiceWorker.js` is served at `/` so MSW can register the
     // worker. Storybook is the only environment that boots MSW — the
     // Next.js app surface stays MSW-free.
     staticDirs: ['./public'],
     framework: {
-        name: '@storybook/react-vite',
+        // Pin to this workspace's installed react-vite (v10.x). Without this,
+        // storybook's resolver walks up the workspace and can grab an older
+        // version brought in by sibling packages (common/storybook, quill/apps/storybook).
+        name: reactVitePath,
         options: {},
     },
     viteFinal: async (config) => {
@@ -39,6 +51,14 @@ const config: StorybookConfig = {
         const { default: tailwindcss } = await import('@tailwindcss/vite')
 
         config.plugins = [...(config.plugins ?? []), tailwindcss()]
+
+        // Force the automatic JSX runtime. tsconfig.json sets `jsx: "preserve"`
+        // so esbuild's default JSX mode is *classic* — it emits
+        // `React.createElement(...)` and requires `React` to be in scope in
+        // every component. Switching to automatic makes esbuild emit
+        // `_jsx(...)` from `react/jsx-runtime`, so files don't need an
+        // `import React from 'react'` for JSX to work.
+        config.esbuild = { ...config.esbuild, jsx: 'automatic' }
         config.resolve = {
             ...config.resolve,
             alias: {
