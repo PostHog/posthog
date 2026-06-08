@@ -5,9 +5,12 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from requests import Response
+from urllib3.util.retry import Retry
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -32,6 +35,31 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
+
+# Outbound create-time probe tunables. The probe runs inline on the API request
+# thread, the same as business_knowledge's URL fetch, so it borrows that feature's
+# limits (products/business_knowledge/backend/constants.py): short connect/read
+# timeouts and a hard upper bound on declared resources. Defined locally rather
+# than imported so data_imports doesn't couple to an unrelated product.
+PROBE_CONNECT_TIMEOUT = 5
+PROBE_READ_TIMEOUT = 10
+# Auth/header config is shared across resources and the probe only acts on 401/403,
+# so one reachable resource validates the credential. Probe a small prefix instead
+# of one request per declared resource — otherwise the endpoint is an on-demand
+# outbound-request amplifier (one API call -> N outbound requests).
+PROBE_MAX_RESOURCES = 5
+# Bytes read from a 401/403 body for the error snippet. The probe opens responses
+# with stream=True and never ingests the body, so a bounded slice keeps a large or
+# hostile response from being buffered into worker memory (cf. URL_MAX_BYTES, sized
+# down here because the probe only needs a short diagnostic snippet).
+PROBE_ERROR_SNIPPET_BYTES = 2048
+# Upper bound on the number of resources (tables/endpoints) a single custom
+# source may declare. Also bounds the create-time outbound-request amplifier.
+MAX_MANIFEST_RESOURCES = 50
+
+# Upper bound on the number of custom sources a single team/project may create.
+# Enforced in the external_data_source create endpoint.
+MAX_CUSTOM_SOURCES_PER_TEAM = 5
 
 
 def is_custom_source_available_for_team(team_id: int | None) -> bool:
@@ -112,7 +140,7 @@ class _Manifest(BaseModel):
     data_selector, incremental, …) passes through untouched to the REST engine."""
 
     client: _ManifestClient
-    resources: list[_ManifestResource] = Field(min_length=1)
+    resources: list[_ManifestResource] = Field(min_length=1, max_length=MAX_MANIFEST_RESOURCES)
 
     @model_validator(mode="after")
     def _resource_names_unique(self) -> "_Manifest":
@@ -308,6 +336,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
             label="Custom REST source",
+            releaseStatus=ReleaseStatus.ALPHA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
@@ -391,10 +420,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         if not ok:
             return False, err
 
-        # Probe every resource so we surface auth/connection errors at create-time
-        # rather than waiting for the first sync. The auth/header setup comes from
-        # the shared client config, so it is built once and reused across the
-        # per-resource requests.
+        # Probe a small prefix of resources so we surface auth/connection errors
+        # at create-time rather than waiting for the first sync. The auth/header
+        # setup comes from the shared client config, so it is built once and
+        # reused across the per-resource requests.
         client = manifest["client"]
         base_url = client["base_url"]
 
@@ -409,12 +438,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except (ValueError, TypeError) as exc:
             return False, f"Invalid auth configuration: {exc}"
 
-        # Register the credential values so they're redacted from the probe's
-        # request logs/samples even when injected under a manifest-chosen
-        # query-param or header name the denylist scrubber can't anticipate.
-        session = make_tracked_session(headers=headers, redact_values=auth_secret_values(probe_auth))
+        # The probe runs inline on the request thread, so keep it cheap and
+        # bounded: no retries (don't multiply outbound volume at create time),
+        # no redirects (Smokescreen re-resolves each hop; keep the credential
+        # pinned to the validated host), and credential values registered for
+        # redaction even when injected under a manifest-chosen param/header name
+        # the denylist scrubber can't anticipate.
+        session = make_tracked_session(
+            headers=headers,
+            redact_values=auth_secret_values(probe_auth),
+            retry=Retry(total=0),
+            allow_redirects=False,
+        )
 
-        for resource in manifest["resources"]:
+        for resource in manifest["resources"][:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
@@ -426,8 +463,16 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             probe_params = _static_probe_params(endpoint.get("params"))
             probe_json = endpoint.get("json")
             try:
+                # stream=True so the body isn't buffered into memory; only a 401/403
+                # snippet is read below, and the response is always closed.
                 response = session.request(
-                    method, url, params=probe_params or None, json=probe_json, auth=probe_auth, timeout=15
+                    method,
+                    url,
+                    params=probe_params or None,
+                    json=probe_json,
+                    auth=probe_auth,
+                    timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT),
+                    stream=True,
                 )
             except Exception as exc:
                 return False, f"Resource {resource['name']!r}: could not reach {url}: {exc}"
@@ -437,12 +482,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # limited during the probe burst), 5xx — are not credential errors
             # and must not block source creation; a real, persistent failure
             # surfaces on the first sync instead.
-            if response.status_code in (401, 403):
-                return False, (
-                    f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                    f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
-                    f"{response.text[:200]}"
-                )
+            try:
+                if response.status_code in (401, 403):
+                    return False, (
+                        f"Resource {resource['name']!r}: the upstream API rejected the request with "
+                        f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
+                        f"{_read_capped_text(response)}"
+                    )
+            finally:
+                response.close()
 
         return True, None
 
@@ -539,6 +587,26 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             partition_mode="md5",
             sort_mode=sort_mode,
         )
+
+
+def _read_capped_text(response: Response) -> str:
+    """Read at most ``PROBE_ERROR_SNIPPET_BYTES`` of a streamed body for an error snippet.
+
+    The probe opens responses with ``stream=True`` and never ingests the body, so a
+    bounded slice keeps a large or hostile upstream response from being materialized
+    into worker memory. Reads the raw stream directly (rather than ``response.text``,
+    which buffers and decompresses the whole body).
+
+    ``decode_content=False`` is deliberate: it reads exactly ``PROBE_ERROR_SNIPPET_BYTES``
+    raw bytes and never inflates a ``Content-Encoding: gzip`` body, so a decompression
+    bomb can't expand a tiny read into megabytes. The snippet is only a human-readable
+    diagnostic — a (rare) compressed error body just shows as bytes.
+    """
+    try:
+        raw = response.raw.read(PROBE_ERROR_SNIPPET_BYTES, decode_content=False)
+    except Exception:
+        return ""
+    return raw.decode("utf-8", errors="replace")
 
 
 def _static_probe_params(params: Any) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-import { afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
@@ -26,8 +27,6 @@ export const BUCKET_OPTIONS: BucketOption[] = [
     { label: '15 minutes', minutes: 15, bucketCount: 96 },
     { label: '30 minutes', minutes: 30, bucketCount: 96 },
     { label: '1 hour', minutes: 60, bucketCount: 168 },
-    { label: '1 day', minutes: 1440, bucketCount: 30 },
-    { label: '1 week', minutes: 10080, bucketCount: 12 },
 ]
 
 export const DEFAULT_BUCKET_OPTION: BucketOption = BUCKET_OPTIONS.find((o) => o.minutes === 60) ?? BUCKET_OPTIONS[0]
@@ -47,6 +46,25 @@ export interface ExceptionVolumeBucket {
     count: number
 }
 
+export interface RateLimitHistoryBucket {
+    bucket: string
+    recorded: number
+    dropped: number
+}
+
+export type RateLimitChartMode = 'simulation' | 'history'
+
+// `force` recomputes server-side instead of serving cached results — used by the chart refresh button.
+export interface ChartLoadParams {
+    bucketMinutes: number
+    force?: boolean
+}
+
+// app_metrics2 fields emitted by the team-global rate limiter in the error tracking ingestion pipeline.
+const EXCEPTIONS_APP_SOURCE = 'exceptions'
+const RECORDED_METRIC_NAME = 'allowed'
+const DROPPED_METRIC_NAME = 'rate_limited'
+
 export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     path([
         'products',
@@ -57,6 +75,15 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         'rateLimitConfigLogic',
     ]),
 
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
+
+    actions({
+        setChartMode: (mode: RateLimitChartMode) => ({ mode }),
+        refreshChart: true,
+    }),
+
     reducers({
         hasLoadedConfig: [
             false,
@@ -64,16 +91,22 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                 loadConfigSuccess: () => true,
             },
         ],
+        chartMode: [
+            'simulation' as RateLimitChartMode,
+            {
+                setChartMode: (_, { mode }: { mode: RateLimitChartMode }) => mode,
+            },
+        ],
         volumeBucketMinutes: [
             DEFAULT_BUCKET_MINUTES,
             {
-                loadVolumeSuccess: (state, { payload: requestedBucketMinutes }: { payload?: number }) =>
-                    requestedBucketMinutes ?? state,
+                loadVolumeSuccess: (state, { payload }: { payload?: ChartLoadParams }) =>
+                    payload?.bucketMinutes ?? state,
             },
         ],
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         config: [
             null as ErrorTrackingSettings | null,
             {
@@ -85,12 +118,13 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         volume: [
             [] as ExceptionVolumeBucket[],
             {
-                loadVolume: async (bucketMinutes: number) => {
+                loadVolume: async ({ bucketMinutes, force }: ChartLoadParams) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                    const response = (await api.query(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
                             SELECT
                                 toStartOfInterval(timestamp, INTERVAL ${option.minutes} MINUTE) AS bucket,
                                 count() AS count
@@ -100,8 +134,10 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                             GROUP BY bucket
                             ORDER BY bucket
                         `,
-                        tags: { productKey: ProductKey.ERROR_TRACKING },
-                    })) as HogQLQueryResponse
+                            tags: { productKey: ProductKey.ERROR_TRACKING },
+                        },
+                        force ? { refresh: 'force_blocking' } : undefined
+                    )) as HogQLQueryResponse
                     return (response.results ?? []).map(([bucket, count]) => ({
                         bucket: String(bucket),
                         count: Number(count),
@@ -109,7 +145,49 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                 },
             },
         ],
-    }),
+        history: [
+            [] as RateLimitHistoryBucket[],
+            {
+                loadHistory: async ({ bucketMinutes, force }: ChartLoadParams) => {
+                    const option = getBucketOption(bucketMinutes)
+                    const totalMinutes = option.minutes * option.bucketCount
+                    const appSourceId = `${values.currentTeamId}:exceptions:global`
+                    const response = (await api.query(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                            SELECT
+                                toStartOfInterval(timestamp, INTERVAL ${option.minutes} MINUTE) AS bucket,
+                                metric_name,
+                                sum(count) AS count
+                            FROM app_metrics
+                            WHERE app_source = '${EXCEPTIONS_APP_SOURCE}'
+                              AND app_source_id = '${appSourceId}'
+                              AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}')
+                              AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
+                            GROUP BY bucket, metric_name
+                            ORDER BY bucket
+                        `,
+                            tags: { productKey: ProductKey.ERROR_TRACKING },
+                        },
+                        force ? { refresh: 'force_blocking' } : undefined
+                    )) as HogQLQueryResponse
+                    const byBucket = new Map<string, RateLimitHistoryBucket>()
+                    for (const [bucket, metricName, count] of response.results ?? []) {
+                        const key = String(bucket)
+                        const entry = byBucket.get(key) ?? { bucket: key, recorded: 0, dropped: 0 }
+                        if (metricName === RECORDED_METRIC_NAME) {
+                            entry.recorded = Number(count)
+                        } else if (metricName === DROPPED_METRIC_NAME) {
+                            entry.dropped = Number(count)
+                        }
+                        byBucket.set(key, entry)
+                    }
+                    return [...byBucket.values()]
+                },
+            },
+        ],
+    })),
 
     forms(({ actions }) => ({
         configForm: {
@@ -135,21 +213,42 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadConfigSuccess: ({ config }) => {
-            const bucket = config?.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+            const bucket = getBucketOption(
+                config?.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+            ).minutes
             if (config) {
                 actions.resetConfigForm({
                     project_rate_limit_value: config.project_rate_limit_value,
                     project_rate_limit_bucket_size_minutes: bucket,
                 })
             }
-            actions.loadVolume(bucket)
+            actions.loadVolume({ bucketMinutes: bucket })
         },
         setConfigFormValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[name.length - 1] : name
             if (fieldName === 'project_rate_limit_bucket_size_minutes' && typeof value === 'number') {
-                actions.loadVolume(value)
+                actions.loadVolume({ bucketMinutes: value })
+                if (values.chartMode === 'history') {
+                    actions.loadHistory({ bucketMinutes: value })
+                }
+            }
+        },
+        setChartMode: ({ mode }) => {
+            if (mode === 'history') {
+                actions.loadHistory({ bucketMinutes: values.configForm.project_rate_limit_bucket_size_minutes })
+            }
+        },
+        refreshChart: () => {
+            const params: ChartLoadParams = {
+                bucketMinutes: values.configForm.project_rate_limit_bucket_size_minutes,
+                force: true,
+            }
+            if (values.chartMode === 'history') {
+                actions.loadHistory(params)
+            } else {
+                actions.loadVolume(params)
             }
         },
     })),

@@ -8,7 +8,7 @@ use crate::{
         flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
         flag_service::FlagService,
     },
-    handler::{billing::record_billing_increment, types::Library},
+    handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
@@ -222,14 +222,9 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        record_billing_increment(
-            state.redis_client.clone(),
-            state.billing_aggregator.as_ref(),
-            team.id,
-            FlagRequestType::FlagDefinitions,
-            library,
-        )
-        .await;
+        state
+            .billing_aggregator
+            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
     }
 
     Ok(ok_response_with_etag(

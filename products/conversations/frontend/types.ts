@@ -137,6 +137,9 @@ export interface MessageAuthor {
     email?: string
 }
 
+/** Delivery state of an outbound email reply, denormalized from the backend outbox. */
+export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed'
+
 export interface ChatMessage {
     id: string
     content: string
@@ -146,6 +149,7 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    emailDeliveryStatus?: EmailDeliveryStatus
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

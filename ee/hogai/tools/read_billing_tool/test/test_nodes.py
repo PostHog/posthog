@@ -23,6 +23,7 @@ from posthog.schema import (
 )
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tools.read_billing_tool.prompts import BILLING_CONTEXT_UNAVAILABLE_PROMPT
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.utils.types import AssistantState
 
@@ -43,7 +44,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_with_no_billing_context(self):
         with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
             result = await self.tool.execute()
-            self.assertEqual(result, "No billing information available")
+            self.assertEqual(result, BILLING_CONTEXT_UNAVAILABLE_PROMPT)
 
     async def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(

@@ -123,6 +123,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 "provisioning_active",
                 "provisioning_skip_existing_user_consent",
                 "provisioning_can_issue_deep_links",
+                "provisioning_issues_personal_api_key",
                 "provisioning_can_create_accounts",
                 "provisioning_can_provision_resources",
                 "provisioning_rate_limit_account_requests",
@@ -136,7 +137,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
+                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
@@ -160,7 +161,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
+                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party")}),

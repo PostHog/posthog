@@ -144,7 +144,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { question, tabId: maxTabId } = useValues(maxLogic)
+    const { question, tabId: maxTabId, sidePanel: maxSidePanel } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
@@ -166,7 +166,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
         useActions(maxThreadLogic)
-    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: maxTabId }))
+    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: maxTabId, sidePanel: maxSidePanel }))
     // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
     // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
     // Keep the legacy items-start layout when the flag is off so existing screenshots
@@ -176,6 +176,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
+    // Tracks an explicit dismissal (e.g. Esc) so the popover stays closed while the
+    // user keeps typing a message that still starts with "/". "/" + Esc is a valid path.
+    const [autocompleteDismissed, setAutocompleteDismissed] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
     const hasQuestion = question.trim().length > 0
@@ -185,11 +188,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     // Update autocomplete visibility when question changes
     useEffect(() => {
         const isSlashCommand = question[0] === '/'
-        if (isSlashCommand && !showAutocomplete) {
+        // Once the input is no longer a slash command, clear any prior dismissal so
+        // typing "/" again later reopens the popover.
+        if (!isSlashCommand && autocompleteDismissed) {
+            setAutocompleteDismissed(false)
+        }
+        const shouldShow = isSlashCommand && !autocompleteDismissed
+        if (shouldShow && !showAutocomplete) {
             posthog.capture('Max slash command autocomplete shown')
         }
-        setShowAutocomplete(isSlashCommand)
-    }, [question, showAutocomplete])
+        setShowAutocomplete(shouldShow)
+    }, [question, showAutocomplete, autocompleteDismissed])
 
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
@@ -273,11 +282,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                     >
                         {handsFreeActive ? (
-                            <HandsFreeSurface tabId={maxTabId} />
+                            <HandsFreeSurface tabId={maxTabId} sidePanel={maxSidePanel} />
                         ) : (
                             <SlashCommandAutocomplete
                                 visible={showAutocomplete}
-                                onClose={() => setShowAutocomplete(false)}
+                                onClose={() => {
+                                    setShowAutocomplete(false)
+                                    setAutocompleteDismissed(true)
+                                }}
                             >
                                 <div className="relative w-full">
                                     {!question && (
@@ -399,7 +411,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <HandsFreeButton tabId={maxTabId} />
+                        <HandsFreeButton tabId={maxTabId} sidePanel={maxSidePanel} />
                         {!handsFreeActive && (
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"

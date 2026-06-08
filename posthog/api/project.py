@@ -17,10 +17,13 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
+    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    PromotedProductIntentSerializer,
     TeamSerializer,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_logs_config,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -40,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
@@ -53,10 +57,10 @@ from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
-    OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    UserCanCreateProjectPermission,
     get_organization_from_view,
 )
 from posthog.rbac.user_access_control import (
@@ -69,6 +73,12 @@ from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    TargetType,
+    create_notification,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
@@ -707,6 +717,42 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             return ProjectBackwardCompatBasicSerializer
         return super().get_serializer_class()
 
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        super().perform_create(serializer)
+        project = cast(Project, serializer.instance)
+        self._notify_org_admins_of_member_project_creation(project)
+
+    def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
+        """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
+        try:
+            user = cast(User, self.request.user)
+            membership = OrganizationMembership.objects.filter(
+                user=user, organization_id=project.organization_id
+            ).first()
+            if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+                return
+
+            admin_user_ids = OrganizationMembership.objects.filter(
+                organization_id=project.organization_id,
+                level__gte=OrganizationMembership.Level.ADMIN,
+            ).values_list("user_id", flat=True)
+
+            creator = user.first_name or user.email
+            for admin_user_id in admin_user_ids:
+                create_notification(
+                    NotificationData(
+                        team_id=project.pk,
+                        notification_type=NotificationType.PROJECT_CREATED,
+                        title=f"{creator} created a new project",
+                        body=f'"{project.name}" was created by {creator}. Review it in project settings.',
+                        target_type=TargetType.USER,
+                        target_id=str(admin_user_id),
+                        source_url=f"/project/{project.pk}/settings",
+                    )
+                )
+        except Exception:
+            logger.exception("Failed to dispatch member project creation notification", project_id=project.pk)
+
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         # Used for the AccessControlViewSetMixin
         mixin_result = super().dangerously_get_required_scopes(request, view)
@@ -743,7 +789,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(OrganizationAdminWritePermissions)
+                    permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -912,6 +958,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this project's canonical environment.
+        Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+        alongside the legacy /api/environments/:id/logs_config/ alias."""
+        project = self.get_object()
+        return handle_logs_config(request, project.passthrough_team)
+
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
@@ -928,6 +987,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @extend_schema(
+        tags=["platform_features"],
+        responses={200: PromotedProductIntentSerializer},
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
+        project = self.get_object()
+        team = project.passthrough_team
+        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
+        return response.Response({"product_key": product_key})
 
     @action(
         methods=["PATCH"],

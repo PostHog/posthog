@@ -61,10 +61,11 @@ class TestProtoGroupTypeMappingToDict:
                 },
             ),
             (
-                "proto_defaults_become_none",
+                "proto_defaults_keep_group_type_string",
                 {"group_type_index": 1},
                 {
-                    "group_type": None,
+                    # group_type is NOT NULL in the DB, so it stays a string (mirrors the ORM .values() path)
+                    "group_type": "",
                     "group_type_index": 1,
                     "name_singular": None,
                     "name_plural": None,
@@ -74,7 +75,7 @@ class TestProtoGroupTypeMappingToDict:
                 },
             ),
             (
-                "empty_strings_become_none",
+                "empty_optional_strings_become_none",
                 {
                     "group_type": "",
                     "group_type_index": 2,
@@ -85,7 +86,7 @@ class TestProtoGroupTypeMappingToDict:
                     "created_at": 0,
                 },
                 {
-                    "group_type": None,
+                    "group_type": "",
                     "group_type_index": 2,
                     "name_singular": None,
                     "name_plural": None,

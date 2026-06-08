@@ -4,6 +4,10 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
+import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
@@ -11,6 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
+import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -19,35 +24,18 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    DashboardPlacement,
+    DashboardTile,
+    DashboardType,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
-import _dashboardJson from './__mocks__/dashboard.json'
-
-const dashboardJson = getQueryBasedDashboard(_dashboardJson as any as DashboardType)!
-
-export function insightOnDashboard(
-    insightId: number,
-    dashboardsRelation: number[],
-    insight: Partial<QueryBasedInsightModel> = {}
-): QueryBasedInsightModel {
-    const tiles = dashboardJson.tiles.filter((tile) => !!tile.insight && tile.insight?.id === insightId)
-    let tile = dashboardJson.tiles[0]
-    if (tiles.length) {
-        tile = tiles[0]
-    }
-    if (!tile.insight) {
-        throw new Error('tile has no insight')
-    }
-    return {
-        ...tile.insight,
-        dashboards: dashboardsRelation,
-        dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
-        query: { ...tile.insight.query, ...insight.query, kind: (tile.insight.query?.kind || insight.query?.kind)! },
-    }
-}
+import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
 const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
     id: 4,
@@ -56,28 +44,18 @@ const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
     color: InsightColor.Blue,
 }
 
-let tileId = 0
-export const tileFromInsight = (
-    insight: QueryBasedInsightModel,
-    id: number = tileId++
-): DashboardTile<QueryBasedInsightModel> => ({
-    id: id,
+const WIDGET_TILE: DashboardTile<QueryBasedInsightModel> = {
+    id: 7,
+    widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
     layouts: {},
     color: null,
-    insight: insight,
-})
+}
 
-export const dashboardResult = (
-    dashboardId: number,
-    tiles: DashboardTile<QueryBasedInsightModel>[],
-    filters: Partial<DashboardFilter> = {}
-): DashboardType<QueryBasedInsightModel> => {
-    return {
-        ...dashboardJson,
-        filters: { ...dashboardJson.filters, ...filters },
-        id: dashboardId,
-        tiles,
-    }
+const WIDGET_TILE_WITH_CUSTOM_NAME: DashboardTile<QueryBasedInsightModel> = {
+    id: 8,
+    widget: { id: '2', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
+    layouts: {},
+    color: null,
 }
 
 const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
@@ -247,7 +225,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/:id/move_tile/': async (req) => {
                     // backend updates the two dashboards and the insight
                     const jsonPayload = await req.json()
-                    const { toDashboard, tile: tileToUpdate } = jsonPayload
+                    const { to_dashboard: toDashboard, tile: tileToUpdate } = jsonPayload
                     const from = dashboards[Number(req.params.id)]
                     // remove the tile from the source dashboard
                     const fromIndex = from.tiles.findIndex(
@@ -646,7 +624,7 @@ describe('dashboardLogic', () => {
 
             expect(api.update).toHaveBeenCalledWith(
                 `api/environments/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
-                expect.objectContaining({ tile: sourceTile, toDashboard: 8 })
+                expect.objectContaining({ tile: sourceTile, to_dashboard: 8 })
             )
         })
 
@@ -1339,10 +1317,17 @@ describe('dashboardLogic', () => {
     })
 
     describe('text tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+
         beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
         })
 
         it('can remove text tiles', async () => {
@@ -1356,6 +1341,73 @@ describe('dashboardLogic', () => {
                 ])
 
             expect(logic.values.textTiles).toEqual([])
+        })
+
+        it('shows undo toast when removing a text tile', async () => {
+            const { render } = await import('@testing-library/react')
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            }).toFinishAllListeners()
+
+            expect(lemonToastInfoSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    toastId: `remove-tile-${TEXT_TILE.id}`,
+                    button: expect.objectContaining({ label: 'Undo' }),
+                })
+            )
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { container } = render(toastContent)
+            expect(container.textContent).toBe('Text card has been removed from the dashboard')
+        })
+    })
+
+    describe('widget tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+
+        beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
+        })
+
+        it('shows undo toast with widget name when removing a widget tile', async () => {
+            const { render } = await import('@testing-library/react')
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(WIDGET_TILE)
+            }).toFinishAllListeners()
+
+            expect(lemonToastInfoSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    toastId: `remove-tile-${WIDGET_TILE.id}`,
+                    button: expect.objectContaining({ label: 'Undo' }),
+                })
+            )
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { container } = render(toastContent)
+            expect(container.textContent).toBe('Top issues widget removed')
+        })
+
+        it('uses custom widget name in undo toast when set', async () => {
+            const { render } = await import('@testing-library/react')
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(WIDGET_TILE_WITH_CUSTOM_NAME)
+            }).toFinishAllListeners()
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { container } = render(toastContent)
+            expect(container.textContent).toBe('Critical errors widget removed')
         })
     })
 
@@ -1455,5 +1507,300 @@ describe('dashboardLogic', () => {
         ).toEqual([])
         // Ensuring we do go back to the API for 800, which was added to dashboard 5
         expectLogic(fiveLogic).toDispatchActions(['loadDashboard']).toFinishAllListeners()
+    })
+
+    describe('widget orchestration', () => {
+        let fetchRunWidgetsMock: jest.SpiedFunction<typeof widgetFetchUtils.fetchRunWidgets>
+
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
+                [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+            })
+            fetchRunWidgetsMock = jest.spyOn(widgetFetchUtils, 'fetchRunWidgets').mockResolvedValue([
+                {
+                    tile_id: WIDGET_TILE.id,
+                    widget_type: 'error_tracking_list',
+                    result: { results: [], hasMore: false },
+                    error: null,
+                },
+            ])
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [
+                        200,
+                        { ...dashboards[5], tiles: [...dashboards[5].tiles, WIDGET_TILE] },
+                    ],
+                },
+            })
+        })
+
+        afterEach(() => {
+            fetchRunWidgetsMock.mockRestore()
+        })
+
+        it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                5,
+                [WIDGET_TILE.id],
+                expect.anything()
+            )
+            expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({
+                results: [],
+                hasMore: false,
+            })
+        })
+
+        it('does not fetch run_widgets on public placement', async () => {
+            logic = dashboardLogic({
+                id: 5,
+                placement: DashboardPlacement.Public,
+                dashboard: {
+                    ...dashboards[5],
+                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
+                } as DashboardType<QueryBasedInsightModel>,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+        })
+
+        it('enables widget tiles on public dashboards when tile metadata is present', async () => {
+            logic = dashboardLogic({
+                id: 5,
+                placement: DashboardPlacement.Public,
+                dashboard: {
+                    ...dashboards[5],
+                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
+                } as DashboardType<QueryBasedInsightModel>,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardWidgetsEnabled).toBe(true)
+        })
+
+        it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toFinishAllListeners()
+
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+        })
+
+        it('refreshDashboardWidgets sets friendly error when run_widgets returns per-tile error', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            fetchRunWidgetsMock.mockResolvedValueOnce([
+                {
+                    tile_id: WIDGET_TILE.id,
+                    widget_type: 'error_tracking_list',
+                    result: null,
+                    error: 'Query timeout',
+                },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toFinishAllListeners()
+
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+            expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.error).toBe('Query timeout')
+        })
+
+        it('refreshDashboardWidgets only marks failed tiles when a chunk has mixed results', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            fetchRunWidgetsMock.mockResolvedValueOnce([
+                {
+                    tile_id: 10,
+                    widget_type: 'error_tracking_list',
+                    result: { results: [], hasMore: false },
+                    error: null,
+                },
+                {
+                    tile_id: 11,
+                    widget_type: 'session_replay_list',
+                    result: null,
+                    error: 'Query timeout',
+                },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [10, 11], forceRefresh: true })
+            }).toFinishAllListeners()
+
+            expect(logic.values.widgetRefreshStatus[10]?.error).toBeNull()
+            expect(logic.values.widgetRefreshStatus[11]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+        })
+
+        it('duplicateTile refreshes newly duplicated widget tiles', async () => {
+            const duplicatedTile = {
+                id: 99,
+                widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
+                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+                color: null,
+            } as unknown as DashboardTile<QueryBasedInsightModel>
+
+            jest.spyOn(api, 'update').mockResolvedValueOnce(
+                dashboardResult(5, [...dashboards[5].tiles, WIDGET_TILE, duplicatedTile])
+            )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            fetchRunWidgetsMock.mockResolvedValueOnce([
+                {
+                    tile_id: duplicatedTile.id,
+                    widget_type: 'error_tracking_list',
+                    result: { results: [{ id: 'issue-1' }], hasMore: false },
+                    error: null,
+                },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(WIDGET_TILE)
+            })
+                .toDispatchActions(['refreshDashboardWidgets'])
+                .toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                5,
+                [duplicatedTile.id],
+                expect.anything()
+            )
+            expect(logic.values.widgetResultsByTileId[duplicatedTile.id]?.result).toEqual({
+                results: [{ id: 'issue-1' }],
+                hasMore: false,
+            })
+        })
+
+        it('addWidgetTiles refreshes newly created widget tiles', async () => {
+            const addedTile = {
+                id: 99,
+                widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
+                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+                color: null,
+            } as unknown as DashboardTile<QueryBasedInsightModel>
+
+            jest.spyOn(api, 'create').mockResolvedValueOnce({
+                tiles: [addedTile],
+            })
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            fetchRunWidgetsMock.mockResolvedValueOnce([
+                {
+                    tile_id: addedTile.id,
+                    widget_type: 'error_tracking_list',
+                    result: { results: [], hasMore: false },
+                    error: null,
+                },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.addWidgetTiles({
+                    dashboardId: 5,
+                    widgets: [{ widgetType: 'error_tracking_list', config: { limit: 5 } }],
+                })
+            })
+                .toDispatchActions(['refreshDashboardWidgets'])
+                .toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 5, [addedTile.id], expect.anything())
+        })
+
+        it('updateWidgetTile persists config and metadata in one patch', async () => {
+            const updateDashboardWidgetTileMock = jest
+                .spyOn(dashboardWidgetUtils, 'updateDashboardWidgetTile')
+                .mockResolvedValueOnce({
+                    ...WIDGET_TILE,
+                    widget: {
+                        ...WIDGET_TILE.widget!,
+                        name: 'Weekly errors',
+                        description: 'Top issues this week',
+                        config: { limit: 5 },
+                    },
+                } as DashboardTile<QueryBasedInsightModel>)
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateWidgetTile({
+                    tile: WIDGET_TILE,
+                    config: { limit: 5 },
+                    name: 'Weekly errors',
+                    description: 'Top issues this week',
+                })
+            })
+                .toDispatchActions(['refreshDashboardWidgets'])
+                .toFinishAllListeners()
+
+            expect(updateDashboardWidgetTileMock).toHaveBeenCalledWith({
+                teamId: MOCK_TEAM_ID,
+                dashboardId: 5,
+                tile: WIDGET_TILE,
+                config: { limit: 5 },
+                name: 'Weekly errors',
+                description: 'Top issues this week',
+            })
+            expect(logic.values.dashboard?.tiles.find((tile) => tile.id === WIDGET_TILE.id)?.widget).toMatchObject({
+                name: 'Weekly errors',
+                description: 'Top issues this week',
+                config: { limit: 5 },
+            })
+
+            updateDashboardWidgetTileMock.mockRestore()
+        })
+
+        it('copyToDashboard calls copy_tile for widget tiles', async () => {
+            jest.spyOn(api, 'create').mockResolvedValueOnce({})
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.copyToDashboard(WIDGET_TILE, 5, 8, 'Target dashboard')
+            }).toFinishAllListeners()
+
+            expect(api.create).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/8/copy_tile`, {
+                fromDashboardId: 5,
+                tileId: WIDGET_TILE.id,
+            })
+        })
     })
 })

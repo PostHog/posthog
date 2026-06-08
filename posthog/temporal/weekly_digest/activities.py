@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.models.messaging import MessagingRecord
 from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -573,7 +573,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         continue
 
                     messaging_record, created = await MessagingRecord.objects.aget_or_create(
-                        email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
+                        raw_email=f"org_{organization.id}", campaign_key=input.digest.key
                     )
 
                     if not created and messaging_record.sent_at and not input.allow_already_sent:
