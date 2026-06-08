@@ -611,6 +611,23 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional()
                         .describe("Whether the final option should be an open-text choice (for example, 'Other')."),
                 }),
+                zod.object({
+                    type: zod.enum(['slider']).describe('\* `slider` - slider'),
+                    question: zod.string().describe('Question text shown to respondents.'),
+                    description: zod.string().optional().describe('Optional helper text.'),
+                    descriptionContentType: zod
+                        .enum(['html', 'text'])
+                        .describe('\* `html` - html\n\* `text` - text')
+                        .optional()
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
+                    optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
+                    buttonText: zod.string().optional().describe('Custom button label.'),
+                    min: zod.number().describe('Minimum value of the slider.'),
+                    max: zod.number().describe('Maximum value of the slider.'),
+                    step: zod.number().optional().describe('Step size for the slider.'),
+                    prefix: zod.string().optional().describe("Prefix for the slider value (e.g., '$')."),
+                    suffix: zod.string().optional().describe("Suffix for the slider value (e.g., '%')."),
+                }),
             ])
         )
         .nullish()
@@ -1500,6 +1517,23 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .boolean()
                         .optional()
                         .describe("Whether the final option should be an open-text choice (for example, 'Other')."),
+                }),
+                zod.object({
+                    type: zod.enum(['slider']).describe('\* `slider` - slider'),
+                    question: zod.string().describe('Question text shown to respondents.'),
+                    description: zod.string().optional().describe('Optional helper text.'),
+                    descriptionContentType: zod
+                        .enum(['html', 'text'])
+                        .describe('\* `html` - html\n\* `text` - text')
+                        .optional()
+                        .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
+                    optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
+                    buttonText: zod.string().optional().describe('Custom button label.'),
+                    min: zod.number().describe('Minimum value of the slider.'),
+                    max: zod.number().describe('Maximum value of the slider.'),
+                    step: zod.number().optional().describe('Step size for the slider.'),
+                    prefix: zod.string().optional().describe("Prefix for the slider value (e.g., '$')."),
+                    suffix: zod.string().optional().describe("Suffix for the slider value (e.g., '%')."),
                 }),
             ])
         )

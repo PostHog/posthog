@@ -1,6 +1,6 @@
 import { IconComment } from '@posthog/icons'
 
-import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { IconAreaChart, IconGridView, IconLink, IconListView, IconTuning } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
@@ -29,6 +29,7 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Link]: 'Link',
     [SurveyQuestionType.SingleChoice]: 'Single choice select',
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
+    [SurveyQuestionType.Slider]: 'Slider',
 }
 
 export const QUESTION_TYPE_OPTIONS = [
@@ -37,6 +38,7 @@ export const QUESTION_TYPE_OPTIONS = [
     { type: SurveyQuestionType.SingleChoice, label: 'Single choice', icon: <IconListView /> },
     { type: SurveyQuestionType.MultipleChoice, label: 'Multiple choice', icon: <IconGridView /> },
     { type: SurveyQuestionType.Link, label: 'Link / Announcement', icon: <IconLink /> },
+    { type: SurveyQuestionType.Slider, label: 'Slider', icon: <IconTuning /> },
 ]
 
 // Rating scale constants
@@ -161,6 +163,27 @@ export const defaultSurveyFieldValues = {
                 description: '',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
+                buttonText: 'Submit',
+            },
+        ],
+        appearance: {
+            thankYouMessageHeader: 'Thank you for your feedback!',
+        },
+    },
+    [SurveyQuestionType.Slider]: {
+        questions: [
+            {
+                type: SurveyQuestionType.Slider,
+                question: 'How satisfied are you with our product?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                min: 0,
+                max: 100,
+                step: 1,
+                lowerBoundLabel: '',
+                upperBoundLabel: '',
+                prefix: '',
+                suffix: '',
                 buttonText: 'Submit',
             },
         ],

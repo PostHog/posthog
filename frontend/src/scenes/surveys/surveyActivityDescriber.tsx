@@ -21,6 +21,7 @@ import {
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
+    SliderSurveyQuestion,
     Survey,
     SurveyAppearance,
     SurveyQuestionType,
@@ -437,7 +438,12 @@ export function getPreposition(field: string): string {
     }
 }
 
-type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
+type SurveyQuestion =
+    | BasicSurveyQuestion
+    | LinkSurveyQuestion
+    | RatingSurveyQuestion
+    | MultipleSurveyQuestion
+    | SliderSurveyQuestion
 
 export function describeQuestionChanges(before: SurveyQuestion, after: SurveyQuestion): JSX.Element[] {
     const commonChanges = describeCommonChanges(before, after)

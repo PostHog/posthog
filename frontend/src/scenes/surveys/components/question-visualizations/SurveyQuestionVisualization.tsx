@@ -9,6 +9,7 @@ import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
+import { SliderQuestionViz } from 'scenes/surveys/components/question-visualizations/SliderQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
@@ -165,6 +166,17 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                     </div>
                 </div>
             )
+        case SurveyQuestionType.Slider:
+            return (
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-row gap-2">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                            <LemonSkeleton key={i} className="h-16 w-24" />
+                        ))}
+                    </div>
+                    <LemonSkeleton className="h-48 w-full" />
+                </div>
+            )
         case SurveyQuestionType.Open:
             return (
                 <div className="masonry-container">
@@ -226,6 +238,14 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         )}
                     {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
                         <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={demoData.data}
+                            totalResponses={demoData.totalResponses}
+                        />
+                    )}
+                    {question.type === SurveyQuestionType.Slider && demoData.type === SurveyQuestionType.Slider && (
+                        <SliderQuestionViz
                             question={question}
                             questionIndex={questionIndex}
                             responseData={demoData.data}
@@ -320,6 +340,15 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                             totalResponses={processedData.totalResponses}
                         />
                     )}
+                    {question.type === SurveyQuestionType.Slider &&
+                        processedData.type === SurveyQuestionType.Slider && (
+                            <SliderQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
+                                responseData={processedData.data}
+                                totalResponses={processedData.totalResponses}
+                            />
+                        )}
                 </ErrorBoundary>
             </div>
         </div>

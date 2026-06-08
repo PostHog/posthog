@@ -67,6 +67,7 @@ import {
     PropertyOperator,
     RatingSurveyQuestion,
     ResponsesByQuestion,
+    SliderSurveyQuestion,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
@@ -450,6 +451,26 @@ function processRatingQuestion(
     }
 }
 
+function processSliderQuestion(
+    _question: SliderSurveyQuestion,
+    entries: AggregateEntries
+): ChoiceQuestionProcessedResponses {
+    let total = 0
+    const data: ChoiceQuestionResponseData[] = entries
+        .map(([label, count]) => {
+            total += count
+            return { label, value: count, isPredefined: true }
+        })
+        .sort((a, b) => parseFloat(a.label) - parseFloat(b.label))
+
+    return {
+        type: SurveyQuestionType.Slider,
+        data,
+        totalResponses: total,
+        noResponseCount: 0,
+    }
+}
+
 function processOpenQuestion(entries: AggregateEntries): OpenQuestionProcessedResponses {
     const total = entries.find(([l]) => l === '__total__')?.[1] ?? 0
     return { type: SurveyQuestionType.Open, data: [], totalResponses: total }
@@ -487,6 +508,9 @@ export function processResultsForSurveyQuestions(
                 break
             case SurveyQuestionType.Rating:
                 responsesByQuestion[question.id] = processRatingQuestion(question, entries)
+                break
+            case SurveyQuestionType.Slider:
+                responsesByQuestion[question.id] = processSliderQuestion(question, entries)
                 break
             case SurveyQuestionType.Open:
                 responsesByQuestion[question.id] = processOpenQuestion(entries)
@@ -1693,7 +1717,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                   if (type !== SurveyQuestionType.Link) {
                                       delete cleanedTrans.link
                                   }
-                                  if (type !== SurveyQuestionType.Rating) {
+                                  if (type !== SurveyQuestionType.Rating && type !== SurveyQuestionType.Slider) {
                                       delete cleanedTrans.lowerBoundLabel
                                       delete cleanedTrans.upperBoundLabel
                                   }

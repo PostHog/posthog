@@ -16,6 +16,7 @@ import {
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
+    SliderSurveyQuestion,
     Survey,
     SurveyQuestion,
     SurveyQuestionType,
@@ -49,6 +50,9 @@ const isLinkQuestion = (question: SurveyQuestion): question is LinkSurveyQuestio
 
 const isRatingQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
     question.type === SurveyQuestionType.Rating
+
+const isSliderQuestion = (question: SurveyQuestion): question is SliderSurveyQuestion =>
+    question.type === SurveyQuestionType.Slider
 
 export function SurveyEditQuestionHeader({
     index,
@@ -419,6 +423,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     label: 'Multiple choice select',
                                     value: SurveyQuestionType.MultipleChoice,
                                     'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                                },
+                                {
+                                    label: 'Slider',
+                                    value: SurveyQuestionType.Slider,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Slider}`,
                                 },
                             ]}
                         />
@@ -835,6 +844,139 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 </LemonField>
                             )}
                         </LemonField>
+                    </div>
+                )}
+                {isSliderQuestion(question) && (
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-row gap-4">
+                            <LemonField name="min" label="Min" className="w-1/3">
+                                <LemonInput
+                                    type="number"
+                                    value={(question as SliderSurveyQuestion).min ?? 0}
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Slider settings can only be changed in the original language'
+                                            : undefined
+                                    }
+                                    onChange={(val) => {
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = { ...survey.questions[index], min: Number(val) }
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
+                                />
+                            </LemonField>
+                            <LemonField name="max" label="Max" className="w-1/3">
+                                <LemonInput
+                                    type="number"
+                                    value={(question as SliderSurveyQuestion).max ?? 100}
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Slider settings can only be changed in the original language'
+                                            : undefined
+                                    }
+                                    onChange={(val) => {
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = { ...survey.questions[index], max: Number(val) }
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
+                                />
+                            </LemonField>
+                            <LemonField name="step" label="Step" className="w-1/3">
+                                <LemonInput
+                                    type="number"
+                                    value={(question as SliderSurveyQuestion).step ?? 1}
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Slider settings can only be changed in the original language'
+                                            : undefined
+                                    }
+                                    onChange={(val) => {
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = { ...survey.questions[index], step: Number(val) }
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
+                                />
+                            </LemonField>
+                        </div>
+                        <div className="flex flex-row gap-4">
+                            <LemonField name="prefix" label="Prefix (optional)" className="w-1/2">
+                                <LemonInput
+                                    value={(question as SliderSurveyQuestion).prefix || ''}
+                                    placeholder="e.g. $"
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Slider settings can only be changed in the original language'
+                                            : undefined
+                                    }
+                                    onChange={(val) => {
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = { ...survey.questions[index], prefix: val }
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
+                                />
+                            </LemonField>
+                            <LemonField name="suffix" label="Suffix (optional)" className="w-1/2">
+                                <LemonInput
+                                    value={(question as SliderSurveyQuestion).suffix || ''}
+                                    placeholder="e.g. %"
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Slider settings can only be changed in the original language'
+                                            : undefined
+                                    }
+                                    onChange={(val) => {
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = { ...survey.questions[index], suffix: val }
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
+                                />
+                            </LemonField>
+                        </div>
+                        <div className="flex flex-row gap-4">
+                            <LemonField
+                                name={getFieldName('lowerBoundLabel')}
+                                label={getFieldLabel('Lower bound label', 'lowerBoundLabel')}
+                                className="w-1/2"
+                            >
+                                {(() => {
+                                    const fieldError = getFieldError('lowerBoundLabel')
+                                    return (
+                                        <Tooltip title={fieldError?.error || ''} placement="top">
+                                            <LemonInput
+                                                value={(displayQuestion as SliderSurveyQuestion).lowerBoundLabel || ''}
+                                                placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
+                                                onChange={(val) => handleQuestionValueChange('lowerBoundLabel', val)}
+                                                className={getFieldErrorClass('lowerBoundLabel')}
+                                            />
+                                        </Tooltip>
+                                    )
+                                })()}
+                            </LemonField>
+                            <LemonField
+                                name={getFieldName('upperBoundLabel')}
+                                label={getFieldLabel('Upper bound label', 'upperBoundLabel')}
+                                className="w-1/2"
+                            >
+                                {(() => {
+                                    const fieldError = getFieldError('upperBoundLabel')
+                                    return (
+                                        <Tooltip title={fieldError?.error || ''} placement="top">
+                                            <LemonInput
+                                                value={(displayQuestion as SliderSurveyQuestion).upperBoundLabel || ''}
+                                                placeholder={editingLanguage ? question.upperBoundLabel : undefined}
+                                                onChange={(val) => handleQuestionValueChange('upperBoundLabel', val)}
+                                                className={getFieldErrorClass('upperBoundLabel')}
+                                            />
+                                        </Tooltip>
+                                    )
+                                })()}
+                            </LemonField>
+                        </div>
                     </div>
                 )}
                 <LemonField

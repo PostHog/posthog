@@ -9,17 +9,15 @@ import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } fro
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
-    BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
     CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
-    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
     QuestionProcessedResponses,
-    RatingSurveyQuestion,
+    SliderSurveyQuestion,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -703,6 +701,14 @@ export function buildAggregateQuery(
                 count() AS cnt
             FROM events
             WHERE ${baseWhere} AND isNotNull(${responseExpr})`)
+        } else if (question.type === SurveyQuestionType.Slider) {
+            const step = (question as SliderSurveyQuestion).step ?? 1
+            branches.push(`SELECT '${question.id}' AS question_id,
+                toString(floor(toFloat64OrNull(${responseExpr}) / ${step}) * ${step}) AS label,
+                count() AS cnt
+            FROM events
+            WHERE ${baseWhere} AND isNotNull(toFloat64OrNull(${responseExpr}))
+            GROUP BY label`)
         }
     }
 
@@ -922,10 +928,7 @@ export function buildSurveyTimestampFilter(
     AND timestamp <= '${toDate}'`
 }
 
-export function getExpressionCommentForQuestion(
-    q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
-    questionIndex: number
-): string {
+export function getExpressionCommentForQuestion(q: SurveyQuestion, questionIndex: number): string {
     if (q.question.trim().length > 0) {
         return q.question
     }

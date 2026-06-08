@@ -4067,6 +4067,80 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["questions"][0]["branching"]["type"] == "end"
 
+    def test_create_survey_with_slider_question(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Pricing survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "slider",
+                        "question": "What price would you pay?",
+                        "min": 0.01,
+                        "max": 20.00,
+                        "step": 0.01,
+                        "prefix": "$",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["questions"][0]["type"] == "slider"
+
+    @parameterized.expand(
+        [
+            ("min_equals_max", {"min": 10, "max": 10, "step": 1}),
+            ("min_greater_than_max", {"min": 20, "max": 10, "step": 1}),
+            ("step_zero", {"min": 0, "max": 100, "step": 0}),
+            ("step_negative", {"min": 0, "max": 100, "step": -1}),
+            ("step_exceeds_range", {"min": 0, "max": 10, "step": 11}),
+        ]
+    )
+    def test_slider_validation_rejects_invalid_config(self, _name, overrides):
+        payload = {"type": "slider", "question": "Q?", "min": 0, "max": 100, "step": 1}
+        payload.update(overrides)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            {"name": "Test", "type": "popover", "questions": [payload]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_slider_rejects_min_greater_than_max(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            {
+                "name": "Pricing survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "slider",
+                        "question": "What price would you pay?",
+                        "min": 100,
+                        "max": 10,  # invalid: max < min
+                        "step": 1,
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_slider_requires_min_and_max(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            {
+                "name": "Pricing survey",
+                "type": "popover",
+                "questions": [{"type": "slider", "question": "Price?"}],  # no min/max
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):

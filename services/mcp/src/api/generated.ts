@@ -32507,7 +32507,44 @@ export namespace Schemas {
       hasOpenChoice?: boolean;
     }
 
-    export type SurveyQuestionInputSchema = SurveyOpenQuestionSchema | SurveyLinkQuestionSchema | SurveyRatingQuestionSchema | SurveySingleChoiceQuestionSchema | SurveyMultipleChoiceQuestionSchema;
+    /**
+     * * `slider` - slider
+     */
+    export type SurveySliderQuestionSchemaTypeEnum = typeof SurveySliderQuestionSchemaTypeEnum[keyof typeof SurveySliderQuestionSchemaTypeEnum];
+
+
+    export const SurveySliderQuestionSchemaTypeEnum = {
+      Slider: 'slider',
+    } as const;
+
+    export interface SurveySliderQuestionSchema {
+      type: SurveySliderQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+
+      * `text` - text
+      * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /** Minimum value of the slider. */
+      min: number;
+      /** Maximum value of the slider. */
+      max: number;
+      /** Step size for the slider. */
+      step?: number;
+      /** Prefix for the slider value (e.g., '$'). */
+      prefix?: string;
+      /** Suffix for the slider value (e.g., '%'). */
+      suffix?: string;
+    }
+
+    export type SurveyQuestionInputSchema = SurveyOpenQuestionSchema | SurveyLinkQuestionSchema | SurveyRatingQuestionSchema | SurveySingleChoiceQuestionSchema | SurveyMultipleChoiceQuestionSchema | SurveySliderQuestionSchema;
 
     export interface SurveyConditionEventValueSchema {
       /** Event name that triggers the survey. */

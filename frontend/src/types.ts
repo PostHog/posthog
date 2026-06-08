@@ -3573,7 +3573,11 @@ export interface OpenQuestionResponseData {
 }
 
 export interface ChoiceQuestionProcessedResponses {
-    type: SurveyQuestionType.SingleChoice | SurveyQuestionType.Rating | SurveyQuestionType.MultipleChoice
+    type:
+        | SurveyQuestionType.SingleChoice
+        | SurveyQuestionType.Rating
+        | SurveyQuestionType.MultipleChoice
+        | SurveyQuestionType.Slider
     data: ChoiceQuestionResponseData[]
     totalResponses: number
     noResponseCount: number
@@ -3861,7 +3865,7 @@ export interface Survey extends WithAccessControl {
     linked_insight_id?: number | null
     conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
-    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
+    questions: SurveyQuestion[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -4052,7 +4056,23 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
         | SpecificQuestionBranching
 }
 
-export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
+export interface SliderSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Slider
+    min: number
+    max: number
+    step: number
+    lowerBoundLabel?: string
+    upperBoundLabel?: string
+    prefix?: string
+    suffix?: string
+}
+
+export type SurveyQuestion =
+    | BasicSurveyQuestion
+    | LinkSurveyQuestion
+    | RatingSurveyQuestion
+    | MultipleSurveyQuestion
+    | SliderSurveyQuestion
 
 export enum SurveyQuestionType {
     Open = 'open',
@@ -4060,6 +4080,7 @@ export enum SurveyQuestionType {
     SingleChoice = 'single_choice',
     Rating = 'rating',
     Link = 'link',
+    Slider = 'slider',
 }
 
 export enum SurveyValidationType {

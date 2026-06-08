@@ -18,6 +18,7 @@ import {
 } from '~/types'
 
 import {
+    buildAggregateQuery,
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
     buildSurveyOptionalBooleanPropertyFilter,
@@ -37,6 +38,7 @@ import {
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
     splitChoicesOnPaste,
+    SurveyQueryFilters,
     validateCSSProperty,
     validateSurveyAppearance,
 } from './utils'
@@ -1442,5 +1444,71 @@ describe('splitChoicesOnPaste', () => {
 
     it('preserves the open-ended "Other" entry when pasting into the open-ended slot itself', () => {
         expect(splitChoicesOnPaste('two\nthree', ['one', 'Other'], 1, true)).toEqual(['one', 'two', 'three', 'Other'])
+    })
+})
+
+describe('buildAggregateQuery – slider questions', () => {
+    const mockFilters: SurveyQueryFilters = {
+        timestampFilter: '',
+        answerFilterHogQLExpression: '',
+        archivedResponsesFilter: '',
+    }
+
+    const baseSliderQuestion = {
+        type: SurveyQuestionType.Slider,
+        id: 'q-slider-1',
+        question: 'What price would you pay?',
+        min: 0,
+        max: 100,
+        step: 1,
+    }
+
+    const mockSurveyWithSlider = (overrides: Partial<typeof baseSliderQuestion> = {}): Survey => {
+        return {
+            id: 'survey-1',
+            created_at: '2024-01-01T00:00:00Z',
+            end_date: null,
+            enable_partial_responses: false,
+            questions: [{ ...baseSliderQuestion, ...overrides }],
+        } as unknown as Survey
+    }
+
+    it('includes a branch for slider questions', () => {
+        const query = buildAggregateQuery(mockSurveyWithSlider(), mockFilters)
+        expect(query).not.toBeNull()
+        expect(query).toContain('q-slider-1')
+    })
+
+    it('casts response value to Float64', () => {
+        const query = buildAggregateQuery(mockSurveyWithSlider(), mockFilters)
+        expect(query).toContain('toFloat64OrNull')
+    })
+
+    it('buckets responses using floor division by step', () => {
+        const query = buildAggregateQuery(mockSurveyWithSlider({ step: 5 }), mockFilters)
+        expect(query).toMatch(/floor\(.*\/ 5\) \* 5/)
+    })
+
+    it('uses step: 1 for unit bucketing by default', () => {
+        const query = buildAggregateQuery(mockSurveyWithSlider({ step: 1 }), mockFilters)
+        expect(query).toMatch(/floor\(.*\/ 1\) \* 1/)
+    })
+
+    it('filters out null responses', () => {
+        const query = buildAggregateQuery(mockSurveyWithSlider(), mockFilters)
+        expect(query).toContain('isNotNull(toFloat64OrNull(')
+    })
+
+    it('returns null when the only question is a link question', () => {
+        const survey = {
+            id: 'survey-1',
+            created_at: '2024-01-01T00:00:00Z',
+            end_date: null,
+            enable_partial_responses: false,
+            questions: [
+                { type: SurveyQuestionType.Link, id: 'q-link-1', question: 'Click here', link: 'https://posthog.com' },
+            ],
+        } as unknown as Survey
+        expect(buildAggregateQuery(survey, mockFilters)).toBeNull()
     })
 })

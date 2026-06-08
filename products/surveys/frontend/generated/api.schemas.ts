@@ -1082,12 +1082,50 @@ export interface SurveyMultipleChoiceQuestionSchemaApi {
     hasOpenChoice?: boolean
 }
 
+/**
+ * * `slider` - slider
+ */
+export type SurveySliderQuestionSchemaTypeEnumApi =
+    (typeof SurveySliderQuestionSchemaTypeEnumApi)[keyof typeof SurveySliderQuestionSchemaTypeEnumApi]
+
+export const SurveySliderQuestionSchemaTypeEnumApi = {
+    Slider: 'slider',
+} as const
+
+export interface SurveySliderQuestionSchemaApi {
+    type: SurveySliderQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+
+  * `text` - text
+  * `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /** Minimum value of the slider. */
+    min: number
+    /** Maximum value of the slider. */
+    max: number
+    /** Step size for the slider. */
+    step?: number
+    /** Prefix for the slider value (e.g., '$'). */
+    prefix?: string
+    /** Suffix for the slider value (e.g., '%'). */
+    suffix?: string
+}
+
 export type SurveyQuestionInputSchemaApi =
     | SurveyOpenQuestionSchemaApi
     | SurveyLinkQuestionSchemaApi
     | SurveyRatingQuestionSchemaApi
     | SurveySingleChoiceQuestionSchemaApi
     | SurveyMultipleChoiceQuestionSchemaApi
+    | SurveySliderQuestionSchemaApi
 
 /**
  * * `exact` - exact

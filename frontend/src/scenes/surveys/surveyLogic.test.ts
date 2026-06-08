@@ -16,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
     AnyPropertyFilter,
+    BasicSurveyQuestion,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
     LinkSurveyQuestion,
@@ -2255,6 +2256,34 @@ describe('processResultsForSurveyQuestions', () => {
             expect(openData.type).toBe(SurveyQuestionType.Open)
             expect(openData.totalResponses).toBe(42)
             expect(openData.data).toHaveLength(0)
+        })
+    })
+
+    describe('Slider Questions', () => {
+        it('switching question type to slider sets default min/max/step', async () => {
+            const logic = surveyLogic({ id: 'new' })
+            logic.mount()
+
+            // The existing question before switching — a plain Open question
+            const existingQuestion: BasicSurveyQuestion = {
+                type: SurveyQuestionType.Open,
+                question: 'What do you think?',
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setDefaultForQuestionType(0, existingQuestion, SurveyQuestionType.Slider)
+            }).toMatchValues({
+                survey: expect.objectContaining({
+                    questions: expect.arrayContaining([
+                        expect.objectContaining({
+                            type: 'slider',
+                            min: 0,
+                            max: 100,
+                            step: 1,
+                        }),
+                    ]),
+                }),
+            })
         })
     })
 

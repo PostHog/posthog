@@ -491,6 +491,15 @@ class SurveyMultipleChoiceQuestionSchemaSerializer(SurveyBaseQuestionSchemaSeria
     )
 
 
+class SurveySliderQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
+    type = serializers.ChoiceField(choices=["slider"], required=True)
+    min = serializers.FloatField(required=True, help_text="Minimum value of the slider.")
+    max = serializers.FloatField(required=True, help_text="Maximum value of the slider.")
+    step = serializers.FloatField(required=False, help_text="Step size for the slider.")
+    prefix = serializers.CharField(required=False, help_text="Prefix for the slider value (e.g., '$').")
+    suffix = serializers.CharField(required=False, help_text="Suffix for the slider value (e.g., '%').")
+
+
 _SurveyQuestionUnion = PolymorphicProxySerializer(
     component_name="SurveyQuestionInputSchema",
     serializers=[
@@ -499,6 +508,7 @@ _SurveyQuestionUnion = PolymorphicProxySerializer(
         SurveyRatingQuestionSchemaSerializer,
         SurveySingleChoiceQuestionSchemaSerializer,
         SurveyMultipleChoiceQuestionSchemaSerializer,
+        SurveySliderQuestionSchemaSerializer,
     ],
     resource_type_field_name=None,
 )
@@ -1347,6 +1357,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     max_val = max_rule.get("value")
                     if min_val is not None and max_val is not None and min_val > max_val:
                         raise serializers.ValidationError("Minimum length cannot be greater than maximum length")
+
+            # Validate slider question
+            if cleaned_question.get("type") == "slider":
+                q_min = raw_question.get("min")
+                q_max = raw_question.get("max")
+                q_step = raw_question.get("step")
+
+                if q_min is None or q_max is None:
+                    raise serializers.ValidationError("Slider questions require 'min' and 'max'.")
+                if not isinstance(q_min, (int, float)) or not isinstance(q_max, (int, float)):
+                    raise serializers.ValidationError("'min' and 'max' must be numbers.")
+                if q_min >= q_max:
+                    raise serializers.ValidationError("'min' must be less than 'max'.")
+                if q_step is None:
+                    raise serializers.ValidationError("Slider questions require 'step'.")
+                if not isinstance(q_step, (int, float)) or q_step <= 0:
+                    raise serializers.ValidationError("'step' must be a positive number.")
+                if q_step > (q_max - q_min):
+                    raise serializers.ValidationError("'step' cannot exceed the range (max - min).")
 
             cleaned_questions.append(cleaned_question)
 
