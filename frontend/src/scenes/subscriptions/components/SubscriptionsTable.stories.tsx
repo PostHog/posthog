@@ -97,7 +97,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         resource_name: 'Activation funnel',
         title: 'Webhook delivery to internal automation',
         dashboard_export_insights: [],
-        target_type: TargetTypeEnumApi.Webhook,
+        target_type: TargetTypeEnumApi.Slack,
         target_value: 'https://hooks.example.com/services/posthog/subscriptions/abc123def456',
         frequency: SubscriptionFrequencyEnumApi.Weekly,
         interval: 1,
