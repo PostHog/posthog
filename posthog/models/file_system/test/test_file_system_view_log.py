@@ -48,37 +48,30 @@ class TestFileSystemViewLog(TestCase):
             for item in get_recent_file_system_items(team_id=self.team.id, user_id=self.user.id)
         ]
 
-        self.assertGreaterEqual(len(view_order), 2)
-        self.assertEqual([item.ref for item in view_order[:2]], [str(dashboard.id), insight.short_id])
-        self.assertEqual(
-            view_order[0].last_viewed_at,
-            datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC),
-        )
+        assert len(view_order) >= 2
+        assert [item.ref for item in view_order[:2]] == [str(dashboard.id), insight.short_id]
+        assert view_order[0].last_viewed_at == datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC)
 
         dashboard_logs = FileSystemViewLog.objects.filter(
             team=self.team, user=self.user, type="dashboard", ref=str(dashboard.id)
         )
-        self.assertEqual(dashboard_logs.count(), 1)
-        self.assertEqual(
-            dashboard_logs.first().viewed_at if dashboard_logs.first() else None,  # type: ignore
-            datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC),
+        assert dashboard_logs.count() == 1
+        assert (dashboard_logs.first().viewed_at if dashboard_logs.first() else None) == datetime(  # type: ignore[union-attr]
+            2024, 1, 3, 10, 0, 0, tzinfo=UTC
         )
 
         insight_logs = FileSystemViewLog.objects.filter(
             team=self.team, user=self.user, type="insight", ref=insight.short_id
         )
-        self.assertEqual(insight_logs.count(), 1)
+        assert insight_logs.count() == 1
         insight_first_log = insight_logs.first()
-        self.assertIsNotNone(insight_first_log)
+        assert insight_first_log is not None
         if insight_first_log is not None:
-            self.assertEqual(
-                insight_first_log.viewed_at,
-                datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
-            )
+            assert insight_first_log.viewed_at == datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)
 
         file_system_refs = FileSystem.objects.filter(team=self.team).values_list("type", "ref")
-        self.assertIn(("insight", insight.short_id), file_system_refs)
-        self.assertIn(("dashboard", str(dashboard.id)), file_system_refs)
+        assert ("insight", insight.short_id) in file_system_refs
+        assert ("dashboard", str(dashboard.id)) in file_system_refs
 
     def test_log_updates_are_rate_limited(self) -> None:
         insight = Insight.objects.create(
@@ -99,10 +92,9 @@ class TestFileSystemViewLog(TestCase):
             log_file_system_view(user=self.user, obj=insight)
 
         logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="insight", ref=insight.short_id)
-        self.assertEqual(logs.count(), 1)
-        self.assertEqual(
-            logs.first().viewed_at if logs.first() else None,  # type: ignore
-            datetime(2024, 2, 1, 10, 0, 10, tzinfo=UTC),
+        assert logs.count() == 1
+        assert (logs.first().viewed_at if logs.first() else None) == datetime(  # type: ignore[union-attr]
+            2024, 2, 1, 10, 0, 10, tzinfo=UTC
         )
 
     def _representation(self, *, surface: str = "web", ref: str = "ref-1") -> FileSystemRepresentation:
@@ -112,13 +104,13 @@ class TestFileSystemViewLog(TestCase):
         log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
 
         log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
-        self.assertEqual(log.surface, "desktop")
+        assert log.surface == "desktop"
 
     def test_view_log_defaults_to_web_surface(self) -> None:
         log_file_system_view(user=self.user, obj=self._representation(surface="web"), team_id=self.team.id)
 
         log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
-        self.assertEqual(log.surface, "web")
+        assert log.surface == "web"
 
     def test_view_log_refreshes_surface_on_review_from_another_surface(self) -> None:
         # The same (type, ref) can exist in two surfaces; the single view-log row must follow the
@@ -127,8 +119,8 @@ class TestFileSystemViewLog(TestCase):
         log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
 
         logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="doc", ref="ref-1")
-        self.assertEqual(logs.count(), 1)
-        self.assertEqual(logs.first().surface, "desktop")  # type: ignore
+        assert logs.count() == 1
+        assert logs.first().surface == "desktop"  # type: ignore
 
     def test_delete_signal_only_drops_view_logs_for_the_deleted_surface(self) -> None:
         # The (team, user, type, ref) unique constraint allows only one view log per item, so the
@@ -140,5 +132,5 @@ class TestFileSystemViewLog(TestCase):
 
         FileSystem.objects.get(path="Desktop").delete()
 
-        self.assertTrue(FileSystemViewLog.objects.filter(pk=web_log.pk).exists())
-        self.assertTrue(FileSystem.objects.filter(pk=web_file.pk).exists())
+        assert FileSystemViewLog.objects.filter(pk=web_log.pk).exists()
+        assert FileSystem.objects.filter(pk=web_file.pk).exists()

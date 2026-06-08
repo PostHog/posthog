@@ -34,9 +34,9 @@ class TestChatAgentWebSearchToolInclusion(BaseTest):
             web_search_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "web_search_20250305"]
 
             if should_include:
-                self.assertEqual(len(web_search_tools), 1)
+                assert len(web_search_tools) == 1
             else:
-                self.assertEqual(len(web_search_tools), 0)
+                assert len(web_search_tools) == 0
 
 
 class TestChatAgentGatewayRouting(BaseTest):
@@ -91,11 +91,11 @@ class TestChatAgentGatewayRouting(BaseTest):
                     executable._get_model(state, [])
 
                     call_kwargs = mock_model_init.call_args.kwargs
-                    self.assertEqual(call_kwargs["anthropic_api_url"], expected_gateway_url)
-                    self.assertEqual(call_kwargs["anthropic_api_key"], "test-key")
-                    self.assertEqual(call_kwargs["default_headers"], expected_headers)
-                    self.assertIs(call_kwargs["bypass_proxy"], True)
-                    self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+                    assert call_kwargs["anthropic_api_url"] == expected_gateway_url
+                    assert call_kwargs["anthropic_api_key"] == "test-key"
+                    assert call_kwargs["default_headers"] == expected_headers
+                    assert call_kwargs["bypass_proxy"] is True
+                    assert call_kwargs["model"] == "claude-sonnet-4-6"
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
     @patch(
@@ -118,11 +118,11 @@ class TestChatAgentGatewayRouting(BaseTest):
         executable._get_model(state, [])
 
         call_kwargs = mock_model_init.call_args.kwargs
-        self.assertNotIn("anthropic_api_url", call_kwargs)
-        self.assertNotIn("anthropic_api_key", call_kwargs)
-        self.assertNotIn("default_headers", call_kwargs)
-        self.assertIs(call_kwargs["bypass_proxy"], False)
-        self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+        assert "anthropic_api_url" not in call_kwargs
+        assert "anthropic_api_key" not in call_kwargs
+        assert "default_headers" not in call_kwargs
+        assert call_kwargs["bypass_proxy"] is False
+        assert call_kwargs["model"] == "claude-sonnet-4-6"
 
     @parameterized.expand(
         [
@@ -168,9 +168,9 @@ class TestChatAgentGatewayRouting(BaseTest):
         executable._get_model(state, [])
 
         call_kwargs = mock_model_init.call_args.kwargs
-        self.assertIn("posthog_properties", call_kwargs)
-        self.assertEqual(call_kwargs["posthog_properties"]["agent_mode"], expected_agent_mode)
-        self.assertEqual(call_kwargs["posthog_properties"]["supermode"], expected_supermode)
+        assert "posthog_properties" in call_kwargs
+        assert call_kwargs["posthog_properties"]["agent_mode"] == expected_agent_mode
+        assert call_kwargs["posthog_properties"]["supermode"] == expected_supermode
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
     @patch(
@@ -197,8 +197,8 @@ class TestChatAgentGatewayRouting(BaseTest):
             executable._get_model(state, [])
 
             call_kwargs = mock_model_init.call_args.kwargs
-            self.assertNotIn("anthropic_api_url", call_kwargs)
-            self.assertNotIn("anthropic_api_key", call_kwargs)
-            self.assertNotIn("default_headers", call_kwargs)
-            self.assertIs(call_kwargs["bypass_proxy"], False)
-            self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+            assert "anthropic_api_url" not in call_kwargs
+            assert "anthropic_api_key" not in call_kwargs
+            assert "default_headers" not in call_kwargs
+            assert call_kwargs["bypass_proxy"] is False
+            assert call_kwargs["model"] == "claude-sonnet-4-6"

@@ -38,18 +38,18 @@ class TestDiagnosticShadowGuard(TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 parse_fn("select 1", "select", "cpp-json")
         message = str(ctx.exception)
-        self.assertIn("HogQLParserShadowMismatch", message)
-        self.assertIn("TEST=1", message)
+        assert "HogQLParserShadowMismatch" in message
+        assert "TEST=1" in message
 
     @parameterized.expand(_PARSE_HELPERS)
     def test_non_shadow_crash_is_bucketed_not_aborted(self, _name, parse_fn):
         with mock.patch.dict(_diagnostic_common._PARSER_FOR_RULE, {"select": _raise_runtime_error}):
             status, ast, detail = parse_fn("select 1", "select", "cpp-json")
-        self.assertEqual(status, "crash")
-        self.assertIsNone(ast)
-        self.assertIn("half-built backend exploded", detail)
+        assert status == "crash"
+        assert ast is None
+        assert "half-built backend exploded" in detail
 
     def test_bench_aborts_on_shadow_mismatch(self):
         with self.assertRaises(SystemExit) as ctx:
             bench("smoke", _raise_shadow_mismatch, {"q1": "select 1"}, 1, 1, "cpp-json", "rust-json")
-        self.assertIn("HogQLParserShadowMismatch", str(ctx.exception))
+        assert "HogQLParserShadowMismatch" in str(ctx.exception)

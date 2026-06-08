@@ -32,59 +32,56 @@ _spec.loader.exec_module(toolbox_script)
 class TestToolbox(unittest.TestCase):
     def test_kubectl_cmd_without_context(self):
         """kubectl_cmd with context=None returns the same shape as a bare kubectl call."""
-        self.assertEqual(kubectl_cmd("get", "pods"), ["kubectl", "get", "pods"])
+        assert kubectl_cmd("get", "pods") == ["kubectl", "get", "pods"]
 
     def test_kubectl_cmd_with_context(self):
         """kubectl_cmd injects --context= so we can scope to a cluster without mutating kubeconfig."""
-        self.assertEqual(
-            kubectl_cmd("get", "pods", context="posthog-dev"),
-            ["kubectl", "--context=posthog-dev", "get", "pods"],
-        )
+        assert kubectl_cmd("get", "pods", context="posthog-dev") == ["kubectl", "--context=posthog-dev", "get", "pods"]
 
     def test_kubectl_cmd_empty_context_is_treated_as_unset(self):
         """An empty string for context means 'no override', matching get_current_context() returning ''."""
-        self.assertEqual(kubectl_cmd("get", "pods", context=""), ["kubectl", "get", "pods"])
+        assert kubectl_cmd("get", "pods", context="") == ["kubectl", "get", "pods"]
 
     def test_sanitize_label(self):
         """Test label sanitization function."""
         # Test basic email sanitization
-        self.assertEqual(sanitize_label("user@example.com"), "user_at_example.com")
+        assert sanitize_label("user@example.com") == "user_at_example.com"
 
         # Test with special characters
-        self.assertEqual(sanitize_label("user.name@example.com"), "user.name_at_example.com")
+        assert sanitize_label("user.name@example.com") == "user.name_at_example.com"
 
         # Test with underscores
-        self.assertEqual(sanitize_label("user_name@example.com"), "user_name_at_example.com")
+        assert sanitize_label("user_name@example.com") == "user_name_at_example.com"
 
         # Test with leading/trailing underscores
-        self.assertEqual(sanitize_label("_user@example.com_"), "user_at_example.com")
+        assert sanitize_label("_user@example.com_") == "user_at_example.com"
 
     def test_sanitize_label_truncation(self):
         long_arn = (
             "arn:aws:sts::169684386827:assumed-role/custom-role-name/" + "averyveryveryveryverylongemail@posthog.com"
         )
         sanitized = sanitize_label(long_arn)
-        self.assertTrue(sanitized.startswith("arn_aws_sts__169684386827_assu"))
-        self.assertIn("longemail_at_posthog.com", sanitized)
-        self.assertLessEqual(len(sanitized), 63)
+        assert sanitized.startswith("arn_aws_sts__169684386827_assu")
+        assert "longemail_at_posthog.com" in sanitized
+        assert len(sanitized) <= 63
 
     def test_parse_arn_valid(self):
         """Test parsing valid AWS STS ARN."""
         arn = "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
-        self.assertEqual(parse_arn(arn, claimed_label_key="toolbox-claimed"), expected)
+        assert parse_arn(arn, claimed_label_key="toolbox-claimed") == expected
 
     def test_parse_arn_different_role(self):
         """Test parsing ARN with different role."""
         arn = "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_admins_0847e649a00cc5e7/michael.k@posthog.com"
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "admins", "assumed-role": "true"}
-        self.assertEqual(parse_arn(arn, claimed_label_key="toolbox-claimed"), expected)
+        assert parse_arn(arn, claimed_label_key="toolbox-claimed") == expected
 
     def test_parse_arn_unexpected_format(self):
         """Test parsing ARN with unexpected role format."""
         arn = "arn:aws:sts::169684386827:assumed-role/custom-role-name/michael.k@posthog.com"
         expected = {"toolbox-claimed": "arn_aws_sts__169684386827_assum_e-name_michael.k_at_posthog.com"}
-        self.assertEqual(parse_arn(arn, claimed_label_key="toolbox-claimed"), expected)
+        assert parse_arn(arn, claimed_label_key="toolbox-claimed") == expected
 
     def test_parse_arn_jumphost_label_key(self):
         """Pool-specific claimed_label_key reaches every return path of parse_arn."""
@@ -94,7 +91,7 @@ class TestToolbox(unittest.TestCase):
             "role-name": "developers",
             "assumed-role": "true",
         }
-        self.assertEqual(parse_arn(arn, claimed_label_key="flags-jumphost-claimed"), expected)
+        assert parse_arn(arn, claimed_label_key="flags-jumphost-claimed") == expected
 
     @patch("subprocess.run")
     def test_get_current_user(self, mock_run):
@@ -120,7 +117,7 @@ class TestToolbox(unittest.TestCase):
 
         user_labels = get_current_user(claimed_label_key="toolbox-claimed")
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
-        self.assertEqual(user_labels, expected)
+        assert user_labels == expected
         mock_run.assert_called_once_with(
             ["kubectl", "auth", "whoami", "-o", "json"], capture_output=True, text=True, check=True
         )
@@ -209,9 +206,9 @@ class TestToolbox(unittest.TestCase):
             claimed_label_key="toolbox-claimed",
             namespace="posthog",
         )
-        self.assertEqual(pod_name, "toolbox-pod-1")
-        self.assertFalse(is_claimed)
-        self.assertEqual(resource_version, "12345")
+        assert pod_name == "toolbox-pod-1"
+        assert not is_claimed
+        assert resource_version == "12345"
         mock_run.assert_called_once_with(
             [
                 "kubectl",
@@ -353,9 +350,9 @@ class TestToolbox(unittest.TestCase):
             claimed_label_key="toolbox-claimed",
             namespace="posthog",
         )
-        self.assertEqual(pod_name, "toolbox-pod-1")
-        self.assertTrue(is_claimed)
-        self.assertEqual(rv, "55555")
+        assert pod_name == "toolbox-pod-1"
+        assert is_claimed
+        assert rv == "55555"
 
     @patch("subprocess.run")
     def test_claim_pod(self, mock_run):
@@ -380,54 +377,60 @@ class TestToolbox(unittest.TestCase):
         claim_pod("toolbox-pod-1", user_labels, 1234567890, namespace="posthog")
 
         # Verify kubectl commands were called correctly
-        self.assertEqual(mock_run.call_count, 4)
+        assert mock_run.call_count == 4
 
         # Get all calls made to kubectl
         calls = mock_run.call_args_list
 
         # Verify the first call to get pod labels
-        self.assertEqual(
-            calls[0][0][0],
-            ["kubectl", "get", "pod", "-n", "posthog", "toolbox-pod-1", "-o", "jsonpath={.metadata.labels}"],
-        )
+        assert calls[0][0][0] == [
+            "kubectl",
+            "get",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "-o",
+            "jsonpath={.metadata.labels}",
+        ]
 
         # Verify the annotation call
-        self.assertEqual(
-            calls[1][0][0],
-            [
-                "kubectl",
-                "annotate",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "karpenter.sh/do-not-disrupt=true",
-                "--overwrite=true",
-            ],
-        )
+        assert calls[1][0][0] == [
+            "kubectl",
+            "annotate",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "karpenter.sh/do-not-disrupt=true",
+            "--overwrite=true",
+        ]
 
         # Verify the label call
-        self.assertEqual(
-            calls[2][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed=michael.k_at_posthog.com",
-                "role-name=developers",
-                "assumed-role=true",
-                "terminate-after=1234567890",
-            ],
-        )
+        assert calls[2][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed=michael.k_at_posthog.com",
+            "role-name=developers",
+            "assumed-role=true",
+            "terminate-after=1234567890",
+        ]
 
         # Verify the wait call
-        self.assertEqual(
-            calls[3][0][0],
-            ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"],
-        )
+        assert calls[3][0][0] == [
+            "kubectl",
+            "wait",
+            "--for=condition=Ready",
+            "--timeout=5m",
+            "-n",
+            "posthog",
+            "pod",
+            "toolbox-pod-1",
+        ]
 
     @patch("subprocess.run")
     def test_claim_pod_custom_duration(self, mock_run):
@@ -455,27 +458,24 @@ class TestToolbox(unittest.TestCase):
         claim_pod("toolbox-pod-1", user_labels, future_timestamp, namespace="posthog")
 
         # Verify kubectl commands were called correctly
-        self.assertEqual(mock_run.call_count, 4)
+        assert mock_run.call_count == 4
 
         # Get all calls made to kubectl
         calls = mock_run.call_args_list
 
         # Verify the label call includes the future timestamp
-        self.assertEqual(
-            calls[2][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed=michael.k_at_posthog.com",
-                "role-name=developers",
-                "assumed-role=true",
-                f"terminate-after={future_timestamp}",
-            ],
-        )
+        assert calls[2][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed=michael.k_at_posthog.com",
+            "role-name=developers",
+            "assumed-role=true",
+            f"terminate-after={future_timestamp}",
+        ]
 
     @patch("subprocess.run")
     def test_update_claim(self, mock_run):
@@ -512,71 +512,74 @@ class TestToolbox(unittest.TestCase):
         claim_pod("toolbox-pod-1", user_labels, future_timestamp, namespace="posthog")
 
         # Verify kubectl commands were called correctly
-        self.assertEqual(mock_run.call_count, 5)
+        assert mock_run.call_count == 5
 
         # Get all calls made to kubectl
         calls = mock_run.call_args_list
 
         # Verify the first call to get pod labels
-        self.assertEqual(
-            calls[0][0][0],
-            ["kubectl", "get", "pod", "-n", "posthog", "toolbox-pod-1", "-o", "jsonpath={.metadata.labels}"],
-        )
+        assert calls[0][0][0] == [
+            "kubectl",
+            "get",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "-o",
+            "jsonpath={.metadata.labels}",
+        ]
 
         # Verify the batched label-removal call (single kubectl invocation)
-        self.assertEqual(
-            calls[1][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed-",
-                "role-name-",
-                "assumed-role-",
-                "terminate-after-",
-            ],
-        )
+        assert calls[1][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed-",
+            "role-name-",
+            "assumed-role-",
+            "terminate-after-",
+        ]
 
         # Verify the annotation call
-        self.assertEqual(
-            calls[2][0][0],
-            [
-                "kubectl",
-                "annotate",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "karpenter.sh/do-not-disrupt=true",
-                "--overwrite=true",
-            ],
-        )
+        assert calls[2][0][0] == [
+            "kubectl",
+            "annotate",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "karpenter.sh/do-not-disrupt=true",
+            "--overwrite=true",
+        ]
 
         # Verify the label call
-        self.assertEqual(
-            calls[3][0][0],
-            [
-                "kubectl",
-                "label",
-                "pod",
-                "-n",
-                "posthog",
-                "toolbox-pod-1",
-                "toolbox-claimed=michael.k_at_posthog.com",
-                "role-name=developers",
-                "assumed-role=true",
-                f"terminate-after={future_timestamp}",
-            ],
-        )
+        assert calls[3][0][0] == [
+            "kubectl",
+            "label",
+            "pod",
+            "-n",
+            "posthog",
+            "toolbox-pod-1",
+            "toolbox-claimed=michael.k_at_posthog.com",
+            "role-name=developers",
+            "assumed-role=true",
+            f"terminate-after={future_timestamp}",
+        ]
 
         # Verify the wait call
-        self.assertEqual(
-            calls[4][0][0],
-            ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"],
-        )
+        assert calls[4][0][0] == [
+            "kubectl",
+            "wait",
+            "--for=condition=Ready",
+            "--timeout=5m",
+            "-n",
+            "posthog",
+            "pod",
+            "toolbox-pod-1",
+        ]
 
     @patch("subprocess.run")
     def test_claim_pod_with_resource_version_passes_flag_on_first_mutation(self, mock_run):
@@ -601,8 +604,8 @@ class TestToolbox(unittest.TestCase):
 
         annotate_args = mock_run.call_args_list[1][0][0]
         label_args = mock_run.call_args_list[2][0][0]
-        self.assertIn("--resource-version=42", annotate_args)
-        self.assertNotIn("--resource-version=42", label_args)
+        assert "--resource-version=42" in annotate_args
+        assert "--resource-version=42" not in label_args
 
     @patch("subprocess.run")
     def test_claim_pod_with_resource_version_attaches_to_label_strip_when_present(self, mock_run):
@@ -627,8 +630,8 @@ class TestToolbox(unittest.TestCase):
 
         strip_args = mock_run.call_args_list[1][0][0]
         annotate_args = mock_run.call_args_list[2][0][0]
-        self.assertIn("--resource-version=42", strip_args)
-        self.assertNotIn("--resource-version=42", annotate_args)
+        assert "--resource-version=42" in strip_args
+        assert "--resource-version=42" not in annotate_args
 
     @patch("subprocess.run")
     def test_claim_pod_raises_claim_race_error_on_conflict(self, mock_run):
@@ -685,8 +688,8 @@ class TestToolbox(unittest.TestCase):
 
         for call in mock_run.call_args_list:
             cmd = call[0][0]
-            self.assertEqual(cmd[0], "kubectl")
-            self.assertEqual(cmd[1], "--context=posthog-dev")
+            assert cmd[0] == "kubectl"
+            assert cmd[1] == "--context=posthog-dev"
 
     # New tests for Kubernetes context functions
     @patch("subprocess.run")
@@ -698,7 +701,7 @@ class TestToolbox(unittest.TestCase):
 
         contexts = get_available_contexts()
 
-        self.assertEqual(contexts, ["context1", "context2", "context3"])
+        assert contexts == ["context1", "context2", "context3"]
         mock_run.assert_called_once_with(
             ["kubectl", "config", "get-contexts", "-o", "name"], capture_output=True, text=True, check=True
         )
@@ -712,7 +715,7 @@ class TestToolbox(unittest.TestCase):
 
         contexts = get_available_contexts()
 
-        self.assertEqual(contexts, [])
+        assert contexts == []
         mock_run.assert_called_once()
 
     @patch("subprocess.run")
@@ -734,7 +737,7 @@ class TestToolbox(unittest.TestCase):
 
         context = get_current_context()
 
-        self.assertEqual(context, "current-context")
+        assert context == "current-context"
         mock_run.assert_called_once_with(
             ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
         )
@@ -746,7 +749,7 @@ class TestToolbox(unittest.TestCase):
 
         context = get_current_context()
 
-        self.assertIsNone(context)
+        assert context is None
         mock_run.assert_called_once()
 
     @patch("subprocess.run")
@@ -756,7 +759,7 @@ class TestToolbox(unittest.TestCase):
 
         result = switch_context("new-context")
 
-        self.assertTrue(result)
+        assert result
         mock_run.assert_called_once_with(["kubectl", "config", "use-context", "new-context"], check=True)
 
     @patch("subprocess.run")
@@ -766,20 +769,20 @@ class TestToolbox(unittest.TestCase):
 
         result = switch_context("invalid-context")
 
-        self.assertFalse(result)
+        assert not result
         mock_run.assert_called_once()
 
     @patch("toolbox.kubernetes.get_available_contexts")
     def test_validate_context_known(self, mock_get):
         """validate_context returns True for a context that's in the available list."""
         mock_get.return_value = ["posthog-dev", "posthog-prod"]
-        self.assertTrue(validate_context("posthog-dev"))
+        assert validate_context("posthog-dev")
 
     @patch("toolbox.kubernetes.get_available_contexts")
     def test_validate_context_unknown(self, mock_get):
         """validate_context returns False for a context that isn't known."""
         mock_get.return_value = ["posthog-dev", "posthog-prod"]
-        self.assertFalse(validate_context("posthog-bogus"))
+        assert not validate_context("posthog-bogus")
 
     @patch("toolbox.kubernetes.get_available_contexts")
     @patch("toolbox.kubernetes.get_current_context")
@@ -795,7 +798,7 @@ class TestToolbox(unittest.TestCase):
         result = select_context()
 
         # Verify result
-        self.assertEqual(result, "context1")
+        assert result == "context1"
         mock_get_available.assert_called_once()
         mock_get_current.assert_called_once()
         mock_input.assert_called_once()
@@ -812,7 +815,7 @@ class TestToolbox(unittest.TestCase):
         with patch("toolbox.kubernetes.switch_context") as mock_switch:
             result = select_context()
 
-        self.assertEqual(result, "context2")
+        assert result == "context2"
         mock_switch.assert_not_called()
 
     @patch("toolbox.kubernetes.get_available_contexts")
@@ -853,31 +856,23 @@ class TestToolbox(unittest.TestCase):
 
     def test_pools_definition(self):
         """POOLS contains both pools with the expected app/claim labels and default namespaces."""
-        self.assertEqual(
-            toolbox_script.POOLS["toolbox-django"],
-            {
-                "default_namespace": "posthog-toolbox-django",
-                "app_label": "posthog-toolbox-django",
-                "claimed_label_key": "toolbox-claimed",
-                "extra_selectors_by_namespace": {
-                    "posthog-toolbox-django": "app.kubernetes.io/component=app",
-                },
-            },
-        )
-        self.assertEqual(
-            toolbox_script.POOLS["flags-cache-jumphost"],
-            {
-                "default_namespace": "posthog",
-                "app_label": "flags-cache-jumphost",
-                "claimed_label_key": "flags-jumphost-claimed",
-            },
-        )
+        assert toolbox_script.POOLS["toolbox-django"] == {
+            "default_namespace": "posthog-toolbox-django",
+            "app_label": "posthog-toolbox-django",
+            "claimed_label_key": "toolbox-claimed",
+            "extra_selectors_by_namespace": {"posthog-toolbox-django": "app.kubernetes.io/component=app"},
+        }
+        assert toolbox_script.POOLS["flags-cache-jumphost"] == {
+            "default_namespace": "posthog",
+            "app_label": "flags-cache-jumphost",
+            "claimed_label_key": "flags-jumphost-claimed",
+        }
 
     def test_exit_for_signal_raises_systemexit_for_sigterm(self):
         """SIGTERM handler routes through sys.exit so atexit-registered cleanup fires."""
         with self.assertRaises(SystemExit) as ctx:
             toolbox_script._exit_for_signal(signal.SIGTERM, None)
-        self.assertEqual(ctx.exception.code, 128 + int(signal.SIGTERM))
+        assert ctx.exception.code == 128 + int(signal.SIGTERM)
 
     def test_exit_for_signal_raises_systemexit_for_sighup(self):
         """SIGHUP handler routes through sys.exit so atexit-registered cleanup fires.
@@ -887,7 +882,7 @@ class TestToolbox(unittest.TestCase):
         """
         with self.assertRaises(SystemExit) as ctx:
             toolbox_script._exit_for_signal(signal.SIGHUP, None)
-        self.assertEqual(ctx.exception.code, 128 + int(signal.SIGHUP))
+        assert ctx.exception.code == 128 + int(signal.SIGHUP)
 
     @patch("builtins.input")
     @patch("subprocess.run")
@@ -968,9 +963,9 @@ class TestToolbox(unittest.TestCase):
 
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        self.assertEqual(cmd[0], "kubectl")
-        self.assertIn("delete", cmd)
-        self.assertIn("toolbox-pod-1", cmd)
+        assert cmd[0] == "kubectl"
+        assert "delete" in cmd
+        assert "toolbox-pod-1" in cmd
 
     @patch("builtins.input", side_effect=BrokenPipeError("hung-up PTY"))
     @patch("subprocess.run")
@@ -1003,10 +998,10 @@ class TestToolbox(unittest.TestCase):
         )
 
         # Exactly one kubectl call: the verification get. No delete was issued.
-        self.assertEqual(mock_run.call_count, 1)
+        assert mock_run.call_count == 1
         cmd = mock_run.call_args[0][0]
-        self.assertIn("get", cmd)
-        self.assertNotIn("delete", cmd)
+        assert "get" in cmd
+        assert "delete" not in cmd
 
     @patch("subprocess.run")
     def test_delete_pod_proceeds_when_label_matches(self, mock_run):
@@ -1025,10 +1020,10 @@ class TestToolbox(unittest.TestCase):
             expected_label_value="user_at_posthog.com",
         )
 
-        self.assertEqual(mock_run.call_count, 2)
+        assert mock_run.call_count == 2
         delete_cmd = mock_run.call_args_list[1][0][0]
-        self.assertIn("delete", delete_cmd)
-        self.assertIn("toolbox-pod-1", delete_cmd)
+        assert "delete" in delete_cmd
+        assert "toolbox-pod-1" in delete_cmd
 
     @patch("subprocess.run")
     def test_delete_pod_skips_when_label_check_errors(self, mock_run):
@@ -1051,7 +1046,7 @@ class TestToolbox(unittest.TestCase):
         )
 
         # Only the failing get call; no delete attempted.
-        self.assertEqual(mock_run.call_count, 1)
+        assert mock_run.call_count == 1
 
     @patch("subprocess.run")
     def test_delete_pod_without_expected_label_skips_verification(self, mock_run):
@@ -1060,9 +1055,9 @@ class TestToolbox(unittest.TestCase):
 
         delete_pod("toolbox-pod-1", namespace="posthog", auto_yes=True)
 
-        self.assertEqual(mock_run.call_count, 1)
+        assert mock_run.call_count == 1
         cmd = mock_run.call_args[0][0]
-        self.assertIn("delete", cmd)
+        assert "delete" in cmd
 
     @patch("builtins.print", side_effect=BrokenPipeError("hung-up PTY"))
     @patch("subprocess.run")
@@ -1093,7 +1088,7 @@ class TestToolbox(unittest.TestCase):
         mock_run.return_value = mock_result
 
         rc = connect_to_pod("toolbox-pod-1", namespace="posthog")
-        self.assertEqual(rc, 0)
+        assert rc == 0
 
     @patch("subprocess.run")
     def test_connect_to_pod_returns_nonzero_on_failure(self, mock_run):
@@ -1110,7 +1105,7 @@ class TestToolbox(unittest.TestCase):
         mock_run.return_value = mock_result
 
         rc = connect_to_pod("toolbox-pod-1", namespace="posthog")
-        self.assertEqual(rc, 1)
+        assert rc == 1
 
     @patch("subprocess.run")
     def test_connect_to_pod_with_context(self, mock_run):
@@ -1186,7 +1181,7 @@ class TestToolbox(unittest.TestCase):
             self._clean_env()
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
-        self.assertEqual(ctx.exception.code, 0)
+        assert ctx.exception.code == 0
 
         m_user.assert_called_once_with(claimed_label_key="flags-jumphost-claimed", context="posthog-dev")
         m_get_pod.assert_called_once_with(
@@ -1199,10 +1194,11 @@ class TestToolbox(unittest.TestCase):
             extra_selector=None,
         )
         # claim_pod gets namespace, context, and resource_version from get_toolbox_pod's return.
-        self.assertEqual(
-            m_claim.call_args.kwargs,
-            {"namespace": "posthog", "context": "posthog-dev", "resource_version": "12345"},
-        )
+        assert m_claim.call_args.kwargs == {
+            "namespace": "posthog",
+            "context": "posthog-dev",
+            "resource_version": "12345",
+        }
 
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):
         """--pool toolbox-django (the default) threads the right kwargs per active namespace.
@@ -1274,7 +1270,7 @@ class TestToolbox(unittest.TestCase):
         m_validate.assert_called_once_with("posthog-dev")
         m_select.assert_not_called()
         # And the resolved context is threaded into get_toolbox_pod.
-        self.assertEqual(m_get_pod.call_args.kwargs["context"], "posthog-dev")
+        assert m_get_pod.call_args.kwargs["context"] == "posthog-dev"
 
     def test_main_kube_context_unset_falls_back_to_select_context(self):
         """When KUBE_CONTEXT is unset, main() prompts via select_context and uses its return as --context."""
@@ -1297,7 +1293,7 @@ class TestToolbox(unittest.TestCase):
 
         m_select.assert_called_once_with()
         m_validate.assert_not_called()
-        self.assertEqual(m_get_pod.call_args.kwargs["context"], "posthog-dev")
+        assert m_get_pod.call_args.kwargs["context"] == "posthog-dev"
 
     def test_main_kube_context_validate_failure_exits(self):
         """When validate_context returns False, main() exits with status 1."""
@@ -1319,7 +1315,7 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
 
-        self.assertEqual(ctx.exception.code, 1)
+        assert ctx.exception.code == 1
 
     def test_main_auto_delete_arms_atexit_before_claim_pod(self):
         """atexit.register must run BEFORE claim_pod() so a Ctrl-C during the up-to-5min Ready wait still cleans up."""
@@ -1349,7 +1345,7 @@ class TestToolbox(unittest.TestCase):
         call_names = [name for name, _, _ in parent.mock_calls]
         first_atexit = call_names.index("atexit_register")
         first_claim = call_names.index("claim_pod")
-        self.assertLess(first_atexit, first_claim)
+        assert first_atexit < first_claim
 
     def test_main_auto_delete_registers_signal_handlers_and_atexit(self):
         """--auto-delete registers atexit cleanup and SIGTERM/SIGHUP handlers when claiming a fresh pod."""
@@ -1385,8 +1381,8 @@ class TestToolbox(unittest.TestCase):
         )
         # Both SIGTERM and SIGHUP route to _exit_for_signal.
         signal_calls = {c.args[0]: c.args[1] for c in m_signal.call_args_list}
-        self.assertIs(signal_calls[signal.SIGTERM], toolbox_script._exit_for_signal)
-        self.assertIs(signal_calls[signal.SIGHUP], toolbox_script._exit_for_signal)
+        assert signal_calls[signal.SIGTERM] is toolbox_script._exit_for_signal
+        assert signal_calls[signal.SIGHUP] is toolbox_script._exit_for_signal
 
     def test_main_auto_delete_skipped_on_pure_reattach(self):
         """When reattaching to an already-claimed pod (no --update-claim), --auto-delete must NOT register cleanup.
@@ -1448,7 +1444,7 @@ class TestToolbox(unittest.TestCase):
             expected_label_value="user_at_posthog.com",
         )
         # update-claim path passes resource_version=None because we already own the pod.
-        self.assertEqual(m_claim.call_args.kwargs["resource_version"], None)
+        assert m_claim.call_args.kwargs["resource_version"] is None
 
     def test_main_propagates_connect_to_pod_exit_code(self):
         """When kubectl exec returns non-zero, main() exits with the same code."""
@@ -1470,7 +1466,7 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
 
-        self.assertEqual(ctx.exception.code, 42)
+        assert ctx.exception.code == 42
 
     def test_main_retries_on_claim_race_and_picks_new_pod(self):
         """A ClaimRaceError on the first attempt triggers a re-fetch and retry against the next available pod."""
@@ -1508,14 +1504,14 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
-        self.assertEqual(m_get_pod.call_count, 2)
-        self.assertEqual(m_claim.call_count, 2)
+        assert m_get_pod.call_count == 2
+        assert m_claim.call_count == 2
         # We connected to the pod we won, not the one we lost.
         m_connect.assert_called_once_with("toolbox-pod-B", namespace="posthog-toolbox-django", context="posthog-dev")
         # atexit was registered twice (once per candidate pod) and unregistered once
         # to clear the stale registration after the race.
-        self.assertEqual(m_atexit.call_count, 2)
-        self.assertEqual(m_unregister.call_count, 1)
+        assert m_atexit.call_count == 2
+        assert m_unregister.call_count == 1
         m_unregister.assert_called_with(m_delete)
 
     def test_main_gives_up_after_max_claim_retries(self):
@@ -1555,14 +1551,14 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
 
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertEqual(m_claim.call_count, max_retries)
+        assert ctx.exception.code == 1
+        assert m_claim.call_count == max_retries
         # One register for the initial pre-claim arming, one per candidate after
         # each lost race (max_retries - 1 in-loop + 1 final dead candidate when
         # the final claim races) — and one matching unregister per register,
         # including the final one before sys.exit(1).
-        self.assertEqual(m_atexit.call_count, m_unregister.call_count)
-        self.assertGreaterEqual(m_unregister.call_count, max_retries)
+        assert m_atexit.call_count == m_unregister.call_count
+        assert m_unregister.call_count >= max_retries
         m_unregister.assert_called_with(m_delete)
 
     def test_main_race_resolves_to_already_claimed_skips_auto_delete(self):
@@ -1603,11 +1599,11 @@ class TestToolbox(unittest.TestCase):
 
         m_connect.assert_called_once_with("toolbox-pod-mine", namespace="posthog-toolbox-django", context="posthog-dev")
         # claim_pod was called once (the racing one) and not retried since we found our own pod.
-        self.assertEqual(m_claim.call_count, 1)
+        assert m_claim.call_count == 1
         # First atexit register armed cleanup for pod-A; on the race we unregistered;
         # we did NOT re-register for pod-mine.
-        self.assertEqual(m_atexit.call_count, 1)
-        self.assertEqual(m_unregister.call_count, 1)
+        assert m_atexit.call_count == 1
+        assert m_unregister.call_count == 1
         m_unregister.assert_called_with(m_delete)
 
 

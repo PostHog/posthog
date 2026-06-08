@@ -17,69 +17,69 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
 
     def test_get_type_variants_string_to_numeric(self):
         variants = self.filter_manager._get_type_variants("42")
-        self.assertIn("42", variants)
-        self.assertIn(42, variants)
+        assert "42" in variants
+        assert 42 in variants
 
         variants = self.filter_manager._get_type_variants("3.14")
-        self.assertIn("3.14", variants)
-        self.assertIn(3.14, variants)
+        assert "3.14" in variants
+        assert 3.14 in variants
 
         variants = self.filter_manager._get_type_variants("42.0")
-        self.assertIn("42.0", variants)
-        self.assertIn(42.0, variants)
+        assert "42.0" in variants
+        assert 42.0 in variants
 
     def test_get_type_variants_numeric_to_string(self):
         variants = self.filter_manager._get_type_variants(42)
-        self.assertIn(42, variants)
-        self.assertIn("42", variants)
+        assert 42 in variants
+        assert "42" in variants
 
         variants = self.filter_manager._get_type_variants(3.14)
-        self.assertIn(3.14, variants)
-        self.assertIn("3.14", variants)
+        assert 3.14 in variants
+        assert "3.14" in variants
 
     def test_get_type_variants_boolean_conversion(self):
         variants = self.filter_manager._get_type_variants("true")
-        self.assertIn("true", variants)
-        self.assertIn(True, variants)
+        assert "true" in variants
+        assert True in variants
 
         variants = self.filter_manager._get_type_variants("false")
-        self.assertIn("false", variants)
-        self.assertIn(False, variants)
+        assert "false" in variants
+        assert False in variants
 
         variants = self.filter_manager._get_type_variants("1")
-        self.assertIn("1", variants)
-        self.assertIn(1, variants)
-        self.assertIn(True, variants)
+        assert "1" in variants
+        assert 1 in variants
+        assert True in variants
 
         variants = self.filter_manager._get_type_variants("0")
-        self.assertIn("0", variants)
-        self.assertIn(0, variants)
-        self.assertIn(False, variants)
+        assert "0" in variants
+        assert 0 in variants
+        assert False in variants
 
         variants = self.filter_manager._get_type_variants(True)
-        self.assertIn(True, variants)
-        self.assertIn("true", variants)
-        self.assertIn("True", variants)
-        self.assertIn("1", variants)
+        assert True in variants
+        assert "true" in variants
+        assert "True" in variants
+        assert "1" in variants
 
         variants = self.filter_manager._get_type_variants(False)
-        self.assertIn(False, variants)
-        self.assertIn("false", variants)
-        self.assertIn("False", variants)
-        self.assertIn("0", variants)
+        assert False in variants
+        assert "false" in variants
+        assert "False" in variants
+        assert "0" in variants
 
     def test_get_type_variants_edge_cases(self):
         variants = self.filter_manager._get_type_variants("hello")
-        self.assertEqual(variants, ["hello"])
+        assert variants == ["hello"]
 
         variants = self.filter_manager._get_type_variants("")
-        self.assertEqual(variants, [""])
+        assert variants == [""]
 
         variants = self.filter_manager._get_type_variants("   ")
-        self.assertEqual(variants, ["   "])
+        assert variants == ["   "]
 
         variants = self.filter_manager._get_type_variants("abc123")
-        self.assertEqual(variants, ["abc123"])
+        assert variants == ["abc123"]
 
     def test_get_type_variants_no_duplicates(self):
         variants = self.filter_manager._get_type_variants("1")
@@ -87,9 +87,9 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         integers = [v for v in variants if isinstance(v, int) and not isinstance(v, bool)]
         booleans = [v for v in variants if isinstance(v, bool)]
 
-        self.assertEqual(len([v for v in strings if v == "1"]), 1)
-        self.assertEqual(len([v for v in integers if v == 1]), 1)
-        self.assertEqual(len([v for v in booleans if v is True]), 1)
+        assert len([v for v in strings if v == "1"]) == 1
+        assert len([v for v in integers if v == 1]) == 1
+        assert len([v for v in booleans if v is True]) == 1
 
     def _create_activity_log(self, detail: dict) -> ActivityLog:
         return ActivityLog.objects.create(
@@ -113,12 +113,12 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         filtered = self.filter_manager._apply_detail_filters(queryset, {"count": {"operation": "exact", "value": "42"}})
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id, log3.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
         filtered = self.filter_manager._apply_detail_filters(queryset, {"count": {"operation": "exact", "value": 42}})
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id, log3.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     def test_apply_detail_filters_in_type_insensitive(self):
         log1 = self._create_activity_log({"count": "42"})
@@ -131,7 +131,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
 
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     def test_apply_detail_filters_contains_unchanged(self):
         log1 = self._create_activity_log({"message": "Error code 404"})
@@ -143,7 +143,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
             queryset, {"message": {"operation": "contains", "value": "Error"}}
         )
         result_ids = set(filtered.values_list("id", flat=True))
-        self.assertEqual(result_ids, {log1.id})
+        assert result_ids == {log1.id}
 
     def test_nested_object_type_conversion(self):
         log1 = self._create_activity_log({"config": {"timeout": 30}})
@@ -157,7 +157,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         )
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     def test_array_field_type_conversion(self):
         log1 = self._create_activity_log({"items": [{"id": 1}, {"id": 2}]})
@@ -169,7 +169,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         filtered = self.filter_manager._apply_array_field_filter(queryset, "items[].id", "exact", "1")
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     def test_array_field_in_operation_type_conversion(self):
         log1 = self._create_activity_log({"tags": [{"priority": 1}, {"priority": 3}]})
@@ -181,7 +181,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         filtered = self.filter_manager._apply_array_field_filter(queryset, "tags[].priority", "in", ["1", "2"])
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     def test_deeply_nested_array_fields(self):
         log1 = self._create_activity_log(
@@ -202,7 +202,7 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         )
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     def test_rejects_dunder_field_paths(self):
         log = self._create_activity_log({"name": "test"})
@@ -211,22 +211,22 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         filtered = self.filter_manager._apply_detail_filters(
             queryset, {"user__email": {"operation": "exact", "value": "admin@example.com"}}
         )
-        self.assertEqual(filtered.count(), 1)
+        assert filtered.count() == 1
 
         filtered = self.filter_manager._apply_detail_filters(
             queryset, {"user__password": {"operation": "contains", "value": "pbkdf2"}}
         )
-        self.assertEqual(filtered.count(), 1)
+        assert filtered.count() == 1
 
     def test_rejects_invalid_operations(self):
         log = self._create_activity_log({"name": "test"})
         queryset = ActivityLog.objects.filter(id=log.id)
 
         filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "regex", "value": ".*"}})
-        self.assertEqual(filtered.count(), 1)
+        assert filtered.count() == 1
 
         filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "gt", "value": "a"}})
-        self.assertEqual(filtered.count(), 1)
+        assert filtered.count() == 1
 
 
 class TestIpAddressFilter(BaseTest):
@@ -253,7 +253,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.42"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {match.id})
+        assert set(filtered.values_list("id", flat=True)) == {match.id}
 
     def test_filters_by_multiple_ips(self):
         match1 = self._create_log("203.0.113.42")
@@ -262,7 +262,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.42", "198.51.100.7"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {match1.id, match2.id})
+        assert set(filtered.values_list("id", flat=True)) == {match1.id, match2.id}
 
     def test_no_ip_filter_returns_all(self):
         log1 = self._create_log("203.0.113.42")
@@ -270,7 +270,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": []})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {log1.id, log2.id})
+        assert set(filtered.values_list("id", flat=True)) == {log1.id, log2.id}
 
     def test_filters_by_wildcard_prefix(self):
         match1 = self._create_log("203.0.113.42")
@@ -280,7 +280,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.*"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {match1.id, match2.id})
+        assert set(filtered.values_list("id", flat=True)) == {match1.id, match2.id}
 
     def test_combines_exact_and_wildcard(self):
         exact_match = self._create_log("198.51.100.7")
@@ -289,7 +289,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["198.51.100.7", "203.0.*"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {exact_match.id, wildcard_match.id})
+        assert set(filtered.values_list("id", flat=True)) == {exact_match.id, wildcard_match.id}
 
     @parameterized.expand(
         [
@@ -305,7 +305,7 @@ class TestIpAddressFilter(BaseTest):
         query = QueryDict(mutable=True)
         query.appendlist("ip_addresses", value)
         serializer = AdvancedActivityLogFiltersSerializer(data=query)
-        self.assertEqual(serializer.is_valid(), expected, serializer.errors)
+        assert serializer.is_valid() == expected, serializer.errors
 
 
 class TestTypeConversionIntegration(BaseTest):
@@ -347,7 +347,7 @@ class TestTypeConversionIntegration(BaseTest):
 
         result_ids = set(filtered.values_list("id", flat=True))
         expected_ids = {log1.id, log2.id}
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
 
 class TestOptionalBooleanFilters(BaseTest):
@@ -383,8 +383,8 @@ class TestOptionalBooleanFilters(BaseTest):
         serializer = AdvancedActivityLogFiltersSerializer(data=query_params)
         serializer.is_valid(raise_exception=True)
 
-        self.assertIsNone(serializer.validated_data.get("was_impersonated"))
-        self.assertIsNone(serializer.validated_data.get("is_system"))
+        assert serializer.validated_data.get("was_impersonated") is None
+        assert serializer.validated_data.get("is_system") is None
 
     def test_none_filter_values_return_all_records(self):
         """
@@ -419,4 +419,4 @@ class TestOptionalBooleanFilters(BaseTest):
         queryset = ActivityLog.objects.filter(id__in=[log_impersonated.id, log_normal.id])
 
         filtered = self.filter_manager.apply_filters(queryset, {"was_impersonated": None, "is_system": None})
-        self.assertEqual(filtered.count(), 2)
+        assert filtered.count() == 2

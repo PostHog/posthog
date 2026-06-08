@@ -109,18 +109,18 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         dashboard = await Dashboard.objects.aget(name="Test Dashboard")
-        self.assertEqual(dashboard.description, "A test dashboard")
-        self.assertEqual(dashboard.created_by_id, self.user.id)
-        self.assertEqual(dashboard.team_id, self.team.id)
+        assert dashboard.description == "A test dashboard"
+        assert dashboard.created_by_id == self.user.id
+        assert dashboard.team_id == self.team.id
 
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard).order_by("id")]
-        self.assertEqual(len(tiles), 3)
-        self.assertEqual(tiles[0].insight_id, insight1.id)
-        self.assertEqual(tiles[1].insight_id, insight2.id)
-        self.assertEqual(tiles[2].insight_id, insight3.id)
+        assert len(tiles) == 3
+        assert tiles[0].insight_id == insight1.id
+        assert tiles[1].insight_id == insight2.id
+        assert tiles[2].insight_id == insight3.id
 
-        self.assertIn("Test Dashboard", result)
-        self.assertIn(str(dashboard.id), result)
+        assert "Test Dashboard" in result
+        assert str(dashboard.id) in result
 
     async def test_create_dashboard_output_includes_correct_url(self):
         insight = await self._create_insight("URL Test Insight")
@@ -137,8 +137,8 @@ class TestUpsertDashboardTool(BaseTest):
 
         dashboard = await Dashboard.objects.aget(name="URL Dashboard")
         expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
-        self.assertIn(f"Dashboard URL: {expected_url}", result)
-        self.assertNotIn("/dashboards/", result)
+        assert f"Dashboard URL: {expected_url}" in result
+        assert "/dashboards/" not in result
 
     async def test_update_dashboard_output_includes_correct_url(self):
         dashboard = await Dashboard.objects.acreate(
@@ -160,8 +160,8 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
-        self.assertIn(f"Dashboard URL: {expected_url}", result)
-        self.assertNotIn("/dashboards/", result)
+        assert f"Dashboard URL: {expected_url}" in result
+        assert "/dashboards/" not in result
 
     async def test_update_dashboard_with_multiple_insights_replaces_all(self):
         """Test that insight_ids replaces all existing insights with the new ones."""
@@ -188,16 +188,16 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 1)
-        self.assertEqual(active_tiles[0].insight_id, new_insight.id)
+        assert len(active_tiles) == 1
+        assert active_tiles[0].insight_id == new_insight.id
 
         # Old tiles should be soft-deleted, new tile created
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
         # 1 active (new) + 2 soft-deleted (old)
-        self.assertEqual(len(all_tiles), 3)
+        assert len(all_tiles) == 3
 
         soft_deleted_tiles = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(soft_deleted_tiles), 2)
+        assert len(soft_deleted_tiles) == 2
 
     @parameterized.expand(
         [
@@ -225,8 +225,8 @@ class TestUpsertDashboardTool(BaseTest):
 
         dashboard = await Dashboard.objects.aget(name=f"Dashboard with {_name}")
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(tiles), 1)
-        self.assertEqual(tiles[0].insight_id, insight.id)
+        assert len(tiles) == 1
+        assert tiles[0].insight_id == insight.id
 
     async def test_update_dashboard_permission_denied_for_restricted_dashboard(self):
         dashboard = await Dashboard.objects.acreate(
@@ -251,10 +251,10 @@ class TestUpsertDashboardTool(BaseTest):
             with self.assertRaises(MaxToolAccessDeniedError) as ctx:
                 await tool._arun_impl(action)
 
-        self.assertIn("access", str(ctx.exception).lower())
+        assert "access" in str(ctx.exception).lower()
 
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(tiles), 0)
+        assert len(tiles) == 0
 
     async def test_update_dashboard_permission_allowed_for_unrestricted_dashboard(self):
         dashboard = await Dashboard.objects.acreate(
@@ -276,8 +276,8 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(tiles), 1)
-        self.assertEqual(tiles[0].insight_id, new_insight.id)
+        assert len(tiles) == 1
+        assert tiles[0].insight_id == new_insight.id
 
     async def test_create_dashboard_with_no_valid_insights_returns_error(self):
         tool = self._create_tool()
@@ -291,11 +291,11 @@ class TestUpsertDashboardTool(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as ctx:
             await tool._arun_impl(action)
 
-        self.assertIn("nonexistent1", str(ctx.exception))
-        self.assertIn("nonexistent2", str(ctx.exception))
+        assert "nonexistent1" in str(ctx.exception)
+        assert "nonexistent2" in str(ctx.exception)
 
         dashboards = [d async for d in Dashboard.objects.filter(name="Empty Dashboard")]
-        self.assertEqual(len(dashboards), 0)
+        assert len(dashboards) == 0
 
     async def test_update_dashboard_name_and_description(self):
         dashboard = await Dashboard.objects.acreate(
@@ -319,8 +319,8 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         await dashboard.arefresh_from_db()
-        self.assertEqual(dashboard.name, "Updated Name")
-        self.assertEqual(dashboard.description, "Updated description")
+        assert dashboard.name == "Updated Name"
+        assert dashboard.description == "Updated description"
 
     async def test_positional_replacement_preserves_sizes(self):
         """Test that replacing insights preserves original tile sizes but updates coordinates.
@@ -364,14 +364,14 @@ class TestUpsertDashboardTool(BaseTest):
 
         # Old tiles are soft-deleted, new tiles created
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 2)
+        assert len(active_tiles) == 2
 
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), 4)  # 2 active + 2 soft-deleted
+        assert len(all_tiles) == 4  # 2 active + 2 soft-deleted
 
         sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
-        self.assertEqual(sorted_tiles[0].insight_id, insight_a_new.id)
-        self.assertEqual(sorted_tiles[1].insight_id, insight_b_new.id)
+        assert sorted_tiles[0].insight_id == insight_a_new.id
+        assert sorted_tiles[1].insight_id == insight_b_new.id
 
     async def test_add_insight_preserves_existing_layouts_by_default(self):
         dashboard = await Dashboard.objects.acreate(
@@ -409,11 +409,11 @@ class TestUpsertDashboardTool(BaseTest):
         await tile_a.arefresh_from_db()
         await tile_b.arefresh_from_db()
 
-        self.assertEqual(tile_a.layouts, original_layout_a)
-        self.assertEqual(tile_b.layouts, original_layout_b)
+        assert tile_a.layouts == original_layout_a
+        assert tile_b.layouts == original_layout_b
 
         tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
-        self.assertEqual(tile_c.layouts, {})
+        assert tile_c.layouts == {}
 
     @parameterized.expand(
         [
@@ -446,14 +446,14 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard).order_by("id")]
-        self.assertEqual(len(active_tiles), new_count)
+        assert len(active_tiles) == new_count
         for i, tile in enumerate(active_tiles):
-            self.assertEqual(tile.insight_id, new_insights[i].id)
+            assert tile.insight_id == new_insights[i].id
 
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), initial_count + new_count)
+        assert len(all_tiles) == initial_count + new_count
         soft_deleted = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(soft_deleted), initial_count)
+        assert len(soft_deleted) == initial_count
 
     async def test_is_dangerous_operation_with_insight_ids(self):
         """Test that providing insight_ids is flagged as a dangerous operation only when insights change."""
@@ -474,7 +474,7 @@ class TestUpsertDashboardTool(BaseTest):
             dashboard_id=str(dashboard.id),
             insight_ids=[new_insight.short_id],
         )
-        self.assertTrue(await tool1.is_dangerous_operation(action=action_with_different_insight))
+        assert await tool1.is_dangerous_operation(action=action_with_different_insight)
 
         # Keeping same insight should NOT be dangerous
         tool2 = self._create_tool()
@@ -482,7 +482,7 @@ class TestUpsertDashboardTool(BaseTest):
             dashboard_id=str(dashboard.id),
             insight_ids=[existing_insight.short_id],
         )
-        self.assertFalse(await tool2.is_dangerous_operation(action=action_with_same_insight))
+        assert not await tool2.is_dangerous_operation(action=action_with_same_insight)
 
         # Just updating name/description should NOT be dangerous
         tool3 = self._create_tool()
@@ -491,7 +491,7 @@ class TestUpsertDashboardTool(BaseTest):
             name="New Name",
             description="New description",
         )
-        self.assertFalse(await tool3.is_dangerous_operation(action=action_metadata))
+        assert not await tool3.is_dangerous_operation(action=action_metadata)
 
     async def test_resolve_insights_preserves_order_with_state_and_database(self):
         # Create a conversation for artifacts
@@ -541,13 +541,13 @@ class TestUpsertDashboardTool(BaseTest):
         artifacts = await tool._get_visualization_artifacts(insight_ids)
         insights = tool._resolve_insights(artifacts)
 
-        self.assertEqual(len(insights), 3)
+        assert len(insights) == 3
 
         # Verify order is preserved
         # State visualizations get default name "Insight" from the handler
-        self.assertEqual(insights[0].name, "Insight")
-        self.assertEqual(insights[1].name, "Artifact Insight")
-        self.assertEqual(insights[2].name, "Database Insight")
+        assert insights[0].name == "Insight"
+        assert insights[1].name == "Artifact Insight"
+        assert insights[2].name == "Database Insight"
 
     async def test_resolve_insights_creates_sql_insight_from_data_visualization_node(self):
         sql_query = DataVisualizationNode(
@@ -563,16 +563,15 @@ class TestUpsertDashboardTool(BaseTest):
 
         insights = tool._resolve_insights([StateArtifactResult(content=content)])
 
-        self.assertEqual(len(insights), 1)
+        assert len(insights) == 1
         saved_query = insights[0].query
         assert saved_query is not None
-        self.assertEqual(saved_query["kind"], "DataVisualizationNode")
-        self.assertEqual(saved_query["source"]["kind"], "HogQLQuery")
-        self.assertEqual(
-            saved_query["source"]["query"],
-            "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day",
+        assert saved_query["kind"] == "DataVisualizationNode"
+        assert saved_query["source"]["kind"] == "HogQLQuery"
+        assert (
+            saved_query["source"]["query"] == "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day"
         )
-        self.assertEqual(saved_query["display"], "ActionsLineGraph")
+        assert saved_query["display"] == "ActionsLineGraph"
 
     async def test_full_integration_positional_reordering(self):
         """
@@ -622,33 +621,33 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         # Verify the result contains all insights
-        self.assertIn("Insight B", result)
-        self.assertIn("Insight D", result)
-        self.assertIn("Insight A", result)
-        self.assertIn("Insight E", result)
+        assert "Insight B" in result
+        assert "Insight D" in result
+        assert "Insight A" in result
+        assert "Insight E" in result
 
         # Verify tiles in database have correct visual order [B, D, A, E]
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 4)
+        assert len(active_tiles) == 4
         sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
 
         # Verify visual order
-        self.assertEqual(sorted_tiles[0].insight_id, insight_b.id)
-        self.assertEqual(sorted_tiles[1].insight_id, insight_d.id)
-        self.assertEqual(sorted_tiles[2].insight_id, insight_a.id)
-        self.assertEqual(sorted_tiles[3].insight_id, insight_e.id)
+        assert sorted_tiles[0].insight_id == insight_b.id
+        assert sorted_tiles[1].insight_id == insight_d.id
+        assert sorted_tiles[2].insight_id == insight_a.id
+        assert sorted_tiles[3].insight_id == insight_e.id
 
         # Existing insights (A, B) keep their original tiles
-        self.assertEqual(sorted_tiles[0].id, tile_b.id)  # B's tile
-        self.assertEqual(sorted_tiles[2].id, tile_a.id)  # A's tile
+        assert sorted_tiles[0].id == tile_b.id  # B's tile
+        assert sorted_tiles[2].id == tile_a.id  # A's tile
 
         # C's tile should be soft-deleted
         all_tiles = [t async for t in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)]
         # 3 original (A, B, C) + 2 new (D, E) = 5 total, with C soft-deleted
-        self.assertEqual(len(all_tiles), 5)
+        assert len(all_tiles) == 5
         deleted_tiles = [t for t in all_tiles if t.deleted]
-        self.assertEqual(len(deleted_tiles), 1)
-        self.assertEqual(deleted_tiles[0].id, tile_c.id)
+        assert len(deleted_tiles) == 1
+        assert deleted_tiles[0].id == tile_c.id
 
     async def test_full_integration_with_empty_layouts(self):
         """
@@ -687,27 +686,27 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         # Verify the result contains all insights
-        self.assertIn("Insight B", result)
-        self.assertIn("Insight D", result)
-        self.assertIn("Insight A", result)
-        self.assertIn("Insight E", result)
+        assert "Insight B" in result
+        assert "Insight D" in result
+        assert "Insight A" in result
+        assert "Insight E" in result
 
         # Verify tiles have correct visual order [B, D, A, E]
         all_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(all_tiles), 4)
+        assert len(all_tiles) == 4
         sorted_tiles = DashboardTile.sort_tiles_by_layout(all_tiles)
 
         # Verify order matches
-        self.assertEqual(sorted_tiles[0].insight_id, insight_b.id)
-        self.assertEqual(sorted_tiles[1].insight_id, insight_d.id)
-        self.assertEqual(sorted_tiles[2].insight_id, insight_a.id)
-        self.assertEqual(sorted_tiles[3].insight_id, insight_e.id)
+        assert sorted_tiles[0].insight_id == insight_b.id
+        assert sorted_tiles[1].insight_id == insight_d.id
+        assert sorted_tiles[2].insight_id == insight_a.id
+        assert sorted_tiles[3].insight_id == insight_e.id
 
         # Verify layouts were generated (not empty)
         for tile in sorted_tiles:
-            self.assertIsNotNone(tile.layouts)
-            self.assertIn("sm", tile.layouts)
-            self.assertIn("y", tile.layouts["sm"])
+            assert tile.layouts is not None
+            assert "sm" in tile.layouts
+            assert "y" in tile.layouts["sm"]
 
     async def test_reflow_all_updates_existing_insight_tiles(self):
         """
@@ -755,22 +754,22 @@ class TestUpsertDashboardTool(BaseTest):
         await tile_b.arefresh_from_db()
 
         # Tiles keep their IDs
-        self.assertEqual(tile_a.id, original_tile_a_id)
-        self.assertEqual(tile_b.id, original_tile_b_id)
+        assert tile_a.id == original_tile_a_id
+        assert tile_b.id == original_tile_b_id
 
         # Heights are preserved and single-tile rows are widened to fill.
-        self.assertEqual(tile_a.layouts["sm"]["w"], 12)
-        self.assertEqual(tile_a.layouts["sm"]["h"], 7)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 12)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 6)
+        assert tile_a.layouts["sm"]["w"] == 12
+        assert tile_a.layouts["sm"]["h"] == 7
+        assert tile_b.layouts["sm"]["w"] == 12
+        assert tile_b.layouts["sm"]["h"] == 6
 
         # Coordinates are updated based on order
         # B at position 0: x=0, y=0
         # A at position 1: x=0, y=6 (below B which has h=6)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 6)
+        assert tile_b.layouts["sm"]["x"] == 0
+        assert tile_b.layouts["sm"]["y"] == 0
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_a.layouts["sm"]["y"] == 6
 
     async def test_reflow_all_preserves_existing_xs_heights(self):
         dashboard = await Dashboard.objects.acreate(
@@ -804,10 +803,10 @@ class TestUpsertDashboardTool(BaseTest):
         tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
         tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
 
-        self.assertEqual(tile_a.layouts["xs"]["h"], 9)
-        self.assertEqual(tile_b.layouts["xs"]["h"], 3)
-        self.assertEqual(tile_a.layouts["xs"]["y"], 0)
-        self.assertEqual(tile_b.layouts["xs"]["y"], 9)
+        assert tile_a.layouts["xs"]["h"] == 9
+        assert tile_b.layouts["xs"]["h"] == 3
+        assert tile_a.layouts["xs"]["y"] == 0
+        assert tile_b.layouts["xs"]["y"] == 9
 
     async def test_reflow_all_compacts_layout_and_preserves_sizes(self):
         """
@@ -885,38 +884,38 @@ class TestUpsertDashboardTool(BaseTest):
         # E (w=6, h=6): x=6, y=8 (right column)
 
         # Verify widths and heights
-        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        assert tile_a.layouts["sm"]["w"] == 6
+        assert tile_a.layouts["sm"]["h"] == 5
+        assert tile_b.layouts["sm"]["w"] == 6
         # First row height is normalized to tallest tile (A has h=5).
-        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        assert tile_b.layouts["sm"]["h"] == 5
+        assert tile_c.layouts["sm"]["w"] == 12
         # Full-width single row remains unchanged.
-        self.assertEqual(tile_c.layouts["sm"]["h"], 3)
+        assert tile_c.layouts["sm"]["h"] == 3
         # Third row height is normalized to tallest tile (E has h=6).
-        self.assertEqual(tile_d.layouts["sm"]["h"], 6)
-        self.assertEqual(tile_e.layouts["sm"]["h"], 6)
+        assert tile_d.layouts["sm"]["h"] == 6
+        assert tile_e.layouts["sm"]["h"] == 6
 
         # Verify coordinates
         # A: first tile, goes to left column
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_a.layouts["sm"]["y"] == 0
 
         # B: second tile fills the top-right gap
-        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        assert tile_b.layouts["sm"]["x"] == 6
+        assert tile_b.layouts["sm"]["y"] == 0
 
         # C: wide tile (w=12), placed at y=max(5, 4)=5, advances both to y=8
-        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 5)
+        assert tile_c.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["y"] == 5
 
         # D: after C, both columns at y=8, goes left (prefers left when equal)
-        self.assertEqual(tile_d.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_d.layouts["sm"]["y"], 8)
+        assert tile_d.layouts["sm"]["x"] == 0
+        assert tile_d.layouts["sm"]["y"] == 8
 
         # E: follows D in the same row
-        self.assertEqual(tile_e.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_e.layouts["sm"]["y"], 8)
+        assert tile_e.layouts["sm"]["x"] == 6
+        assert tile_e.layouts["sm"]["y"] == 8
 
     async def test_reflow_all_fills_top_row_gap_for_mixed_widths(self):
         dashboard = await Dashboard.objects.acreate(
@@ -957,14 +956,14 @@ class TestUpsertDashboardTool(BaseTest):
         tile_c = tiles[insight_c.id]
 
         # First row stays [A, B] because it already fills 12 columns.
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["x"] == 8
+        assert tile_b.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["w"] == 12
         # C is alone in row 2, so it expands to fill the row.
-        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 4)
+        assert tile_c.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["y"] == 4
 
     async def test_reflow_all_equalizes_partial_row_widths(self):
         dashboard = await Dashboard.objects.acreate(
@@ -995,12 +994,12 @@ class TestUpsertDashboardTool(BaseTest):
         tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
 
         # Row width 10 is expanded to 12 with equal split for two tiles.
-        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        assert tile_a.layouts["sm"]["w"] == 6
+        assert tile_b.layouts["sm"]["w"] == 6
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_b.layouts["sm"]["x"] == 6
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["y"] == 0
 
     async def test_reflow_all_equalizes_three_tile_row_with_gap(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1036,16 +1035,16 @@ class TestUpsertDashboardTool(BaseTest):
         tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
 
         # Row total width 8 is expanded to 12 as equal thirds.
-        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 4)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 8)
+        assert tile_a.layouts["sm"]["w"] == 4
+        assert tile_b.layouts["sm"]["w"] == 4
+        assert tile_c.layouts["sm"]["w"] == 4
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_b.layouts["sm"]["x"] == 4
+        assert tile_c.layouts["sm"]["x"] == 8
         # Row heights normalized to tallest tile (A has h=5).
-        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        assert tile_a.layouts["sm"]["h"] == 5
+        assert tile_b.layouts["sm"]["h"] == 5
+        assert tile_c.layouts["sm"]["h"] == 5
 
     async def test_reflow_all_adapts_inserted_large_middle_tile_to_row(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1083,19 +1082,19 @@ class TestUpsertDashboardTool(BaseTest):
         tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
 
         # All three should stay in one row and adapt to equal thirds.
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
-        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["x"] == 4
+        assert tile_b.layouts["sm"]["x"] == 8
+        assert tile_a.layouts["sm"]["w"] == 4
+        assert tile_c.layouts["sm"]["w"] == 4
+        assert tile_b.layouts["sm"]["w"] == 4
         # Height normalized to tallest in row (tile C h=6).
-        self.assertEqual(tile_a.layouts["sm"]["h"], 6)
-        self.assertEqual(tile_c.layouts["sm"]["h"], 6)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 6)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        assert tile_a.layouts["sm"]["h"] == 6
+        assert tile_c.layouts["sm"]["h"] == 6
+        assert tile_b.layouts["sm"]["h"] == 6
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["y"] == 0
 
     async def test_reflow_all_adapts_third_tile_into_two_half_width_tiles_row(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1132,19 +1131,19 @@ class TestUpsertDashboardTool(BaseTest):
         tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
 
         # Two half-width tiles plus inserted third tile should compact to one equal row.
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
-        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["x"] == 4
+        assert tile_b.layouts["sm"]["x"] == 8
+        assert tile_a.layouts["sm"]["w"] == 4
+        assert tile_c.layouts["sm"]["w"] == 4
+        assert tile_b.layouts["sm"]["w"] == 4
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["y"] == 0
         # Row height normalized to tallest tile in that row (A has h=5).
-        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+        assert tile_a.layouts["sm"]["h"] == 5
+        assert tile_c.layouts["sm"]["h"] == 5
+        assert tile_b.layouts["sm"]["h"] == 5
 
     async def test_reflow_all_does_not_pull_fourth_tile_into_already_full_three_tile_row(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1186,22 +1185,22 @@ class TestUpsertDashboardTool(BaseTest):
         tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
 
         # Row [A, C, D] already fills 12 columns, so B stays in the next row.
-        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 12)
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 5)
-        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+        assert tile_a.layouts["sm"]["w"] == 6
+        assert tile_c.layouts["sm"]["w"] == 3
+        assert tile_d.layouts["sm"]["w"] == 3
+        assert tile_b.layouts["sm"]["w"] == 12
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["x"] == 6
+        assert tile_d.layouts["sm"]["x"] == 9
+        assert tile_b.layouts["sm"]["x"] == 0
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["y"] == 0
+        assert tile_d.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["y"] == 5
+        assert tile_a.layouts["sm"]["h"] == 5
+        assert tile_c.layouts["sm"]["h"] == 5
+        assert tile_d.layouts["sm"]["h"] == 5
+        assert tile_b.layouts["sm"]["h"] == 4
 
     async def test_reflow_all_keeps_insert_between_two_tiles_as_three_tile_row(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1243,18 +1242,18 @@ class TestUpsertDashboardTool(BaseTest):
         tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
 
         # A, D, B share first row. C must stay on the next row.
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_d.layouts["sm"]["x"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
-        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_d.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 6)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_d.layouts["sm"]["x"] == 4
+        assert tile_b.layouts["sm"]["x"] == 8
+        assert tile_a.layouts["sm"]["w"] == 4
+        assert tile_d.layouts["sm"]["w"] == 4
+        assert tile_b.layouts["sm"]["w"] == 4
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_d.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["y"] == 6
+        assert tile_c.layouts["sm"]["w"] == 12
 
     async def test_reflow_all_can_adapt_four_tiles_when_row_has_slack_before_overflow(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1295,22 +1294,22 @@ class TestUpsertDashboardTool(BaseTest):
         tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
 
         # Row had slack (width 9) before D caused overflow, so all four are adapted to one row.
-        self.assertEqual(tile_a.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 3)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+        assert tile_a.layouts["sm"]["w"] == 3
+        assert tile_b.layouts["sm"]["w"] == 3
+        assert tile_c.layouts["sm"]["w"] == 3
+        assert tile_d.layouts["sm"]["w"] == 3
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_b.layouts["sm"]["x"] == 3
+        assert tile_c.layouts["sm"]["x"] == 6
+        assert tile_d.layouts["sm"]["x"] == 9
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_b.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["y"] == 0
+        assert tile_d.layouts["sm"]["y"] == 0
+        assert tile_a.layouts["sm"]["h"] == 5
+        assert tile_b.layouts["sm"]["h"] == 5
+        assert tile_c.layouts["sm"]["h"] == 5
+        assert tile_d.layouts["sm"]["h"] == 5
 
     async def test_reflow_all_splits_five_tiles_when_equalization_would_overcompress(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1363,26 +1362,26 @@ class TestUpsertDashboardTool(BaseTest):
         tile_e = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_e)
 
         # Row [A, C, D] stays full. E and B are reflowed in the next row.
-        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
-        self.assertEqual(tile_e.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
-        self.assertEqual(tile_e.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
-        self.assertEqual(tile_e.layouts["sm"]["y"], 5)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 5)
-        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
-        self.assertEqual(tile_e.layouts["sm"]["h"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+        assert tile_a.layouts["sm"]["w"] == 6
+        assert tile_c.layouts["sm"]["w"] == 3
+        assert tile_d.layouts["sm"]["w"] == 3
+        assert tile_e.layouts["sm"]["w"] == 6
+        assert tile_b.layouts["sm"]["w"] == 6
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["x"] == 6
+        assert tile_d.layouts["sm"]["x"] == 9
+        assert tile_e.layouts["sm"]["x"] == 0
+        assert tile_b.layouts["sm"]["x"] == 6
+        assert tile_a.layouts["sm"]["y"] == 0
+        assert tile_c.layouts["sm"]["y"] == 0
+        assert tile_d.layouts["sm"]["y"] == 0
+        assert tile_e.layouts["sm"]["y"] == 5
+        assert tile_b.layouts["sm"]["y"] == 5
+        assert tile_a.layouts["sm"]["h"] == 5
+        assert tile_c.layouts["sm"]["h"] == 5
+        assert tile_d.layouts["sm"]["h"] == 5
+        assert tile_e.layouts["sm"]["h"] == 4
+        assert tile_b.layouts["sm"]["h"] == 4
 
     async def test_reflow_all_does_not_overcompress_six_medium_tiles_into_one_row(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1414,16 +1413,16 @@ class TestUpsertDashboardTool(BaseTest):
         row2 = [tiles_by_insight_id[insights[i].id] for i in range(3, 6)]
 
         for expected_x, tile in zip([0, 4, 8], row1):
-            self.assertEqual(tile.layouts["sm"]["x"], expected_x)
-            self.assertEqual(tile.layouts["sm"]["y"], 0)
-            self.assertEqual(tile.layouts["sm"]["w"], 4)
-            self.assertEqual(tile.layouts["sm"]["h"], 5)
+            assert tile.layouts["sm"]["x"] == expected_x
+            assert tile.layouts["sm"]["y"] == 0
+            assert tile.layouts["sm"]["w"] == 4
+            assert tile.layouts["sm"]["h"] == 5
 
         for expected_x, tile in zip([0, 4, 8], row2):
-            self.assertEqual(tile.layouts["sm"]["x"], expected_x)
-            self.assertEqual(tile.layouts["sm"]["y"], 5)
-            self.assertEqual(tile.layouts["sm"]["w"], 4)
-            self.assertEqual(tile.layouts["sm"]["h"], 5)
+            assert tile.layouts["sm"]["x"] == expected_x
+            assert tile.layouts["sm"]["y"] == 5
+            assert tile.layouts["sm"]["w"] == 4
+            assert tile.layouts["sm"]["h"] == 5
 
     async def test_reflow_all_respects_full_width_text_tile_band(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1468,22 +1467,22 @@ class TestUpsertDashboardTool(BaseTest):
         await text_tile.arefresh_from_db()
 
         # Row should compact to equal thirds while staying below the fixed full-width text tile.
-        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
-        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
-        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
-        self.assertEqual(tile_a.layouts["sm"]["y"], 3)
-        self.assertEqual(tile_c.layouts["sm"]["y"], 3)
-        self.assertEqual(tile_b.layouts["sm"]["y"], 3)
+        assert tile_a.layouts["sm"]["x"] == 0
+        assert tile_c.layouts["sm"]["x"] == 4
+        assert tile_b.layouts["sm"]["x"] == 8
+        assert tile_a.layouts["sm"]["w"] == 4
+        assert tile_c.layouts["sm"]["w"] == 4
+        assert tile_b.layouts["sm"]["w"] == 4
+        assert tile_a.layouts["sm"]["y"] == 3
+        assert tile_c.layouts["sm"]["y"] == 3
+        assert tile_b.layouts["sm"]["y"] == 3
 
         # Text tile stays fixed and undeleted.
-        self.assertFalse(text_tile.deleted)
-        self.assertEqual(text_tile.layouts["sm"]["x"], 0)
-        self.assertEqual(text_tile.layouts["sm"]["y"], 0)
-        self.assertEqual(text_tile.layouts["sm"]["w"], 12)
-        self.assertEqual(text_tile.layouts["sm"]["h"], 3)
+        assert not text_tile.deleted
+        assert text_tile.layouts["sm"]["x"] == 0
+        assert text_tile.layouts["sm"]["y"] == 0
+        assert text_tile.layouts["sm"]["w"] == 12
+        assert text_tile.layouts["sm"]["h"] == 3
 
     async def test_reflow_all_produces_non_overlapping_layouts(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1526,7 +1525,7 @@ class TestUpsertDashboardTool(BaseTest):
 
         for i, layout_a in enumerate(sm_layouts):
             for layout_b in sm_layouts[i + 1 :]:
-                self.assertFalse(overlaps(layout_a, layout_b))
+                assert not overlaps(layout_a, layout_b)
 
     @parameterized.expand(
         [
@@ -1563,19 +1562,16 @@ class TestUpsertDashboardTool(BaseTest):
 
         # Verify output order
         for i in range(len(new_order) - 1):
-            self.assertLess(
-                result.index(f"Insight_{new_order[i]}"),
-                result.index(f"Insight_{new_order[i + 1]}"),
-            )
+            assert result.index(f"Insight_{new_order[i]}") < result.index(f"Insight_{new_order[i + 1]}")
 
         # B's tile should be undeleted
         await tile_b.arefresh_from_db()
-        self.assertFalse(tile_b.deleted)
+        assert not tile_b.deleted
 
         # Dashboard should have 3 active tiles
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 3)
-        self.assertEqual({t.insight_id for t in active_tiles}, {insights[k].id for k in ["A", "B", "C"]})
+        assert len(active_tiles) == 3
+        assert {t.insight_id for t in active_tiles} == {insights[k].id for k in ["A", "B", "C"]}
 
     async def test_preserve_existing_restores_soft_deleted_tile_and_keeps_layout(self):
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
@@ -1611,12 +1607,12 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         await tile_b.arefresh_from_db()
-        self.assertFalse(tile_b.deleted)
-        self.assertEqual(tile_b.layouts, original_layout_b)
+        assert not tile_b.deleted
+        assert tile_b.layouts == original_layout_b
 
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
-        self.assertEqual(len(active_tiles), 3)
-        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
+        assert len(active_tiles) == 3
+        assert {t.insight_id for t in active_tiles} == {insight_a.id, insight_b.id, insight_c.id}
 
     @parameterized.expand(
         [
@@ -1646,15 +1642,15 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         await text_tile.arefresh_from_db()
-        self.assertFalse(text_tile.deleted)
+        assert not text_tile.deleted
 
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         text_tiles = [t for t in active_tiles if t.text_id is not None]
         insight_tiles = [t for t in active_tiles if t.insight_id is not None]
-        self.assertEqual(len(text_tiles), 1)
-        self.assertEqual(text_tiles[0].text_id, text.id)
-        self.assertEqual(len(insight_tiles), 1)
-        self.assertEqual(insight_tiles[0].insight_id, new_insight.id)
+        assert len(text_tiles) == 1
+        assert text_tiles[0].text_id == text.id
+        assert len(insight_tiles) == 1
+        assert insight_tiles[0].insight_id == new_insight.id
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_create_dashboard_reports_dashboard_created(self, mock_report):
@@ -1670,9 +1666,9 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         dashboard_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard created"]
-        self.assertEqual(len(dashboard_created_calls), 1)
-        self.assertEqual(dashboard_created_calls[0][0][0], self.user)
-        self.assertEqual(dashboard_created_calls[0][0][2]["source"], "posthog_ai")
+        assert len(dashboard_created_calls) == 1
+        assert dashboard_created_calls[0][0][0] == self.user
+        assert dashboard_created_calls[0][0][2]["source"] == "posthog_ai"
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):
@@ -1689,9 +1685,9 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         dashboard_updated_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard updated"]
-        self.assertEqual(len(dashboard_updated_calls), 1)
-        self.assertEqual(dashboard_updated_calls[0][0][0], self.user)
-        self.assertEqual(dashboard_updated_calls[0][0][2]["source"], "posthog_ai")
+        assert len(dashboard_updated_calls) == 1
+        assert dashboard_updated_calls[0][0][0] == self.user
+        assert dashboard_updated_calls[0][0][2]["source"] == "posthog_ai"
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_create_dashboard_reports_insight_created_for_new_insights(self, mock_report):
@@ -1717,9 +1713,9 @@ class TestUpsertDashboardTool(BaseTest):
             await tool._arun_impl(action)
 
         insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
-        self.assertEqual(len(insight_created_calls), 1)
-        self.assertEqual(insight_created_calls[0][0][2]["source"], "posthog_ai")
-        self.assertIn("insight_id", insight_created_calls[0][0][2])
+        assert len(insight_created_calls) == 1
+        assert insight_created_calls[0][0][2]["source"] == "posthog_ai"
+        assert "insight_id" in insight_created_calls[0][0][2]
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_create_dashboard_does_not_report_insight_created_for_existing_insights(self, mock_report):
@@ -1735,7 +1731,7 @@ class TestUpsertDashboardTool(BaseTest):
         await tool._arun_impl(action)
 
         insight_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "insight created"]
-        self.assertEqual(len(insight_created_calls), 0)
+        assert len(insight_created_calls) == 0
 
 
 class TestGetDashboardAndSortedTiles(BaseTest):
@@ -1789,10 +1785,10 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         tool = self._create_tool()
         sorted_tiles = await tool._get_dashboard_sorted_tiles(dashboard)
 
-        self.assertEqual(len(sorted_tiles), 3)
-        self.assertEqual(sorted_tiles[0].insight_id, insight1.id)
-        self.assertEqual(sorted_tiles[1].insight_id, insight2.id)
-        self.assertEqual(sorted_tiles[2].insight_id, insight3.id)
+        assert len(sorted_tiles) == 3
+        assert sorted_tiles[0].insight_id == insight1.id
+        assert sorted_tiles[1].insight_id == insight2.id
+        assert sorted_tiles[2].insight_id == insight3.id
 
     @parameterized.expand(
         [
@@ -1811,7 +1807,7 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         tool = self._create_tool()
         result = await tool._get_dashboard(format_id(dashboard.id))
 
-        self.assertEqual(result.id, dashboard.id)
+        assert result.id == dashboard.id
 
     @parameterized.expand(
         [
@@ -1825,7 +1821,7 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         with self.assertRaises(MaxToolFatalError) as ctx:
             await tool._get_dashboard(invalid_id)
 
-        self.assertIn(invalid_id, str(ctx.exception))
+        assert invalid_id in str(ctx.exception)
 
     async def test_raises_error_for_nonexistent_dashboard(self):
         tool = self._create_tool()
@@ -1833,7 +1829,7 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         with self.assertRaises(MaxToolFatalError) as ctx:
             await tool._get_dashboard("999999")
 
-        self.assertIn("999999", str(ctx.exception))
+        assert "999999" in str(ctx.exception)
 
     async def test_raises_error_for_deleted_dashboard(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1848,7 +1844,7 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         with self.assertRaises(MaxToolFatalError) as ctx:
             await tool._get_dashboard(str(dashboard.id))
 
-        self.assertIn(str(dashboard.id), str(ctx.exception))
+        assert str(dashboard.id) in str(ctx.exception)
 
     async def test_excludes_soft_deleted_tiles(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1875,8 +1871,8 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         tool = self._create_tool()
         sorted_tiles = await tool._get_dashboard_sorted_tiles(dashboard)
 
-        self.assertEqual(len(sorted_tiles), 1)
-        self.assertEqual(sorted_tiles[0].insight_id, insight1.id)
+        assert len(sorted_tiles) == 1
+        assert sorted_tiles[0].insight_id == insight1.id
 
     async def test_returns_empty_tiles_for_dashboard_without_tiles(self):
         dashboard = await Dashboard.objects.acreate(
@@ -1889,8 +1885,8 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         result_dashboard = await tool._get_dashboard(dashboard.id)
         sorted_tiles = await tool._get_dashboard_sorted_tiles(dashboard)
 
-        self.assertEqual(result_dashboard.id, dashboard.id)
-        self.assertEqual(len(sorted_tiles), 0)
+        assert result_dashboard.id == dashboard.id
+        assert len(sorted_tiles) == 0
 
 
 class TestGetVisualizationArtifacts(BaseTest):
@@ -1928,8 +1924,8 @@ class TestGetVisualizationArtifacts(BaseTest):
 
         results = await tool._get_visualization_artifacts([viz_id])
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].content.query, DEFAULT_TRENDS_QUERY)
+        assert len(results) == 1
+        assert results[0].content.query == DEFAULT_TRENDS_QUERY
 
     async def test_returns_artifacts_from_saved_insights(self):
         insight = await self._create_insight("Saved Insight")
@@ -1939,8 +1935,8 @@ class TestGetVisualizationArtifacts(BaseTest):
 
         results = await tool._get_visualization_artifacts([insight.short_id])
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].content.name, "Saved Insight")
+        assert len(results) == 1
+        assert results[0].content.name == "Saved Insight"
 
     async def test_returns_artifacts_from_database(self):
         conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
@@ -1960,8 +1956,8 @@ class TestGetVisualizationArtifacts(BaseTest):
 
         results = await tool._get_visualization_artifacts([artifact.short_id])
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].content.name, "DB Artifact")
+        assert len(results) == 1
+        assert results[0].content.name == "DB Artifact"
 
     async def test_preserves_order_with_mixed_sources(self):
         conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
@@ -1992,10 +1988,10 @@ class TestGetVisualizationArtifacts(BaseTest):
         # Request in specific order: db, state, insight
         results = await tool._get_visualization_artifacts([db_artifact.short_id, state_viz_id, insight.short_id])
 
-        self.assertEqual(len(results), 3)
-        self.assertEqual(results[0].content.name, "DB Artifact")
-        self.assertEqual(results[1].content.name, "Insight")
-        self.assertEqual(results[2].content.name, "Insight Artifact")
+        assert len(results) == 3
+        assert results[0].content.name == "DB Artifact"
+        assert results[1].content.name == "Insight"
+        assert results[2].content.name == "Insight Artifact"
 
     @parameterized.expand(
         [
@@ -2016,7 +2012,7 @@ class TestGetVisualizationArtifacts(BaseTest):
             await tool._get_visualization_artifacts(insight_ids)
 
         for missing_id in missing_ids:
-            self.assertIn(missing_id, str(ctx.exception))
+            assert missing_id in str(ctx.exception)
 
 
 class TestGetUpdateDiff(BaseTest):
@@ -2065,8 +2061,8 @@ class TestGetUpdateDiff(BaseTest):
         tool = self._create_tool()
         diff = await tool._get_update_diff(tiles, [])
 
-        self.assertEqual(diff["created"], [])
-        self.assertEqual(diff["deleted"], [])
+        assert diff["created"] == []
+        assert diff["deleted"] == []
 
     async def test_identifies_deleted_tiles(self):
         insight1 = await self._create_insight("Will Delete 1")
@@ -2082,11 +2078,11 @@ class TestGetUpdateDiff(BaseTest):
         diff = await tool._get_update_diff(tiles, [new_insight.short_id])
 
         # Both existing insights are deleted (not in new list)
-        self.assertEqual(len(diff["deleted"]), 2)
+        assert len(diff["deleted"]) == 2
         deleted_ids = {tile.insight_id for tile in diff["deleted"]}
-        self.assertEqual(deleted_ids, {insight1.id, insight2.id})
+        assert deleted_ids == {insight1.id, insight2.id}
         # New insight is created
-        self.assertEqual(len(diff["created"]), 1)
+        assert len(diff["created"]) == 1
 
     async def test_identifies_created_tiles(self):
         """When keeping an existing insight and adding new ones, only the new ones are "created"."""
@@ -2104,10 +2100,10 @@ class TestGetUpdateDiff(BaseTest):
         diff = await tool._get_update_diff(tiles, [insight.short_id, new_insight1.short_id, new_insight2.short_id])
 
         # "created" only includes insights not already in the dashboard
-        self.assertEqual(len(diff["created"]), 2)
+        assert len(diff["created"]) == 2
         created_names = {a.content.name for a in diff["created"]}
-        self.assertEqual(created_names, {"New 1", "New 2"})
-        self.assertEqual(len(diff["deleted"]), 0)
+        assert created_names == {"New 1", "New 2"}
+        assert len(diff["deleted"]) == 0
 
     async def test_identifies_swapped_insight(self):
         """When replacing one insight with another, old is deleted and new is created."""
@@ -2121,10 +2117,10 @@ class TestGetUpdateDiff(BaseTest):
 
         diff = await tool._get_update_diff(tiles, [new_insight.short_id])
 
-        self.assertEqual(len(diff["deleted"]), 1)
-        self.assertEqual(diff["deleted"][0].insight_id, old_insight.id)
-        self.assertEqual(len(diff["created"]), 1)
-        self.assertEqual(diff["created"][0].content.name, "New")
+        assert len(diff["deleted"]) == 1
+        assert diff["deleted"][0].insight_id == old_insight.id
+        assert len(diff["created"]) == 1
+        assert diff["created"][0].content.name == "New"
 
     async def test_handles_complex_diff(self):
         """
@@ -2151,12 +2147,12 @@ class TestGetUpdateDiff(BaseTest):
             tiles, [insight_d.short_id, insight_e.short_id, insight_f.short_id, insight_g.short_id]
         )
 
-        self.assertEqual(len(diff["deleted"]), 3)
+        assert len(diff["deleted"]) == 3
         deleted_ids = {tile.insight_id for tile in diff["deleted"]}
-        self.assertEqual(deleted_ids, {insight_a.id, insight_b.id, insight_c.id})
-        self.assertEqual(len(diff["created"]), 4)
+        assert deleted_ids == {insight_a.id, insight_b.id, insight_c.id}
+        assert len(diff["created"]) == 4
         created_names = {a.content.name for a in diff["created"]}
-        self.assertEqual(created_names, {"D", "E", "F", "G"})
+        assert created_names == {"D", "E", "F", "G"}
 
     async def test_handles_shrinking_diff(self):
         """
@@ -2178,11 +2174,11 @@ class TestGetUpdateDiff(BaseTest):
 
         diff = await tool._get_update_diff(tiles, [insight_d.short_id])
 
-        self.assertEqual(len(diff["deleted"]), 3)
+        assert len(diff["deleted"]) == 3
         deleted_insight_ids = {tile.insight_id for tile in diff["deleted"]}
-        self.assertEqual(deleted_insight_ids, {insight_a.id, insight_b.id, insight_c.id})
-        self.assertEqual(len(diff["created"]), 1)
-        self.assertEqual(diff["created"][0].content.name, "D")
+        assert deleted_insight_ids == {insight_a.id, insight_b.id, insight_c.id}
+        assert len(diff["created"]) == 1
+        assert diff["created"][0].content.name == "D"
 
     async def test_caches_update_diff(self):
         insight = await self._create_insight("Existing")
@@ -2196,7 +2192,7 @@ class TestGetUpdateDiff(BaseTest):
         diff1 = await tool._get_update_diff(tiles, [new_insight.short_id])
         diff2 = await tool._get_update_diff(tiles, [new_insight.short_id])
 
-        self.assertIs(diff1, diff2)
+        assert diff1 is diff2
 
     async def test_handles_empty_dashboard(self):
         await Dashboard.objects.acreate(
@@ -2213,9 +2209,9 @@ class TestGetUpdateDiff(BaseTest):
 
         diff = await tool._get_update_diff(tiles, [new_insight.short_id])
 
-        self.assertEqual(len(diff["created"]), 1)
-        self.assertEqual(diff["created"][0].content.name, "New")
-        self.assertEqual(len(diff["deleted"]), 0)
+        assert len(diff["created"]) == 1
+        assert diff["created"][0].content.name == "New"
+        assert len(diff["deleted"]) == 0
 
     async def test_recognizes_same_insight_in_position(self):
         """When an insight ID is already in the dashboard, no changes are needed."""
@@ -2228,5 +2224,5 @@ class TestGetUpdateDiff(BaseTest):
         diff = await tool._get_update_diff(tiles, [insight.short_id])
 
         # No changes needed - insight stays in place
-        self.assertEqual(len(diff["created"]), 0)
-        self.assertEqual(len(diff["deleted"]), 0)
+        assert len(diff["created"]) == 0
+        assert len(diff["deleted"]) == 0

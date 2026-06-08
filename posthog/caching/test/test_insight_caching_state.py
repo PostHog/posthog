@@ -522,8 +522,8 @@ class TestLazyLoader(BaseTest):
         mock_is_team_active.return_value = True
         loader = LazyLoader()
 
-        self.assertTrue(loader.is_team_active(42))
-        self.assertTrue(loader.is_team_active(42))
+        assert loader.is_team_active(42)
+        assert loader.is_team_active(42)
 
         mock_is_team_active.assert_called_once_with(42)
 
@@ -532,7 +532,7 @@ class TestLazyLoader(BaseTest):
         mock_active_teams.return_value = {1, 2, 3}
         loader = LazyLoader()
 
-        self.assertEqual(loader.active_teams, {1, 2, 3})
+        assert loader.active_teams == {1, 2, 3}
         # cached_property — only called once even across repeated access
         _ = loader.active_teams
         mock_active_teams.assert_called_once()
@@ -567,4 +567,4 @@ class TestLazyLoader(BaseTest):
             team=self.team,
         )
 
-        self.assertEqual(LazyLoader().recently_viewed_insights, {insights[1].pk, insights[2].pk})
+        assert LazyLoader().recently_viewed_insights == {insights[1].pk, insights[2].pk}

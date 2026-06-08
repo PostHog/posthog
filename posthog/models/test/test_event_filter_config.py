@@ -59,13 +59,13 @@ class TestValidateFilterTree(SimpleTestCase):
     def test_invalid_node_type(self, _name: str, tree: object, expected_msg: str):
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree(tree)
-        self.assertIn(expected_msg, str(ctx.exception))
+        assert expected_msg in str(ctx.exception)
 
     def test_exceeds_max_conditions(self):
         tree = _and(*[_cond(value=str(i)) for i in range(MAX_CONDITIONS + 1)])
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree(tree)
-        self.assertIn("maximum", str(ctx.exception))
+        assert "maximum" in str(ctx.exception)
 
     def test_exactly_max_conditions_is_valid(self):
         tree = _and(*[_cond(value=str(i)) for i in range(MAX_CONDITIONS)])
@@ -77,7 +77,7 @@ class TestValidateFilterTree(SimpleTestCase):
             node = _not(node)
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree(node)
-        self.assertIn("depth", str(ctx.exception))
+        assert "depth" in str(ctx.exception)
 
     def test_exactly_max_depth_is_valid(self):
         node: dict = _cond()
@@ -125,51 +125,51 @@ class TestValidateCondition(SimpleTestCase):
     def test_invalid_conditions(self, _name: str, tree: dict, expected_msg: str):
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree(tree)
-        self.assertIn(expected_msg, str(ctx.exception))
+        assert expected_msg in str(ctx.exception)
 
 
 class TestValidateNodeStructure(SimpleTestCase):
     def test_not_missing_child(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree({"type": "not"})
-        self.assertIn("must have a 'child'", str(ctx.exception))
+        assert "must have a 'child'" in str(ctx.exception)
 
     def test_and_children_not_list(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree({"type": "and", "children": "not_a_list"})
-        self.assertIn("must have a 'children' list", str(ctx.exception))
+        assert "must have a 'children' list" in str(ctx.exception)
 
     def test_or_children_not_list(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree({"type": "or", "children": "not_a_list"})
-        self.assertIn("must have a 'children' list", str(ctx.exception))
+        assert "must have a 'children' list" in str(ctx.exception)
 
     def test_nested_invalid_child(self):
         tree = _and(_cond(), {"type": "condition", "field": "bad", "operator": "exact", "value": "x"})
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree(tree)
-        self.assertIn("children[1]", str(ctx.exception))
+        assert "children[1]" in str(ctx.exception)
 
 
 class TestPruneFilterTree(SimpleTestCase):
     def test_removes_empty_group(self):
-        self.assertIsNone(prune_filter_tree({"type": "and", "children": []}))
+        assert prune_filter_tree({"type": "and", "children": []}) is None
 
     def test_collapses_single_child_group(self):
         cond = _cond()
-        self.assertEqual(prune_filter_tree(_and(cond)), cond)
+        assert prune_filter_tree(_and(cond)) == cond
 
     def test_removes_not_with_empty_child(self):
-        self.assertIsNone(prune_filter_tree(_not({"type": "or", "children": []})))
+        assert prune_filter_tree(_not({"type": "or", "children": []})) is None
 
     def test_preserves_valid_tree(self):
         tree = _and(_cond(), _cond(value="click"))
-        self.assertEqual(prune_filter_tree(tree), tree)
+        assert prune_filter_tree(tree) == tree
 
     def test_collapses_nested_single_child_groups(self):
         cond = _cond()
         tree = _or(_and(cond))
-        self.assertEqual(prune_filter_tree(tree), cond)
+        assert prune_filter_tree(tree) == cond
 
 
 class TestEvaluateFilterTree(SimpleTestCase):
@@ -184,32 +184,30 @@ class TestEvaluateFilterTree(SimpleTestCase):
         ]
     )
     def test_condition(self, _name: str, tree: dict, event: dict, expected: bool):
-        self.assertEqual(evaluate_filter_tree(tree, event), expected)
+        assert evaluate_filter_tree(tree, event) == expected
 
     def test_and_all_true(self):
         tree = _and(_cond("event_name", "exact", "pageview"), _cond("distinct_id", "exact", "u1"))
-        self.assertTrue(evaluate_filter_tree(tree, {"event_name": "pageview", "distinct_id": "u1"}))
+        assert evaluate_filter_tree(tree, {"event_name": "pageview", "distinct_id": "u1"})
 
     def test_and_one_false(self):
         tree = _and(_cond("event_name", "exact", "pageview"), _cond("distinct_id", "exact", "u1"))
-        self.assertFalse(evaluate_filter_tree(tree, {"event_name": "pageview", "distinct_id": "u2"}))
+        assert not evaluate_filter_tree(tree, {"event_name": "pageview", "distinct_id": "u2"})
 
     def test_and_empty_children_returns_false(self):
-        self.assertFalse(evaluate_filter_tree({"type": "and", "children": []}, {}))
+        assert not evaluate_filter_tree({"type": "and", "children": []}, {})
 
     def test_or_one_true(self):
         tree = _or(_cond("event_name", "exact", "pageview"), _cond("event_name", "exact", "click"))
-        self.assertTrue(evaluate_filter_tree(tree, {"event_name": "click"}))
+        assert evaluate_filter_tree(tree, {"event_name": "click"})
 
     def test_or_none_true(self):
         tree = _or(_cond("event_name", "exact", "pageview"), _cond("event_name", "exact", "click"))
-        self.assertFalse(evaluate_filter_tree(tree, {"event_name": "submit"}))
+        assert not evaluate_filter_tree(tree, {"event_name": "submit"})
 
     def test_not_inverts(self):
-        self.assertFalse(
-            evaluate_filter_tree(_not(_cond("event_name", "exact", "pageview")), {"event_name": "pageview"})
-        )
-        self.assertTrue(evaluate_filter_tree(_not(_cond("event_name", "exact", "pageview")), {"event_name": "click"}))
+        assert not evaluate_filter_tree(_not(_cond("event_name", "exact", "pageview")), {"event_name": "pageview"})
+        assert evaluate_filter_tree(_not(_cond("event_name", "exact", "pageview")), {"event_name": "click"})
 
 
 class TestTreeHasConditions(SimpleTestCase):
@@ -225,7 +223,7 @@ class TestTreeHasConditions(SimpleTestCase):
         ]
     )
     def test_tree_has_conditions(self, _name: str, tree: object, expected: bool):
-        self.assertEqual(tree_has_conditions(tree), expected)
+        assert tree_has_conditions(tree) == expected
 
 
 class TestValidateTestCases(SimpleTestCase):
@@ -235,27 +233,27 @@ class TestValidateTestCases(SimpleTestCase):
     def test_not_a_list(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_test_cases("not_a_list")
-        self.assertIn("Must be a list", str(ctx.exception))
+        assert "Must be a list" in str(ctx.exception)
 
     def test_entry_not_a_dict(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_test_cases(["not_a_dict"])
-        self.assertIn("must be an object", str(ctx.exception))
+        assert "must be an object" in str(ctx.exception)
 
     def test_missing_expected_result(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_test_cases([{"event_name": "pageview"}])
-        self.assertIn("missing 'expected_result'", str(ctx.exception))
+        assert "missing 'expected_result'" in str(ctx.exception)
 
     def test_invalid_expected_result(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_test_cases([{"expected_result": "maybe"}])
-        self.assertIn("must be 'drop' or 'ingest'", str(ctx.exception))
+        assert "must be 'drop' or 'ingest'" in str(ctx.exception)
 
     def test_non_string_field(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_test_cases([{"event_name": 123, "expected_result": "drop"}])
-        self.assertIn("must be a string", str(ctx.exception))
+        assert "must be a string" in str(ctx.exception)
 
 
 class TestRunTestCases(SimpleTestCase):
@@ -265,21 +263,21 @@ class TestRunTestCases(SimpleTestCase):
             {"event_name": "pageview", "expected_result": "drop"},
             {"event_name": "click", "expected_result": "ingest"},
         ]
-        self.assertEqual(run_test_cases(tree, test_cases), [])
+        assert run_test_cases(tree, test_cases) == []
 
     def test_failing_test_case_expected_drop(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [{"event_name": "click", "expected_result": "drop"}]
         failures = run_test_cases(tree, test_cases)
-        self.assertEqual(len(failures), 1)
-        self.assertIn("expected 'drop' but got 'ingest'", failures[0])
+        assert len(failures) == 1
+        assert "expected 'drop' but got 'ingest'" in failures[0]
 
     def test_failing_test_case_expected_ingest(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [{"event_name": "pageview", "expected_result": "ingest"}]
         failures = run_test_cases(tree, test_cases)
-        self.assertEqual(len(failures), 1)
-        self.assertIn("expected 'ingest' but got 'drop'", failures[0])
+        assert len(failures) == 1
+        assert "expected 'ingest' but got 'drop'" in failures[0]
 
     def test_multiple_failures_reported(self):
         tree = _cond("event_name", "exact", "pageview")
@@ -288,9 +286,9 @@ class TestRunTestCases(SimpleTestCase):
             {"event_name": "pageview", "expected_result": "ingest"},
         ]
         failures = run_test_cases(tree, test_cases)
-        self.assertEqual(len(failures), 2)
-        self.assertIn("Test case 0", failures[0])
-        self.assertIn("Test case 1", failures[1])
+        assert len(failures) == 2
+        assert "Test case 0" in failures[0]
+        assert "Test case 1" in failures[1]
 
     def test_test_case_with_distinct_id(self):
         tree = _and(_cond("event_name", "exact", "pageview"), _cond("distinct_id", "contains", "bot"))
@@ -298,7 +296,7 @@ class TestRunTestCases(SimpleTestCase):
             {"event_name": "pageview", "distinct_id": "bot-123", "expected_result": "drop"},
             {"event_name": "pageview", "distinct_id": "user-1", "expected_result": "ingest"},
         ]
-        self.assertEqual(run_test_cases(tree, test_cases), [])
+        assert run_test_cases(tree, test_cases) == []
 
     def test_complex_tree_with_many_test_cases(self):
         # Drop if: (event is "$autocapture" OR event contains "bot_")
@@ -330,7 +328,7 @@ class TestRunTestCases(SimpleTestCase):
             # distinct_id missing -> NOT(false)=true, OR still needs to match
             {"event_name": "$autocapture", "expected_result": "drop"},
         ]
-        self.assertEqual(run_test_cases(tree, test_cases), [])
+        assert run_test_cases(tree, test_cases) == []
 
 
 class TestEventFilterConfigModel(BaseTest):
@@ -348,15 +346,15 @@ class TestEventFilterConfigModel(BaseTest):
         )
 
         retrieved = EventFilterConfig.objects.get(pk=config.pk)
-        self.assertEqual(retrieved.team_id, self.team.id)
-        self.assertEqual(retrieved.mode, EventFilterMode.DRY_RUN)
-        self.assertEqual(retrieved.filter_tree, tree)
-        self.assertEqual(retrieved.test_cases, test_cases)
+        assert retrieved.team_id == self.team.id
+        assert retrieved.mode == EventFilterMode.DRY_RUN
+        assert retrieved.filter_tree == tree
+        assert retrieved.test_cases == test_cases
 
     def test_create_with_null_filter_tree(self):
         config = EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.DISABLED)
         retrieved = EventFilterConfig.objects.get(pk=config.pk)
-        self.assertIsNone(retrieved.filter_tree)
+        assert retrieved.filter_tree is None
 
     def test_save_prunes_filter_tree(self):
         tree = _and(_cond("event_name", "exact", "pageview"))
@@ -365,7 +363,7 @@ class TestEventFilterConfigModel(BaseTest):
             mode=EventFilterMode.LIVE,
             filter_tree=tree,
         )
-        self.assertEqual(config.filter_tree, _cond("event_name", "exact", "pageview"))
+        assert config.filter_tree == _cond("event_name", "exact", "pageview")
 
     def test_save_rejects_invalid_filter_tree(self):
         with self.assertRaises(ValidationError):
@@ -397,8 +395,8 @@ class TestEventFilterConfigModel(BaseTest):
         config.mode = EventFilterMode.LIVE
         config.save()
         config.refresh_from_db()
-        self.assertEqual(config.mode, EventFilterMode.LIVE)
+        assert config.mode == EventFilterMode.LIVE
 
     def test_str(self):
         config = EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.DRY_RUN)
-        self.assertEqual(str(config), f"EventFilterConfig(team={self.team.id}, mode=dry_run)")
+        assert str(config) == f"EventFilterConfig(team={self.team.id}, mode=dry_run)"

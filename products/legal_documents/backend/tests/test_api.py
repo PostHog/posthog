@@ -60,11 +60,11 @@ class TestLegalDocumentAPI(APIBaseTest):
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         row = LegalDocument.objects.get(id=response.json()["id"])
-        self.assertEqual(row.document_type, "BAA")
-        self.assertEqual(row.organization_id, self.organization.id)
-        self.assertEqual(row.created_by_id, self.user.id)
+        assert row.document_type == "BAA"
+        assert row.organization_id == self.organization.id
+        assert row.created_by_id == self.user.id
 
     @patch("products.legal_documents.backend.logic.BillingManager")
     def test_create_baa_without_qualifying_addon_is_forbidden(self, mock_manager_cls) -> None:
@@ -72,34 +72,34 @@ class TestLegalDocumentAPI(APIBaseTest):
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Boost, Scale, or Enterprise", response.json()["detail"])
-        self.assertFalse(LegalDocument.objects.exists())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Boost, Scale, or Enterprise" in response.json()["detail"]
+        assert not LegalDocument.objects.exists()
 
     def test_create_dpa_succeeds(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_create_dpa_ignores_unknown_dpa_mode_field(self) -> None:
         # dpa_mode is a frontend-only preview toggle — extra keys are silently dropped.
         response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": "fairytale"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_create_without_address_is_rejected(self) -> None:
         payload = {**DPA_PAYLOAD}
         payload.pop("company_address")
         response = self.client.post(self.url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("company_address", response.json()["attr"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "company_address" in response.json()["attr"]
 
     def test_create_msa_is_rejected_from_public_api(self) -> None:
         # MSAs only exist via Django admin upload — the public serializer's
         # ChoiceField does not list MSA, so a POST should 400 on document_type.
         payload = {**DPA_PAYLOAD, "document_type": "MSA"}
         response = self.client.post(self.url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("document_type", response.json()["attr"])
-        self.assertFalse(LegalDocument.objects.exists())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "document_type" in response.json()["attr"]
+        assert not LegalDocument.objects.exists()
 
     def test_list_is_scoped_to_current_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
@@ -114,49 +114,49 @@ class TestLegalDocumentAPI(APIBaseTest):
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [row["id"] for row in response.json()["results"]]
-        self.assertEqual(len(ids), 1)
+        assert len(ids) == 1
 
     def test_activity_log_row_is_written_on_create(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         log = ActivityLog.objects.filter(scope="LegalDocument", activity="created").first()
-        self.assertIsNotNone(log)
+        assert log is not None
         assert log is not None  # mypy
-        self.assertEqual(str(log.organization_id), str(self.organization.id))
+        assert str(log.organization_id) == str(self.organization.id)
         assert log.detail is not None  # mypy
-        self.assertEqual(log.detail["context"]["document_type"], "DPA")
-        self.assertEqual(log.detail["context"]["company_name"], "Acme, Inc.")
+        assert log.detail["context"]["document_type"] == "DPA"
+        assert log.detail["context"]["company_name"] == "Acme, Inc."
 
     def test_anonymous_user_is_unauthorized(self) -> None:
         self.client.logout()
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
     def test_create_returns_default_status(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
-        self.assertEqual(body["status"], "submitted_for_signature")
+        assert body["status"] == "submitted_for_signature"
 
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_fires_submitted_analytics_event(self, mock_capture) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         row = LegalDocument.objects.get(id=response.json()["id"])
 
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
-        self.assertEqual(kwargs["event"], "legal document submitted")
+        assert kwargs["event"] == "legal document submitted"
         props = kwargs["properties"]
-        self.assertEqual(props["legal_document_id"], str(row.id))
-        self.assertEqual(props["document_type"], "DPA")
-        self.assertEqual(props["company_name"], "Acme, Inc.")
+        assert props["legal_document_id"] == str(row.id)
+        assert props["document_type"] == "DPA"
+        assert props["company_name"] == "Acme, Inc."
         # Old per-row webhook secret is no longer part of the event payload —
         # PandaDoc is now hit directly, so there's nothing to echo back.
-        self.assertNotIn("legal_document_secret", props)
+        assert "legal_document_secret" not in props
 
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
     def test_create_baa_fires_submitted_event(self, mock_capture) -> None:
@@ -166,58 +166,58 @@ class TestLegalDocumentAPI(APIBaseTest):
         ):
             response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         mock_capture.assert_called_once()
-        self.assertEqual(mock_capture.call_args.kwargs["event"], "legal document submitted")
-        self.assertEqual(mock_capture.call_args.kwargs["properties"]["document_type"], "BAA")
+        assert mock_capture.call_args.kwargs["event"] == "legal document submitted"
+        assert mock_capture.call_args.kwargs["properties"]["document_type"] == "BAA"
 
     def test_regular_member_cannot_list(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_regular_member_cannot_create(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(LegalDocument.objects.exists())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not LegalDocument.objects.exists()
 
     def test_owner_can_create(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
 
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_only_one_dpa_per_organization(self) -> None:
         first = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        assert first.status_code == status.HTTP_201_CREATED
 
         second = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already has a DPA", second.json()["detail"])
-        self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already has a DPA" in second.json()["detail"]
+        assert LegalDocument.objects.filter(document_type="DPA").count() == 1
 
     @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
     def test_only_one_baa_per_organization(self, _mock_addon) -> None:
         first = self.client.post(self.url, BAA_PAYLOAD, format="json")
-        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        assert first.status_code == status.HTTP_201_CREATED
 
         second = self.client.post(self.url, BAA_PAYLOAD, format="json")
-        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already has a BAA", second.json()["detail"])
-        self.assertEqual(LegalDocument.objects.filter(document_type="BAA").count(), 1)
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already has a BAA" in second.json()["detail"]
+        assert LegalDocument.objects.filter(document_type="BAA").count() == 1
 
     @patch("products.legal_documents.backend.logic.has_qualifying_baa_addon", return_value=True)
     def test_baa_and_dpa_can_coexist_in_same_organization(self, _mock_addon) -> None:
         baa_response = self.client.post(self.url, BAA_PAYLOAD, format="json")
         dpa_response = self.client.post(self.url, DPA_PAYLOAD, format="json")
-        self.assertEqual(baa_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(dpa_response.status_code, status.HTTP_201_CREATED)
+        assert baa_response.status_code == status.HTTP_201_CREATED
+        assert dpa_response.status_code == status.HTTP_201_CREATED
 
     def test_different_organizations_can_each_have_their_own_dpa(self) -> None:
         self.client.post(self.url, DPA_PAYLOAD, format="json")
@@ -228,7 +228,7 @@ class TestLegalDocumentAPI(APIBaseTest):
         )
         other_url = f"/api/organizations/{other_org.id}/legal_documents/"
         response = self.client.post(other_url, DPA_PAYLOAD, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_db_constraint_blocks_direct_model_duplicates(self) -> None:
         LegalDocument.objects.create(
@@ -277,19 +277,19 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
             return_value="https://s3.example/signed-url?token=abc",
         ) as presign_mock:
             response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], "https://s3.example/signed-url?token=abc")
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == "https://s3.example/signed-url?token=abc"
         presign_mock.assert_called_once()
         # Key should be under the legal_documents prefix.
         args, kwargs = presign_mock.call_args
-        self.assertTrue(args[0].endswith(f"{self.document.id}.pdf"))
+        assert args[0].endswith(f"{self.document.id}.pdf")
 
     def test_unsigned_document_returns_404(self) -> None:
         self.document.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
         self.document.save()
         with patch("products.legal_documents.backend.logic.object_storage.get_presigned_url") as presign_mock:
             response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         presign_mock.assert_not_called()
 
     def test_unknown_document_returns_404(self) -> None:
@@ -297,13 +297,13 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
             f"/api/organizations/{self.organization.id}/legal_documents/00000000-0000-0000-0000-000000000000/download"
         )
         response = self.client.get(bogus_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_regular_member_cannot_download(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_cross_organization_download_is_blocked(self) -> None:
         other_org = Organization.objects.create(name="Other Co")
@@ -313,7 +313,7 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
         # Same document id but accessed under the wrong org's path.
         url = f"/api/organizations/{other_org.id}/legal_documents/{self.document.id}/download"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_staff_user_without_membership_can_download(self) -> None:
         # PostHog staff need to fetch signed PDFs from the Django admin without
@@ -327,7 +327,7 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
             return_value="https://s3.example/signed-url?token=abc",
         ):
             response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
@@ -358,8 +358,8 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
     def test_unsigned_document_deletes_and_voids_pandadoc(self, mock_pandadoc_cls) -> None:
         response = self.client.delete(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
-        self.assertFalse(LegalDocument.objects.filter(id=self.document.id).exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not LegalDocument.objects.filter(id=self.document.id).exists()
         mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
@@ -368,19 +368,19 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
         # second POST with a corrected signer should succeed.
         list_url = f"/api/organizations/{self.organization.id}/legal_documents/"
         blocked = self.client.post(list_url, DPA_PAYLOAD, format="json")
-        self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST
 
         deleted = self.client.delete(self.url)
-        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT, deleted.content)
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT, deleted.content
 
         replacement = self.client.post(
             list_url,
             {**DPA_PAYLOAD, "representative_email": "joakim@hubexo.example"},
             format="json",
         )
-        self.assertEqual(replacement.status_code, status.HTTP_201_CREATED, replacement.content)
+        assert replacement.status_code == status.HTTP_201_CREATED, replacement.content
         new_row = LegalDocument.objects.get(id=replacement.json()["id"])
-        self.assertEqual(new_row.representative_email, "joakim@hubexo.example")
+        assert new_row.representative_email == "joakim@hubexo.example"
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_signed_document_cannot_be_deleted_via_api(self, mock_pandadoc_cls) -> None:
@@ -393,8 +393,8 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         response = self.client.delete(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
-        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert LegalDocument.objects.filter(id=self.document.id).exists()
         mock_pandadoc_cls.return_value.void_document.assert_not_called()
 
     @parameterized.expand(
@@ -406,7 +406,7 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
     def test_nonexistent_or_invalid_pk_returns_404(self, _name: str, pk: str) -> None:
         url = f"/api/organizations/{self.organization.id}/legal_documents/{pk}/"
         response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_cross_organization_delete_is_blocked(self, mock_pandadoc_cls) -> None:
@@ -421,8 +421,8 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         response = self.client.delete(url)
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert LegalDocument.objects.filter(id=self.document.id).exists()
         mock_pandadoc_cls.return_value.void_document.assert_not_called()
 
     def test_regular_member_cannot_delete(self) -> None:
@@ -431,8 +431,8 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         response = self.client.delete(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert LegalDocument.objects.filter(id=self.document.id).exists()
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_pandadoc_void_failure_returns_503_and_keeps_row(self, mock_pandadoc_cls) -> None:
@@ -447,25 +447,25 @@ class TestLegalDocumentDeleteEndpoint(APIBaseTest):
 
         response = self.client.delete(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(response.json()["code"], "legal_document_void_failed")
-        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "legal_document_void_failed"
+        assert LegalDocument.objects.filter(id=self.document.id).exists()
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     def test_activity_log_row_is_written_on_delete(self, _mock_pandadoc_cls) -> None:
         response = self.client.delete(self.url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         log = ActivityLog.objects.filter(scope="LegalDocument", activity="deleted").first()
-        self.assertIsNotNone(log, "expected a deleted-activity log entry from ModelActivityMixin")
+        assert log is not None, "expected a deleted-activity log entry from ModelActivityMixin"
         assert log is not None  # mypy
-        self.assertEqual(str(log.organization_id), str(self.organization.id))
+        assert str(log.organization_id) == str(self.organization.id)
 
     def test_anonymous_user_cannot_delete(self) -> None:
         self.client.logout()
         response = self.client.delete(self.url)
-        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
-        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+        assert LegalDocument.objects.filter(id=self.document.id).exists()
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
@@ -556,16 +556,16 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "signed")
+        assert self.document.status == "signed"
         stream_mock.assert_called_once_with(document_id="doc_123")
         write_mock.assert_called_once()
         args, kwargs = write_mock.call_args
         # Positional args: (key, fileobj); content-type rides in extras.
-        self.assertTrue(args[0].endswith(f"{self.document.id}.pdf"))
-        self.assertIs(args[1], fake_stream)
-        self.assertEqual(kwargs["extras"], {"ContentType": "application/pdf"})
+        assert args[0].endswith(f"{self.document.id}.pdf")
+        assert args[1] is fake_stream
+        assert kwargs["extras"] == {"ContentType": "application/pdf"}
 
     def test_download_failure_returns_503_and_leaves_row_unsigned(self) -> None:
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
@@ -582,18 +582,18 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
 
         # 503 surfaces so PandaDoc retries the delivery.
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         write_mock.assert_not_called()
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "submitted_for_signature")
+        assert self.document.status == "submitted_for_signature"
 
     def test_invalid_signature_returns_404(self) -> None:
         body = json.dumps(self._completed_payload()).encode("utf-8")
         with self._override():
             response = self._post_raw(body, "not-the-right-signature")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "submitted_for_signature")
+        assert self.document.status == "submitted_for_signature"
 
     def test_unknown_document_id_returns_204(self) -> None:
         # Sibling cloud instance scenario: signature is valid but the document
@@ -601,7 +601,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         body = json.dumps(self._completed_payload(pandadoc_document_id="unknown")).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_uninteresting_state_event_is_noop(self) -> None:
         # document.sent / document.viewed / etc. — we only act on draft + completed.
@@ -610,9 +610,9 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         body = json.dumps(payload).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "submitted_for_signature")
+        assert self.document.status == "submitted_for_signature"
 
     def test_draft_event_dispatches_send(self) -> None:
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -621,9 +621,9 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         send_mock.assert_called_once()
-        self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
+        assert send_mock.call_args.kwargs["document_id"] == "doc_123"
 
     def test_draft_event_swallows_pandadoc_send_failure(self) -> None:
         from products.legal_documents.backend.logic import pandadoc as pandadoc_client
@@ -638,7 +638,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
         # Endpoint still 2xx — we don't want PandaDoc to retry.
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
@@ -650,7 +650,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         send_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
@@ -659,15 +659,15 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "submitted_for_signature")
+        assert self.document.status == "submitted_for_signature"
 
     def test_invalid_json_returns_400(self) -> None:
         body = b"not-valid-json{"
         with self._override():
             response = self._post_raw(body, self._sign(body))
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_replayed_completed_event_skips_side_effects(self) -> None:
         @contextmanager
@@ -685,9 +685,9 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.object_storage.write_stream"),
         ):
             first = self._post_raw(body, self._sign(body))
-        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        assert first.status_code == status.HTTP_200_OK
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "signed")
+        assert self.document.status == "signed"
 
         # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
         # PandaDoc retries / cross-instance fan-out both land here.
@@ -701,7 +701,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
         event_spy.assert_not_called()
@@ -736,9 +736,9 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override(), self._fake_pdf_pipeline():
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.organization.refresh_from_db()
-        self.assertFalse(self.organization.is_ai_data_processing_approved)
+        assert not self.organization.is_ai_data_processing_approved
 
     def test_signed_dpa_does_not_change_ai_flag(self) -> None:
         # Default fixture is a DPA, so don't swap.
@@ -749,9 +749,9 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with self._override(), self._fake_pdf_pipeline():
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.organization.refresh_from_db()
-        self.assertTrue(self.organization.is_ai_data_processing_approved)
+        assert self.organization.is_ai_data_processing_approved
 
     def test_signed_baa_emails_org_owners(self) -> None:
         self._swap_to_baa_document()
@@ -769,13 +769,13 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         email_cls.assert_called_once()
         kwargs = email_cls.call_args.kwargs
-        self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
-        self.assertTrue(kwargs["use_http"])
-        self.assertEqual(kwargs["template_context"]["organization_name"], self.organization.name)
-        self.assertIn("organization-ai-consent", kwargs["template_context"]["ai_settings_url"])
+        assert kwargs["template_name"] == "baa_signed_ai_disabled"
+        assert kwargs["use_http"]
+        assert kwargs["template_context"]["organization_name"] == self.organization.name
+        assert "organization-ai-consent" in kwargs["template_context"]["ai_settings_url"]
         instance = email_cls.return_value
         instance.add_user_recipient.assert_called_once_with(self.user)
         instance.send.assert_called_once_with(send_async=True)
@@ -793,11 +793,11 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             response = self._post_raw(body, self._sign(body))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         email_cls.assert_not_called()
         self.organization.refresh_from_db()
         # Opt-out still happens even when there are no owners to notify.
-        self.assertFalse(self.organization.is_ai_data_processing_approved)
+        assert not self.organization.is_ai_data_processing_approved
 
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
@@ -815,14 +815,14 @@ class TestLegalDocumentsSelfHostedGate(APIBaseTest):
 
     def test_list_404s_on_self_hosted(self) -> None:
         response = self.client.get(f"/api/organizations/{self.organization.id}/legal_documents/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_404s_on_self_hosted(self) -> None:
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/legal_documents/", DPA_PAYLOAD, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertFalse(LegalDocument.objects.exists())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not LegalDocument.objects.exists()
 
     def test_delete_404s_on_self_hosted(self) -> None:
         # Rows shouldn't exist on self-hosted but we still want the gate to
@@ -835,8 +835,8 @@ class TestLegalDocumentsSelfHostedGate(APIBaseTest):
             representative_email="ada@acme.example",
         )
         response = self.client.delete(f"/api/organizations/{self.organization.id}/legal_documents/{document.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertTrue(LegalDocument.objects.filter(id=document.id).exists())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert LegalDocument.objects.filter(id=document.id).exists()
 
     def test_pandadoc_webhook_404s_on_self_hosted_even_with_valid_signature(self) -> None:
         self.client.logout()
@@ -851,4 +851,4 @@ class TestLegalDocumentsSelfHostedGate(APIBaseTest):
                 content_type="application/json",
                 HTTP_X_PANDADOC_SIGNATURE=signature,
             )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND

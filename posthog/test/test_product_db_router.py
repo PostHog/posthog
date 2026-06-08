@@ -31,14 +31,14 @@ class TestProductDBRouter(SimpleTestCase):
         model = SimpleNamespace(_meta=SimpleNamespace(app_label="visual_review", model_name="run"))
 
         # In TEST mode, reads go to the writer so they share the same transaction.
-        self.assertEqual(self.router.db_for_read(model), "visual_review_db_writer")
-        self.assertEqual(self.router.db_for_write(model), "visual_review_db_writer")
+        assert self.router.db_for_read(model) == "visual_review_db_writer"
+        assert self.router.db_for_write(model) == "visual_review_db_writer"
 
     def test_does_not_route_other_apps(self) -> None:
         model = SimpleNamespace(_meta=SimpleNamespace(app_label="posthog", model_name="person"))
 
-        self.assertIsNone(self.router.db_for_read(model))
-        self.assertIsNone(self.router.db_for_write(model))
+        assert self.router.db_for_read(model) is None
+        assert self.router.db_for_write(model) is None
 
     @override_settings(DATABASES={"default": {}})
     def test_only_enables_routes_with_configured_aliases(self) -> None:
@@ -54,8 +54,8 @@ class TestProductDBRouter(SimpleTestCase):
 
         model = SimpleNamespace(_meta=SimpleNamespace(app_label="visual_review", model_name="run"))
 
-        self.assertIsNone(router.db_for_read(model))
-        self.assertIsNone(router.db_for_write(model))
+        assert router.db_for_read(model) is None
+        assert router.db_for_write(model) is None
 
 
 class TestProductDBRouteLoading(SimpleTestCase):
@@ -63,9 +63,9 @@ class TestProductDBRouteLoading(SimpleTestCase):
         routes = load_product_db_routes(Path(__file__).resolve().parents[2])
         visual_review_routes = [route for route in routes if route.app_label == "visual_review"]
 
-        self.assertEqual(len(visual_review_routes), 1)
-        self.assertEqual(visual_review_routes[0].database, "visual_review")
-        self.assertTrue(visual_review_routes[0].source.endswith("products/db_routing.yaml"))
+        assert len(visual_review_routes) == 1
+        assert visual_review_routes[0].database == "visual_review"
+        assert visual_review_routes[0].source.endswith("products/db_routing.yaml")
 
 
 class TestProductDBRouteChecks(SimpleTestCase):
@@ -74,4 +74,4 @@ class TestProductDBRouteChecks(SimpleTestCase):
         get_product_db_routes.cache_clear()
         self.addCleanup(get_product_db_routes.cache_clear)
 
-        self.assertEqual(check_product_db_routes(None), [])
+        assert check_product_db_routes(None) == []

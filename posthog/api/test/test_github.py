@@ -64,7 +64,7 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         cache_key = f"github:public_key:{kid}"
 
         # Verify cache is empty initially
-        self.assertIsNone(self.redis_client.get(cache_key))
+        assert self.redis_client.get(cache_key) is None
 
         # This would normally verify signature, but we're testing caching
         # so we'll catch the error from invalid signature
@@ -73,10 +73,10 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
 
         # Verify the key was cached
         cached_pem = self.redis_client.get(cache_key)
-        self.assertIsNotNone(cached_pem)
+        assert cached_pem is not None
         # Redis returns bytes, so decode it
         cached_pem_str = cached_pem.decode("utf-8") if isinstance(cached_pem, bytes) else cached_pem
-        self.assertEqual(cached_pem_str, self.mock_github_response["public_keys"][0]["key"])
+        assert cached_pem_str == self.mock_github_response["public_keys"][0]["key"]
 
         # Verify GitHub API was called once
         mock_get.assert_called_once_with("https://api.github.com/meta/public_keys/secret_scanning", timeout=10)
@@ -120,17 +120,17 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         cached_pem1 = self.redis_client.get(f"github:public_key:{kid1}")
         cached_pem2 = self.redis_client.get(f"github:public_key:{kid2}")
 
-        self.assertIsNotNone(cached_pem1)
-        self.assertIsNotNone(cached_pem2)
+        assert cached_pem1 is not None
+        assert cached_pem2 is not None
         # Decode bytes from Redis
         cached_pem1_str = cached_pem1.decode("utf-8") if isinstance(cached_pem1, bytes) else cached_pem1
         cached_pem2_str = cached_pem2.decode("utf-8") if isinstance(cached_pem2, bytes) else cached_pem2
-        self.assertNotEqual(cached_pem1_str, cached_pem2_str)
-        self.assertEqual(cached_pem1_str, self.mock_github_response["public_keys"][0]["key"])
-        self.assertEqual(cached_pem2_str, self.mock_github_response["public_keys"][1]["key"])
+        assert cached_pem1_str != cached_pem2_str
+        assert cached_pem1_str == self.mock_github_response["public_keys"][0]["key"]
+        assert cached_pem2_str == self.mock_github_response["public_keys"][1]["key"]
 
         # GitHub API should be called twice (once for each kid)
-        self.assertEqual(mock_get.call_count, 2)
+        assert mock_get.call_count == 2
 
     @patch("posthog.api.github.requests.get")
     def test_handles_github_api_failure(self, mock_get):
@@ -142,10 +142,10 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         with self.assertRaises(SignatureVerificationError) as ctx:
             verify_github_signature("test_payload", kid, "invalid_sig")
 
-        self.assertEqual(str(ctx.exception), "Failed to fetch GitHub public keys")
+        assert str(ctx.exception) == "Failed to fetch GitHub public keys"
 
         # Verify nothing was cached
-        self.assertIsNone(self.redis_client.get(f"github:public_key:{kid}"))
+        assert self.redis_client.get(f"github:public_key:{kid}") is None
 
     @patch("posthog.api.github.requests.get")
     def test_handles_missing_kid_in_response(self, mock_get):
@@ -159,10 +159,10 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         with self.assertRaises(SignatureVerificationError) as ctx:
             verify_github_signature("test_payload", kid, "invalid_sig")
 
-        self.assertEqual(str(ctx.exception), "No public key found matching key identifier")
+        assert str(ctx.exception) == "No public key found matching key identifier"
 
         # Verify nothing was cached for non-existent kid
-        self.assertIsNone(self.redis_client.get(f"github:public_key:{kid}"))
+        assert self.redis_client.get(f"github:public_key:{kid}") is None
 
     @patch("posthog.api.github.requests.get")
     def test_handles_malformed_public_key(self, mock_get):
@@ -183,10 +183,10 @@ UApLOdYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         with self.assertRaises(SignatureVerificationError) as ctx:
             verify_github_signature("test_payload", kid, "invalid_sig")
 
-        self.assertEqual(str(ctx.exception), "Malformed public key entry")
+        assert str(ctx.exception) == "Malformed public key entry"
 
         # Verify nothing was cached for malformed key
-        self.assertIsNone(self.redis_client.get(f"github:public_key:{kid}"))
+        assert self.redis_client.get(f"github:public_key:{kid}") is None
 
 
 class TestSecretAlertEndpoint(APIBaseTest):
@@ -232,16 +232,16 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_signature"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify response structure
         data = response.json()
-        self.assertIsInstance(data, list)
-        self.assertEqual(len(data), 1)
-        self.assertIn("token_hash", data[0])
-        self.assertIn("token_type", data[0])
-        self.assertIn("label", data[0])
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert "token_hash" in data[0]
+        assert "token_type" in data[0]
+        assert "label" in data[0]
+        assert data[0]["token_type"] == GITHUB_TYPE_FOR_SECURE_API_KEY
 
     def test_secret_alert_missing_headers(self):
         """Test that missing headers are rejected."""
@@ -249,10 +249,10 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github", data=json.dumps(self.valid_payload), content_type="application/json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         data = response.json()
         # Check that the error is about missing headers
-        self.assertIn("Github-Public-Key-Identifier", str(data))
+        assert "Github-Public-Key-Identifier" in str(data)
 
     @patch("posthog.api.github.verify_github_signature")
     def test_secret_alert_invalid_signature(self, mock_verify):
@@ -266,7 +266,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "invalid_signature"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.github.requests.get")
     def test_request_body_accessible_for_signature_verification(self, mock_get):
@@ -286,9 +286,9 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         )
 
         # Should get 401 for invalid signature, not 500 for RawPostDataException
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
         # Verify the response is about signature, not about body access
-        self.assertEqual(response.json(), {"detail": "Invalid signature"})
+        assert response.json() == {"detail": "Invalid signature"}
 
     def test_accepts_json_content_type(self):
         """Test that the endpoint accepts application/json content type (not 415 error)."""
@@ -300,10 +300,10 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         )
 
         # Should get 400 for missing headers, not 415 for unsupported content type
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST])
+        assert response.status_code in [status.HTTP_400_BAD_REQUEST]
         # Verify it's complaining about headers, not content type
         data = response.json()
-        self.assertIn("Github-Public-Key-Identifier", str(data))
+        assert "Github-Public-Key-Identifier" in str(data)
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_personal_api_key_exposed")
@@ -339,22 +339,22 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PERSONAL_API_KEY)
+        assert len(data) == 1
+        assert data[0]["label"] == "true_positive"
+        assert data[0]["token_type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY
 
         # Verify key was rolled (secure_value changed)
         key.refresh_from_db()
-        self.assertNotEqual(key.secure_value, original_secure_value)
-        self.assertIsNotNone(key.last_rolled_at)
+        assert key.secure_value != original_secure_value
+        assert key.last_rolled_at is not None
 
         # Verify email was sent
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
-        self.assertEqual(call_args[0][0], self.user.id)
-        self.assertEqual(call_args[0][1], key.id)
+        assert call_args[0][0] == self.user.id
+        assert call_args[0][1] == key.id
 
     @patch("posthog.api.github.verify_github_signature")
     def test_secret_alert_returns_false_positive_for_unknown_key(self, mock_verify):
@@ -378,10 +378,10 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert len(data) == 1
+        assert data[0]["label"] == "false_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_personal_api_key_exposed")
@@ -417,14 +417,14 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert len(data) == 1
+        assert data[0]["label"] == "true_positive"
 
         # Verify key was rolled
         key.refresh_from_db()
-        self.assertIsNotNone(key.last_rolled_at)
+        assert key.last_rolled_at is not None
 
     @patch("posthog.api.github.verify_github_signature")
     def test_secret_alert_does_not_find_key_for_inactive_user(self, mock_verify):
@@ -461,11 +461,11 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
+        assert len(data) == 1
         # Key should NOT be found because user is inactive
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert data[0]["label"] == "false_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_project_secret_api_key_exposed")
@@ -495,18 +495,18 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_SECURE_API_KEY)
+        assert len(data) == 1
+        assert data[0]["label"] == "true_positive"
+        assert data[0]["token_type"] == GITHUB_TYPE_FOR_SECURE_API_KEY
 
         # Verify email task was called
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
-        self.assertEqual(call_args[0][0], self.team.id)
-        self.assertEqual(call_args[0][1], mask_key_value(token))
-        self.assertIn("https://github.com/test/repo/blob/main/config.py", call_args[0][2])
+        assert call_args[0][0] == self.team.id
+        assert call_args[0][1] == mask_key_value(token)
+        assert "https://github.com/test/repo/blob/main/config.py" in call_args[0][2]
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_project_secret_api_key_exposed")
@@ -537,10 +537,10 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert len(data) == 1
+        assert data[0]["label"] == "true_positive"
 
         # Verify email task was called
         mock_send_email.assert_called_once()
@@ -551,7 +551,7 @@ class TestRelayToEu(TestCase):
         """Verify no call when GITHUB_SECRET_ALERT_RELAY_URL is None."""
         with override_settings(GITHUB_SECRET_ALERT_RELAY_URL=None):
             result = relay_to_eu('{"test": "data"}', "kid", "sig")
-            self.assertIsNone(result)
+            assert result is None
 
     @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
     @patch("posthog.api.github.requests.post")
@@ -564,7 +564,7 @@ class TestRelayToEu(TestCase):
 
         result = relay_to_eu('{"test": "data"}', "kid123", "sig456")
 
-        self.assertEqual(result, expected)
+        assert result == expected
         mock_post.assert_called_once_with(
             "https://eu.posthog.com/api/github/secret_alert/",
             data='{"test": "data"}',
@@ -584,7 +584,7 @@ class TestRelayToEu(TestCase):
 
         result = relay_to_eu('{"test": "data"}', "kid", "sig")
 
-        self.assertIsNone(result)
+        assert result is None
 
     @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
     @patch("posthog.api.github.get_instance_region")
@@ -594,7 +594,7 @@ class TestRelayToEu(TestCase):
 
         result = relay_to_eu('{"test": "data"}', "kid", "sig")
 
-        self.assertIsNone(result)
+        assert result is None
 
 
 class TestSecretAlertRelayIntegration(APIBaseTest):
@@ -624,9 +624,9 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert data[0]["label"] == "true_positive"
         mock_relay.assert_not_called()
 
     @patch("posthog.api.github.verify_github_signature")
@@ -653,13 +653,13 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert data[0]["label"] == "false_positive"
         mock_relay.assert_called_once()
         call_args = mock_relay.call_args
-        self.assertEqual(call_args[0][1], "test_kid")
-        self.assertEqual(call_args[0][2], "test_sig")
+        assert call_args[0][1] == "test_kid"
+        assert call_args[0][2] == "test_sig"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.relay_to_eu")
@@ -690,9 +690,9 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert data[0]["label"] == "true_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.relay_to_eu")
@@ -719,9 +719,9 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert data[0]["label"] == "false_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.relay_to_eu")
@@ -748,9 +748,9 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert data[0]["label"] == "false_positive"
         mock_relay.assert_called_once()
         # Even though relay was called, it should return None due to empty setting
 
@@ -789,10 +789,10 @@ class TestSecretAlertRegionTracking(APIBaseTest):
 
         # Find the github_secret_alert capture call
         alert_calls = [call for call in mock_capture.call_args_list if call[1].get("event") == "github_secret_alert"]
-        self.assertEqual(len(alert_calls), 1)
+        assert len(alert_calls) == 1
         props = alert_calls[0][1]["properties"]
-        self.assertEqual(props["key_found_region"], "US")
-        self.assertTrue(props["found"])
+        assert props["key_found_region"] == "US"
+        assert props["found"]
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.relay_to_eu")
@@ -828,10 +828,10 @@ class TestSecretAlertRegionTracking(APIBaseTest):
 
         # Find the github_secret_alert capture call
         alert_calls = [call for call in mock_capture.call_args_list if call[1].get("event") == "github_secret_alert"]
-        self.assertEqual(len(alert_calls), 1)
+        assert len(alert_calls) == 1
         props = alert_calls[0][1]["properties"]
-        self.assertEqual(props["key_found_region"], "EU")
-        self.assertTrue(props["found"])
+        assert props["key_found_region"] == "EU"
+        assert props["found"]
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.relay_to_eu")
@@ -861,10 +861,10 @@ class TestSecretAlertRegionTracking(APIBaseTest):
 
         # Find the github_secret_alert capture call
         alert_calls = [call for call in mock_capture.call_args_list if call[1].get("event") == "github_secret_alert"]
-        self.assertEqual(len(alert_calls), 1)
+        assert len(alert_calls) == 1
         props = alert_calls[0][1]["properties"]
-        self.assertNotIn("key_found_region", props)
-        self.assertFalse(props["found"])
+        assert "key_found_region" not in props
+        assert not props["found"]
 
 
 class TestOAuthTokenSecretAlert(APIBaseTest):
@@ -922,18 +922,18 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN)
+        assert len(data) == 1
+        assert data[0]["label"] == "true_positive"
+        assert data[0]["token_type"] == GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN
 
-        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        assert not OAuthAccessToken.objects.filter(id=access_token_id).exists()
 
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
-        self.assertEqual(call_args[0][0], self.user.id)
-        self.assertEqual(call_args[0][1], "access")
+        assert call_args[0][0] == self.user.id
+        assert call_args[0][1] == "access"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")
@@ -964,19 +964,19 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN)
+        assert len(data) == 1
+        assert data[0]["label"] == "true_positive"
+        assert data[0]["token_type"] == GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN
 
         refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        assert refresh_token.revoked is not None
 
         mock_send_email.assert_called_once()
         call_args = mock_send_email.call_args
-        self.assertEqual(call_args[0][0], self.user.id)
-        self.assertEqual(call_args[0][1], "refresh")
+        assert call_args[0][0] == self.user.id
+        assert call_args[0][1] == "refresh"
 
     @patch("posthog.api.github.verify_github_signature")
     def test_unknown_oauth_access_token_returns_false_positive(self, mock_verify):
@@ -998,10 +998,10 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert len(data) == 1
+        assert data[0]["label"] == "false_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     def test_unknown_oauth_refresh_token_returns_false_positive(self, mock_verify):
@@ -1023,10 +1023,10 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert len(data) == 1
+        assert data[0]["label"] == "false_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")
@@ -1079,16 +1079,16 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert data[0]["label"] == "true_positive"
 
-        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        assert not OAuthAccessToken.objects.filter(id=access_token_id).exists()
 
         refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        assert refresh_token.revoked is not None
 
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        assert not OAuthGrant.objects.filter(id=grant_id).exists()
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")
@@ -1141,16 +1141,16 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert data[0]["label"] == "true_positive"
 
         refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        assert refresh_token.revoked is not None
 
-        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        assert not OAuthAccessToken.objects.filter(id=access_token_id).exists()
 
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        assert not OAuthGrant.objects.filter(id=grant_id).exists()
 
     @patch("posthog.api.github.verify_github_signature")
     def test_revoked_oauth_refresh_token_returns_false_positive(self, mock_verify):
@@ -1181,10 +1181,10 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["label"], "false_positive")
+        assert len(data) == 1
+        assert data[0]["label"] == "false_positive"
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")
@@ -1243,19 +1243,19 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert data[0]["label"] == "true_positive"
 
         # Access token should be deleted
-        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        assert not OAuthAccessToken.objects.filter(id=access_token_id).exists()
 
         # Refresh token should be revoked
         refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        assert refresh_token.revoked is not None
 
         # Grant should be deleted
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        assert not OAuthGrant.objects.filter(id=grant_id).exists()
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_oauth_token_exposed")
@@ -1314,16 +1314,16 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
             headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[0]["label"], "true_positive")
+        assert data[0]["label"] == "true_positive"
 
         # Access token should be deleted
-        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        assert not OAuthAccessToken.objects.filter(id=access_token_id).exists()
 
         # Refresh token should be revoked
         refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        assert refresh_token.revoked is not None
 
         # Grant should be deleted
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        assert not OAuthGrant.objects.filter(id=grant_id).exists()

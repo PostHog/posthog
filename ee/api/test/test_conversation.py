@@ -118,22 +118,22 @@ class TestConversation(APIBaseTest):
                     f"/api/environments/{self.team.id}/conversations/",
                     {"content": "test query", "trace_id": trace_id, "conversation": conversation_id},
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
-                self.assertEqual(Conversation.objects.count(), 1)
+                assert response.status_code == status.HTTP_200_OK
+                assert self._get_streaming_content(response) == _generator_serialized_value
+                assert Conversation.objects.count() == 1
                 conversation = Conversation.objects.first()
                 assert conversation is not None
-                self.assertEqual(conversation.user, self.user)
-                self.assertEqual(conversation.team, self.team)
+                assert conversation.user == self.user
+                assert conversation.team == self.team
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
-                self.assertEqual(workflow_inputs.user_id, self.user.id)
-                self.assertEqual(workflow_inputs.is_new_conversation, True)
-                self.assertEqual(workflow_inputs.conversation_id, conversation.id)
-                self.assertEqual(str(workflow_inputs.trace_id), trace_id)
-                self.assertEqual(workflow_inputs.message["content"], "test query")
+                assert workflow_inputs.user_id == self.user.id
+                assert workflow_inputs.is_new_conversation
+                assert workflow_inputs.conversation_id == conversation.id
+                assert str(workflow_inputs.trace_id) == trace_id
+                assert workflow_inputs.message["content"] == "test query"
 
     def test_add_message_to_existing_conversation(self):
         with patch(
@@ -151,18 +151,18 @@ class TestConversation(APIBaseTest):
                         "trace_id": trace_id,
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
-                self.assertEqual(Conversation.objects.count(), 1)
+                assert response.status_code == status.HTTP_200_OK
+                assert self._get_streaming_content(response) == _generator_serialized_value
+                assert Conversation.objects.count() == 1
                 # Check that the method was called with workflow_inputs
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
-                self.assertEqual(workflow_inputs.user_id, self.user.id)
-                self.assertEqual(workflow_inputs.is_new_conversation, False)
-                self.assertEqual(workflow_inputs.conversation_id, conversation.id)
-                self.assertEqual(str(workflow_inputs.trace_id), trace_id)
-                self.assertEqual(workflow_inputs.message["content"], "test query")
+                assert workflow_inputs.user_id == self.user.id
+                assert not workflow_inputs.is_new_conversation
+                assert workflow_inputs.conversation_id == conversation.id
+                assert str(workflow_inputs.trace_id) == trace_id
+                assert workflow_inputs.message["content"] == "test query"
 
     def test_create_conversation_with_agent_mode(self):
         conversation_id = str(uuid.uuid4())
@@ -183,9 +183,9 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 workflow_inputs = mock_start_workflow_and_stream.call_args[0][1]
-                self.assertEqual(workflow_inputs.agent_mode, AgentMode.SQL)
+                assert workflow_inputs.agent_mode == AgentMode.SQL
 
     def test_cant_start_other_users_conversation(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
@@ -196,7 +196,7 @@ class TestConversation(APIBaseTest):
             {"conversation": conversation.id, "content": None, "trace_id": str(uuid.uuid4())},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cannot_cancel_other_users_conversation(self):
         """Test that cancel action cannot use other user's conversation ID"""
@@ -208,7 +208,7 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cant_access_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
@@ -217,11 +217,11 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/",
             {"conversation": conversation.id, "content": None, "trace_id": str(uuid.uuid4())},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_invalid_message_format(self):
         response = self.client.post("/api/environments/@current/conversations/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_rate_limit_burst(self):
         # Create multiple requests to trigger burst rate limit
@@ -235,22 +235,22 @@ class TestConversation(APIBaseTest):
                         f"/api/environments/{self.team.id}/conversations/",
                         {"content": "test query", "trace_id": str(uuid.uuid4())},
                     )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_empty_content(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
             {"content": "", "trace_id": str(uuid.uuid4())},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_content_too_long(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
             {"content": "x" * 50000, "trace_id": str(uuid.uuid4())},  # Very long message
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("detail", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "detail" in response.json()
 
     def test_none_content_with_existing_conversation(self):
         """Test that when content is None with an existing conversation, the API handles it correctly."""
@@ -267,8 +267,8 @@ class TestConversation(APIBaseTest):
                     f"/api/environments/{self.team.id}/conversations/",
                     {"content": None, "trace_id": trace_id, "conversation": str(conversation.id)},
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
+                assert response.status_code == status.HTTP_200_OK
+                assert self._get_streaming_content(response) == _generator_serialized_value
                 # For IN_PROGRESS conversations with no content, stream_conversation should be called
                 mock_stream_conversation.assert_called_once()
 
@@ -281,7 +281,7 @@ class TestConversation(APIBaseTest):
                 "trace_id": str(uuid.uuid4()),
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_missing_trace_id(self):
         response = self.client.post(
@@ -290,7 +290,7 @@ class TestConversation(APIBaseTest):
                 "content": "test query",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_nonexistent_conversation(self):
         with patch(
@@ -306,7 +306,7 @@ class TestConversation(APIBaseTest):
                         "trace_id": str(uuid.uuid4()),
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
 
     def test_nonexistent_conversation_with_no_content(self):
         response = self.client.post(
@@ -317,7 +317,7 @@ class TestConversation(APIBaseTest):
                 "trace_id": str(uuid.uuid4()),
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_unauthenticated_request(self):
         self.client.logout()
@@ -325,7 +325,7 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/",
             {"content": "test query", "trace_id": str(uuid.uuid4())},
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation(self, mock_cancel):
@@ -340,7 +340,7 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_cancel_already_canceling_conversation(self):
         conversation = Conversation.objects.create(
@@ -354,7 +354,7 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
         # should be idempotent
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_cannot_cancel_other_users_conversation_in_same_project(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
@@ -362,14 +362,14 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
         # This should fail because cancel action also filters by user
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cancel_other_teams_conversation(self):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_with_async_cleanup(self, mock_cancel):
@@ -389,7 +389,7 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_async_cleanup_failure(self, mock_cancel):
@@ -412,7 +412,7 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_idle_conversation_still_cleans_up(self, mock_cancel):
@@ -431,7 +431,7 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_cancel.assert_called_once()
 
     def test_cancel_nonexistent_conversation(self):
@@ -440,7 +440,7 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{fake_uuid}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_cancel_unauthenticated_request(self):
         """Test that unauthenticated users cannot cancel conversations."""
@@ -452,7 +452,7 @@ class TestConversation(APIBaseTest):
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_stream_from_in_progress_conversation(self):
         """Test streaming from an in-progress conversation without providing new content."""
@@ -472,8 +472,8 @@ class TestConversation(APIBaseTest):
                         "trace_id": str(uuid.uuid4()),
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
+                assert response.status_code == status.HTTP_200_OK
+                assert self._get_streaming_content(response) == _generator_serialized_value
                 mock_stream_conversation.assert_called_once()
 
     def test_cannot_resume_idle_conversation_without_message(self):
@@ -487,9 +487,9 @@ class TestConversation(APIBaseTest):
                 "trace_id": str(uuid.uuid4()),
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        self.assertEqual(response_data["detail"], "Cannot continue streaming from an idle conversation")
+        assert response_data["detail"] == "Cannot continue streaming from an idle conversation"
 
     def test_stream_from_nonexistent_conversation_without_content(self):
         """Test that streaming from a non-existent conversation without content returns an error."""
@@ -504,10 +504,10 @@ class TestConversation(APIBaseTest):
         )
         # Due to async generator issues, this might return 200 with a broken stream or 400
         # Both indicate that the conversation doesn't exist
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_200_OK])
+        assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_200_OK]
         if response.status_code == status.HTTP_400_BAD_REQUEST:
             response_data = response.json()
-            self.assertIn("Cannot stream from non-existent conversation", response_data["error"])
+            assert "Cannot stream from non-existent conversation" in response_data["error"]
 
     def test_list_only_returns_assistant_conversations_with_title(self):
         # Create different types of conversations
@@ -519,15 +519,15 @@ class TestConversation(APIBaseTest):
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             # Only one conversation should be returned (the one with title and type ASSISTANT)
             results = response.json()["results"]
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["id"], str(conversation1.id))
-            self.assertEqual(results[0]["title"], "Conversation 1")
-            self.assertIn("status", results[0])
-            self.assertNotIn("messages", results[0])
+            assert len(results) == 1
+            assert results[0]["id"] == str(conversation1.id)
+            assert results[0]["title"] == "Conversation 1"
+            assert "status" in results[0]
+            assert "messages" not in results[0]
             mock_get_state.assert_not_awaited()
 
     def test_list_conversations_only_returns_own_conversations(self):
@@ -542,12 +542,12 @@ class TestConversation(APIBaseTest):
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             results = response.json()["results"]
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]["id"], str(own_conversation.id))
-            self.assertEqual(results[0]["title"], "My conversation")
+            assert len(results) == 1
+            assert results[0]["id"] == str(own_conversation.id)
+            assert results[0]["title"] == "My conversation"
 
     def test_retrieve_own_conversation_succeeds(self):
         """Test that user can retrieve their own conversation"""
@@ -557,14 +557,14 @@ class TestConversation(APIBaseTest):
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             data = response.json()
-            self.assertEqual(data["id"], str(conversation.id))
-            self.assertIn("messages", data)
-            self.assertIn("has_unsupported_content", data)
-            self.assertIn("agent_mode", data)
-            self.assertIn("is_sandbox", data)
-            self.assertIn("pending_approvals", data)
+            assert data["id"] == str(conversation.id)
+            assert "messages" in data
+            assert "has_unsupported_content" in data
+            assert "agent_mode" in data
+            assert "is_sandbox" in data
+            assert "pending_approvals" in data
 
     def test_retrieve_other_users_conversation_succeeds(self):
         """Test that user can retrieve another user's conversation in the same team"""
@@ -574,8 +574,8 @@ class TestConversation(APIBaseTest):
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["id"] == str(conversation.id)
 
     def test_retrieve_other_teams_conversation_fails(self):
         """Test that user cannot retrieve conversation from another team"""
@@ -585,7 +585,7 @@ class TestConversation(APIBaseTest):
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_conversations_ordered_by_updated_at_descending(self):
         """Test that conversations are ordered by updated_at in descending order"""
@@ -605,18 +605,18 @@ class TestConversation(APIBaseTest):
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             results = response.json()["results"]
-            self.assertEqual(len(results), 2)
+            assert len(results) == 2
 
             # First result should be the newer conversation (most recent first)
-            self.assertEqual(results[0]["id"], str(conversation2.id))
-            self.assertEqual(results[0]["title"], "Newer conversation")
+            assert results[0]["id"] == str(conversation2.id)
+            assert results[0]["title"] == "Newer conversation"
 
             # Second result should be the older conversation
-            self.assertEqual(results[1]["id"], str(conversation1.id))
-            self.assertEqual(results[1]["title"], "Older conversation")
+            assert results[1]["id"] == str(conversation1.id)
+            assert results[1]["title"] == "Older conversation"
 
     @override_settings(DEBUG=False)
     def test_get_throttles_returns_empty_for_create_action(self):
@@ -628,7 +628,7 @@ class TestConversation(APIBaseTest):
         viewset.organization = self.organization
         throttles = viewset.get_throttles()
         # For create action, throttles are handled in check_throttles() for conditional logic
-        self.assertEqual(throttles, [])
+        assert throttles == []
 
     @override_settings(DEBUG=True)
     def test_get_throttles_returns_empty_for_create_action_in_debug_mode(self):
@@ -640,7 +640,7 @@ class TestConversation(APIBaseTest):
         viewset.organization = self.organization
         throttles = viewset.get_throttles()
         # For create action, throttles are handled in check_throttles()
-        self.assertEqual(throttles, [])
+        assert throttles == []
 
     @override_settings(DEBUG=False)
     def test_research_rate_limit_burst(self):
@@ -661,7 +661,7 @@ class TestConversation(APIBaseTest):
                             "agent_mode": AgentMode.RESEARCH.value,
                         },
                     )
-                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+                    assert response.status_code == status.HTTP_200_OK, f"Request {i} should succeed"
 
                 # 4th request should be rate limited
                 response = self.client.post(
@@ -673,11 +673,11 @@ class TestConversation(APIBaseTest):
                         "agent_mode": AgentMode.RESEARCH.value,
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
                 # Check that the response contains the research-specific message
                 response_data = response.json()
-                self.assertIn("Research mode", response_data["detail"])
-                self.assertIn("beta", response_data["detail"])
+                assert "Research mode" in response_data["detail"]
+                assert "beta" in response_data["detail"]
 
     @override_settings(DEBUG=False)
     def test_research_rate_limit_applies_to_new_research_conversations(self):
@@ -698,7 +698,7 @@ class TestConversation(APIBaseTest):
                             "agent_mode": AgentMode.RESEARCH.value,
                         },
                     )
-                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+                    assert response.status_code == status.HTTP_200_OK, f"Request {i} should succeed"
 
                 # 4th request should be rate limited
                 response = self.client.post(
@@ -710,9 +710,9 @@ class TestConversation(APIBaseTest):
                         "agent_mode": AgentMode.RESEARCH.value,
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
                 response_data = response.json()
-                self.assertIn("Research mode", response_data["detail"])
+                assert "Research mode" in response_data["detail"]
 
     @override_settings(DEBUG=False)
     @patch("posthog.utils.get_instance_region", return_value="US")
@@ -740,7 +740,7 @@ class TestConversation(APIBaseTest):
                                 "agent_mode": AgentMode.RESEARCH.value,
                             },
                         )
-                        self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+                        assert response.status_code == status.HTTP_200_OK, f"Request {i} should succeed"
 
     @override_settings(DEBUG=False)
     def test_normal_ai_has_standard_rate_limits(self):
@@ -761,7 +761,7 @@ class TestConversation(APIBaseTest):
                             # No agent_mode or agent_mode != RESEARCH
                         },
                     )
-                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+                    assert response.status_code == status.HTTP_200_OK, f"Request {i} should succeed"
 
                 # 11th request should be rate limited
                 response = self.client.post(
@@ -772,10 +772,10 @@ class TestConversation(APIBaseTest):
                         "conversation": str(uuid.uuid4()),
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
                 # Check that the response does NOT contain research-specific message
                 response_data = response.json()
-                self.assertNotIn("Research mode", response_data["detail"])
+                assert "Research mode" not in response_data["detail"]
 
     def test_billing_context_validation_valid_data(self):
         """Test that valid billing context data is accepted."""
@@ -796,10 +796,10 @@ class TestConversation(APIBaseTest):
                         "billing_context": self.billing_context.model_dump(),
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
-                self.assertEqual(workflow_inputs.billing_context, self.billing_context)
+                assert workflow_inputs.billing_context == self.billing_context
 
     def test_billing_context_validation_invalid_data(self):
         """Test that invalid billing context data is rejected."""
@@ -820,10 +820,10 @@ class TestConversation(APIBaseTest):
                         "billing_context": {"invalid_key": "invalid_value"},
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 call_args = mock_start_workflow_and_stream.call_args
                 workflow_inputs = call_args[0][1]
-                self.assertEqual(workflow_inputs.billing_context, None)
+                assert workflow_inputs.billing_context is None
 
     @patch("ee.api.conversation.is_team_limited")
     def test_quota_limit_exceeded(self, mock_is_team_limited):
@@ -839,10 +839,10 @@ class TestConversation(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(
-            response.json()["detail"],
-            "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so.",
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert (
+            response.json()["detail"]
+            == "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
         )
         mock_is_team_limited.assert_called_once()
 
@@ -865,7 +865,7 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 mock_is_team_limited.assert_called_once()
 
     def test_create_conversation_with_research_agent_mode(self):
@@ -889,26 +889,26 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 mock_start_workflow_and_stream.assert_called_once()
                 call_args = mock_start_workflow_and_stream.call_args
 
                 # Verify workflow class is ResearchAgentWorkflow
                 workflow_class = call_args[0][0]
-                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+                assert workflow_class == ResearchAgentWorkflow
 
                 # Verify workflow_inputs is ResearchAgentWorkflowInputs
                 workflow_inputs = call_args[0][1]
-                self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
+                assert isinstance(workflow_inputs, ResearchAgentWorkflowInputs)
 
                 # Verify is_agent_billable=False for research mode
-                self.assertEqual(workflow_inputs.is_agent_billable, False)
+                assert not workflow_inputs.is_agent_billable
                 # Verify is_impersonated is False (not an impersonated session)
-                self.assertEqual(workflow_inputs.is_impersonated, False)
+                assert not workflow_inputs.is_impersonated
 
                 # Verify agent_mode and contextual_tools are NOT passed in research mode
-                self.assertFalse(hasattr(workflow_inputs, "agent_mode"))
-                self.assertFalse(hasattr(workflow_inputs, "contextual_tools"))
+                assert not hasattr(workflow_inputs, "agent_mode")
+                assert not hasattr(workflow_inputs, "contextual_tools")
 
     def test_research_mode_billing_is_always_false(self):
         """Test that research mode is always non-billable, even when not impersonated."""
@@ -929,11 +929,11 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 workflow_inputs = mock_start_workflow_and_stream.call_args[0][1]
-                self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
+                assert isinstance(workflow_inputs, ResearchAgentWorkflowInputs)
                 # Even without impersonation, research mode is non-billable
-                self.assertEqual(workflow_inputs.is_agent_billable, False)
+                assert not workflow_inputs.is_agent_billable
 
     def test_deep_research_converts_to_assistant_on_followup_message(self):
         """Test that an idle DEEP_RESEARCH conversation converts to ASSISTANT when user sends a follow-up."""
@@ -958,17 +958,17 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
 
                 conversation.refresh_from_db()
-                self.assertEqual(conversation.type, Conversation.Type.ASSISTANT)
+                assert conversation.type == Conversation.Type.ASSISTANT
 
                 call_args = mock_astream.call_args
                 workflow_class = call_args[0][0]
-                self.assertEqual(workflow_class, ChatAgentWorkflow)
+                assert workflow_class == ChatAgentWorkflow
 
                 workflow_inputs = call_args[0][1]
-                self.assertIsInstance(workflow_inputs, ChatAgentWorkflowInputs)
+                assert isinstance(workflow_inputs, ChatAgentWorkflowInputs)
 
     def test_deep_research_stays_research_when_not_idle(self):
         """Test that an in-progress DEEP_RESEARCH conversation stays as research."""
@@ -993,13 +993,13 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
 
                 conversation.refresh_from_db()
-                self.assertEqual(conversation.type, Conversation.Type.DEEP_RESEARCH)
+                assert conversation.type == Conversation.Type.DEEP_RESEARCH
 
                 workflow_class = mock_astream.call_args[0][0]
-                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+                assert workflow_class == ResearchAgentWorkflow
 
     def test_deep_research_stays_research_when_resume_payload_present(self):
         """Test that an idle DEEP_RESEARCH conversation stays as research when resume_payload is present (auto-rejecting approval)."""
@@ -1025,13 +1025,13 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
 
                 conversation.refresh_from_db()
-                self.assertEqual(conversation.type, Conversation.Type.DEEP_RESEARCH)
+                assert conversation.type == Conversation.Type.DEEP_RESEARCH
 
                 workflow_class = mock_astream.call_args[0][0]
-                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+                assert workflow_class == ResearchAgentWorkflow
 
     @override_settings(DEBUG=False)
     def test_converted_conversation_rate_limits_as_regular(self):
@@ -1059,13 +1059,13 @@ class TestConversation(APIBaseTest):
                 )
 
                 conversation.refresh_from_db()
-                self.assertEqual(conversation.type, Conversation.Type.ASSISTANT)
+                assert conversation.type == Conversation.Type.ASSISTANT
 
                 # Subsequent messages should not be rate-limited as research
                 viewset = ConversationViewSet()
                 viewset.team = self.team
                 mock_request = type("Request", (), {"data": {"conversation": str(conversation.id)}})()
-                self.assertFalse(viewset._is_research_request(mock_request))
+                assert not viewset._is_research_request(mock_request)
 
     def test_chat_mode_uses_chat_agent_workflow(self):
         """Test that non-research modes use ChatAgentWorkflow."""
@@ -1087,19 +1087,19 @@ class TestConversation(APIBaseTest):
                     },
                 )
 
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 call_args = mock_start_workflow_and_stream.call_args
 
                 # Verify workflow class is ChatAgentWorkflow
                 workflow_class = call_args[0][0]
-                self.assertEqual(workflow_class, ChatAgentWorkflow)
+                assert workflow_class == ChatAgentWorkflow
 
                 # Verify workflow_inputs is ChatAgentWorkflowInputs
                 workflow_inputs = call_args[0][1]
-                self.assertIsInstance(workflow_inputs, ChatAgentWorkflowInputs)
+                assert isinstance(workflow_inputs, ChatAgentWorkflowInputs)
 
                 # Verify agent_mode is passed for chat mode
-                self.assertEqual(workflow_inputs.agent_mode, AgentMode.SQL)
+                assert workflow_inputs.agent_mode == AgentMode.SQL
 
     def _make_spend_history(self, count: int) -> list[dict]:
         return [
@@ -1129,9 +1129,9 @@ class TestConversation(APIBaseTest):
                         "billing_context": billing_data,
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 workflow_inputs = mock_astream.call_args[0][1]
-                self.assertIsNone(workflow_inputs.billing_context.spend_history)
+                assert workflow_inputs.billing_context.spend_history is None
 
     def test_billing_context_keeps_small_spend_history(self):
         with patch(
@@ -1150,10 +1150,10 @@ class TestConversation(APIBaseTest):
                         "billing_context": billing_data,
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 workflow_inputs = mock_astream.call_args[0][1]
-                self.assertIsNotNone(workflow_inputs.billing_context.spend_history)
-                self.assertEqual(len(workflow_inputs.billing_context.spend_history), 20)
+                assert workflow_inputs.billing_context.spend_history is not None
+                assert len(workflow_inputs.billing_context.spend_history) == 20
 
 
 class TestConversationSoftDelete(APIBaseTest):
@@ -1176,12 +1176,12 @@ class TestConversationSoftDelete(APIBaseTest):
         )
         after = timezone.now()
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         refreshed = Conversation.objects.get(pk=conversation.pk)
-        self.assertTrue(refreshed.deleted)
+        assert refreshed.deleted
         assert refreshed.deleted_at is not None
-        self.assertGreaterEqual(refreshed.deleted_at, before)
-        self.assertLessEqual(refreshed.deleted_at, after)
+        assert refreshed.deleted_at >= before
+        assert refreshed.deleted_at <= after
 
     def test_delete_other_users_conversation_returns_404(self):
         other_user = User.objects.create_and_join(
@@ -1196,9 +1196,9 @@ class TestConversationSoftDelete(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         refreshed = Conversation.objects.get(pk=conversation.pk)
-        self.assertFalse(refreshed.deleted)
+        assert not refreshed.deleted
 
     def test_delete_already_deleted_returns_404(self):
         conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
@@ -1207,7 +1207,7 @@ class TestConversationSoftDelete(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_excludes_soft_deleted(self):
         kept = self._make_conversation(title="kept")
@@ -1216,9 +1216,9 @@ class TestConversationSoftDelete(APIBaseTest):
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [c["id"] for c in response.json()["results"]]
-        self.assertEqual(ids, [str(kept.id)])
+        assert ids == [str(kept.id)]
 
     def test_retrieve_soft_deleted_returns_404(self):
         conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
@@ -1228,7 +1228,7 @@ class TestConversationSoftDelete(APIBaseTest):
                 f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_with_deleted_id_does_not_resurrect(self):
         conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
@@ -1242,7 +1242,7 @@ class TestConversationSoftDelete(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         still_deleted = Conversation.objects.get(pk=conversation.pk)
-        self.assertTrue(still_deleted.deleted)
-        self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)
+        assert still_deleted.deleted
+        assert Conversation.objects.filter(pk=conversation.pk).count() == 1

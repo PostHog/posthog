@@ -9,11 +9,11 @@ from posthog.caching.query_cache_routing import QUERY_CACHE_ALIAS, get_query_cac
 class TestQueryCacheRouting(BaseTest):
     def test_returns_default_cache_when_no_cluster_configured(self):
         result = get_query_cache()
-        self.assertIs(result, cache)
+        assert result is cache
 
     @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
     def test_returns_default_cache_when_alias_not_in_caches(self):
-        self.assertFalse(use_cluster_cache())
+        assert not use_cluster_cache()
 
     @override_settings(
         CACHES={
@@ -22,5 +22,5 @@ class TestQueryCacheRouting(BaseTest):
         }
     )
     def test_routes_to_cluster_cache_when_alias_configured(self):
-        self.assertTrue(use_cluster_cache())
-        self.assertIsNot(get_query_cache(), cache)
+        assert use_cluster_cache()
+        assert get_query_cache() is not cache

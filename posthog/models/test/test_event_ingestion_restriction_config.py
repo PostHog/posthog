@@ -27,13 +27,11 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             pipelines=["analytics"],
         )
 
-        self.assertEqual(config.token, "test_token")
-        self.assertEqual(config.restriction_type, RestrictionType.SKIP_PERSON_PROCESSING)
-        self.assertEqual(config.distinct_ids, ["id1", "id2"])
-        self.assertEqual(config.pipelines, ["analytics"])
-        self.assertEqual(
-            config.get_redis_key(), f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.SKIP_PERSON_PROCESSING}"
-        )
+        assert config.token == "test_token"
+        assert config.restriction_type == RestrictionType.SKIP_PERSON_PROCESSING
+        assert config.distinct_ids == ["id1", "id2"]
+        assert config.pipelines == ["analytics"]
+        assert config.get_redis_key() == f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.SKIP_PERSON_PROCESSING}"
 
     def test_post_save_signal_generates_v2_format(self):
         """Test that post_save signal generates v2 format with arrays"""
@@ -46,10 +44,10 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
+        assert len(data) == 1
 
         expected_entry = {
             "version": 2,
@@ -62,7 +60,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             "event_uuids": [],
             "args": None,
         }
-        self.assertEqual(data[0], expected_entry)
+        assert data[0] == expected_entry
 
     def test_post_save_signal_without_filters(self):
         """Test v2 format when model has no specific filters (applies to all events)"""
@@ -74,7 +72,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
         expected_entry = {
@@ -88,7 +86,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             "event_uuids": [],
             "args": None,
         }
-        self.assertEqual(data, [expected_entry])
+        assert data == [expected_entry]
 
     def test_post_save_signal_with_multiple_configs(self):
         """Test that multiple configs generate separate v2 entries"""
@@ -108,41 +106,35 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = second_config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 2)
+        assert len(data) == 2
 
         data_by_token = {entry["token"]: entry for entry in data}
 
-        self.assertEqual(
-            data_by_token["existing_token"],
-            {
-                "version": 2,
-                "index": 0,
-                "token": "existing_token",
-                "pipelines": ["session_recordings"],
-                "distinct_ids": ["existing_id"],
-                "session_ids": [],
-                "event_names": [],
-                "event_uuids": [],
-                "args": None,
-            },
-        )
-        self.assertEqual(
-            data_by_token["test_token"],
-            {
-                "version": 2,
-                "index": 1,
-                "token": "test_token",
-                "pipelines": ["analytics"],
-                "distinct_ids": ["id1", "id2"],
-                "session_ids": [],
-                "event_names": [],
-                "event_uuids": [],
-                "args": None,
-            },
-        )
+        assert data_by_token["existing_token"] == {
+            "version": 2,
+            "index": 0,
+            "token": "existing_token",
+            "pipelines": ["session_recordings"],
+            "distinct_ids": ["existing_id"],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": None,
+        }
+        assert data_by_token["test_token"] == {
+            "version": 2,
+            "index": 1,
+            "token": "test_token",
+            "pipelines": ["analytics"],
+            "distinct_ids": ["id1", "id2"],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": None,
+        }
 
     def test_post_delete_signal(self):
         """Test that post_delete signal correctly updates Redis"""
@@ -163,25 +155,22 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.DROP_EVENT_FROM_INGESTION}"
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "other_token",
-                    "pipelines": ["analytics"],
-                    "distinct_ids": [],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "other_token",
+                "pipelines": ["analytics"],
+                "distinct_ids": [],
+                "session_ids": [],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_post_delete_signal_removes_key_when_empty(self):
         """Test that post_delete signal removes Redis key when no data remains"""
@@ -192,11 +181,11 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         )
 
         redis_key = config.get_redis_key()
-        self.assertIsNotNone(self.redis_client.get(redis_key))
+        assert self.redis_client.get(redis_key) is not None
 
         config.delete()
 
-        self.assertIsNone(self.redis_client.get(redis_key))
+        assert self.redis_client.get(redis_key) is None
 
     def test_update_config_distinct_ids(self):
         """Test that updating a config's distinct_ids correctly updates Redis cache"""
@@ -210,15 +199,15 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["distinct_ids"], ["id1", "id2"])
+        assert data[0]["distinct_ids"] == ["id1", "id2"]
 
         config.distinct_ids = ["id2", "id3"]
         config.save()
 
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["distinct_ids"], ["id2", "id3"])
+        assert len(data) == 1
+        assert data[0]["distinct_ids"] == ["id2", "id3"]
 
     def test_update_config_remove_all_distinct_ids(self):
         """Test that removing all distinct_ids results in empty array (token-level restriction)"""
@@ -232,7 +221,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["distinct_ids"], ["id1", "id2"])
+        assert data[0]["distinct_ids"] == ["id1", "id2"]
 
         config.distinct_ids = []
         config.save()
@@ -240,22 +229,19 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["analytics"],
-                    "distinct_ids": [],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["analytics"],
+                "distinct_ids": [],
+                "session_ids": [],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_update_config_add_distinct_ids(self):
         """Test that adding distinct_ids to a token-level restriction correctly updates Redis"""
@@ -268,7 +254,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["distinct_ids"], [])
+        assert data[0]["distinct_ids"] == []
 
         config.distinct_ids = ["id1", "id2"]
         config.save()
@@ -276,22 +262,19 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["analytics"],
-                    "distinct_ids": ["id1", "id2"],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["analytics"],
+                "distinct_ids": ["id1", "id2"],
+                "session_ids": [],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_pipeline_fields_in_redis(self):
         """Test that pipelines field is correctly stored in Redis"""
@@ -305,7 +288,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(data[0]["pipelines"], ["session_recordings"])
+        assert data[0]["pipelines"] == ["session_recordings"]
 
     def test_update_pipeline_fields(self):
         """Test that updating pipelines field correctly updates Redis"""
@@ -318,14 +301,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["pipelines"], ["analytics"])
+        assert data[0]["pipelines"] == ["analytics"]
 
         config.pipelines = ["session_recordings"]
         config.save()
 
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["pipelines"], ["session_recordings"])
+        assert data[0]["pipelines"] == ["session_recordings"]
 
     def test_regenerate_redis_removes_deleted_entries(self):
         """Test that deleting a config regenerates Redis and removes only that config's entries"""
@@ -344,29 +327,26 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config1.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 2)
+        assert len(data) == 2
 
         config1.delete()
 
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token_2",
-                    "pipelines": ["session_recordings"],
-                    "distinct_ids": [],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token_2",
+                "pipelines": ["session_recordings"],
+                "distinct_ids": [],
+                "session_ids": [],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_regenerate_redis_with_multiple_configs_different_pipelines(self):
         """Test that each restriction type has its own Redis key"""
@@ -385,50 +365,44 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key1 = config1.get_redis_key()
         redis_data1 = self.redis_client.get(redis_key1)
         data1 = json.loads(redis_data1 if redis_data1 is not None else b"[]")
-        self.assertEqual(
-            data1,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["analytics"],
-                    "distinct_ids": [],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data1 == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["analytics"],
+                "distinct_ids": [],
+                "session_ids": [],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
         redis_key2 = config2.get_redis_key()
         redis_data2 = self.redis_client.get(redis_key2)
         data2 = json.loads(redis_data2 if redis_data2 is not None else b"[]")
-        self.assertEqual(
-            data2,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["session_recordings"],
-                    "distinct_ids": [],
-                    "session_ids": [],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data2 == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["session_recordings"],
+                "distinct_ids": [],
+                "session_ids": [],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
         config1.delete()
 
         redis_data1 = self.redis_client.get(redis_key1)
-        self.assertIsNone(redis_data1)
+        assert redis_data1 is None
 
         redis_data2 = self.redis_client.get(redis_key2)
-        self.assertIsNotNone(redis_data2)
+        assert redis_data2 is not None
 
     def test_regenerate_redis_preserves_other_configs(self):
         """Test that updating one config doesn't affect other configs in the same restriction type"""
@@ -453,38 +427,32 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(len(data), 2)
+        assert len(data) == 2
 
         data_by_token = {entry["token"]: entry for entry in data}
 
-        self.assertEqual(
-            data_by_token["test_token_1"],
-            {
-                "version": 2,
-                "index": 0,
-                "token": "test_token_1",
-                "pipelines": ["analytics", "session_recordings"],
-                "distinct_ids": ["id1"],
-                "session_ids": [],
-                "event_names": [],
-                "event_uuids": [],
-                "args": None,
-            },
-        )
-        self.assertEqual(
-            data_by_token["test_token_2"],
-            {
-                "version": 2,
-                "index": 1,
-                "token": "test_token_2",
-                "pipelines": ["session_recordings"],
-                "distinct_ids": ["id2"],
-                "session_ids": [],
-                "event_names": [],
-                "event_uuids": [],
-                "args": None,
-            },
-        )
+        assert data_by_token["test_token_1"] == {
+            "version": 2,
+            "index": 0,
+            "token": "test_token_1",
+            "pipelines": ["analytics", "session_recordings"],
+            "distinct_ids": ["id1"],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": None,
+        }
+        assert data_by_token["test_token_2"] == {
+            "version": 2,
+            "index": 1,
+            "token": "test_token_2",
+            "pipelines": ["session_recordings"],
+            "distinct_ids": ["id2"],
+            "session_ids": [],
+            "event_names": [],
+            "event_uuids": [],
+            "args": None,
+        }
 
     def test_post_save_signal_with_session_ids(self):
         """Test v2 format with session_ids"""
@@ -497,10 +465,10 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
+        assert len(data) == 1
 
         expected_entry = {
             "version": 2,
@@ -513,7 +481,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             "event_uuids": [],
             "args": None,
         }
-        self.assertEqual(data[0], expected_entry)
+        assert data[0] == expected_entry
 
     def test_update_config_session_ids(self):
         """Test that updating a config's session_ids correctly updates Redis cache"""
@@ -527,15 +495,15 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["session_ids"], ["session1", "session2"])
+        assert data[0]["session_ids"] == ["session1", "session2"]
 
         config.session_ids = ["session2", "session3"]
         config.save()
 
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["session_ids"], ["session2", "session3"])
+        assert len(data) == 1
+        assert data[0]["session_ids"] == ["session2", "session3"]
 
     def test_update_config_remove_all_session_ids(self):
         """Test that removing all session_ids results in empty array"""
@@ -549,14 +517,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["session_ids"], ["session1", "session2"])
+        assert data[0]["session_ids"] == ["session1", "session2"]
 
         config.session_ids = []
         config.save()
 
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["session_ids"], [])
+        assert data[0]["session_ids"] == []
 
     def test_update_config_add_session_ids(self):
         """Test that adding session_ids to a config without them correctly updates Redis"""
@@ -569,14 +537,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["session_ids"], [])
+        assert data[0]["session_ids"] == []
 
         config.session_ids = ["session1", "session2"]
         config.save()
 
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["session_ids"], ["session1", "session2"])
+        assert data[0]["session_ids"] == ["session1", "session2"]
 
     def test_post_save_signal_with_event_names(self):
         """Test v2 format with event_names"""
@@ -589,11 +557,11 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["event_names"], ["$pageview", "$autocapture"])
+        assert len(data) == 1
+        assert data[0]["event_names"] == ["$pageview", "$autocapture"]
 
     def test_post_save_signal_with_event_uuids(self):
         """Test v2 format with event_uuids"""
@@ -606,11 +574,11 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["event_uuids"], ["uuid-123", "uuid-456"])
+        assert len(data) == 1
+        assert data[0]["event_uuids"] == ["uuid-123", "uuid-456"]
 
     def test_post_save_signal_with_all_filter_types(self):
         """Test v2 format with all filter types (AND logic between types)"""
@@ -626,10 +594,10 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
+        assert len(data) == 1
 
         expected_entry = {
             "version": 2,
@@ -642,7 +610,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             "event_uuids": ["uuid-123"],
             "args": None,
         }
-        self.assertEqual(data[0], expected_entry)
+        assert data[0] == expected_entry
 
     def test_update_config_event_names(self):
         """Test that updating a config's event_names correctly updates Redis cache"""
@@ -656,15 +624,15 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(data[0]["event_names"], ["$pageview", "$autocapture"])
+        assert data[0]["event_names"] == ["$pageview", "$autocapture"]
 
         config.event_names = ["$autocapture", "$click"]
         config.save()
 
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["event_names"], ["$autocapture", "$click"])
+        assert len(data) == 1
+        assert data[0]["event_names"] == ["$autocapture", "$click"]
 
     def test_redirect_to_dlq_restriction_type(self):
         """Test that REDIRECT_TO_DLQ restriction type generates v2 format"""
@@ -674,12 +642,12 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             pipelines=["analytics"],
         )
 
-        self.assertEqual(config.restriction_type, RestrictionType.REDIRECT_TO_DLQ)
-        self.assertEqual(config.get_redis_key(), f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.REDIRECT_TO_DLQ}")
+        assert config.restriction_type == RestrictionType.REDIRECT_TO_DLQ
+        assert config.get_redis_key() == f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.REDIRECT_TO_DLQ}"
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
         expected_entry = {
@@ -693,7 +661,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             "event_uuids": [],
             "args": None,
         }
-        self.assertEqual(data, [expected_entry])
+        assert data == [expected_entry]
 
     def test_redirect_to_dlq_with_distinct_ids(self):
         """Test REDIRECT_TO_DLQ restriction type with distinct_ids"""
@@ -706,11 +674,11 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["distinct_ids"], ["user1", "user2"])
+        assert len(data) == 1
+        assert data[0]["distinct_ids"] == ["user1", "user2"]
 
     def test_redirect_to_dlq_session_recordings_by_session_id(self):
         """Test redirecting session recordings to DLQ by session_id - real-world use case"""
@@ -723,25 +691,22 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["session_recordings"],
-                    "distinct_ids": [],
-                    "session_ids": ["large-session-1", "large-session-2"],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["session_recordings"],
+                "distinct_ids": [],
+                "session_ids": ["large-session-1", "large-session-2"],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_drop_session_recordings_by_session_id(self):
         """Test dropping specific session recordings by session_id - real-world use case"""
@@ -754,25 +719,22 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["session_recordings"],
-                    "distinct_ids": [],
-                    "session_ids": ["problematic-session-1", "problematic-session-2"],
-                    "event_names": [],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["session_recordings"],
+                "distinct_ids": [],
+                "session_ids": ["problematic-session-1", "problematic-session-2"],
+                "event_names": [],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_drop_events_by_session_id_and_event_name(self):
         """Test dropping events matching both session_id AND event_name (AND logic)"""
@@ -786,25 +748,22 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
-        self.assertEqual(
-            data,
-            [
-                {
-                    "version": 2,
-                    "index": 0,
-                    "token": "test_token",
-                    "pipelines": ["session_recordings"],
-                    "distinct_ids": [],
-                    "session_ids": ["session-1", "session-2"],
-                    "event_names": ["$snapshot", "$replay_event"],
-                    "event_uuids": [],
-                    "args": None,
-                }
-            ],
-        )
+        assert data == [
+            {
+                "version": 2,
+                "index": 0,
+                "token": "test_token",
+                "pipelines": ["session_recordings"],
+                "distinct_ids": [],
+                "session_ids": ["session-1", "session-2"],
+                "event_names": ["$snapshot", "$replay_event"],
+                "event_uuids": [],
+                "args": None,
+            }
+        ]
 
     def test_changing_restriction_type_clears_old_redis_key(self):
         """
@@ -823,14 +782,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         # Verify the old key has data
         old_redis_data = self.redis_client.get(old_redis_key)
-        self.assertIsNotNone(old_redis_data)
+        assert old_redis_data is not None
         data = json.loads(old_redis_data if old_redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["token"], "test_token")
+        assert len(data) == 1
+        assert data[0]["token"] == "test_token"
 
         # Verify the new key has no data yet
         new_redis_data = self.redis_client.get(new_redis_key)
-        self.assertIsNone(new_redis_data)
+        assert new_redis_data is None
 
         # Change the restriction type
         config.restriction_type = RestrictionType.DROP_EVENT_FROM_INGESTION
@@ -838,14 +797,14 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         # The new key should now have the config
         new_redis_data = self.redis_client.get(new_redis_key)
-        self.assertIsNotNone(new_redis_data)
+        assert new_redis_data is not None
         data = json.loads(new_redis_data if new_redis_data is not None else b"[]")
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["token"], "test_token")
+        assert len(data) == 1
+        assert data[0]["token"] == "test_token"
 
         # The old key should be cleared (no configs left for that type)
         old_redis_data = self.redis_client.get(old_redis_key)
-        self.assertIsNone(old_redis_data)
+        assert old_redis_data is None
 
     def test_redirect_to_topic_with_args(self):
         config = EventIngestionRestrictionConfig.objects.create(
@@ -857,7 +816,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
-        self.assertIsNotNone(redis_data)
+        assert redis_data is not None
 
         data = json.loads(redis_data if redis_data is not None else b"[]")
         expected_entry = {
@@ -871,7 +830,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             "event_uuids": [],
             "args": {"topic": "my_custom_topic"},
         }
-        self.assertEqual(data, [expected_entry])
+        assert data == [expected_entry]
 
     def test_redirect_to_topic_args_included_in_redis(self):
         config = EventIngestionRestrictionConfig.objects.create(
@@ -886,9 +845,9 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["args"], {"topic": "my_topic"})
-        self.assertEqual(data[0]["distinct_ids"], ["user1"])
+        assert len(data) == 1
+        assert data[0]["args"] == {"topic": "my_topic"}
+        assert data[0]["distinct_ids"] == ["user1"]
 
     @parameterized.expand(
         [
@@ -912,7 +871,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         with self.assertRaises(ValidationError) as ctx:
             EventIngestionRestrictionConfig.objects.create(**kwargs)
-        self.assertIn("args", ctx.exception.message_dict)
+        assert "args" in ctx.exception.message_dict
 
     def test_multiple_redirect_to_topic_index_ordering(self):
         config1 = EventIngestionRestrictionConfig.objects.create(
@@ -938,21 +897,21 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(len(data), 3)
+        assert len(data) == 3
 
         # Entries are ordered by UUIDT id (time-sortable), so creation order is preserved
-        self.assertEqual(data[0]["index"], 0)
-        self.assertEqual(data[0]["token"], "token_a")
-        self.assertEqual(data[0]["args"], {"topic": "topic_alpha"})
+        assert data[0]["index"] == 0
+        assert data[0]["token"] == "token_a"
+        assert data[0]["args"] == {"topic": "topic_alpha"}
 
-        self.assertEqual(data[1]["index"], 1)
-        self.assertEqual(data[1]["token"], "token_b")
-        self.assertEqual(data[1]["args"], {"topic": "topic_beta"})
+        assert data[1]["index"] == 1
+        assert data[1]["token"] == "token_b"
+        assert data[1]["args"] == {"topic": "topic_beta"}
 
-        self.assertEqual(data[2]["index"], 2)
-        self.assertEqual(data[2]["token"], "token_c")
-        self.assertEqual(data[2]["args"], {"topic": "topic_gamma"})
-        self.assertEqual(data[2]["pipelines"], ["analytics", "session_recordings"])
+        assert data[2]["index"] == 2
+        assert data[2]["token"] == "token_c"
+        assert data[2]["args"] == {"topic": "topic_gamma"}
+        assert data[2]["pipelines"] == ["analytics", "session_recordings"]
 
         # Delete the middle one and verify indices are recalculated
         config2.delete()
@@ -960,11 +919,11 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(len(data), 2)
-        self.assertEqual(data[0]["index"], 0)
-        self.assertEqual(data[0]["token"], "token_a")
-        self.assertEqual(data[1]["index"], 1)
-        self.assertEqual(data[1]["token"], "token_c")
+        assert len(data) == 2
+        assert data[0]["index"] == 0
+        assert data[0]["token"] == "token_a"
+        assert data[1]["index"] == 1
+        assert data[1]["token"] == "token_c"
 
     def test_indices_are_independent_per_restriction_type(self):
         # Same token, different restriction types — each type has its own Redis key and indices
@@ -989,9 +948,9 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         for config in [drop_config, redirect_config, overflow_config]:
             redis_data = self.redis_client.get(config.get_redis_key())
             data = json.loads(redis_data if redis_data is not None else b"[]")
-            self.assertEqual(len(data), 1, f"Expected 1 entry for {config.restriction_type}")
-            self.assertEqual(data[0]["index"], 0)
-            self.assertEqual(data[0]["token"], "test_token")
+            assert len(data) == 1, f"Expected 1 entry for {config.restriction_type}"
+            assert data[0]["index"] == 0
+            assert data[0]["token"] == "test_token"
 
         # Add a second token for redirect_to_topic
         EventIngestionRestrictionConfig.objects.create(
@@ -1003,12 +962,12 @@ class TestEventIngestionRestrictionConfig(BaseTest):
 
         # redirect_to_topic now has 2 entries, others still have 1
         redirect_data = json.loads(self.redis_client.get(redirect_config.get_redis_key()) or b"[]")
-        self.assertEqual(len(redirect_data), 2)
-        self.assertEqual(redirect_data[0]["index"], 0)
-        self.assertEqual(redirect_data[0]["args"], {"topic": "my_topic"})
-        self.assertEqual(redirect_data[1]["index"], 1)
-        self.assertEqual(redirect_data[1]["args"], {"topic": "other_topic"})
+        assert len(redirect_data) == 2
+        assert redirect_data[0]["index"] == 0
+        assert redirect_data[0]["args"] == {"topic": "my_topic"}
+        assert redirect_data[1]["index"] == 1
+        assert redirect_data[1]["args"] == {"topic": "other_topic"}
 
         drop_data = json.loads(self.redis_client.get(drop_config.get_redis_key()) or b"[]")
-        self.assertEqual(len(drop_data), 1)
-        self.assertEqual(drop_data[0]["index"], 0)
+        assert len(drop_data) == 1
+        assert drop_data[0]["index"] == 0

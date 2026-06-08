@@ -24,63 +24,54 @@ class TestErrorTrackingQueryRunnerV2(
     @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]
-        self.assertEqual(
-            columns,
-            [
-                "id",
-                "status",
-                "name",
-                "description",
-                "last_seen",
-                "first_seen",
-                "assignee_user_id",
-                "assignee_role_id",
-                "function",
-                "source",
-                "library",
-            ],
-        )
+        assert columns == [
+            "id",
+            "status",
+            "name",
+            "description",
+            "last_seen",
+            "first_seen",
+            "assignee_user_id",
+            "assignee_role_id",
+            "function",
+            "source",
+            "library",
+        ]
 
         columns = self._calculate(withAggregations=True)["columns"]
-        self.assertEqual(
-            columns,
-            [
-                "id",
-                "status",
-                "name",
-                "description",
-                "last_seen",
-                "first_seen",
-                "assignee_user_id",
-                "assignee_role_id",
-                "function",
-                "source",
-                "occurrences",
-                "sessions",
-                "users",
-                "volumeRange",
-                "library",
-            ],
-        )
+        assert columns == [
+            "id",
+            "status",
+            "name",
+            "description",
+            "last_seen",
+            "first_seen",
+            "assignee_user_id",
+            "assignee_role_id",
+            "function",
+            "source",
+            "occurrences",
+            "sessions",
+            "users",
+            "volumeRange",
+            "library",
+        ]
 
         columns = self._calculate(withFirstEvent=True)["columns"]
-        self.assertEqual(
-            columns,
-            [
-                "id",
-                "status",
-                "name",
-                "description",
-                "last_seen",
-                "first_seen",
-                "assignee_user_id",
-                "assignee_role_id",
-                "function",
-                "source",
-                "first_event",
-                "library",
-            ],
-        )
+        assert columns == [
+            "id",
+            "status",
+            "name",
+            "description",
+            "last_seen",
+            "first_seen",
+            "assignee_user_id",
+            "assignee_role_id",
+            "function",
+            "source",
+            "first_event",
+            "library",
+        ]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):
@@ -91,7 +82,7 @@ class TestErrorTrackingQueryRunnerV2(
         flush_persons_and_events()
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
-        self.assertEqual([x["id"] for x in results], [issue_id])
+        assert [x["id"] for x in results] == [issue_id]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_role_assignee(self):
@@ -103,4 +94,4 @@ class TestErrorTrackingQueryRunnerV2(
         role = Role.objects.create(name="Test Team", organization=self.organization)
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
-        self.assertEqual([x["id"] for x in results], [issue_id])
+        assert [x["id"] for x in results] == [issue_id]

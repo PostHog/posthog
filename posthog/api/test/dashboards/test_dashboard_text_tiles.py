@@ -207,7 +207,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             # can send just tile id and deleted flag
             {"tiles": [{"id": last_tile["id"], "deleted": True}]},
         )
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+        assert delete_response.status_code == status.HTTP_200_OK
 
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
@@ -251,7 +251,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [{"text": {"body": valid_text}}]},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Test with 4001 characters (should fail)
         invalid_text = "a" * 4001
@@ -259,12 +259,12 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [{"text": {"body": invalid_text}}]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        self.assertEqual(response_data["type"], "validation_error")
-        self.assertEqual(response_data["code"], "max_length")
-        self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
-        self.assertEqual(response_data["attr"], "text__body")
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "max_length"
+        assert response_data["detail"] == "Text body cannot exceed 4000 characters"
+        assert response_data["attr"] == "text__body"
 
     def test_cannot_update_text_tile_with_body_over_4000_characters(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -277,12 +277,12 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [{"id": tile["id"], "text": {**tile["text"], "body": invalid_text}}]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        self.assertEqual(response_data["type"], "validation_error")
-        self.assertEqual(response_data["code"], "max_length")
-        self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
-        self.assertEqual(response_data["attr"], "text__body")
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "max_length"
+        assert response_data["detail"] == "Text body cannot exceed 4000 characters"
+        assert response_data["attr"] == "text__body"
 
     def test_can_create_text_tile_with_transparent_background(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -322,4 +322,4 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"tiles": [tile]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

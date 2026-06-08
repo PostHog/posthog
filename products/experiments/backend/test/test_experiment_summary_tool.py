@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
@@ -42,7 +43,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         }
         result = parse_metric_dict(metric_dict)
         assert result is not None
-        self.assertEqual(result.metric_type, "funnel")
+        assert result.metric_type == "funnel"
 
     def test_parse_metric_dict_mean(self):
         metric_dict = {
@@ -51,26 +52,26 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         }
         result = parse_metric_dict(metric_dict)
         assert result is not None
-        self.assertEqual(result.metric_type, "mean")
+        assert result.metric_type == "mean"
 
     def test_parse_metric_dict_unknown(self):
         metric_dict = {"metric_type": "unknown"}
         result = parse_metric_dict(metric_dict)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_delta_from_interval(self):
         # Normal case
-        self.assertEqual(get_delta_from_interval([0.1, 0.3]), 0.2)
+        assert get_delta_from_interval([0.1, 0.3]) == 0.2
 
         # Empty/None cases
-        self.assertIsNone(get_delta_from_interval(None))
-        self.assertIsNone(get_delta_from_interval([]))
-        self.assertIsNone(get_delta_from_interval([0.1]))
+        assert get_delta_from_interval(None) is None
+        assert get_delta_from_interval([]) is None
+        assert get_delta_from_interval([0.1]) is None
 
     def test_get_chance_to_win_increase_goal(self):
         # When goal is increase, chance_to_win stays the same
-        self.assertEqual(get_chance_to_win(0.85, "increase"), 0.85)
-        self.assertEqual(get_chance_to_win(0.15, "increase"), 0.15)
+        assert get_chance_to_win(0.85, "increase") == 0.85
+        assert get_chance_to_win(0.15, "increase") == 0.15
 
     def test_get_chance_to_win_decrease_goal(self):
         # When goal is decrease, chance_to_win is inverted (1 - chance_to_win)
@@ -79,18 +80,18 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         result2 = get_chance_to_win(0.15, "decrease")
         assert result1 is not None
         assert result2 is not None
-        self.assertAlmostEqual(result1, 0.15)
-        self.assertAlmostEqual(result2, 0.85)
+        assert result1 == pytest.approx(0.15, abs=10 ** (-7) * 0.5)
+        assert result2 == pytest.approx(0.85, abs=10 ** (-7) * 0.5)
 
     def test_get_chance_to_win_no_goal(self):
         # When goal is None, chance_to_win stays the same
-        self.assertEqual(get_chance_to_win(0.85, None), 0.85)
+        assert get_chance_to_win(0.85, None) == 0.85
 
     def test_get_chance_to_win_none_value(self):
         # When chance_to_win is None, return None regardless of goal
-        self.assertIsNone(get_chance_to_win(None, "increase"))
-        self.assertIsNone(get_chance_to_win(None, "decrease"))
-        self.assertIsNone(get_chance_to_win(None, None))
+        assert get_chance_to_win(None, "increase") is None
+        assert get_chance_to_win(None, "decrease") is None
+        assert get_chance_to_win(None, None) is None
 
     def test_transform_variant_for_max_bayesian(self):
         variant = ExperimentVariantResultBayesian(
@@ -105,11 +106,11 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         )
         result = transform_variant_for_max(variant, "bayesian")
         assert isinstance(result, MaxExperimentVariantResultBayesian)
-        self.assertEqual(result.key, "test")
-        self.assertEqual(result.chance_to_win, 0.85)
-        self.assertEqual(result.credible_interval, [0.1, 0.3])
-        self.assertEqual(result.delta, 0.2)  # (0.1 + 0.3) / 2
-        self.assertTrue(result.significant)
+        assert result.key == "test"
+        assert result.chance_to_win == 0.85
+        assert result.credible_interval == [0.1, 0.3]
+        assert result.delta == 0.2  # (0.1 + 0.3) / 2
+        assert result.significant
 
     def test_transform_variant_for_max_frequentist(self):
         variant = ExperimentVariantResultFrequentist(
@@ -124,11 +125,11 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         )
         result = transform_variant_for_max(variant, "frequentist")
         assert isinstance(result, MaxExperimentVariantResultFrequentist)
-        self.assertEqual(result.key, "test")
-        self.assertEqual(result.p_value, 0.03)
-        self.assertEqual(result.confidence_interval, [-0.1, 0.5])
-        self.assertEqual(result.delta, 0.2)  # (-0.1 + 0.5) / 2
-        self.assertTrue(result.significant)
+        assert result.key == "test"
+        assert result.p_value == 0.03
+        assert result.confidence_interval == [-0.1, 0.5]
+        assert result.delta == 0.2  # (-0.1 + 0.5) / 2
+        assert result.significant
 
     def test_transform_variant_for_max_bayesian_with_decrease_goal(self):
         variant = ExperimentVariantResultBayesian(
@@ -143,13 +144,13 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         )
         result = transform_variant_for_max(variant, "bayesian", goal="decrease")
         assert isinstance(result, MaxExperimentVariantResultBayesian)
-        self.assertEqual(result.key, "test")
+        assert result.key == "test"
         # chance_to_win should be inverted: 1 - 0.85 = 0.15
         assert result.chance_to_win is not None
-        self.assertAlmostEqual(result.chance_to_win, 0.15)
-        self.assertEqual(result.credible_interval, [0.1, 0.3])
-        self.assertEqual(result.delta, 0.2)
-        self.assertTrue(result.significant)
+        assert result.chance_to_win == pytest.approx(0.15, abs=10 ** (-7) * 0.5)
+        assert result.credible_interval == [0.1, 0.3]
+        assert result.delta == 0.2
+        assert result.significant
 
     def test_transform_variant_for_max_bayesian_with_increase_goal(self):
         variant = ExperimentVariantResultBayesian(
@@ -164,7 +165,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         )
         result = transform_variant_for_max(variant, "bayesian", goal="increase")
         assert isinstance(result, MaxExperimentVariantResultBayesian)
-        self.assertEqual(result.chance_to_win, 0.85)
+        assert result.chance_to_win == 0.85
 
     @parameterized.expand(
         [
@@ -201,7 +202,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         ]
     )
     def test_get_default_metric_title(self, _name, metric_dict, expected):
-        self.assertEqual(get_default_metric_title(metric_dict), expected)
+        assert get_default_metric_title(metric_dict) == expected
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -257,7 +258,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         backend_refresh = datetime(2020, 1, 10, 11, 59, 30, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNone(warning)
+        assert warning is None
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_when_stale(self):
@@ -268,7 +269,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         assert warning is not None
-        self.assertIn("data has been updated", warning)
+        assert "data has been updated" in warning
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_at_threshold_boundary(self):
@@ -280,7 +281,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         assert warning is not None
-        self.assertIn("data has been updated", warning)
+        assert "data has been updated" in warning
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
@@ -291,15 +292,15 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         backend_refresh = datetime(2020, 1, 10, 11, 59, 0, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNone(warning)
+        assert warning is None
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_handles_none_values(self):
         data_service = ExperimentSummaryDataService(self.team)
 
-        self.assertIsNone(data_service.check_data_freshness(None, None))
-        self.assertIsNone(data_service.check_data_freshness("2020-01-10T10:00:00Z", None))
-        self.assertIsNone(data_service.check_data_freshness(None, datetime.now(ZoneInfo("UTC"))))
+        assert data_service.check_data_freshness(None, None) is None
+        assert data_service.check_data_freshness("2020-01-10T10:00:00Z", None) is None
+        assert data_service.check_data_freshness(None, datetime.now(ZoneInfo("UTC"))) is None
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_with_mocked_query_runners(self):
@@ -354,21 +355,21 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             data_service = ExperimentSummaryDataService(self.team)
             context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertEqual(context.experiment_id, experiment.id)
-        self.assertEqual(context.experiment_name, "query-runner-test")
-        self.assertEqual(len(context.primary_metrics_results), 1)
-        self.assertEqual(context.exposures, {"control": 500.0, "test": 500.0})
-        self.assertIsNotNone(last_refresh)
-        self.assertFalse(pending_calculation)
-        self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
-        self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
-        self.assertEqual(
-            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        assert context.experiment_id == experiment.id
+        assert context.experiment_name == "query-runner-test"
+        assert len(context.primary_metrics_results) == 1
+        assert context.exposures == {"control": 500.0, "test": 500.0}
+        assert last_refresh is not None
+        assert not pending_calculation
+        assert mock_query_runner_class.call_args.kwargs["limit_context"] == LimitContext.QUERY_ASYNC
+        assert mock_exposure_runner_class.call_args.kwargs["limit_context"] == LimitContext.QUERY_ASYNC
+        assert (
+            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
-        self.assertEqual(
-            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"],
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        assert (
+            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
     @freeze_time("2020-01-10T12:00:00Z")
@@ -401,13 +402,13 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             data_service = ExperimentSummaryDataService(self.team)
             await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertEqual(
-            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        assert (
+            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
-        self.assertEqual(
-            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"],
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        assert (
+            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
 
     @freeze_time("2020-01-10T12:00:00Z")
@@ -431,8 +432,8 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         data_service = ExperimentSummaryDataService(self.team)
         context, last_refresh, pending_calculation = await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertFalse(pending_calculation)
-        self.assertIsNotNone(last_refresh)
+        assert not pending_calculation
+        assert last_refresh is not None
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_includes_saved_metrics(self):
@@ -513,14 +514,14 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             data_service = ExperimentSummaryDataService(self.team)
             context, _, _ = await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertEqual(len(context.primary_metrics_results), 1)
-        self.assertEqual(len(context.secondary_metrics_results), 1)
+        assert len(context.primary_metrics_results) == 1
+        assert len(context.secondary_metrics_results) == 1
 
         # Verify the saved metric queries were actually passed to the query runner
         query_runner_calls = mock_query_runner_class.call_args_list
-        self.assertEqual(len(query_runner_calls), 2)
+        assert len(query_runner_calls) == 2
         metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
-        self.assertEqual(metrics_queried, ["funnel", "funnel"])
+        assert metrics_queried == ["funnel", "funnel"]
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_combines_inline_and_saved_metrics(self):
@@ -613,13 +614,13 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             context, _, _ = await data_service.fetch_experiment_data(experiment.id)
 
         # 1 inline primary + 1 saved primary = 2
-        self.assertEqual(len(context.primary_metrics_results), 2)
+        assert len(context.primary_metrics_results) == 2
         # 1 inline secondary + 1 saved secondary = 2
-        self.assertEqual(len(context.secondary_metrics_results), 2)
+        assert len(context.secondary_metrics_results) == 2
 
         # Verify all 4 metrics were passed to the query runner (2 primary + 2 secondary)
         query_runner_calls = mock_query_runner_class.call_args_list
-        self.assertEqual(len(query_runner_calls), 4)
+        assert len(query_runner_calls) == 4
         metrics_queried = [call.kwargs["query"].metric.metric_type for call in query_runner_calls]
         # Inline funnel primary, saved mean primary, inline funnel secondary, saved funnel secondary
-        self.assertEqual(metrics_queried, ["funnel", "mean", "funnel", "funnel"])
+        assert metrics_queried == ["funnel", "mean", "funnel", "funnel"]

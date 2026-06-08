@@ -39,9 +39,9 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
 
     def _assert_run_failed(self, run: TaskRun, expected_error: str) -> None:
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.FAILED)
-        self.assertEqual(run.error_message, expected_error)
-        self.assertIsNotNone(run.completed_at)
+        assert run.status == TaskRun.Status.FAILED
+        assert run.error_message == expected_error
+        assert run.completed_at is not None
 
     def _execute_workflow(self, executor: str, run: TaskRun, user_id: int | None) -> None:
         kwargs = {
@@ -97,9 +97,9 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
             self._execute_workflow(executor, run, self.user.id)
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
-        self.assertIsNone(run.error_message)
-        self.assertIsNone(run.completed_at)
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        assert run.error_message is None
+        assert run.completed_at is None
 
     @parameterized.expand([("sync",), ("async",)])
     def test_captures_sandbox_event_ingest_flag_before_starting_workflow(self, executor: str) -> None:
@@ -121,7 +121,7 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
             self._execute_workflow(executor, run, self.user.id)
 
         run.refresh_from_db()
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        assert run.state["sandbox_event_ingest_enabled"]
         flag.assert_called_once_with(
             "tasks-cloud-runs-sandbox-event-ingest",
             distinct_id="process_task_workflow",
@@ -143,7 +143,7 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
             resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
 
         run.refresh_from_db()
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        assert run.state["sandbox_event_ingest_enabled"]
 
     @parameterized.expand([("sync",), ("async",)])
     def test_captures_sandbox_event_ingest_flag_without_clobbering_concurrent_state(self, executor: str) -> None:
@@ -171,5 +171,5 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
             self._execute_workflow(executor, run, self.user.id)
 
         run.refresh_from_db()
-        self.assertEqual(run.state["pending_user_message_ids"], ["message-1"])
-        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        assert run.state["pending_user_message_ids"] == ["message-1"]
+        assert run.state["sandbox_event_ingest_enabled"]

@@ -10,13 +10,13 @@ from posthog.tasks.tasks import Polling
 
 class TestPollQueryPerformance(SimpleTestCase):
     def test_query_manager_from_initial_query_id_succeeds(self) -> None:
-        self.assertIsNotNone(query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef"))
-        self.assertIsNotNone(query_manager_from_initial_query_id("123123_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
+        assert query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef") is not None
+        assert query_manager_from_initial_query_id("123123_550e8400-e29b-41d4-a716-446655440000_fwefwef") is not None
 
     def test_query_manager_from_initial_query_id_fails(self) -> None:
-        self.assertIsNone(query_manager_from_initial_query_id("550e8400-e29b-41d4-a716-446655440000"))
-        self.assertIsNone(query_manager_from_initial_query_id("fewf_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
-        self.assertIsNone(query_manager_from_initial_query_id("1a_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
+        assert query_manager_from_initial_query_id("550e8400-e29b-41d4-a716-446655440000") is None
+        assert query_manager_from_initial_query_id("fewf_550e8400-e29b-41d4-a716-446655440000_fwefwef") is None
+        assert query_manager_from_initial_query_id("1a_550e8400-e29b-41d4-a716-446655440000_fwefwef") is None
 
     @patch("posthog.tasks.poll_query_performance.QueryStatusManager")
     @patch("posthog.tasks.poll_query_performance.sync_execute")
@@ -81,10 +81,9 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
 
         mock_logger_error.assert_not_called()
         mock_apply_async.assert_called_once()
-        self.assertTrue(0 < mock_apply_async.call_args.kwargs["countdown"] < 2)
-        self.assertEqual(
-            redis_client.get(Polling._SINGLETON_REDIS_KEY),
-            Polling._encode_redis_key(mock_apply_async.call_args.kwargs["args"][0]),
+        assert 0 < mock_apply_async.call_args.kwargs["countdown"] < 2
+        assert redis_client.get(Polling._SINGLETON_REDIS_KEY) == Polling._encode_redis_key(
+            mock_apply_async.call_args.kwargs["args"][0]
         )
 
     @patch("posthog.tasks.tasks.logger.error")
@@ -102,7 +101,7 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         mock_logger_error.assert_not_called()
         new_key = int(1e9)
         mock_delay.assert_called_once_with(new_key)
-        self.assertEqual(redis_client.get(Polling._SINGLETON_REDIS_KEY), new_key.to_bytes(8, "big"))
+        assert redis_client.get(Polling._SINGLETON_REDIS_KEY) == new_key.to_bytes(8, "big")
 
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")

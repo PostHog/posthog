@@ -1,5 +1,6 @@
 import datetime as dt
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -80,13 +81,13 @@ class TestPrepareReportContext(BaseTest):
         report = self._create_report(rrule="FREQ=HOURLY")
         result = _prepare_sync(str(report.id), manual=True)
         duration = result["period_end"] - result["period_start"]
-        self.assertAlmostEqual(duration.total_seconds(), 3600, delta=5)
+        assert duration.total_seconds() == pytest.approx(3600, abs=5)
 
     def test_manual_daily_rrule_uses_full_day_lookback(self):
         report = self._create_report(rrule="FREQ=DAILY")
         result = _prepare_sync(str(report.id), manual=True)
         duration = result["period_end"] - result["period_start"]
-        self.assertAlmostEqual(duration.total_seconds(), 86400, delta=5)
+        assert duration.total_seconds() == pytest.approx(86400, abs=5)
 
     def test_manual_weekly_rrule_uses_full_week_lookback(self):
         now = timezone.now()
@@ -95,19 +96,19 @@ class TestPrepareReportContext(BaseTest):
         report = self._create_report(rrule="FREQ=WEEKLY", starts_at=now - dt.timedelta(weeks=3))
         result = _prepare_sync(str(report.id), manual=True)
         duration = result["period_end"] - result["period_start"]
-        self.assertAlmostEqual(duration.total_seconds(), 7 * 86400, delta=5)
+        assert duration.total_seconds() == pytest.approx(7 * 86400, abs=5)
 
     def test_scheduled_first_run_uses_rrule_period(self):
         report = self._create_report(rrule="FREQ=HOURLY")
         result = _prepare_sync(str(report.id), manual=False)
         duration = result["period_end"] - result["period_start"]
-        self.assertAlmostEqual(duration.total_seconds(), 3600, delta=5)
+        assert duration.total_seconds() == pytest.approx(3600, abs=5)
 
     def test_scheduled_run_uses_last_delivered_at(self):
         last_delivered = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=30)
         report = self._create_report(rrule="FREQ=HOURLY", last_delivered_at=last_delivered)
         result = _prepare_sync(str(report.id), manual=False)
-        self.assertEqual(result["period_start"], last_delivered)
+        assert result["period_start"] == last_delivered
 
     def test_count_triggered_first_run_uses_starts_at_or_created_at(self):
         # Count-triggered reports don't have a time-based period; fall back to
@@ -120,27 +121,27 @@ class TestPrepareReportContext(BaseTest):
         )
         result = _prepare_sync(str(report.id), manual=False)
         # created_at is the anchor when starts_at is None
-        self.assertEqual(result["period_start"], report.created_at)
+        assert result["period_start"] == report.created_at
 
     def test_previous_period_calculation(self):
         report = self._create_report(rrule="FREQ=HOURLY")
         result = _prepare_sync(str(report.id), manual=True)
         period_duration = result["period_end"] - result["period_start"]
         expected_prev = result["period_start"] - period_duration
-        self.assertEqual(result["previous_period_start"], expected_prev)
+        assert result["previous_period_start"] == expected_prev
 
     def test_manual_run_ignores_last_delivered_at(self):
         last_delivered = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=15)
         report = self._create_report(rrule="FREQ=HOURLY", last_delivered_at=last_delivered)
         result = _prepare_sync(str(report.id), manual=True)
         duration = result["period_end"] - result["period_start"]
-        self.assertAlmostEqual(duration.total_seconds(), 3600, delta=5)
+        assert duration.total_seconds() == pytest.approx(3600, abs=5)
 
     def test_context_includes_evaluation_metadata(self):
         report = self._create_report()
         result = _prepare_sync(str(report.id))
-        self.assertEqual(result["evaluation_name"], "Test Eval")
-        self.assertEqual(result["team_id"], self.team.id)
+        assert result["evaluation_name"] == "Test Eval"
+        assert result["team_id"] == self.team.id
 
 
 class TestPeriodForScheduledReport(BaseTest):
@@ -158,27 +159,27 @@ class TestPeriodForScheduledReport(BaseTest):
     def test_hourly_rrule(self):
         report = self._make("FREQ=HOURLY")
         period = _period_for_scheduled_report(report, dt.datetime.now(tz=dt.UTC))
-        self.assertAlmostEqual(period.total_seconds(), 3600, delta=1)
+        assert period.total_seconds() == pytest.approx(3600, abs=1)
 
     def test_daily_rrule(self):
         report = self._make("FREQ=DAILY")
         period = _period_for_scheduled_report(report, dt.datetime.now(tz=dt.UTC))
-        self.assertAlmostEqual(period.total_seconds(), 86400, delta=1)
+        assert period.total_seconds() == pytest.approx(86400, abs=1)
 
     def test_weekly_rrule(self):
         report = self._make("FREQ=WEEKLY")
         period = _period_for_scheduled_report(report, dt.datetime.now(tz=dt.UTC))
-        self.assertAlmostEqual(period.total_seconds(), 7 * 86400, delta=1)
+        assert period.total_seconds() == pytest.approx(7 * 86400, abs=1)
 
     def test_fallback_when_empty_rrule(self):
         report = self._make("")
         period = _period_for_scheduled_report(report, dt.datetime.now(tz=dt.UTC))
-        self.assertEqual(period, dt.timedelta(days=1))
+        assert period == dt.timedelta(days=1)
 
     def test_fallback_when_malformed_rrule(self):
         report = self._make("NOT_A_RRULE")
         period = _period_for_scheduled_report(report, dt.datetime.now(tz=dt.UTC))
-        self.assertEqual(period, dt.timedelta(days=1))
+        assert period == dt.timedelta(days=1)
 
     def test_daily_rrule_reports_23h_gap_across_dst_spring_forward(self):
         # America/New_York springs forward at 2026-03-08 02:00 local.
@@ -195,4 +196,4 @@ class TestPeriodForScheduledReport(BaseTest):
         # `now` sits after the transition so prev/prev_prev straddle it.
         now = dt.datetime(2026, 3, 8, 18, 0, tzinfo=dt.UTC)  # 14:00 EDT, after 9am EDT fire
         period = _period_for_scheduled_report(report, now)
-        self.assertEqual(period, dt.timedelta(hours=23))
+        assert period == dt.timedelta(hours=23)

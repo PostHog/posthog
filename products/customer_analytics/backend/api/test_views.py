@@ -32,30 +32,30 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
     def assertActivityLog(self, config_id, activity):
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerProfileConfig", activity=activity)
-        self.assertEqual(logs.count(), 1)
+        assert logs.count() == 1
         log = logs.latest("created_at")
-        self.assertEqual(log.item_id, str(config_id))
+        assert log.item_id == str(config_id)
 
     def test_create_customer_profile_config_success(self):
         response = self.client.post(self.endpoint_base, self.valid_data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
-        self.assertIn("id", response_data)
-        self.assertEqual("person", response_data["scope"])
-        self.assertEqual(self.valid_data["content"], response_data["content"])
-        self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
-        self.assertIn("created_at", response_data)
-        self.assertIn("updated_at", response_data)
+        assert "id" in response_data
+        assert "person" == response_data["scope"]
+        assert self.valid_data["content"] == response_data["content"]
+        assert self.valid_data["sidebar"] == response_data["sidebar"]
+        assert "created_at" in response_data
+        assert "updated_at" in response_data
 
         # nosemgrep: idor-lookup-without-team (test assertion)
         config = CustomerProfileConfig.objects.get(id=response_data["id"])
-        self.assertEqual(config.scope, "person", "Should persist data")
-        self.assertEqual(config.team, self.team)
-        self.assertEqual(config.content, self.valid_data["content"])
-        self.assertEqual(config.sidebar, self.valid_data["sidebar"])
-        self.assertEqual(config.created_by, self.user)
+        assert config.scope == "person", "Should persist data"
+        assert config.team == self.team
+        assert config.content == self.valid_data["content"]
+        assert config.sidebar == self.valid_data["sidebar"]
+        assert config.created_by == self.user
         self.assertActivityLog(config.id, "created")
 
     def test_list_customer_profile_configs(self):
@@ -66,12 +66,12 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(response_data["count"], 2, "Should only return configs for current team")
+        assert response_data["count"] == 2, "Should only return configs for current team"
         config_ids = [config["id"] for config in response_data["results"]]
-        self.assertIn(str(config1.id), config_ids)
-        self.assertIn(str(config2.id), config_ids)
+        assert str(config1.id) in config_ids
+        assert str(config2.id) in config_ids
 
     def test_retrieve_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(
@@ -80,12 +80,12 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{config.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(str(config.id), response_data["id"])
-        self.assertEqual("person", response_data["scope"])
-        self.assertEqual(self.valid_data["content"], response_data["content"])
-        self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
+        assert str(config.id) == response_data["id"]
+        assert "person" == response_data["scope"]
+        assert self.valid_data["content"] == response_data["content"]
+        assert self.valid_data["sidebar"] == response_data["sidebar"]
 
     def test_update_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(team=self.team, scope="person", content={"old": "data"})
@@ -93,16 +93,16 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.patch(f"{self.endpoint_base}{config.id}/", update_data, format="json")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
 
-        self.assertEqual("group_0", response_data["scope"])
-        self.assertEqual(update_data["content"], response_data["content"])
-        self.assertEqual(update_data["sidebar"], response_data["sidebar"])
+        assert "group_0" == response_data["scope"]
+        assert update_data["content"] == response_data["content"]
+        assert update_data["sidebar"] == response_data["sidebar"]
 
         config.refresh_from_db()
-        self.assertEqual("group_0", config.scope)
-        self.assertEqual(update_data["content"], config.content, "Should update database")
+        assert "group_0" == config.scope
+        assert update_data["content"] == config.content, "Should update database"
         self.assertActivityLog(config.id, "updated")
 
     def test_delete_customer_profile_config(self):
@@ -111,8 +111,8 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{config.id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertFalse(CustomerProfileConfig.objects.filter(id=config.id).exists())
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert not CustomerProfileConfig.objects.filter(id=config.id).exists()
         self.assertActivityLog(config_id, "deleted")
 
     @parameterized.expand(
@@ -157,22 +157,22 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
     def test_validation_errors(self, name, invalid_data, expected_response):
         response = self.client.post(self.endpoint_base, invalid_data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         response_data = response.json()
-        self.assertEqual(response_data, expected_response)
+        assert response_data == expected_response
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
         other_config = CustomerProfileConfig.objects.create(team=other_team, scope="person", content={"other": "team"})
 
         response = self.client.get(f"{self.endpoint_base}{other_config.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.patch(f"{self.endpoint_base}{other_config.id}/", {"scope": "group_0"}, format="json")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.delete(f"{self.endpoint_base}{other_config.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_scope_choices_validation(self):
         valid_scopes = ["person", "group_0", "group_1", "group_2", "group_3", "group_4"]
@@ -180,17 +180,17 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         for scope in valid_scopes:
             data = {"scope": scope, "content": {}}
             response = self.client.post(self.endpoint_base, data, format="json")
-            self.assertEqual(status.HTTP_201_CREATED, response.status_code, f"Failed for scope: {scope}")
+            assert status.HTTP_201_CREATED == response.status_code, f"Failed for scope: {scope}"
 
     def test_json_fields_defaults(self):
         data = {"scope": "person", "content": None, "sidebar": None}
 
         response = self.client.post(self.endpoint_base, data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+        assert status.HTTP_201_CREATED == response.status_code
         response_data = response.json()
-        self.assertEqual({}, response_data["content"], "Should default to empty dict")
-        self.assertEqual({}, response_data["sidebar"], "Should default to empty dict")
+        assert {} == response_data["content"], "Should default to empty dict"
+        assert {} == response_data["sidebar"], "Should default to empty dict"
 
     def test_permissions_authentication_required(self):
         self.client.logout()
@@ -205,7 +205,7 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         for method, url in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
-            self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+            assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
 
 
 class TestCustomerJourneyViewSet(APIBaseTest):
@@ -226,18 +226,18 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         data = response.json()
-        self.assertIn("id", data)
-        self.assertEqual(data["name"], "My Journey")
-        self.assertEqual(data["description"], "A description")
-        self.assertEqual(data["insight"], self.insight.id)
-        self.assertIn("created_at", data)
-        self.assertIn("updated_at", data)
+        assert "id" in data
+        assert data["name"] == "My Journey"
+        assert data["description"] == "A description"
+        assert data["insight"] == self.insight.id
+        assert "created_at" in data
+        assert "updated_at" in data
 
         journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
-        self.assertEqual(journey.created_by, self.user)
-        self.assertEqual(journey.team, self.team)
+        assert journey.created_by == self.user
+        assert journey.team == self.team
 
     def test_list(self):
         insight2 = Insight.objects.create(team=self.team)
@@ -250,23 +250,23 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["count"], 2)
+        assert data["count"] == 2
         ids = {r["id"] for r in data["results"]}
-        self.assertEqual(ids, {str(j1.id), str(j2.id)})
+        assert ids == {str(j1.id), str(j2.id)}
 
     def test_retrieve(self):
         journey = self._create_journey(description="desc")
 
         response = self.client.get(f"{self.endpoint_base}{journey.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["id"], str(journey.id))
-        self.assertEqual(data["name"], "Test Journey")
-        self.assertEqual(data["description"], "desc")
-        self.assertEqual(data["insight"], self.insight.id)
+        assert data["id"] == str(journey.id)
+        assert data["name"] == "Test Journey"
+        assert data["description"] == "desc"
+        assert data["insight"] == self.insight.id
 
     def test_update(self):
         journey = self._create_journey()
@@ -277,10 +277,10 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         journey.refresh_from_db()
-        self.assertEqual(journey.name, "Updated")
-        self.assertEqual(journey.description, "New desc")
+        assert journey.name == "Updated"
+        assert journey.description == "New desc"
 
     def test_delete(self):
         journey = self._create_journey()
@@ -288,10 +288,9 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{journey.id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertFalse(
-            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: semgrep.rules.idor-lookup-without-team
-        )
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        # nosemgrep: semgrep.rules.idor-lookup-without-team
+        assert not CustomerJourney.objects.filter(id=journey_id).exists()
 
     @parameterized.expand(
         [
@@ -324,7 +323,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         perform_action(self)
 
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerJourney", activity=expected_activity)
-        self.assertEqual(logs.count(), 1)
+        assert logs.count() == 1
 
     def test_unique_insight_per_team(self):
         self._create_journey()
@@ -335,8 +334,8 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_409_CONFLICT, response.status_code)
-        self.assertIn("already exists", response.json()["detail"])
+        assert status.HTTP_409_CONFLICT == response.status_code
+        assert "already exists" in response.json()["detail"]
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -344,7 +343,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         other_journey = CustomerJourney.objects.create(team=other_team, insight=other_insight, name="Other")
 
         response = self.client.get(f"{self.endpoint_base}{other_journey.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_cannot_create_journey_with_other_team_insight(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -356,10 +355,10 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         data = response.json()
-        self.assertEqual(data["attr"], "insight")
-        self.assertEqual(data["detail"], "The insight does not belong to this team.")
+        assert data["attr"] == "insight"
+        assert data["detail"] == "The insight does not belong to this team."
 
     @parameterized.expand(
         [
@@ -371,10 +370,10 @@ class TestCustomerJourneyViewSet(APIBaseTest):
     def test_validation_errors(self, _name, make_data, expected_error_field):
         response = self.client.post(self.endpoint_base, make_data(self), format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         data = response.json()
-        self.assertEqual(data["attr"], expected_error_field)
-        self.assertEqual(data["type"], "validation_error")
+        assert data["attr"] == expected_error_field
+        assert data["type"] == "validation_error"
 
     def test_authentication_required(self):
         self.client.logout()
@@ -388,7 +387,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         ]:
             with self.subTest(method):
                 response = getattr(self.client, method.lower())(url, format="json")
-                self.assertEqual(expected_status_code, response.status_code)
+                assert expected_status_code == response.status_code
 
 
 class TestAccountViewSet(APIBaseTest):
@@ -412,28 +411,28 @@ class TestAccountViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         data = response.json()
-        self.assertIn("id", data)
-        self.assertEqual(data["name"], "Acme Corp")
-        self.assertEqual(data["external_id"], "acme-123")
-        self.assertEqual(data["properties"]["csm"], {"id": self.user.id, "email": self.user.email})
-        self.assertIn("created_at", data)
-        self.assertIn("updated_at", data)
+        assert "id" in data
+        assert data["name"] == "Acme Corp"
+        assert data["external_id"] == "acme-123"
+        assert data["properties"]["csm"] == {"id": self.user.id, "email": self.user.email}
+        assert "created_at" in data
+        assert "updated_at" in data
 
         account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
-        self.assertEqual(account.created_by, self.user)
-        self.assertEqual(account.team, self.team)
-        self.assertEqual(account.properties.csm, AccountAssignment(id=self.user.id, email=self.user.email))
+        assert account.created_by == self.user
+        assert account.team == self.team
+        assert account.properties.csm == AccountAssignment(id=self.user.id, email=self.user.email)
 
     def test_create_minimal_payload_uses_defaults(self):
         response = self.client.post(self.endpoint_base, {"name": "Bare Account"}, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         data = response.json()
-        self.assertEqual(data["name"], "Bare Account")
-        self.assertIsNone(data["external_id"])
-        self.assertEqual(data["properties"], {})
+        assert data["name"] == "Bare Account"
+        assert data["external_id"] is None
+        assert data["properties"] == {}
 
     def test_list(self):
         a1 = self._create_account(name="Account 1")
@@ -444,11 +443,11 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["count"], 2)
+        assert data["count"] == 2
         ids = {r["id"] for r in data["results"]}
-        self.assertEqual(ids, {str(a1.id), str(a2.id)})
+        assert ids == {str(a1.id), str(a2.id)}
 
     def test_retrieve(self):
         account = self._create_account(
@@ -458,12 +457,12 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["id"], str(account.id))
-        self.assertEqual(data["name"], "Acme Corp")
-        self.assertEqual(data["external_id"], "ext-1")
-        self.assertEqual(data["properties"]["csm"], {"id": self.user.id, "email": self.user.email})
+        assert data["id"] == str(account.id)
+        assert data["name"] == "Acme Corp"
+        assert data["external_id"] == "ext-1"
+        assert data["properties"]["csm"] == {"id": self.user.id, "email": self.user.email}
 
     def test_update(self):
         account = self._create_account(properties={"csm": {"id": self.user.id, "email": self.user.email}})
@@ -477,10 +476,10 @@ class TestAccountViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         account.refresh_from_db()
-        self.assertEqual(account.name, "Renamed")
-        self.assertEqual(account.properties.account_owner, AccountAssignment(id=self.user.id, email=self.user.email))
+        assert account.name == "Renamed"
+        assert account.properties.account_owner == AccountAssignment(id=self.user.id, email=self.user.email)
 
     def test_delete(self):
         account = self._create_account()
@@ -488,9 +487,9 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{account.id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        assert status.HTTP_204_NO_CONTENT == response.status_code
         # nosemgrep: idor-lookup-without-team (test assertion)
-        self.assertFalse(Account.objects.unscoped().filter(id=account_id).exists())
+        assert not Account.objects.unscoped().filter(id=account_id).exists()
 
     _EXTERNAL_IDENTIFIER_PROPERTIES = {
         "stripe_customer_id": "cus_123",
@@ -504,7 +503,7 @@ class TestAccountViewSet(APIBaseTest):
 
     def _assert_external_identifiers(self, properties_payload):
         for key, value in self._EXTERNAL_IDENTIFIER_PROPERTIES.items():
-            self.assertEqual(properties_payload[key], value)
+            assert properties_payload[key] == value
 
     def test_create_with_external_identifier_properties(self):
         response = self.client.post(
@@ -513,7 +512,7 @@ class TestAccountViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         self._assert_external_identifiers(response.json()["properties"])
 
     def test_update_with_external_identifier_properties(self):
@@ -525,7 +524,7 @@ class TestAccountViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        assert status.HTTP_200_OK == response.status_code, response.json()
         self._assert_external_identifiers(response.json()["properties"])
 
     def test_retrieve_returns_external_identifier_properties(self):
@@ -533,7 +532,7 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         self._assert_external_identifiers(response.json()["properties"])
 
     def test_list_returns_external_identifier_properties(self):
@@ -541,7 +540,7 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         self._assert_external_identifiers(response.json()["results"][0]["properties"])
 
     @parameterized.expand(
@@ -571,20 +570,20 @@ class TestAccountViewSet(APIBaseTest):
         perform_action(self)
 
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity=expected_activity)
-        self.assertEqual(logs.count(), 1)
+        assert logs.count() == 1
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
         other_account = Account.objects.unscoped().create(team=other_team, name="Other")
 
         response = self.client.get(f"{self.endpoint_base}{other_account.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.patch(f"{self.endpoint_base}{other_account.id}/", {"name": "Hijacked"}, format="json")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.delete(f"{self.endpoint_base}{other_account.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     @parameterized.expand(
         [
@@ -612,25 +611,25 @@ class TestAccountViewSet(APIBaseTest):
     def test_validation_errors(self, _name, invalid_data, expected_error_field):
         response = self.client.post(self.endpoint_base, invalid_data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         data = response.json()
-        self.assertEqual(data["attr"], expected_error_field)
-        self.assertEqual(data["type"], "validation_error")
+        assert data["attr"] == expected_error_field
+        assert data["type"] == "validation_error"
 
     def test_properties_default_when_null(self):
         response = self.client.post(self.endpoint_base, {"name": "Acme", "properties": None}, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
-        self.assertEqual({}, response.json()["properties"])
+        assert status.HTTP_201_CREATED == response.status_code
+        assert {} == response.json()["properties"]
 
     def test_create_duplicate_external_id_returns_409(self):
         first = self.client.post(self.endpoint_base, {"name": "First", "external_id": "acme-1"}, format="json")
-        self.assertEqual(status.HTTP_201_CREATED, first.status_code, first.json())
+        assert status.HTTP_201_CREATED == first.status_code, first.json()
 
         second = self.client.post(self.endpoint_base, {"name": "Second", "external_id": "acme-1"}, format="json")
 
-        self.assertEqual(status.HTTP_409_CONFLICT, second.status_code, second.json())
-        self.assertIn("already exists", second.json()["detail"])
+        assert status.HTTP_409_CONFLICT == second.status_code, second.json()
+        assert "already exists" in second.json()["detail"]
 
     def test_authentication_required(self):
         self.client.logout()
@@ -644,7 +643,7 @@ class TestAccountViewSet(APIBaseTest):
         ]:
             with self.subTest(method=method, url=url):
                 response = getattr(self.client, method.lower())(url, format="json")
-                self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+                assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
 
     def test_create_with_tags(self):
         response = self.client.post(
@@ -653,18 +652,15 @@ class TestAccountViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        self.assertEqual(sorted(response.json()["tags"]), ["enterprise", "priority"])
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
+        assert sorted(response.json()["tags"]) == ["enterprise", "priority"]
         # nosemgrep: idor-lookup-without-team (test assertion)
         account = Account.objects.unscoped().get(id=response.json()["id"])
-        self.assertEqual(
-            sorted(Tag.objects.filter(team=self.team).values_list("name", flat=True)),
-            ["enterprise", "priority"],
-        )
-        self.assertEqual(
-            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
-            ["enterprise", "priority"],
-        )
+        assert sorted(Tag.objects.filter(team=self.team).values_list("name", flat=True)) == ["enterprise", "priority"]
+        assert sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)) == [
+            "enterprise",
+            "priority",
+        ]
 
     def test_retrieve_returns_tags(self):
         account = self._create_account()
@@ -673,8 +669,8 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["tags"], ["vip"])
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["tags"] == ["vip"]
 
     def test_list_returns_tags(self):
         account = self._create_account()
@@ -683,9 +679,9 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         results = {r["id"]: r for r in response.json()["results"]}
-        self.assertEqual(sorted(results[str(account.id)]["tags"]), ["alpha", "beta"])
+        assert sorted(results[str(account.id)]["tags"]) == ["alpha", "beta"]
 
     def test_update_replaces_tags(self):
         account = self._create_account()
@@ -697,9 +693,9 @@ class TestAccountViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["tags"], ["new"])
-        self.assertEqual(list(account.tagged_items.values_list("tag__name", flat=True)), ["new"])
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["tags"] == ["new"]
+        assert list(account.tagged_items.values_list("tag__name", flat=True)) == ["new"]
 
     def test_update_with_empty_tags_clears_them(self):
         account = self._create_account()
@@ -707,9 +703,9 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": []}, format="json")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertFalse(account.tagged_items.exists())
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["tags"] == []
+        assert not account.tagged_items.exists()
 
     def test_list_filters_by_tags(self):
         billing_tag = Tag.objects.create(name="billing", team=self.team)
@@ -726,9 +722,9 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         names = {r["name"] for r in response.json()["results"]}
-        self.assertEqual(names, {"Billing Co", "Urgent Co"})
+        assert names == {"Billing Co", "Urgent Co"}
 
     def test_list_tags_filter_returns_each_account_once_when_multiple_tags_match(self):
         billing_tag = Tag.objects.create(name="billing", team=self.team)
@@ -739,8 +735,8 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["count"], 1)
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["count"] == 1
 
     @parameterized.expand(
         [
@@ -759,8 +755,8 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}?tags={tags_value}")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("Must be a JSON-encoded list of strings.", str(response.json()))
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Must be a JSON-encoded list of strings." in str(response.json())
 
     def test_list_ignores_empty_tags_array(self):
         self._create_account(name="Account A")
@@ -768,8 +764,8 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}?tags=[]")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["count"], 2)
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["count"] == 2
 
     def test_list_with_tags_filter_does_not_n_plus_one(self):
         billing_tag = Tag.objects.create(name="billing", team=self.team)
@@ -797,18 +793,18 @@ class TestAccountViewSet(APIBaseTest):
             # 12: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
             response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["count"], 10)
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["count"] == 10
 
     def test_tag_change_logs_to_account_activity_stream(self):
         account = self._create_account()
         initial_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
 
         response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": ["audit"]}, format="json")
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
-        self.assertGreater(new_logs, initial_logs)
+        assert new_logs > initial_logs
 
     def test_list_accounts_filter_by_csm_user_id(self):
         self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
@@ -945,8 +941,8 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["notebooks"], [])
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["notebooks"] == []
 
     def test_retrieve_returns_all_linked_notebooks(self):
         account = self._create_account()
@@ -961,8 +957,8 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(set(response.json()["notebooks"]), {notebook_a.short_id, notebook_b.short_id})
+        assert status.HTTP_200_OK == response.status_code
+        assert set(response.json()["notebooks"]) == {notebook_a.short_id, notebook_b.short_id}
 
     def test_list_includes_notebooks_field(self):
         account = self._create_account()
@@ -973,9 +969,9 @@ class TestAccountViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         result = next(r for r in response.json()["results"] if r["id"] == str(account.id))
-        self.assertEqual(result["notebooks"], [notebook.short_id])
+        assert result["notebooks"] == [notebook.short_id]
 
 
 class TestAccountNotebookViewSet(APIBaseTest):
@@ -991,20 +987,18 @@ class TestAccountNotebookViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         data = response.json()
-        self.assertIn("short_id", data)
-        self.assertEqual(data["title"], "Q3 call")
+        assert "short_id" in data
+        assert data["title"] == "Q3 call"
 
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=data["short_id"])
-        self.assertEqual(notebook.team, self.team)
-        self.assertEqual(notebook.visibility, Notebook.Visibility.INTERNAL)
-        self.assertEqual(notebook.created_by, self.user)
+        assert notebook.team == self.team
+        assert notebook.visibility == Notebook.Visibility.INTERNAL
+        assert notebook.created_by == self.user
 
-        self.assertTrue(
-            ResourceNotebook.objects.filter(notebook=notebook, account=self.account).exists(),
-        )
+        assert ResourceNotebook.objects.filter(notebook=notebook, account=self.account).exists()
 
     def test_list_returns_only_notebooks_for_account(self):
         account_notebook = Notebook.objects.create(
@@ -1022,9 +1016,9 @@ class TestAccountNotebookViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         short_ids = [n["short_id"] for n in response.json()["results"]]
-        self.assertEqual(short_ids, [account_notebook.short_id])
+        assert short_ids == [account_notebook.short_id]
 
     def test_retrieve_returns_notebook_for_account(self):
         notebook = Notebook.objects.create(
@@ -1034,11 +1028,11 @@ class TestAccountNotebookViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{notebook.short_id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["short_id"], notebook.short_id)
-        self.assertEqual(data["title"], "Note")
-        self.assertEqual(data["content"], {"foo": "bar"})
+        assert data["short_id"] == notebook.short_id
+        assert data["title"] == "Note"
+        assert data["content"] == {"foo": "bar"}
 
     def test_retrieve_notebook_not_linked_to_account_returns_404(self):
         unrelated = Notebook.objects.create(
@@ -1047,7 +1041,7 @@ class TestAccountNotebookViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{unrelated.short_id}/")
 
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_destroy_notebook_for_account(self):
         notebook = Notebook.objects.create(
@@ -1058,17 +1052,17 @@ class TestAccountNotebookViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{notebook.short_id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        assert status.HTTP_204_NO_CONTENT == response.status_code
         # nosemgrep: idor-lookup-without-team (test assertion)
-        self.assertFalse(Notebook.objects.filter(pk=notebook_pk).exists())
-        self.assertFalse(ResourceNotebook.objects.filter(account=self.account).exists())
+        assert not Notebook.objects.filter(pk=notebook_pk).exists()
+        assert not ResourceNotebook.objects.filter(account=self.account).exists()
 
     def test_create_for_unknown_account_returns_404(self):
         bad_url = f"/api/environments/{self.team.id}/accounts/00000000-0000-0000-0000-000000000000/notebooks/"
 
         response = self.client.post(bad_url, {"title": "X"}, format="json")
 
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_other_team_account_is_not_accessible(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -1077,7 +1071,7 @@ class TestAccountNotebookViewSet(APIBaseTest):
         url = f"/api/environments/{self.team.id}/accounts/{other_account.id}/notebooks/"
         response = self.client.post(url, {"title": "X"}, format="json")
 
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_internal_account_notebooks_do_not_appear_in_notebooks_list(self):
         notebook = Notebook.objects.create(
@@ -1086,9 +1080,9 @@ class TestAccountNotebookViewSet(APIBaseTest):
         ResourceNotebook.objects.create(notebook=notebook, account=self.account)
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         short_ids = [n["short_id"] for n in response.json()["results"]]
-        self.assertNotIn(notebook.short_id, short_ids)
+        assert notebook.short_id not in short_ids
 
     def test_authentication_required(self):
         self.client.logout()
@@ -1101,7 +1095,7 @@ class TestAccountNotebookViewSet(APIBaseTest):
         ]:
             with self.subTest(method=method, url=url):
                 response = getattr(self.client, method.lower())(url, format="json")
-                self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+                assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
 
     def test_list_excludes_non_internal_notebooks_linked_to_account(self):
         internal_notebook = Notebook.objects.create(
@@ -1116,10 +1110,10 @@ class TestAccountNotebookViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         short_ids = [n["short_id"] for n in response.json()["results"]]
-        self.assertIn(internal_notebook.short_id, short_ids)
-        self.assertNotIn(default_notebook.short_id, short_ids)
+        assert internal_notebook.short_id in short_ids
+        assert default_notebook.short_id not in short_ids
 
     def test_create_derives_content_from_markdown_text_content(self):
         response = self.client.post(
@@ -1128,16 +1122,16 @@ class TestAccountNotebookViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.text_content, "# Heading\n\nSome **bold** text.")
-        self.assertIsInstance(notebook.content, dict)
-        self.assertEqual(notebook.content["type"], "doc")
+        assert notebook.text_content == "# Heading\n\nSome **bold** text."
+        assert isinstance(notebook.content, dict)
+        assert notebook.content["type"] == "doc"
         first_node = notebook.content["content"][0]
-        self.assertEqual(first_node["type"], "heading")
-        self.assertEqual(first_node["attrs"]["level"], 1)
-        self.assertEqual(first_node["content"][0]["text"], "Heading")
+        assert first_node["type"] == "heading"
+        assert first_node["attrs"]["level"] == 1
+        assert first_node["content"][0]["text"] == "Heading"
 
     def test_create_preserves_caller_supplied_content(self):
         explicit_content = {
@@ -1150,18 +1144,18 @@ class TestAccountNotebookViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content, explicit_content)
+        assert notebook.content == explicit_content
 
     def test_create_with_neither_field_leaves_content_null(self):
         response = self.client.post(self.endpoint_base, {"title": "Empty"}, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertIsNone(notebook.content)
+        assert notebook.content is None
 
     def test_create_with_empty_text_content_does_not_synthesize_content(self):
         response = self.client.post(
@@ -1170,10 +1164,10 @@ class TestAccountNotebookViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertIsNone(notebook.content)
+        assert notebook.content is None
 
     def test_create_with_empty_dict_content_falls_back_to_markdown(self):
         response = self.client.post(
@@ -1182,13 +1176,13 @@ class TestAccountNotebookViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content["type"], "doc")
+        assert notebook.content["type"] == "doc"
         first_node = notebook.content["content"][0]
-        self.assertEqual(first_node["type"], "paragraph")
-        self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
+        assert first_node["type"] == "paragraph"
+        assert first_node["content"][0]["text"] == "Just a sentence."
 
     def test_create_with_empty_valid_prosemirror_doc_respects_caller(self):
         empty_doc = {"type": "doc", "content": []}
@@ -1198,10 +1192,10 @@ class TestAccountNotebookViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content, empty_doc)
+        assert notebook.content == empty_doc
 
     def test_notebook_detail_includes_parent_resource_for_linked_account(self):
         notebook = Notebook.objects.create(
@@ -1214,11 +1208,8 @@ class TestAccountNotebookViewSet(APIBaseTest):
         # present on NotebookSerializer responses.
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertEqual(
-            response.json()["parent_resource"],
-            {"type": "account", "id": str(self.account.id)},
-        )
+        assert status.HTTP_200_OK == response.status_code, response.json()
+        assert response.json()["parent_resource"] == {"type": "account", "id": str(self.account.id)}
 
     def test_notebook_detail_parent_resource_is_null_for_standalone(self):
         notebook = Notebook.objects.create(
@@ -1227,8 +1218,8 @@ class TestAccountNotebookViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertIsNone(response.json()["parent_resource"])
+        assert status.HTTP_200_OK == response.status_code, response.json()
+        assert response.json()["parent_resource"] is None
 
 
 @pytest.mark.ee
@@ -1291,14 +1282,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_retrieve_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     # -- Viewer cannot create/update/delete journeys --
 
@@ -1312,7 +1303,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "New Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_update_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -1323,14 +1314,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"name": "Updated"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_delete_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Editor can create/update/delete journeys --
 
@@ -1344,7 +1335,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Editor Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_update_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -1355,14 +1346,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"name": "Updated by editor"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_delete_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # -- None access blocks everything --
 
@@ -1371,7 +1362,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Resource inheritance: customer_analytics access cascades to journeys --
 
@@ -1380,14 +1371,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_customer_analytics_none_blocks_journey_list(self):
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_customer_analytics_editor_can_create_journey(self):
         self._set_access_level(self.editor_user, resource="customer_analytics", access_level="editor")
@@ -1399,7 +1390,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Child Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_customer_analytics_viewer_cannot_create_journey(self):
         self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
@@ -1411,7 +1402,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Should Fail"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Org admin has full access without explicit permissions --
 
@@ -1428,10 +1419,10 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Admin Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # -- Resource inheritance: customer_analytics access cascades to accounts --
 
@@ -1440,28 +1431,28 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self.accounts_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_customer_analytics_viewer_cannot_create_account(self):
         self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.post(self.accounts_url, {"name": "Should Fail"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_customer_analytics_editor_can_create_account(self):
         self._set_access_level(self.editor_user, resource="customer_analytics", access_level="editor")
         self.client.force_login(self.editor_user)
 
         response = self.client.post(self.accounts_url, {"name": "Inherited Account"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_customer_analytics_none_blocks_account_list(self):
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(self.accounts_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Account notebooks inherit object-level access from the parent account --
 
@@ -1481,7 +1472,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         url = f"{self.accounts_url}{self.account.id}/notebooks/"
 
         list_response = self.client.get(url)
-        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+        assert list_response.status_code == status.HTTP_404_NOT_FOUND
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
-        self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
+        assert create_response.status_code == status.HTTP_404_NOT_FOUND

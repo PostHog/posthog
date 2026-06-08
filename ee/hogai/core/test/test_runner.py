@@ -115,13 +115,13 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 results.append((event_type, message))
 
             # Verify that a FailureMessage was yielded with appropriate message
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, AssistantEventType.MESSAGE)
-            self.assertIsInstance(message, FailureMessage)
-            self.assertEqual(
-                message.content,
-                "I'm unable to process this request. The conversation may be too long. Please start a new conversation.",
+            assert event_type == AssistantEventType.MESSAGE
+            assert isinstance(message, FailureMessage)
+            assert (
+                message.content
+                == "I'm unable to process this request. The conversation may be too long. Please start a new conversation."
             )
 
             # Verify state was reset
@@ -134,14 +134,14 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             # Verify error was logged as client error
             mock_logger.exception.assert_called_once()
             call_args = mock_logger.exception.call_args
-            self.assertEqual(call_args[0][0], "llm_client_error")
-            self.assertEqual(call_args[1]["provider"], expected_provider)
+            assert call_args[0][0] == "llm_client_error"
+            assert call_args[1]["provider"] == expected_provider
 
             # Verify exception was captured with correct type
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
-            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_client_error")
-            self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+            assert capture_call_args[1]["properties"]["error_type"] == "llm_client_error"
+            assert capture_call_args[1]["properties"]["provider"] == expected_provider
 
     @parameterized.expand(
         [
@@ -209,13 +209,13 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 results.append((event_type, message))
 
             # Verify that a FailureMessage was yielded with retry message
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, AssistantEventType.MESSAGE)
-            self.assertIsInstance(message, FailureMessage)
-            self.assertEqual(
-                message.content,
-                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            assert event_type == AssistantEventType.MESSAGE
+            assert isinstance(message, FailureMessage)
+            assert (
+                message.content
+                == "I'm unable to respond right now due to a temporary service issue. Please try again later."
             )
 
             # Verify state was reset
@@ -228,14 +228,14 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             # Verify error was logged as provider error
             mock_logger.exception.assert_called_once()
             call_args = mock_logger.exception.call_args
-            self.assertEqual(call_args[0][0], "llm_provider_error")
-            self.assertEqual(call_args[1]["provider"], expected_provider)
+            assert call_args[0][0] == "llm_provider_error"
+            assert call_args[1]["provider"] == expected_provider
 
             # Verify exception was captured with correct type
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
-            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
-            self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+            assert capture_call_args[1]["properties"]["error_type"] == "llm_provider_error"
+            assert capture_call_args[1]["properties"]["provider"] == expected_provider
 
     @parameterized.expand(
         [
@@ -271,13 +271,13 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             ):
                 results.append((event_type, message))
 
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, AssistantEventType.MESSAGE)
-            self.assertIsInstance(message, FailureMessage)
-            self.assertEqual(
-                message.content,
-                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            assert event_type == AssistantEventType.MESSAGE
+            assert isinstance(message, FailureMessage)
+            assert (
+                message.content
+                == "I'm unable to respond right now due to a temporary service issue. Please try again later."
             )
 
             mock_graph.aupdate_state.assert_called()
@@ -292,14 +292,14 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             # Logged as transport error, not provider error
             mock_logger.exception.assert_called_once()
             call_args = mock_logger.exception.call_args
-            self.assertEqual(call_args[0][0], "llm_transport_error")
-            self.assertEqual(call_args[1]["error_type"], expected_error_type)
+            assert call_args[0][0] == "llm_transport_error"
+            assert call_args[1]["error_type"] == expected_error_type
 
             # Captured with transport error type, no provider field
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
-            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_transport_error")
-            self.assertNotIn("provider", capture_call_args[1]["properties"])
+            assert capture_call_args[1]["properties"]["error_type"] == "llm_transport_error"
+            assert "provider" not in capture_call_args[1]["properties"]
 
     @parameterized.expand(
         [
@@ -332,14 +332,11 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 results.append((event_type, message))
 
             # Verify that a FailureMessage was yielded
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             event_type, message = results[0]
-            self.assertEqual(event_type, AssistantEventType.MESSAGE)
-            self.assertIsInstance(message, FailureMessage)
-            self.assertEqual(
-                message.content,
-                "I'm unable to respond right now. Please try again later.",
-            )
+            assert event_type == AssistantEventType.MESSAGE
+            assert isinstance(message, FailureMessage)
+            assert message.content == "I'm unable to respond right now. Please try again later."
 
             # Verify state was reset
             mock_graph.aupdate_state.assert_called()
@@ -351,14 +348,14 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             # Verify error was logged as api error
             mock_logger.exception.assert_called_once()
             call_args = mock_logger.exception.call_args
-            self.assertEqual(call_args[0][0], "llm_api_error")
-            self.assertEqual(call_args[1]["provider"], expected_provider)
+            assert call_args[0][0] == "llm_api_error"
+            assert call_args[1]["provider"] == expected_provider
 
             # Verify exception was captured with correct type
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
-            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_api_error")
-            self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+            assert capture_call_args[1]["properties"]["error_type"] == "llm_api_error"
+            assert capture_call_args[1]["properties"]["provider"] == expected_provider
 
 
 class TestRunnerSubagentBehavior(BaseTest):
@@ -485,8 +482,8 @@ class TestRunnerSubagentBehavior(BaseTest):
                 results.append((event_type, message))
 
             # Both should yield a failure message
-            self.assertEqual(len(results), 1)
-            self.assertIsInstance(results[0][1], FailureMessage)
+            assert len(results) == 1
+            assert isinstance(results[0][1], FailureMessage)
 
             # Only checkpointer mode should reset state
             if should_reset_state:
@@ -547,11 +544,11 @@ class TestRunnerSubagentBehavior(BaseTest):
         async with runner._lock_conversation():
             # Status should not have changed during the context
             await self.conversation.arefresh_from_db()
-            self.assertEqual(self.conversation.status, initial_status)
+            assert self.conversation.status == initial_status
 
         # Status should still be unchanged after exiting
         await self.conversation.arefresh_from_db()
-        self.assertEqual(self.conversation.status, initial_status)
+        assert self.conversation.status == initial_status
 
     async def test_main_agent_lock_conversation_updates_status(self):
         """
@@ -566,10 +563,10 @@ class TestRunnerSubagentBehavior(BaseTest):
 
         async with runner._lock_conversation():
             await self.conversation.arefresh_from_db()
-            self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
+            assert self.conversation.status == Conversation.Status.IN_PROGRESS
 
         await self.conversation.arefresh_from_db()
-        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+        assert self.conversation.status == Conversation.Status.IDLE
 
     @parameterized.expand(
         [
@@ -642,10 +639,10 @@ class TestRunnerSubagentBehavior(BaseTest):
             )
 
             # Check that SubagentCallbackHandler was used
-            self.assertEqual(len(runner._callback_handlers), 1)
-            self.assertIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
+            assert len(runner._callback_handlers) == 1
+            assert isinstance(runner._callback_handlers[0], SubagentCallbackHandler)
             handler = cast(SubagentCallbackHandler, runner._callback_handlers[0])
-            self.assertEqual(handler._parent_span_id, parent_span_id)
+            assert handler._parent_span_id == parent_span_id
 
 
 class TestRunnerConversationTitleAction(BaseTest):
@@ -704,9 +701,9 @@ class TestRunnerConversationTitleAction(BaseTest):
         raw_update = (("title_generator",), "custom", action)
         result = await runner._process_update(raw_update)
 
-        self.assertIsNone(result)
-        self.assertEqual(runner._conversation.title, "My Generated Title")
-        self.assertTrue(runner._pending_conversation_update)
+        assert result is None
+        assert runner._conversation.title == "My Generated Title"
+        assert runner._pending_conversation_update
 
     async def test_process_update_does_not_set_pending_flag_for_other_updates(self):
         runner, _ = self._create_runner()
@@ -716,7 +713,7 @@ class TestRunnerConversationTitleAction(BaseTest):
         other_update: tuple[tuple[str, ...], str, dict] = (("some_node",), "values", {})
         await runner._process_update(other_update)
 
-        self.assertFalse(runner._pending_conversation_update)
+        assert not runner._pending_conversation_update
 
     async def test_astream_yields_conversation_event_when_title_action_received(self):
         title_action = ConversationTitleAction(title="Streamed Title")
@@ -738,6 +735,6 @@ class TestRunnerConversationTitleAction(BaseTest):
                 results.append((event_type, payload))
 
         conversation_events = [(et, p) for et, p in results if et == AssistantEventType.CONVERSATION]
-        self.assertEqual(len(conversation_events), 1)
+        assert len(conversation_events) == 1
         _, conversation = conversation_events[0]
-        self.assertEqual(conversation.title, "Streamed Title")
+        assert conversation.title == "Streamed Title"

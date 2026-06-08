@@ -42,22 +42,22 @@ class TestQueryCoalescer(TestCase):
 
     def test_acquire_succeeds_when_no_lock(self):
         coalescer = QueryCoalescer(self.key)
-        self.assertTrue(coalescer.try_acquire())
-        self.assertTrue(coalescer.is_leader)
-        self.assertTrue(self._lock_exists())
+        assert coalescer.try_acquire()
+        assert coalescer.is_leader
+        assert self._lock_exists()
         coalescer.cleanup()
 
     def test_acquire_fails_when_lock_held(self):
         self._set_lock("other")
         coalescer = QueryCoalescer(self.key)
-        self.assertFalse(coalescer.try_acquire())
-        self.assertFalse(coalescer.is_leader)
+        assert not coalescer.try_acquire()
+        assert not coalescer.is_leader
 
     def test_cleanup_releases_lock(self):
         coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         coalescer.cleanup()
-        self.assertFalse(self._lock_exists())
+        assert not self._lock_exists()
 
     def test_cleanup_preserves_other_leaders_lock(self):
         old = QueryCoalescer(self.key)
@@ -67,7 +67,7 @@ class TestQueryCoalescer(TestCase):
         new = QueryCoalescer(self.key)
         new.try_acquire()
         old.cleanup()
-        self.assertTrue(self._lock_exists())
+        assert self._lock_exists()
         new.cleanup()
 
     # -- Store / retrieve --
@@ -78,13 +78,13 @@ class TestQueryCoalescer(TestCase):
         coalescer.store_error_response(400, b'{"detail":"bad request"}')
         result = coalescer.get_error_response()
         assert result is not None
-        self.assertEqual(result["status"], 400)
-        self.assertEqual(result["body"], '{"detail":"bad request"}')
+        assert result["status"] == 400
+        assert result["body"] == '{"detail":"bad request"}'
         coalescer.cleanup()
 
     def test_get_error_response_returns_none_when_missing(self):
         coalescer = QueryCoalescer(self.key)
-        self.assertIsNone(coalescer.get_error_response())
+        assert coalescer.get_error_response() is None
 
     def test_store_and_get_success_response(self):
         coalescer = QueryCoalescer(self.key)
@@ -92,14 +92,14 @@ class TestQueryCoalescer(TestCase):
         coalescer.store_success_response(200, b'{"results": [1, 2, 3]}', "application/json")
         result = coalescer.get_success_response()
         assert result is not None
-        self.assertEqual(result["status"], 200)
-        self.assertEqual(result["body"], '{"results": [1, 2, 3]}')
-        self.assertEqual(result["content_type"], "application/json")
+        assert result["status"] == 200
+        assert result["body"] == '{"results": [1, 2, 3]}'
+        assert result["content_type"] == "application/json"
         coalescer.cleanup()
 
     def test_get_success_response_returns_none_when_missing(self):
         coalescer = QueryCoalescer(self.key)
-        self.assertIsNone(coalescer.get_success_response())
+        assert coalescer.get_success_response() is None
 
     # -- Concurrent leader + follower --
 
@@ -134,9 +134,9 @@ class TestQueryCoalescer(TestCase):
         leader_thread.join(timeout=10)
         follower_thread.join(timeout=10)
 
-        self.assertTrue(results["leader_acquired"])
-        self.assertFalse(results["follower_acquired"])
-        self.assertEqual(results["follower_signal"], CoalesceSignal.DONE)
+        assert results["leader_acquired"]
+        assert not results["follower_acquired"]
+        assert results["follower_signal"] == CoalesceSignal.DONE
 
     def test_concurrent_leader_error_and_follower(self):
         results: dict[str, Any] = {}
@@ -168,9 +168,9 @@ class TestQueryCoalescer(TestCase):
         leader_thread.join(timeout=10)
         follower_thread.join(timeout=10)
 
-        self.assertEqual(results["signal"], CoalesceSignal.ERROR)
-        self.assertEqual(results["error_data"]["status"], 500)
-        self.assertEqual(results["error_data"]["body"], '{"detail":"server error"}')
+        assert results["signal"] == CoalesceSignal.ERROR
+        assert results["error_data"]["status"] == 500
+        assert results["error_data"]["body"] == '{"detail":"server error"}'
 
     # -- Metrics --
 
@@ -181,7 +181,7 @@ class TestQueryCoalescer(TestCase):
         coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         after = query_coalesce_counter.labels(outcome="leader")._value.get()
-        self.assertEqual(after, before + 1)
+        assert after == before + 1
         coalescer.cleanup()
 
     def test_follower_increments_counter(self):
@@ -192,15 +192,15 @@ class TestQueryCoalescer(TestCase):
         coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         after = query_coalesce_counter.labels(outcome="follower")._value.get()
-        self.assertEqual(after, before + 1)
+        assert after == before + 1
 
     def test_dry_run_follower_increments_counter(self):
         self._set_lock()
         before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         coalescer = QueryCoalescer(self.key, dry_run=True)
-        self.assertFalse(coalescer.try_acquire())
+        assert not coalescer.try_acquire()
         after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
-        self.assertEqual(after, before + 1)
+        assert after == before + 1
 
     def test_new_leader_preserves_done_key_from_previous_round(self):
         """A new leader acquiring the lock must not delete the
@@ -219,7 +219,7 @@ class TestQueryCoalescer(TestCase):
         follower_a = QueryCoalescer(self.key)
         result = follower_a.get_success_response()
         assert result is not None, "done_key was deleted by new leader"
-        self.assertEqual(result["status"], 200)
+        assert result["status"] == 200
         leader_b.cleanup()
 
     def test_signal_error_stores_error_key_for_polling(self):
@@ -234,7 +234,7 @@ class TestQueryCoalescer(TestCase):
         follower = QueryCoalescer(self.key)
         error_value = self.redis.get(f"{ERROR_KEY_PREFIX}:{self.key}")
         assert error_value is not None, "signal_error did not store error_key"
-        self.assertIsNone(follower.get_success_response())
+        assert follower.get_success_response() is None
 
     # -- Redis failure --
 
@@ -265,7 +265,7 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_coalescer.store_success_response.assert_called_once()
         mock_coalescer.cleanup.assert_called_once()
 
@@ -282,8 +282,8 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
                 {"query": {"kind": "EventsQuery", "select": ["nonexistent_column_xyz"]}},
             )
 
-        self.assertGreaterEqual(response.status_code, 400)
-        self.assertLess(response.status_code, 500)
+        assert response.status_code >= 400
+        assert response.status_code < 500
         # 4xx should signal error without storing response
         mock_coalescer.signal_error.assert_called_once()
         mock_coalescer.store_success_response.assert_not_called()
@@ -303,9 +303,9 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = [row[0] for row in response.json()["results"]]
-        self.assertIn("test_event", events)
+        assert "test_event" in events
         mock_coalescer.wait_for_signal.assert_not_called()
 
     def test_follower_gets_replayed_success_response(self):
@@ -325,8 +325,8 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("test_event", response.json()["results"][0][0])
+        assert response.status_code == 200
+        assert "test_event" in response.json()["results"][0][0]
 
     def test_follower_falls_through_on_error_signal(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
@@ -344,9 +344,9 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(self._query_url(), self._query_payload())
 
         # Follower executes independently on ERROR signal (leader had 4xx)
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = [row[0] for row in response.json()["results"]]
-        self.assertIn("test_event", events)
+        assert "test_event" in events
 
     def test_follower_falls_through_on_timeout(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
@@ -363,9 +363,9 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = [row[0] for row in response.json()["results"]]
-        self.assertIn("test_event", events)
+        assert "test_event" in events
 
     def test_follower_falls_through_on_crash(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
@@ -382,9 +382,9 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = [row[0] for row in response.json()["results"]]
-        self.assertIn("test_event", events)
+        assert "test_event" in events
 
     def test_redis_failure_falls_through(self):
         _create_event(team=self.team, event="test_event", distinct_id="user1")
@@ -399,9 +399,9 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = [row[0] for row in response.json()["results"]]
-        self.assertIn("test_event", events)
+        assert "test_event" in events
 
     def test_non_matching_path_skips_coalescing(self):
         with mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls:
@@ -425,8 +425,8 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json()["detail"], "Internal server error")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Internal server error"
 
     def test_follower_permission_denied_returns_403_not_500(self):
         mock_coalescer = mock.MagicMock()
@@ -449,7 +449,7 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_follower_throttled_still_serves_cached_response(self):
         mock_coalescer = mock.MagicMock()
@@ -472,8 +472,8 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(self._query_url(), self._query_payload())
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["results"], [["test_event"]])
+        assert response.status_code == 200
+        assert response.json()["results"] == [["test_event"]]
 
     @parameterized.expand(
         [

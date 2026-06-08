@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 from datetime import datetime
 
 from freezegun import freeze_time
@@ -250,13 +251,13 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._movie_event(distinct_id="wrong_order")
 
         result = funnel.calculate().results
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 4)
+        assert result[0]["name"] == "user signed up"
+        assert result[0]["count"] == 4
 
-        self.assertEqual(result[1]["name"], "paid")
-        self.assertEqual(result[1]["count"], 2)
-        self.assertEqual(result[2]["name"], "watched movie")
-        self.assertEqual(result[2]["count"], 1)
+        assert result[1]["name"] == "paid"
+        assert result[1]["count"] == 2
+        assert result[2]["name"] == "watched movie"
+        assert result[2]["count"] == 1
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -321,16 +322,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2012-01-01T03:21:46.000Z"):
             result = funnel.calculate().results
-            self.assertEqual(result[0]["name"], "user signed up")
+            assert result[0]["name"] == "user signed up"
 
             # key difference between this test and test_funnel_events.
             # we merged two people and thus the count here is 3 and not 4
-            self.assertEqual(result[0]["count"], 3)
+            assert result[0]["count"] == 3
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 2)
-            self.assertEqual(result[2]["name"], "watched movie")
-            self.assertEqual(result[2]["count"], 1)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 2
+            assert result[2]["name"] == "watched movie"
+            assert result[2]["count"] == 1
 
     def test_funnel_with_messed_up_order(self):
         action_play_movie = Action.objects.create(
@@ -382,11 +383,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._signup_event(distinct_id="wrong_order")
 
         result = funnel.calculate().results
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 4)
+        assert result[0]["name"] == "user signed up"
+        assert result[0]["count"] == 4
 
-        self.assertEqual(result[1]["name"], "watched movie")
-        self.assertEqual(result[1]["count"], 1)
+        assert result[1]["name"] == "watched movie"
+        assert result[1]["count"] == 1
 
     def test_funnel_with_any_event(self):
         funnel = self._basic_funnel(
@@ -426,14 +427,14 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._movie_event(distinct_id="wrong_order")
 
         result = funnel.calculate().results
-        self.assertEqual(result[0]["name"], None)
-        self.assertEqual(result[0]["count"], 5)
+        assert result[0]["name"] is None
+        assert result[0]["count"] == 5
 
-        self.assertEqual(result[1]["name"], None)
-        self.assertEqual(result[1]["count"], 3)
+        assert result[1]["name"] is None
+        assert result[1]["count"] == 3
 
-        self.assertEqual(result[2]["name"], None)
-        self.assertEqual(result[2]["count"], 1)
+        assert result[2]["name"] is None
+        assert result[2]["count"] == 1
 
     # TODO: obsolete test as new entities aren't part of the query schema?
     def test_funnel_with_new_entities_that_mess_up_order(self):
@@ -486,11 +487,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._signup_event(distinct_id="wrong_order")
 
         result = funnel.calculate().results
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 4)
+        assert result[0]["name"] == "user signed up"
+        assert result[0]["count"] == 4
 
-        self.assertEqual(result[1]["name"], "watched movie")
-        self.assertEqual(result[1]["count"], 1)
+        assert result[1]["name"] == "watched movie"
+        assert result[1]["count"] == 1
 
     def test_funnel_skipped_step(self):
         funnel = self._basic_funnel()
@@ -500,8 +501,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._movie_event(distinct_id="wrong_order")
 
         result = funnel.calculate().results
-        self.assertEqual(result[1]["count"], 0)
-        self.assertEqual(result[2]["count"], 0)
+        assert result[1]["count"] == 0
+        assert result[2]["count"] == 0
 
     @also_test_with_materialized_columns(["$browser"])
     def test_funnel_prop_filters(self):
@@ -523,8 +524,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._pay_event(distinct_id="half_property")
 
         result = funnel.calculate().results
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(result[1]["count"], 1)
+        assert result[0]["count"] == 2
+        assert result[1]["count"] == 1
 
     @also_test_with_materialized_columns(["$browser"])
     def test_funnel_prop_filters_per_entity(self):
@@ -612,9 +613,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel.calculate().results
 
-        self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(result[2]["count"], 0)
+        assert result[0]["count"] == 1
+        assert result[1]["count"] == 1
+        assert result[2]["count"] == 0
 
     @also_test_with_materialized_columns(person_properties=["email"])
     def test_funnel_person_prop(self):
@@ -675,9 +676,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._movie_event(distinct_id="with_property")
 
         result = funnel.calculate().results
-        self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(result[2]["count"], 1)
+        assert result[0]["count"] == 1
+        assert result[1]["count"] == 1
+        assert result[2]["count"] == 1
 
     @also_test_with_materialized_columns(["test_propX"])
     def test_funnel_multiple_actions(self):
@@ -730,9 +731,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[2]["count"], 0)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
+        assert results[2]["count"] == 0
 
     @also_test_with_materialized_columns(person_properties=["email"])
     def test_funnel_filter_test_accounts(self):
@@ -760,7 +761,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
+        assert results[0]["count"] == 1
 
     @also_test_with_materialized_columns(person_properties=["email"])
     def test_funnel_with_entity_person_property_filters(self):
@@ -800,7 +801,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["count"] == 2
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
     def test_funnel_filter_by_action_with_person_properties(self):
@@ -849,7 +850,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["count"] == 2
 
     def test_basic_funnel_default_funnel_days(self):
         query = FunnelsQuery(
@@ -886,11 +887,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 1
 
-        self.assertEqual(results[1]["name"], "paid")
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["name"] == "paid"
+        assert results[1]["count"] == 1
 
     def test_basic_funnel_with_person_id_override_properties_joined_modifier_and_person_breakdown(self):
         query = FunnelsQuery(
@@ -942,11 +943,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .results
         )
 
-        self.assertEqual(results[0][0]["name"], "user signed up")
-        self.assertEqual(results[0][0]["count"], 1)
+        assert results[0][0]["name"] == "user signed up"
+        assert results[0][0]["count"] == 1
 
-        self.assertEqual(results[0][1]["name"], "paid")
-        self.assertEqual(results[0][1]["count"], 1)
+        assert results[0][1]["name"] == "paid"
+        assert results[0][1]["count"] == 1
 
     def test_basic_funnel_with_repeat_steps(self):
         query = FunnelsQuery(
@@ -984,23 +985,19 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["count"] == 1
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
-            [person1_stopped_after_two_signups.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
     @also_test_with_materialized_columns(["key"])
     def test_basic_funnel_with_derivative_steps(self):
@@ -1047,23 +1044,19 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["count"] == 1
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
-            [person1_stopped_after_two_signups.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
     def test_basic_funnel_with_repeat_step_updated_param(self):
         people = journeys_for(
@@ -1092,23 +1085,19 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["count"] == 1
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 people["stopped_after_signup1"].uuid,
                 people["stopped_after_signup2"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
-            [people["stopped_after_signup1"].uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([people["stopped_after_signup1"].uuid])
 
         query = FunnelsQuery(
             funnelsFilter=FunnelsFilter(
@@ -1212,62 +1201,55 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "$pageview")
-        self.assertEqual(results[4]["name"], "$pageview")
-        self.assertEqual(results[0]["count"], 5)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "$pageview"
+        assert results[4]["name"] == "$pageview"
+        assert results[0]["count"] == 5
 
-        self.assertEqual(results[1]["count"], 4)
+        assert results[1]["count"] == 4
 
-        self.assertEqual(results[2]["count"], 3)
+        assert results[2]["count"] == 3
 
-        self.assertEqual(results[3]["count"], 2)
+        assert results[3]["count"] == 2
 
-        self.assertEqual(results[4]["count"], 1)
+        assert results[4]["count"] == 1
 
         # check ordering of people in every step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 people["stopped_after_signup1"].uuid,
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
             [
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 3),
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
             [
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 4),
+        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter(
             [
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 5),
-            [people["stopped_after_pageview4"].uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 5)) == Counter([people["stopped_after_pageview4"].uuid])
 
     def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
         query = FunnelsQuery(
@@ -1385,55 +1367,44 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "$pageview")
-        self.assertEqual(results[4]["name"], "$pageview")
-        self.assertEqual(results[0]["count"], 5)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "$pageview"
+        assert results[4]["name"] == "$pageview"
+        assert results[0]["count"] == 5
 
-        self.assertEqual(results[1]["count"], 4)
+        assert results[1]["count"] == 4
 
-        self.assertEqual(results[2]["count"], 1)
+        assert results[2]["count"] == 1
 
-        self.assertEqual(results[3]["count"], 1)
+        assert results[3]["count"] == 1
 
-        self.assertEqual(results[4]["count"], 1)
+        assert results[4]["count"] == 1
 
         # check ordering of people in every step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_two_pageview.uuid,
                 person4_stopped_after_three_pageview.uuid,
                 person5_stopped_after_many_pageview.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_two_pageview.uuid,
                 person4_stopped_after_three_pageview.uuid,
                 person5_stopped_after_many_pageview.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 3),
-            [person5_stopped_after_many_pageview.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person5_stopped_after_many_pageview.uuid])
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 4),
-            [person5_stopped_after_many_pageview.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter([person5_stopped_after_many_pageview.uuid])
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 5),
-            [person5_stopped_after_many_pageview.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 5)) == Counter([person5_stopped_after_many_pageview.uuid])
 
     @also_test_with_materialized_columns(["key"])
     def test_funnel_with_actions(self):
@@ -1486,24 +1457,20 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "sign up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "sign up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
-            [person1_stopped_after_two_signups.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
     def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
         sign_up_action = _create_action(
@@ -1563,24 +1530,20 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(results[0]["name"], "sign up")
-            self.assertEqual(results[0]["count"], 2)
+            assert results[0]["name"] == "sign up"
+            assert results[0]["count"] == 2
 
-            self.assertEqual(results[1]["count"], 1)
+            assert results[1]["count"] == 1
 
             # check ordering of people in first step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(query, 1),
+            assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(query, 2),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
     def test_funnel_with_actions_and_props(self):
         sign_up_action = _create_action(
@@ -1640,24 +1603,20 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "sign up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "sign up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
-            [person1_stopped_after_two_signups.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
     def test_funnel_with_actions_and_props_with_zero_person_ids(self):
         # only a person-on-event test
@@ -1736,24 +1695,20 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "sign up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "sign up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 person1_stopped_after_two_signups.uuid,
                 person2_stopped_after_signup.uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
-            [person1_stopped_after_two_signups.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
     @also_test_with_materialized_columns(["$current_url"])
     def test_funnel_with_matching_properties(self):
@@ -1868,54 +1823,50 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "$pageview")
-        self.assertEqual(results[4]["name"], "$pageview")
-        self.assertEqual(results[0]["count"], 5)
-        self.assertEqual(results[1]["count"], 4)
-        self.assertEqual(results[2]["count"], 3)
-        self.assertEqual(results[3]["count"], 2)
-        self.assertEqual(results[4]["count"], 0)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "$pageview"
+        assert results[4]["name"] == "$pageview"
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 4
+        assert results[2]["count"] == 3
+        assert results[3]["count"] == 2
+        assert results[4]["count"] == 0
         # check ordering of people in every step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 people["stopped_after_signup1"].uuid,
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
             [
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 3),
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
             [
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 4),
+        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter(
             [
                 people["stopped_after_pageview3"].uuid,
                 people["stopped_after_pageview4"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 5), [])
+        assert Counter(self._get_actor_ids_at_step(query, 5)) == Counter([])
 
     def test_funnel_conversion_window(self):
         ids_to_compare = []
@@ -1977,14 +1928,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 25)
-        self.assertEqual(results[1]["count"], 10)
-        self.assertEqual(results[2]["count"], 0)
+        assert results[0]["count"] == 25
+        assert results[1]["count"] == 10
+        assert results[2]["count"] == 0
 
-        self.assertCountEqual(
-            [str(id) for id in self._get_actor_ids_at_step(query, 2)],
-            ids_to_compare,
-        )
+        assert Counter([str(id) for id in self._get_actor_ids_at_step(query, 2)]) == Counter(ids_to_compare)
 
     @snapshot_clickhouse_queries
     def test_funnel_conversion_window_seconds(self):
@@ -2046,14 +1994,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 25)
-        self.assertEqual(results[1]["count"], 10)
-        self.assertEqual(results[2]["count"], 0)
+        assert results[0]["count"] == 25
+        assert results[1]["count"] == 10
+        assert results[2]["count"] == 0
 
-        self.assertCountEqual(
-            [str(id) for id in self._get_actor_ids_at_step(query, 2)],
-            ids_to_compare,
-        )
+        assert Counter([str(id) for id in self._get_actor_ids_at_step(query, 2)]) == Counter(ids_to_compare)
 
     @parameterized.expand(
         [
@@ -2191,15 +2136,15 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert len(results) == 2
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["name"], "paid")
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["name"] == "paid"
+        assert results[1]["count"] == 1
 
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person1.uuid, person4.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 2), [person1.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter([person1.uuid, person4.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1.uuid])
 
     def test_funnel_exclusion_multiple_possible_no_end_event1(self):
         journeys_for(
@@ -2254,9 +2199,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(1, results[0]["count"])
-        self.assertEqual(0, results[1]["count"])
+        assert len(results) == 2
+        assert 1 == results[0]["count"]
+        assert 0 == results[1]["count"]
 
     def test_funnel_exclusion_multiple_possible_no_end_event2(self):
         journeys_for(
@@ -2311,9 +2256,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(1, results[0]["count"])
-        self.assertEqual(0, results[1]["count"])
+        assert len(results) == 2
+        assert 1 == results[0]["count"]
+        assert 0 == results[1]["count"]
 
     def test_funnel_exclusion_multiple_possible_no_end_event3(self):
         journeys_for(
@@ -2371,11 +2316,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # There should be no events. UDF funnels returns an empty array and says "no events"
         # Old style funnels returns a count of 0
         try:
-            self.assertEqual([], results)
+            assert [] == results
         except AssertionError:
-            self.assertEqual(len(results), 2)
-            self.assertEqual(0, results[0]["count"])
-            self.assertEqual(0, results[1]["count"])
+            assert len(results) == 2
+            assert 0 == results[0]["count"]
+            assert 0 == results[1]["count"]
 
     @also_test_with_materialized_columns(["key"])
     def test_funnel_exclusions_with_actions(self):
@@ -2472,15 +2417,15 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert len(results) == 2
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["name"], "paid")
-        self.assertEqual(results[1]["count"], 2)
+        assert results[1]["name"] == "paid"
+        assert results[1]["count"] == 2
 
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person1.uuid, person3.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 2), [person1.uuid, person3.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter([person1.uuid, person3.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1.uuid, person3.uuid])
 
     def test_funnel_exclusions_full_window(self):
         query = FunnelsQuery(
@@ -2563,15 +2508,15 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert len(results) == 2
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["name"], "paid")
-        self.assertEqual(results[1]["count"], 2)
+        assert results[1]["name"] == "paid"
+        assert results[1]["count"] == 2
 
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person1.uuid, person3.uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(query, 2), [person1.uuid, person3.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter([person1.uuid, person3.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1.uuid, person3.uuid])
 
     def test_advanced_funnel_exclusions_between_steps(self):
         date_range = DateRange(
@@ -2599,16 +2544,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 # There should be no events. UDF funnels returns an empty array and says "no events"
                 # Old style funnels returns a count of 0
                 try:
-                    self.assertEqual([], results)
+                    assert [] == results
                 except AssertionError:
-                    self.assertEqual(results[0]["name"], "user signed up")
-                    self.assertEqual(results[0]["count"], 0)
-                    self.assertEqual(results[4]["count"], 0)
+                    assert results[0]["name"] == "user signed up"
+                    assert results[0]["count"] == 0
+                    assert results[4]["count"] == 0
                 return
 
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], expected_count)
-            self.assertEqual(results[4]["count"], expected_count)
+            assert results[0]["name"] == "user signed up"
+            assert results[0]["count"] == expected_count
+            assert results[4]["count"] == expected_count
 
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
         # this dude is discarded when funnel_from_step = 1
@@ -2827,7 +2772,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             with self.subTest(label):
                 query, results = run_query(exclusions)
                 assert_results(results, expected_count)
-                self.assertCountEqual(self._get_actor_ids_at_step(query, 1), expected_actor_ids)
+                assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(expected_actor_ids)
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
         date_range = DateRange(
@@ -3067,10 +3012,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         for exclusions in cases:
             query, results = run_query(exclusions)
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 1)
-            self.assertEqual(results[4]["count"], 1)
-            self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person4.uuid])
+            assert results[0]["name"] == "user signed up"
+            assert results[0]["count"] == 1
+            assert results[4]["count"] == 1
+            assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter([person4.uuid])
 
     @also_test_with_materialized_columns(["test_prop"])
     def test_funnel_with_denormalised_properties(self):
@@ -3129,8 +3074,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 1
 
     def test_same_event_same_timestamp(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -3157,7 +3102,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(results[-1]["count"], 1)
+        assert results[-1]["count"] == 1
 
     def test_funnel_with_elements_chain(self):
         person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -3199,15 +3144,15 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results), 2)
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 2)
+            assert len(results) == 2
+            assert results[0]["name"] == "user signed up"
+            assert results[0]["count"] == 2
 
-            self.assertEqual(results[1]["name"], "$autocapture")
-            self.assertEqual(results[1]["count"], 1)
+            assert results[1]["name"] == "$autocapture"
+            assert results[1]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(query, 1), [person1.uuid, person2.uuid])
-            self.assertCountEqual(self._get_actor_ids_at_step(query, 2), [person1.uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter([person1.uuid, person2.uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1.uuid])
 
     # TODO: fix this test
     # @snapshot_clickhouse_queries
@@ -3357,11 +3302,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 1)
+            assert results[0]["name"] == "user signed up"
+            assert results[0]["count"] == 1
 
-            self.assertEqual(results[1]["name"], "paid")
-            self.assertEqual(results[1]["count"], 1)
+            assert results[1]["name"] == "paid"
+            assert results[1]["count"] == 1
 
     @snapshot_clickhouse_queries
     def test_funnel_with_static_cohort_step_filter(self):
@@ -3424,11 +3369,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 1)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 1
 
-        self.assertEqual(results[1]["name"], "paid")
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["name"] == "paid"
+        assert results[1]["count"] == 1
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"], person_properties=["email", "age"])
@@ -3599,34 +3544,29 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[1]["name"], "$pageview")
-        self.assertEqual(results[2]["name"], "$pageview")
-        self.assertEqual(results[0]["count"], 3)
-        self.assertEqual(results[1]["count"], 2)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["name"] == "user signed up"
+        assert results[1]["name"] == "$pageview"
+        assert results[2]["name"] == "$pageview"
+        assert results[0]["count"] == 3
+        assert results[1]["count"] == 2
+        assert results[2]["count"] == 1
         # check ordering of people in every step
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 1),
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
             [
                 people["stopped_after_pageview1"].uuid,
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 2),
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
             [
                 people["stopped_after_pageview2"].uuid,
                 people["stopped_after_pageview3"].uuid,
-            ],
+            ]
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(query, 3),
-            [people["stopped_after_pageview3"].uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([people["stopped_after_pageview3"].uuid])
 
     @snapshot_clickhouse_queries
     def test_timezones(self):
@@ -3664,10 +3604,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # There should be no events. UDF funnels returns an empty array and says "no events"
         # Old style funnels returns a count of 0
         try:
-            self.assertEqual([], results)
+            assert [] == results
         except AssertionError:
-            self.assertEqual(results[0]["name"], "user signed up")
-            self.assertEqual(results[0]["count"], 0)
+            assert results[0]["name"] == "user signed up"
+            assert results[0]["count"] == 0
 
     def test_funnel_with_sampling(self):
         action_play_movie = Action.objects.create(
@@ -3720,11 +3660,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self._signup_event(distinct_id="wrong_order")
 
         results = funnel.calculate().results
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 4)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 4
 
-        self.assertEqual(results[1]["name"], "watched movie")
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["name"] == "watched movie"
+        assert results[1]["count"] == 1
 
     def test_hogql_aggregation(self):
         # first person
@@ -3769,10 +3709,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         # without hogql aggregation
         results = self._basic_funnel(query=basic_query).calculate().results
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 1
+        assert results[2]["count"] == 1
 
         # properties.$session_id
         results = (
@@ -3785,9 +3725,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
-        self.assertEqual(results[0]["count"], 3)
-        self.assertEqual(results[1]["count"], 2)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["count"] == 3
+        assert results[1]["count"] == 2
+        assert results[2]["count"] == 1
 
         # distinct_id
         results = (
@@ -3800,9 +3740,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
-        self.assertEqual(results[0]["count"], 2)
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 1
+        assert results[2]["count"] == 1
 
         # person_id
         results = (
@@ -3815,9 +3755,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
-        self.assertEqual(results[0]["count"], 2)
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 1
+        assert results[2]["count"] == 1
 
         result = (
             self._basic_funnel(
@@ -3829,9 +3769,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
-        self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(result[2]["count"], 1)
+        assert result[0]["count"] == 1
+        assert result[1]["count"] == 1
+        assert result[2]["count"] == 1
 
     def test_hogql_aggregation_by_numeric_property(self):
         # A Numeric property used as the HogQL aggregation key is coerced to Float64
@@ -3862,9 +3802,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
+        assert results[2]["count"] == 1
 
     def test_funnel_all_events_with_properties(self):
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
@@ -3899,8 +3839,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = self._basic_funnel(query).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
 
     def test_funnel_all_events_via_action(self):
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
@@ -3930,8 +3870,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         result = self._basic_funnel(query).calculate().results
 
-        self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(result[1]["count"], 1)
+        assert result[0]["count"] == 1
+        assert result[1]["count"] == 1
 
     def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
         create_group_type_mapping_without_created_at(
@@ -4067,11 +4007,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 2)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 2
 
-        self.assertEqual(results[1]["name"], "paid")
-        self.assertEqual(results[1]["count"], 1)
+        assert results[1]["name"] == "paid"
+        assert results[1]["count"] == 1
 
     def test_funnel_window_ignores_dst_transition(self):
         _create_person(
@@ -4114,10 +4054,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[1]["name"], "user signed up")
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
-        self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
+        assert results[1]["name"] == "user signed up"
+        assert results[1]["count"] == 1
+        assert results[1]["average_conversion_time"] == 1207020
+        assert results[1]["median_conversion_time"] == 1207020
 
         # there is a PST -> PDT transition on 10th of March
         self.team.timezone = "US/Pacific"
@@ -4126,10 +4066,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # we still should have the user here, as the conversion window should not be affected by DST
-        self.assertEqual(results[1]["name"], "user signed up")
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
-        self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
+        assert results[1]["name"] == "user signed up"
+        assert results[1]["count"] == 1
+        assert results[1]["average_conversion_time"] == 1207020
+        assert results[1]["median_conversion_time"] == 1207020
 
     def test_parses_breakdowns_correctly(self):
         _create_person(
@@ -4163,8 +4103,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
-        self.assertEqual(results[0][1]["count"], 1)
+        assert results[0][1]["breakdown_value"] == ["test'123"]
+        assert results[0][1]["count"] == 1
 
     def test_funnel_query_with_event_metadata_breakdown(self):
         _create_person(
@@ -4214,10 +4154,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0][1]["breakdown_value"], ["user_1"])
-        self.assertEqual(results[0][1]["count"], 1)
-        self.assertEqual(results[1][1]["breakdown_value"], ["user_2"])
-        self.assertEqual(results[1][1]["count"], 1)
+        assert results[0][1]["breakdown_value"] == ["user_1"]
+        assert results[0][1]["count"] == 1
+        assert results[1][1]["breakdown_value"] == ["user_2"]
+        assert results[1][1]["count"] == 1
 
     def test_funnel_parses_event_names_correctly(self):
         _create_person(
@@ -4248,7 +4188,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
+        assert results[0]["count"] == 1
 
     def test_time_to_convert_funnel_ignores_breakdown(self):
         _create_person(distinct_ids=[f"user_1"], team=self.team, properties={"userRole": "admin"})
@@ -4346,8 +4286,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
 
         query = FunnelsQuery(
             series=[
@@ -4361,8 +4301,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 0)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 0
 
     def test_first_time_for_user_funnel_with_actions(self):
         action_credit_card = Action.objects.create(
@@ -4427,13 +4367,13 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 4)
+        assert result[0]["name"] == "user signed up"
+        assert result[0]["count"] == 4
 
-        self.assertEqual(result[1]["name"], "paid")
-        self.assertEqual(result[1]["count"], 2)
-        self.assertEqual(result[2]["name"], "watched movie")
-        self.assertEqual(result[2]["count"], 0)
+        assert result[1]["name"] == "paid"
+        assert result[1]["count"] == 2
+        assert result[2]["name"] == "watched movie"
+        assert result[2]["count"] == 0
 
     def test_multiple_events_same_timestamp_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -4482,8 +4422,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(4, len(results))
-        self.assertEqual(1, results[-1]["count"])
+        assert 4 == len(results)
+        assert 1 == results[-1]["count"]
 
         query = FunnelsQuery(
             dateRange=DateRange(
@@ -4521,8 +4461,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(4, len(results))
-        self.assertEqual(1, results[-1]["count"])
+        assert 4 == len(results)
+        assert 1 == results[-1]["count"]
 
     def test_first_time_for_user_funnel_filters(self):
         _create_person(
@@ -4558,8 +4498,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 0)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 0
 
         query = FunnelsQuery(
             series=[
@@ -4579,8 +4519,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
 
     def test_first_time_for_user_funnel_multiple_ids(self):
         _create_person(
@@ -4650,8 +4590,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 2)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 1
 
         query = FunnelsQuery(
             series=[
@@ -4665,8 +4605,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 3)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 3
+        assert results[1]["count"] == 1
 
     def test_first_time_for_user_funnel_person_properties(self):
         _create_person(distinct_ids=["user_1"], team=self.team, properties={"email": "test@test.com"})
@@ -4721,8 +4661,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(query.series[0], EventsNode)  # for mypy
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
 
         query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
@@ -4740,8 +4680,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert query.dateRange is not None
         query.dateRange.date_from = "2024-03-19"
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
 
     def test_funnel_personless_events_are_supported(self):
         user_id = uuid.uuid4()
@@ -4766,8 +4706,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
 
     def test_short_exclusions(self):
         journeys_for(
@@ -4830,8 +4770,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(1, results[1]["count"])
-        self.assertEqual(29, results[1]["average_conversion_time"])
+        assert 1 == results[1]["count"]
+        assert 29 == results[1]["average_conversion_time"]
 
     def test_excluded_completion(self):
         events = [
@@ -4899,10 +4839,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # There should be no events. UDF funnels returns an empty array and says "no events"
         # Old style funnels returns a count of 0
         try:
-            self.assertEqual([], results)
+            assert [] == results
         except AssertionError:
-            self.assertEqual(0, results[0]["count"])
-            self.assertEqual(0, results[1]["count"])
+            assert 0 == results[0]["count"]
+            assert 0 == results[1]["count"]
 
     def test_exclusion_with_property_filter(self):
         journeys_for(
@@ -5021,8 +4961,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 2)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 1
 
     def test_breakdown_step_attributions(self):
         events = [
@@ -5156,10 +5096,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             return
 
         # First step should be 0, second step should be 0 as well since the user didn't complete the first step
-        self.assertEqual(results[0]["name"], "user signed up")
-        self.assertEqual(results[0]["count"], 0)
-        self.assertEqual(results[1]["name"], "added to cart")
-        self.assertEqual(results[1]["count"], 0)
+        assert results[0]["name"] == "user signed up"
+        assert results[0]["count"] == 0
+        assert results[1]["name"] == "added to cart"
+        assert results[1]["count"] == 0
 
     @snapshot_clickhouse_queries
     def test_funnel_aggregation_with_groups(self):
@@ -5387,7 +5327,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        self.assertEqual(1, results[-1]["count"])
+        assert 1 == results[-1]["count"]
 
     def test_excluded_after_time_expires(self):
         events = [
@@ -5444,8 +5384,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["count"])
-        self.assertEqual(0, results[1]["count"])
+        assert 1 == results[0]["count"]
+        assert 0 == results[1]["count"]
 
     def test_funnel_with_optional_steps(self):
         # Define all the different user journeys
@@ -5511,20 +5451,20 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(result[0]["name"], "step one")
-        self.assertEqual(result[0]["count"], 8)  # all users who did at least step 1
+        assert result[0]["name"] == "step one"
+        assert result[0]["count"] == 8  # all users who did at least step 1
 
-        self.assertEqual(result[1]["name"], "step two")
-        self.assertEqual(result[1]["count"], 3)  # users who did step 2 (optional)
+        assert result[1]["name"] == "step two"
+        assert result[1]["count"] == 3  # users who did step 2 (optional)
 
-        self.assertEqual(result[2]["name"], "step three")
-        self.assertEqual(result[2]["count"], 7)  # users who did step 3 (required)
+        assert result[2]["name"] == "step three"
+        assert result[2]["count"] == 7  # users who did step 3 (required)
 
-        self.assertEqual(result[3]["name"], "step four")
-        self.assertEqual(result[3]["count"], 3)  # users who did step 4 (optional)
+        assert result[3]["name"] == "step four"
+        assert result[3]["count"] == 3  # users who did step 4 (optional)
 
-        self.assertEqual(result[4]["name"], "step five")
-        self.assertEqual(result[4]["count"], 4)  # users who completed the funnel
+        assert result[4]["name"] == "step five"
+        assert result[4]["count"] == 4  # users who completed the funnel
 
     def test_funnel_with_optional_steps_same_event(self):
         # Define users with different numbers of the same event
@@ -5578,17 +5518,17 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(result[0]["name"], "same_event")
-        self.assertEqual(result[0]["count"], 4)  # all users who did at least 1 event
+        assert result[0]["name"] == "same_event"
+        assert result[0]["count"] == 4  # all users who did at least 1 event
 
-        self.assertEqual(result[1]["name"], "same_event")
-        self.assertEqual(result[1]["count"], 2)  # both of the users with two events and no $current_url
+        assert result[1]["name"] == "same_event"
+        assert result[1]["count"] == 2  # both of the users with two events and no $current_url
 
-        self.assertEqual(result[2]["name"], "same_event")
-        self.assertEqual(result[2]["count"], 1)  # the user with $current_url set in the second event
+        assert result[2]["name"] == "same_event"
+        assert result[2]["count"] == 1  # the user with $current_url set in the second event
 
-        self.assertEqual(result[3]["name"], "same_event")
-        self.assertEqual(result[3]["count"], 1)  # the user with $current_url set in the second event
+        assert result[3]["name"] == "same_event"
+        assert result[3]["count"] == 1  # the user with $current_url set in the second event
 
     def test_group_node_basic(self):
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -5614,12 +5554,12 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(result[0]["name"], "$pageview, $pageleave")
-        self.assertEqual(result[0]["action_id"], "$pageview, $pageleave")
-        self.assertEqual(result[0]["type"], "group")
-        self.assertEqual(result[1]["count"], 2)
-        self.assertEqual(result[1]["name"], "$checkout")
+        assert result[0]["count"] == 2
+        assert result[0]["name"] == "$pageview, $pageleave"
+        assert result[0]["action_id"] == "$pageview, $pageleave"
+        assert result[0]["type"] == "group"
+        assert result[1]["count"] == 2
+        assert result[1]["name"] == "$checkout"
 
     def test_group_node_with_dropoff(self):
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -5641,8 +5581,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(result[1]["count"], 1)
+        assert result[0]["count"] == 2
+        assert result[1]["count"] == 1
 
     def test_group_node_with_action_child(self):
         action = Action.objects.create(
@@ -5671,10 +5611,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(result[0]["name"], "Page Action, sign up")
-        self.assertEqual(result[0]["type"], "group")
-        self.assertEqual(result[1]["count"], 2)
+        assert result[0]["count"] == 2
+        assert result[0]["name"] == "Page Action, sign up"
+        assert result[0]["type"] == "group"
+        assert result[1]["count"] == 2
 
     def test_group_node_with_child_property_filters(self):
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -5720,8 +5660,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # person1 (Chrome $pageview) and person3 ($pageleave) match step 1, person2 (Firefox) does not
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(result[1]["count"], 2)
+        assert result[0]["count"] == 2
+        assert result[1]["count"] == 2
 
     def test_group_node_any_order(self):
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -5742,10 +5682,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # unordered: person1 did both events in any order
-        self.assertEqual(result[0]["count"], 1)
-        self.assertEqual(result[0]["name"], "Completed 1 step")
-        self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(result[1]["name"], "Completed 2 steps")
+        assert result[0]["count"] == 1
+        assert result[0]["name"] == "Completed 1 step"
+        assert result[1]["count"] == 1
+        assert result[1]["name"] == "Completed 2 steps"
 
     def test_group_node_strict_order(self):
         _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -5772,8 +5712,8 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         # person1 converts (pageview -> checkout, no interleaving)
         # person2 does NOT convert (pageleave -> unrelated -> checkout breaks strict order)
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(result[1]["count"], 1)
+        assert result[0]["count"] == 2
+        assert result[1]["count"] == 1
 
     @freeze_time("2024-01-02T00:00:00Z")
     def test_funnel_same_event_different_property_filters(self):

@@ -62,10 +62,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            1,
-        )
+        assert len(response.results or []) == 1
 
     @pytest.mark.skip(reason="doesn't work, let's fix in V2")
     def test_select_event_sessions_star(self):
@@ -85,10 +82,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            1,
-        )
+        assert len(response.results or []) == 1
 
     def test_select_session_replay_session_duration(self):
         session_id = str(uuid7())
@@ -100,10 +94,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
             ),
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            0,  # just making sure the query runs
-        )
+        assert len(response.results or []) == 0
 
     def test_channel_type(self):
         session_id = "session_test_channel_type"
@@ -123,10 +114,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         )
 
         result = (response.results or [])[0]
-        self.assertEqual(
-            result[0],
-            "Paid Search",
-        )
+        assert result[0] == "Paid Search"
 
     def test_event_dot_session_dot_channel_type(self):
         session_id = "event_dot_session_dot_channel_type"
@@ -146,10 +134,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         )
 
         result = (response.results or [])[0]
-        self.assertEqual(
-            result[0],
-            "Paid Search",
-        )
+        assert result[0] == "Paid Search"
 
     def test_events_session_dot_channel_type(self):
         session_id = "event_dot_session_dot_channel_type"
@@ -169,10 +154,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
         )
 
         result = (response.results or [])[0]
-        self.assertEqual(
-            result[0],
-            "Paid Search",
-        )
+        assert result[0] == "Paid Search"
 
     @parameterized.expand([(BounceRatePageViewMode.UNIQ_URLS,), (BounceRatePageViewMode.COUNT_PAGEVIEWS,)])
     def test_bounce_rate(self, bounceRatePageViewMode):
@@ -260,17 +242,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
                 bounceRatePageViewMode=bounceRatePageViewMode, sessionTableVersion=SessionTableVersion.V1
             ),
         )
-        self.assertEqual(
-            [
-                (0, "s1a"),
-                (1, "s1b"),
-                (1, "s2"),
-                (0, "s3"),
-                (1, "s4"),
-                (0, "s5"),
-            ],
-            response.results or [],
-        )
+        assert [(0, "s1a"), (1, "s1b"), (1, "s2"), (0, "s3"), (1, "s4"), (0, "s5")] == (response.results or [])
 
     def test_can_use_v1_and_v2_fields(self):
         session_id = "session_test_can_use_v1_and_v2_fields"
@@ -312,48 +284,45 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v1(None)
         assert len(results) == 32
-        self.assertEqual(
-            results[0],
-            {
-                "id": "$start_timestamp",
-                "is_numerical": False,
-                "is_seen_on_filtered_events": None,
-                "name": "$start_timestamp",
-                "property_type": PropertyType.Datetime,
-                "tags": [],
-            },
-        )
+        assert results[0] == {
+            "id": "$start_timestamp",
+            "is_numerical": False,
+            "is_seen_on_filtered_events": None,
+            "name": "$start_timestamp",
+            "property_type": PropertyType.Datetime,
+            "tags": [],
+        }
 
     def test_source(self):
         results = get_lazy_session_table_properties_v1("source")
-        self.assertEqual(
-            results,
-            [
-                {
-                    "id": "$entry_utm_source",
-                    "is_numerical": False,
-                    "is_seen_on_filtered_events": None,
-                    "name": "$entry_utm_source",
-                    "property_type": PropertyType.String,
-                    "tags": [],
-                },
-                {
-                    "id": "$entry_gad_source",
-                    "is_numerical": False,
-                    "is_seen_on_filtered_events": None,
-                    "name": "$entry_gad_source",
-                    "property_type": PropertyType.String,
-                    "tags": [],
-                },
-            ],
-        )
+        assert results == [
+            {
+                "id": "$entry_utm_source",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$entry_utm_source",
+                "property_type": PropertyType.String,
+                "tags": [],
+            },
+            {
+                "id": "$entry_gad_source",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$entry_gad_source",
+                "property_type": PropertyType.String,
+                "tags": [],
+            },
+        ]
 
     def test_entry_utm(self):
         results = get_lazy_session_table_properties_v1("entry utm")
-        self.assertEqual(
-            [result["name"] for result in results],
-            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
-        )
+        assert [result["name"] for result in results] == [
+            "$entry_utm_source",
+            "$entry_utm_campaign",
+            "$entry_utm_medium",
+            "$entry_utm_term",
+            "$entry_utm_content",
+        ]
 
     def test_can_get_values_for_all(self):
         results = get_lazy_session_table_properties_v1(None)

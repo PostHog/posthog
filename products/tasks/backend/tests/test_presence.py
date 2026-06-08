@@ -87,16 +87,16 @@ class PresenceAPITestCase(TestCase):
 
     def test_beacon_creates_presence_row(self) -> None:
         response = self.client.post(self._presence_url(), {"device_id": str(self.push_token.id)}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(self._all_presence().filter(task=self.task, push_token=self.push_token).count(), 1)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._all_presence().filter(task=self.task, push_token=self.push_token).count() == 1
         presence = self._all_presence().get(task=self.task, push_token=self.push_token)
-        self.assertEqual(presence.user_id, self.user.id)
-        self.assertEqual(presence.team_id, self.team.id)
+        assert presence.user_id == self.user.id
+        assert presence.team_id == self.team.id
         # expires_at lands ~TTL seconds in the future. A loose lower bound
         # avoids flake if the clock advances between the view and the assert.
         delta = (presence.expires_at - timezone.now()).total_seconds()
-        self.assertGreater(delta, TASK_PRESENCE_TTL_SECONDS - 5)
-        self.assertLessEqual(delta, TASK_PRESENCE_TTL_SECONDS + 1)
+        assert delta > TASK_PRESENCE_TTL_SECONDS - 5
+        assert delta <= TASK_PRESENCE_TTL_SECONDS + 1
 
     def test_second_beacon_refreshes_without_duplicating(self) -> None:
         self.client.post(self._presence_url(), {"device_id": str(self.push_token.id)}, format="json")
@@ -106,11 +106,11 @@ class PresenceAPITestCase(TestCase):
         self._all_presence().filter(pk=first.pk).update(expires_at=timezone.now() - timedelta(minutes=5))
 
         response = self.client.post(self._presence_url(), {"device_id": str(self.push_token.id)}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(self._all_presence().filter(task=self.task, push_token=self.push_token).count(), 1)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._all_presence().filter(task=self.task, push_token=self.push_token).count() == 1
         refreshed = self._all_presence().get(task=self.task, push_token=self.push_token)
-        self.assertEqual(refreshed.pk, first.pk)
-        self.assertGreater(refreshed.expires_at, timezone.now())
+        assert refreshed.pk == first.pk
+        assert refreshed.expires_at > timezone.now()
 
     def test_beacon_leave_removes_row(self) -> None:
         _make_presence(
@@ -121,12 +121,12 @@ class PresenceAPITestCase(TestCase):
             expires_in=timedelta(seconds=60),
         )
         response = self.client.delete(self._presence_url(), {"device_id": str(self.push_token.id)}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(self._all_presence().filter(task=self.task, push_token=self.push_token).exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not self._all_presence().filter(task=self.task, push_token=self.push_token).exists()
 
     def test_beacon_leave_on_missing_row_is_idempotent(self) -> None:
         response = self.client.delete(self._presence_url(), {"device_id": str(self.push_token.id)}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     @parameterized.expand(
         [
@@ -148,8 +148,8 @@ class PresenceAPITestCase(TestCase):
             device_id = str(other_token.id)
 
         response = self.client.post(self._presence_url(), {"device_id": device_id}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertFalse(self._all_presence().exists())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not self._all_presence().exists()
 
     def test_beacon_on_inaccessible_task_returns_404(self) -> None:
         other_user = User.objects.create_user(email="taskowner@example.com", first_name="To", password="x")
@@ -163,7 +163,7 @@ class PresenceAPITestCase(TestCase):
         )
         url = f"/api/projects/{self.team.id}/tasks/{their_task.id}/presence/"
         response = self.client.post(url, {"device_id": str(self.push_token.id)}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class PresenceFanoutSuppressionTestCase(TransactionTestCase):
@@ -245,9 +245,9 @@ class PresenceFanoutSuppressionTestCase(TransactionTestCase):
         suppressed = mock_delay.call_args.args[4]
 
         if expected == "all":
-            self.assertEqual(set(suppressed), {str(self.device_a.id), str(self.device_b.id)})
+            assert set(suppressed) == {str(self.device_a.id), str(self.device_b.id)}
         else:
-            self.assertEqual(suppressed, [])
+            assert suppressed == []
 
 
 class PresencePushHelperSuppressionTestCase(TestCase):
@@ -278,7 +278,7 @@ class PresencePushHelperSuppressionTestCase(TestCase):
 
         mock_send_batch.assert_called_once()
         sent_tokens = mock_send_batch.call_args.args[1]
-        self.assertEqual(sent_tokens, [self.device_b.token])
+        assert sent_tokens == [self.device_b.token]
 
     @patch("posthog.push_notifications._send_batch")
     def test_no_call_when_every_token_is_suppressed(self, mock_send_batch) -> None:

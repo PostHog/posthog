@@ -39,11 +39,11 @@ class TestAnthropicUtils(BaseTest):
 
         result = get_anthropic_thinking_from_assistant_message(message)
 
-        self.assertEqual(result, expected)
+        assert result == expected
 
         # Verify it returns a copy, not the original
         if expected:
-            self.assertIsNot(result, meta.thinking)
+            assert result is not meta.thinking
 
     def test_add_cache_control_string_content(self):
         """Test adding cache control to message with string content"""
@@ -51,13 +51,13 @@ class TestAnthropicUtils(BaseTest):
 
         result = add_cache_control(message)
 
-        self.assertIs(result, message)  # Should modify in place
+        assert result is message  # Should modify in place
         assert isinstance(message.content, list)
-        self.assertEqual(len(message.content), 1)
+        assert len(message.content) == 1
         assert isinstance(message.content[0], dict)
-        self.assertEqual(message.content[0]["type"], "text")
-        self.assertEqual(message.content[0]["text"], "Test message")
-        self.assertEqual(message.content[0]["cache_control"], {"type": "ephemeral", "ttl": "5m"})
+        assert message.content[0]["type"] == "text"
+        assert message.content[0]["text"] == "Test message"
+        assert message.content[0]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
 
     def test_add_cache_control_list_content_with_string_last(self):
         """Test adding cache control to message with list content ending in string"""
@@ -70,20 +70,20 @@ class TestAnthropicUtils(BaseTest):
 
         result = add_cache_control(message)
 
-        self.assertIs(result, message)
+        assert result is message
         assert isinstance(message.content, list)
-        self.assertEqual(len(message.content), 2)
+        assert len(message.content) == 2
         # First part unchanged
         assert isinstance(message.content[0], dict)
-        self.assertEqual(message.content[0]["type"], "text")
-        self.assertEqual(message.content[0]["text"], "First part")
-        self.assertNotIn("cache_control", message.content[0])
+        assert message.content[0]["type"] == "text"
+        assert message.content[0]["text"] == "First part"
+        assert "cache_control" not in message.content[0]
 
         # Last part converted and cache control added
         assert isinstance(message.content[1], dict)
-        self.assertEqual(message.content[1]["type"], "text")
-        self.assertEqual(message.content[1]["text"], "Second part as string")
-        self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral", "ttl": "5m"})
+        assert message.content[1]["type"] == "text"
+        assert message.content[1]["text"] == "Second part as string"
+        assert message.content[1]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
 
     def test_add_cache_control_list_content_with_dict_last(self):
         """Test adding cache control to message with list content ending in dict"""
@@ -96,18 +96,18 @@ class TestAnthropicUtils(BaseTest):
 
         result = add_cache_control(message)
 
-        self.assertIs(result, message)
+        assert result is message
         assert isinstance(message.content, list)
-        self.assertEqual(len(message.content), 2)
+        assert len(message.content) == 2
         # First part unchanged
         assert isinstance(message.content[0], dict)
-        self.assertNotIn("cache_control", message.content[0])
+        assert "cache_control" not in message.content[0]
 
         # Last part gets cache control added
         assert isinstance(message.content[1], dict)
-        self.assertEqual(message.content[1]["type"], "image")
-        self.assertEqual(message.content[1]["url"], "http://example.com/image.jpg")
-        self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral", "ttl": "5m"})
+        assert message.content[1]["type"] == "image"
+        assert message.content[1]["url"] == "http://example.com/image.jpg"
+        assert message.content[1]["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
 
     @parameterized.expand(
         [
@@ -127,17 +127,17 @@ class TestAnthropicUtils(BaseTest):
         ai_content = ai_message.content
         assert isinstance(ai_content, list)
         assert isinstance(ai_content[0], dict)
-        self.assertEqual(ai_content[0], {"type": "text", "text": content_text})
+        assert ai_content[0] == {"type": "text", "text": content_text}
 
         if expected_command is not None:
-            self.assertEqual(len(result), 2)
+            assert len(result) == 2
             provenance_message = result[1]
-            self.assertIsInstance(provenance_message, HumanMessage)
+            assert isinstance(provenance_message, HumanMessage)
             provenance_content = provenance_message.content
             assert isinstance(provenance_content, list)
             assert isinstance(provenance_content[0], dict)
             provenance_text = provenance_content[0]["text"]
-            self.assertIn(f"/{expected_command} slash command", provenance_text)
-            self.assertIn("deterministic PostHog code", provenance_text)
+            assert f"/{expected_command} slash command" in provenance_text
+            assert "deterministic PostHog code" in provenance_text
         else:
-            self.assertEqual(len(result), 1)
+            assert len(result) == 1

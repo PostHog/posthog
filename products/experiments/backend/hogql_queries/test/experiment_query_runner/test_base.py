@@ -130,16 +130,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -210,16 +210,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 11)
-        self.assertEqual(test_variant.number_of_samples, 11)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 11
+        assert test_variant.number_of_samples == 11
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -271,16 +271,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -311,16 +311,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 3)
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
+        assert control_variant.number_of_samples == 2
+        assert test_variant.number_of_samples == 3
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -351,16 +351,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 3)
-        self.assertEqual(control_variant.sum, 60)
-        self.assertEqual(test_variant.sum, 120)
+        assert control_variant.number_of_samples == 2
+        assert test_variant.number_of_samples == 3
+        assert control_variant.sum == 60
+        assert test_variant.sum == 120
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -448,16 +448,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 3)
-        self.assertEqual(test_variant.sum, 5)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert control_variant.sum == 3
+        assert test_variant.sum == 5
+        assert control_variant.number_of_samples == 2
+        assert test_variant.number_of_samples == 2
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure(self):
@@ -522,16 +522,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure_without_properties(self):
@@ -594,16 +594,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 11)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 11
+        assert test_variant.number_of_samples == 10
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure_on_feature_flag_called_event(self):
@@ -677,16 +677,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_action_as_exposure_criteria(self):
@@ -756,7 +756,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
@@ -765,10 +765,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Only users with premium plan (matching action) should be counted as exposures
         # Control: 3 users with premium plan (0, 1, 2 out of 6 purchases)
         # Test: 4 users with premium plan (0, 1, 2, 3 out of 8 purchases)
-        self.assertEqual(control_variant.sum, 3)
-        self.assertEqual(test_variant.sum, 4)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.number_of_samples, 4)
+        assert control_variant.sum == 3
+        assert test_variant.sum == 4
+        assert control_variant.number_of_samples == 3
+        assert test_variant.number_of_samples == 4
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -810,16 +810,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 6)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 11)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 6
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 11
+        assert test_variant.number_of_samples == 10
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -844,16 +844,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(control_variant.number_of_samples, 0)
-        self.assertEqual(test_variant.number_of_samples, 0)
+        assert control_variant.sum == 0
+        assert test_variant.sum == 0
+        assert control_variant.number_of_samples == 0
+        assert test_variant.number_of_samples == 0
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -898,16 +898,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 0)
+        assert control_variant.sum == 0
+        assert test_variant.sum == 0
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 0
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -960,16 +960,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 8)
-        self.assertEqual(control_variant.number_of_samples, 0)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 0
+        assert test_variant.sum == 8
+        assert control_variant.number_of_samples == 0
+        assert test_variant.number_of_samples == 10
 
     @parameterized.expand(
         [
@@ -1188,7 +1188,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         if filter_name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-            self.assertEqual(cohort.people.count(), 3)
+            assert cohort.people.count() == 3
         elif filter_name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
@@ -1202,10 +1202,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             assert control_result is not None
             test_result = result.variant_results[0]
             assert test_result is not None
-            self.assertEqual(control_result.number_of_samples, 0)
-            self.assertEqual(test_result.number_of_samples, 0)
-            self.assertEqual(control_result.sum, 0)
-            self.assertEqual(test_result.sum, 0)
+            assert control_result.number_of_samples == 0
+            assert test_result.number_of_samples == 0
+            assert control_result.sum == 0
+            assert test_result.sum == 0
 
         else:
             result = query_runner.calculate()
@@ -1215,8 +1215,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             test_result = result.variant_results[0]
             assert test_result is not None
 
-            self.assertEqual(control_result.number_of_samples, expected_results["control_absolute_exposure"])
-            self.assertEqual(test_result.number_of_samples, expected_results["test_absolute_exposure"])
+            assert control_result.number_of_samples == expected_results["control_absolute_exposure"]
+            assert test_result.number_of_samples == expected_results["test_absolute_exposure"]
 
         ## Run again with filterTestAccounts=False
         metric = ExperimentMeanMetric(
@@ -1239,8 +1239,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         test_result = result.variant_results[0]
         assert test_result is not None
 
-        self.assertEqual(control_result.number_of_samples, 14)
-        self.assertEqual(test_result.number_of_samples, 16)
+        assert control_result.number_of_samples == 14
+        assert test_result.number_of_samples == 16
 
     @parameterized.expand(
         [
@@ -1337,18 +1337,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
         # Exposures on 2020-01-02 11:30, 2020-01-03 11:30, 2020-01-04 11:30, 2020-01-05 11:30
-        self.assertEqual(control_variant.number_of_samples, 4)
-        self.assertEqual(test_variant.number_of_samples, 4)
+        assert control_variant.number_of_samples == 4
+        assert test_variant.number_of_samples == 4
         # Purchases on 2020-01-03 02:30:00 (15 hours), 2020-01-04 17:30:00 (30 hours), 2020-01-06 08:30:00 (45 hours), 2020-01-07 23:30:00 (60 hours)
-        self.assertEqual(control_variant.sum, expected_results["control_count"])
-        self.assertEqual(test_variant.sum, expected_results["test_count"])
+        assert control_variant.sum == expected_results["control_count"]
+        assert test_variant.sum == expected_results["test_count"]
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1465,7 +1465,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
@@ -1473,13 +1473,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Verify that only the single-variant users are counted
         # Control: user_0 (1 event) + user_1 (2 events) + user_2 (3 events) = 6 total events
-        self.assertEqual(control_variant.sum, 6)  # 1 + 2 + 3 = 6 events
+        assert control_variant.sum == 6  # 1 + 2 + 3 = 6 events
         # Test: user_0 (1 event) + user_1 (2 events) + user_2 (3 events) = 6 total events
-        self.assertEqual(test_variant.sum, 6)  # 1 + 2 + 3 = 6 events
+        assert test_variant.sum == 6  # 1 + 2 + 3 = 6 events
 
         # Verify the exposure counts (users who have been exposed to the variant)
-        self.assertEqual(control_variant.number_of_samples, 3)  # 3 control users
-        self.assertEqual(test_variant.number_of_samples, 3)  # 3 test users
+        assert control_variant.number_of_samples == 3  # 3 control users
+        assert test_variant.number_of_samples == 3  # 3 test users
 
     @parameterized.expand(
         [
@@ -1667,30 +1667,22 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
         # Verify the expected behavior based on multiple_variant_handling setting
-        self.assertEqual(
-            control_variant.sum,
-            expected_results["control_count"],
-            f"Control count mismatch for {handling_name} handling",
+        assert control_variant.sum == expected_results["control_count"], (
+            f"Control count mismatch for {handling_name} handling"
         )
-        self.assertEqual(
-            test_variant.sum, expected_results["test_count"], f"Test count mismatch for {handling_name} handling"
+        assert test_variant.sum == expected_results["test_count"], f"Test count mismatch for {handling_name} handling"
+        assert control_variant.number_of_samples == expected_results["control_exposure"], (
+            f"Control exposure mismatch for {handling_name} handling"
         )
-        self.assertEqual(
-            control_variant.number_of_samples,
-            expected_results["control_exposure"],
-            f"Control exposure mismatch for {handling_name} handling",
-        )
-        self.assertEqual(
-            test_variant.number_of_samples,
-            expected_results["test_exposure"],
-            f"Test exposure mismatch for {handling_name} handling",
+        assert test_variant.number_of_samples == expected_results["test_exposure"], (
+            f"Test exposure mismatch for {handling_name} handling"
         )
 
     @freeze_time("2020-01-01T12:00:00Z")
@@ -1785,7 +1777,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         assert result.variant_results is not None
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -1794,12 +1786,12 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Control should have 3 + 2 + 1 = 6 events (all event types with matching property)
-        self.assertEqual(control_variant.sum, 6)
+        assert control_variant.sum == 6
         # Test should have 4 + 3 + 2 = 9 events (all event types with matching property)
-        self.assertEqual(test_variant.sum, 9)
+        assert test_variant.sum == 9
         # Both should have 5 exposures each
-        self.assertEqual(control_variant.number_of_samples, 5)
-        self.assertEqual(test_variant.number_of_samples, 5)
+        assert control_variant.number_of_samples == 5
+        assert test_variant.number_of_samples == 5
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1874,7 +1866,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
         assert result.variant_results is not None
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -1882,13 +1874,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Control: 6 purchases with (revenue - cost) = (80, 85, 90, 95, 100, 105) = sum = 555
         expected_control_sum = sum([80, 85, 90, 95, 100, 105])
-        self.assertEqual(control_variant.sum, expected_control_sum)
-        self.assertEqual(control_variant.number_of_samples, 10)
+        assert control_variant.sum == expected_control_sum
+        assert control_variant.number_of_samples == 10
 
         # Test: 8 purchases with (revenue - cost) = (90, 102, 114, 126, 138, 150, 162, 174) = sum = 1056
         expected_test_sum = sum([90, 102, 114, 126, 138, 150, 162, 174])
-        self.assertEqual(test_variant.sum, expected_test_sum)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert test_variant.sum == expected_test_sum
+        assert test_variant.number_of_samples == 10
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1951,7 +1943,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
         assert result.variant_results is not None
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -1960,10 +1952,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # With one event per user, avg(amount) per user = amount, so we get:
         # Control: 10 + 20 + 30 = 60
         # Test: 15 + 25 + 35 + 45 = 120
-        self.assertEqual(control_variant.sum, 60)
-        self.assertEqual(test_variant.sum, 120)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.number_of_samples, 4)
+        assert control_variant.sum == 60
+        assert test_variant.sum == 120
+        assert control_variant.number_of_samples == 3
+        assert test_variant.number_of_samples == 4
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2028,19 +2020,19 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
         assert result.variant_results is not None
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
 
         # Control: sum(50, 75) = 125
-        self.assertEqual(control_variant.sum, 125)
-        self.assertEqual(control_variant.number_of_samples, 2)
+        assert control_variant.sum == 125
+        assert control_variant.number_of_samples == 2
 
         # Test: sum(60, 80, 100) = 240
-        self.assertEqual(test_variant.sum, 240)
-        self.assertEqual(test_variant.number_of_samples, 3)
+        assert test_variant.sum == 240
+        assert test_variant.number_of_samples == 3
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2136,7 +2128,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
         assert result.variant_results is not None
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -2145,12 +2137,12 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # should count unique users, not total events
         # Control: 2 unique users (even though total events = 2+1 = 3)
-        self.assertEqual(control_variant.sum, 2)
-        self.assertEqual(control_variant.number_of_samples, 3)
+        assert control_variant.sum == 2
+        assert control_variant.number_of_samples == 3
 
         # Test: 4 unique users (even though total events = 4+3+2+1 = 10)
-        self.assertEqual(test_variant.sum, 4)
-        self.assertEqual(test_variant.number_of_samples, 4)
+        assert test_variant.sum == 4
+        assert test_variant.number_of_samples == 4
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2190,7 +2182,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         result = query_runner.calculate()
         assert result.variant_results is not None
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
@@ -2199,10 +2191,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Control: groups 0 and 1 have purchase events (first 6 users: 0→0, 1→1, 2→0, 3→1, 4→0, 5→1)
         # Test: groups 2, 3, and 4 have purchase events (first 8 users: 0→2, 1→3, 2→4, 3→2, 4→3, 5→4, 6→2, 7→3)
-        self.assertEqual(control_variant.sum, 2)  # 2 unique groups with purchase events
-        self.assertEqual(control_variant.number_of_samples, 2)  # 2 unique groups exposed to control
-        self.assertEqual(test_variant.sum, 3)  # 3 unique groups with purchase events
-        self.assertEqual(test_variant.number_of_samples, 3)  # 3 unique groups exposed to test
+        assert control_variant.sum == 2  # 2 unique groups with purchase events
+        assert control_variant.number_of_samples == 2  # 2 unique groups exposed to control
+        assert test_variant.sum == 3  # 3 unique groups with purchase events
+        assert test_variant.number_of_samples == 3  # 3 unique groups exposed to test
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2283,7 +2275,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Verify the query was executed successfully
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         # Verify the query was executed successfully and produced results
         # If the query didn't preserve the parameter, it would have failed in ClickHouse

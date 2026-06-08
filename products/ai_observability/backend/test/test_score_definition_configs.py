@@ -89,10 +89,7 @@ class TestScoreDefinitionConfigValidation(unittest.TestCase):
 
         detail = err.exception.detail
         assert isinstance(detail, dict)
-        self.assertEqual(
-            {field: [str(item) for item in details] for field, details in detail.items()},
-            expected_detail,
-        )
+        assert {field: [str(item) for item in details] for field, details in detail.items()} == expected_detail
 
     @parameterized.expand(
         [
@@ -121,4 +118,4 @@ class TestScoreDefinitionConfigValidation(unittest.TestCase):
     )
     def test_valid_configs_pass_validation(self, _name: str, kind: str, payload: dict) -> None:
         serializer = build_score_definition_config_serializer(kind, data=payload)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        assert serializer.is_valid(), serializer.errors

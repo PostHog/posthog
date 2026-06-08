@@ -24,7 +24,4 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        self.assertEqual(
-            len(response.results or []),
-            1,
-        )
+        assert len(response.results or []) == 1

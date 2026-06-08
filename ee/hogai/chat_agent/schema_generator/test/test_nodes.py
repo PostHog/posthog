@@ -74,15 +74,13 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(new_state.intermediate_steps, None)
-            self.assertEqual(new_state.plan, None)
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], ArtifactRefMessage)
-            self.assertEqual(
-                cast(ArtifactRefMessage, new_state.messages[0]).content_type, ArtifactContentType.VISUALIZATION
-            )
-            self.assertEqual(cast(ArtifactRefMessage, new_state.messages[0]).source, ArtifactSource.ARTIFACT)
-            self.assertIsNotNone(cast(ArtifactRefMessage, new_state.messages[0]).artifact_id)
+            assert new_state.intermediate_steps is None
+            assert new_state.plan is None
+            assert len(new_state.messages) == 1
+            assert isinstance(new_state.messages[0], ArtifactRefMessage)
+            assert cast(ArtifactRefMessage, new_state.messages[0]).content_type == ArtifactContentType.VISUALIZATION
+            assert cast(ArtifactRefMessage, new_state.messages[0]).source == ArtifactSource.ARTIFACT
+            assert cast(ArtifactRefMessage, new_state.messages[0]).artifact_id is not None
 
     async def test_node_sets_name_description_and_plan_in_artifact(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -104,15 +102,15 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(len(new_state.messages), 1)
+            assert len(new_state.messages) == 1
             artifact_message = cast(ArtifactRefMessage, new_state.messages[0])
 
             artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
             content = VisualizationArtifactContent.model_validate(artifact.data)
 
-            self.assertEqual(content.name, "Test Query Name")
-            self.assertEqual(content.description, "Test Query Description")
-            self.assertEqual(content.plan, "Test Plan Content")
+            assert content.name == "Test Query Name"
+            assert content.description == "Test Query Description"
+            assert content.plan == "Test Plan Content"
 
     async def test_node_sets_empty_plan_when_no_plan_in_state(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -139,33 +137,33 @@ class TestSchemaGeneratorNode(BaseTest):
             artifact = await AgentArtifact.objects.aget(short_id=artifact_message.artifact_id)
             content = VisualizationArtifactContent.model_validate(artifact.data)
 
-            self.assertEqual(content.name, "Query Name")
-            self.assertEqual(content.description, "Description")
-            self.assertEqual(content.plan, "")
+            assert content.name == "Query Name"
+            assert content.description == "Description"
+            assert content.plan == ""
 
     async def test_construct_messages_includes_group_mapping_and_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
         history = await node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Text", id="0")], plan="randomplan", start_id="0")
         )
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertIn("Generate a schema", history[1].content)
+        assert len(history) == 2
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "the plan" in history[1].content
+        assert "randomplan" in history[1].content
+        assert "Generate a schema" in history[1].content
 
     async def test_construct_messages_with_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
         history = await node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0")
         )
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Generate a schema", history[1].content)
+        assert len(history) == 2
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "Generate a schema" in history[1].content
 
     async def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -178,9 +176,9 @@ class TestSchemaGeneratorNode(BaseTest):
 
             def assert_prompt(prompt):
                 # System prompt + merged human messages (group mapping + plan)
-                self.assertEqual(len(prompt), 2)
-                self.assertEqual(prompt[0].type, "system")
-                self.assertEqual(prompt[1].type, "human")
+                assert len(prompt) == 2
+                assert prompt[0].type == "system"
+                assert prompt[1].type == "human"
 
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
             await node(state, {})
@@ -194,7 +192,7 @@ class TestSchemaGeneratorNode(BaseTest):
 
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             new_state = cast(PartialAssistantState, new_state)
-            self.assertEqual(len(new_state.intermediate_steps or []), 1)
+            assert len(new_state.intermediate_steps or []) == 1
 
             new_state = await node(
                 AssistantState(
@@ -204,7 +202,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 {},
             )
             assert new_state is not None
-            self.assertEqual(len(new_state.intermediate_steps or []), 2)
+            assert len(new_state.intermediate_steps or []) == 2
 
     async def test_quality_check_failure_with_retries_available(self):
         """Test quality check failure triggering retry when retries are available."""
@@ -226,11 +224,11 @@ class TestSchemaGeneratorNode(BaseTest):
             new_state = cast(PartialAssistantState, new_state)
 
             # Should trigger retry
-            self.assertEqual(len(new_state.intermediate_steps or []), 1)
+            assert len(new_state.intermediate_steps or []) == 1
             action, _ = cast(list[IntermediateStep], new_state.intermediate_steps)[0]
-            self.assertEqual(action.tool, "handle_incorrect_response")
-            self.assertEqual(action.tool_input, "SELECT x FROM events")
-            self.assertEqual(action.log, "Field validation failed")
+            assert action.tool == "handle_incorrect_response"
+            assert action.tool_input == "SELECT x FROM events"
+            assert action.log == "Field validation failed"
 
     async def test_quality_check_failure_with_retries_exhausted(self):
         """Test quality check failure with retries exhausted raises SchemaGenerationException."""
@@ -267,8 +265,8 @@ class TestSchemaGeneratorNode(BaseTest):
                 )
 
             # Verify the exception contains the expected information
-            self.assertEqual(cm.exception.llm_output, '{"query": "test"}')
-            self.assertEqual(cm.exception.validation_message, "Quality check failed")
+            assert cm.exception.llm_output == '{"query": "test"}'
+            assert cm.exception.validation_message == "Quality check failed"
 
     async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -290,7 +288,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(new_state.intermediate_steps, None)
+            assert new_state.intermediate_steps is None
 
             new_state = await node(
                 AssistantState(
@@ -303,7 +301,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 config,
             )
             assert new_state is not None
-            self.assertEqual(new_state.intermediate_steps, None)
+            assert new_state.intermediate_steps is None
 
     async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -336,24 +334,24 @@ class TestSchemaGeneratorNode(BaseTest):
             ),
             validation_error_message="uniqexception",
         )
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Pydantic", history[2].content)
-        self.assertIn("uniqexception", history[2].content)
+        assert len(history) == 3
+        assert history[0].type == "human"
+        assert "mapping" in history[0].content
+        assert history[1].type == "human"
+        assert "the plan" in history[1].content
+        assert "randomplan" in history[1].content
+        assert history[2].type == "human"
+        assert "Pydantic" in history[2].content
+        assert "uniqexception" in history[2].content
 
     def test_router(self):
         node = DummyGeneratorNode(self.team, self.user)
         state = node.router(AssistantState(messages=[], intermediate_steps=None))
-        self.assertEqual(state, "next")
+        assert state == "next"
         state = node.router(
             AssistantState(messages=[], intermediate_steps=[(AgentAction(tool="", tool_input="", log=""), None)])
         )
-        self.assertEqual(state, "tools")
+        assert state == "tools"
 
     async def test_agent_handles_incomplete_json(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -361,12 +359,14 @@ class TestSchemaGeneratorNode(BaseTest):
             DummyGeneratorNode,
             "_model",
             return_value=RunnableLambda(
-                lambda _: """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+                lambda _: (
+                    """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+                )
             ),
         ):
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             assert new_state is not None
-            self.assertEqual(len(new_state.intermediate_steps or []), 1)
+            assert len(new_state.intermediate_steps or []) == 1
 
 
 class TestSchemaGeneratorToolsNode(BaseTest):
@@ -375,10 +375,7 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
-        self.assertIsNotNone("validationerror", cast(list[IntermediateStep], state.intermediate_steps)[0][1])
-        self.assertIn(
-            "validationerror", cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
-        )
-        self.assertIn(
-            "pydanticexception", cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
-        )
+        result = cast(list[IntermediateStep], state.intermediate_steps)[0][1]
+        assert result is not None
+        assert "validationerror" in cast(Iterable[Any], result)
+        assert "pydanticexception" in cast(Iterable[Any], result)

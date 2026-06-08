@@ -67,17 +67,17 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
         else:
             raise AssertionError(f"Unsupported method {method}")
 
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def test_viewer_can_list(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
-        self.assertEqual(self.client.get(self._list_url()).status_code, status.HTTP_200_OK)
+        assert self.client.get(self._list_url()).status_code == status.HTTP_200_OK
 
     def test_project_default_none_blocks_non_creator(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
-        self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
+        assert self.client.get(self._detail_url()).status_code == status.HTTP_403_FORBIDDEN
 
     def test_creator_list_filters_to_own_tables_when_other_is_blocked(self):
         other_user = User.objects.create_and_join(self.organization, "otheruser@posthog.com", "testtest")
@@ -99,14 +99,14 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.user)
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [t["id"] for t in response.json()["results"]]
-        self.assertIn(str(self.table.id), ids)
-        self.assertNotIn(str(other_table.id), ids)
+        assert str(self.table.id) in ids
+        assert str(other_table.id) not in ids
 
     def test_user_access_level_field_is_present(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
         response = self.client.get(self._detail_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json().get("user_access_level"), "viewer")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json().get("user_access_level") == "viewer"

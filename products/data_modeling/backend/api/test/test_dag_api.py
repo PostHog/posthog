@@ -12,10 +12,10 @@ class TestDAGViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
         names = [d["name"] for d in response.json()["results"]]
-        self.assertEqual(names, ["another_dag", "my_dag"])
+        assert names == ["another_dag", "my_dag"]
 
     def test_create_dag(self):
         response = self.client.post(
@@ -23,11 +23,11 @@ class TestDAGViewSet(APIBaseTest):
             {"name": "new_dag", "description": "A test DAG"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "new_dag")
-        self.assertEqual(response.json()["description"], "A test DAG")
-        self.assertEqual(response.json()["node_count"], 0)
-        self.assertTrue(DAG.objects.filter(team=self.team, name="new_dag").exists())
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "new_dag"
+        assert response.json()["description"] == "A test DAG"
+        assert response.json()["node_count"] == 0
+        assert DAG.objects.filter(team=self.team, name="new_dag").exists()
 
     def test_retrieve_dag(self):
         dag = DAG.objects.create(team=self.team, name="my_dag", description="desc")
@@ -35,9 +35,9 @@ class TestDAGViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "my_dag")
-        self.assertEqual(response.json()["node_count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "my_dag"
+        assert response.json()["node_count"] == 1
 
     def test_partial_update_dag(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
@@ -47,24 +47,40 @@ class TestDAGViewSet(APIBaseTest):
             {"description": "updated description"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["description"], "updated description")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["description"] == "updated description"
+
+    def test_delete_not_allowed(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_node_count_reflects_nodes(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+        Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)
+        Node.objects.create(team=self.team, dag=dag, name="persons", type=NodeType.TABLE)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
+
+        assert response.json()["node_count"] == 2
 
     def test_delete_dag(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
 
         response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(DAG.objects.filter(team=self.team, id=dag.id).exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not DAG.objects.filter(team=self.team, id=dag.id).exists()
 
     def test_cannot_delete_default_dag(self):
         dag = DAG.get_or_create_default(self.team)
 
         response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertTrue(DAG.objects.filter(team=self.team, id=dag.id).exists())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert DAG.objects.filter(team=self.team, id=dag.id).exists()
 
     def test_cannot_rename_default_dag(self):
         dag = DAG.get_or_create_default(self.team)
@@ -74,15 +90,6 @@ class TestDAGViewSet(APIBaseTest):
             {"name": "renamed"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         dag.refresh_from_db()
-        self.assertEqual(dag.name, "Default")
-
-    def test_node_count_reflects_nodes(self):
-        dag = DAG.objects.create(team=self.team, name="my_dag")
-        Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)
-        Node.objects.create(team=self.team, dag=dag, name="persons", type=NodeType.TABLE)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
-
-        self.assertEqual(response.json()["node_count"], 2)
+        assert dag.name == "Default"

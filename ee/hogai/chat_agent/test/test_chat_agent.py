@@ -151,14 +151,14 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             mock.return_value = RunnableLambda(interrupt_graph_1)
             await self._run_assistant_graph(graph, conversation=self.conversation)
             snapshot: StateSnapshot = await graph.aget_state(config)
-            self.assertTrue(snapshot.next)
-            self.assertEqual(snapshot.values["graph_status"], "interrupted")
-            self.assertIsInstance(snapshot.values["messages"][-1], AssistantMessage)
-            self.assertEqual(snapshot.values["messages"][-1].content, "test")
+            assert snapshot.next
+            assert snapshot.values["graph_status"] == "interrupted"
+            assert isinstance(snapshot.values["messages"][-1], AssistantMessage)
+            assert snapshot.values["messages"][-1].content == "test"
 
             def interrupt_graph_2(_):
                 snapshot = async_to_sync(graph.aget_state)(config)
-                self.assertEqual(snapshot.values["graph_status"], "resumed")
+                assert snapshot.values["graph_status"] == "resumed"
                 raise NodeInterrupt("test")
 
             mock.return_value = RunnableLambda(interrupt_graph_2)
@@ -214,7 +214,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify the memory was appended (tool was executed)
         await self.core_memory.arefresh_from_db()
-        self.assertIn("Company uses subscription pricing model", self.core_memory.text)
+        assert "Company uses subscription pricing model" in self.core_memory.text
 
     async def test_recursion_error_is_handled(self):
         class FakeStream:
@@ -229,19 +229,19 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
             output, assistant = await self._run_assistant_graph(conversation=self.conversation)
-            self.assertEqual(output[0][0], "message")
-            self.assertEqual(cast(HumanMessage, output[0][1]).content, "Hello")
-            self.assertEqual(output[1][0], "message")
-            self.assertIsInstance(output[1][1], AssistantMessage)
-            self.assertEqual(
-                cast(AssistantMessage, output[1][1]).content,
-                "I've reached the maximum number of steps. Would you like me to continue?",
+            assert output[0][0] == "message"
+            assert cast(HumanMessage, output[0][1]).content == "Hello"
+            assert output[1][0] == "message"
+            assert isinstance(output[1][1], AssistantMessage)
+            assert (
+                cast(AssistantMessage, output[1][1]).content
+                == "I've reached the maximum number of steps. Would you like me to continue?"
             )
 
             # Verify state is marked as interrupted
             config = assistant._get_config()
             snapshot = await assistant._graph.aget_state(config)
-            self.assertTrue(snapshot.next)  # Should have next nodes to execute
+            assert snapshot.next  # Should have next nodes to execute
 
     async def test_recursion_error_can_resume_after_user_response(self):
         """Test that after hitting recursion limit, the assistant can resume when user responds."""
@@ -278,18 +278,18 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             output, _ = await self._run_assistant_graph(graph, conversation=self.conversation, message="Start task")
 
             # Should get the recursion limit message
-            self.assertEqual(len(output), 2)
-            self.assertIsInstance(output[1][1], AssistantMessage)
-            self.assertIn("maximum number of steps", cast(AssistantMessage, output[1][1]).content)
+            assert len(output) == 2
+            assert isinstance(output[1][1], AssistantMessage)
+            assert "maximum number of steps" in cast(AssistantMessage, output[1][1]).content
 
         # Second run - user says "continue"
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation, message="yes, continue")
 
         # Should resume and complete
-        self.assertGreater(len(output), 0)
+        assert len(output) > 0
         # Find the completion message
         assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertTrue(any("Completed successfully!" in msg.content for msg in assistant_messages))
+        assert any("Completed successfully!" in msg.content for msg in assistant_messages)
 
     async def test_new_conversation_handles_serialized_conversation(self):
         class TestNode(AssistantNode):
@@ -319,7 +319,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             conversation=self.conversation,
             is_new_conversation=False,
         )
-        self.assertNotEqual(output[0][0], "conversation")
+        assert output[0][0] != "conversation"
 
     async def test_async_stream(self):
         class TestNode(AssistantNode):
@@ -418,45 +418,45 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
-        self.assertEqual(len(conversation_events), 2)
-        self.assertEqual(conversation_events[0], ("conversation", self.conversation))
-        self.assertEqual(conversation_events[1], ("conversation", self.conversation))
+        assert len(conversation_events) == 2
+        assert conversation_events[0] == ("conversation", self.conversation)
+        assert conversation_events[1] == ("conversation", self.conversation)
 
         # Check message events in order
-        self.assertEqual(len(message_events), 5)
+        assert len(message_events) == 5
 
         # Check human message
         assert isinstance(message_events[0][1], HumanMessage)
-        self.assertEqual(message_events[0][1].content, "Hello")
+        assert message_events[0][1].content == "Hello"
 
         # Check assistant message with tool calls
-        self.assertIsInstance(message_events[1][1], AssistantMessage)
+        assert isinstance(message_events[1][1], AssistantMessage)
         assert isinstance(message_events[1][1], AssistantMessage)
         assert message_events[1][1].tool_calls is not None
-        self.assertEqual(message_events[1][1].tool_calls[0].name, "create_insight")
+        assert message_events[1][1].tool_calls[0].name == "create_insight"
 
         # Check artifact message - enriched from ArtifactRefMessage
         artifact_msg = message_events[2][1]
-        self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
-        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        assert artifact_msg.source == ArtifactSource.ARTIFACT
         assert isinstance(artifact_msg.content, VisualizationArtifactContent)
-        self.assertEqual(artifact_msg.content.query, query)
+        assert artifact_msg.content.query == query
 
         # Check tool call message
-        self.assertIsInstance(message_events[3][1], AssistantToolCallMessage)
+        assert isinstance(message_events[3][1], AssistantToolCallMessage)
 
         # Check final assistant message
         assert isinstance(message_events[4][1], AssistantMessage)
-        self.assertEqual(message_events[4][1].content, "The results indicate a great future for you.")
+        assert message_events[4][1].content == "The results indicate a great future for you."
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 5)
+        assert len(actual_output) == 5
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 5)
+        assert len(actual_output) == 5
 
     @title_generator_mock
     @query_executor_mock
@@ -504,38 +504,38 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
-        self.assertEqual(len(conversation_events), 2)
+        assert len(conversation_events) == 2
 
         # Check message events in order
-        self.assertEqual(len(message_events), 5)
+        assert len(message_events) == 5
 
         assert isinstance(message_events[0][1], HumanMessage)
-        self.assertEqual(message_events[0][1].content, "Hello")
+        assert message_events[0][1].content == "Hello"
 
-        self.assertIsInstance(message_events[1][1], AssistantMessage)
+        assert isinstance(message_events[1][1], AssistantMessage)
         assert isinstance(message_events[1][1], AssistantMessage)
         assert message_events[1][1].tool_calls is not None
-        self.assertEqual(message_events[1][1].tool_calls[0].name, "create_insight")
+        assert message_events[1][1].tool_calls[0].name == "create_insight"
 
         artifact_msg = message_events[2][1]
-        self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
-        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        assert artifact_msg.source == ArtifactSource.ARTIFACT
         assert isinstance(artifact_msg.content, VisualizationArtifactContent)
-        self.assertEqual(artifact_msg.content.query, query)
+        assert artifact_msg.content.query == query
 
-        self.assertIsInstance(message_events[3][1], AssistantToolCallMessage)
+        assert isinstance(message_events[3][1], AssistantToolCallMessage)
 
         assert isinstance(message_events[4][1], AssistantMessage)
-        self.assertEqual(message_events[4][1].content, "The results indicate a great future for you.")
+        assert message_events[4][1].content == "The results indicate a great future for you."
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 5)
+        assert len(actual_output) == 5
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 5)
+        assert len(actual_output) == 5
 
     @title_generator_mock
     @query_executor_mock
@@ -585,38 +585,38 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
-        self.assertEqual(len(conversation_events), 2)
+        assert len(conversation_events) == 2
 
         # Check message events in order
-        self.assertEqual(len(message_events), 5)
+        assert len(message_events) == 5
 
         assert isinstance(message_events[0][1], HumanMessage)
-        self.assertEqual(message_events[0][1].content, "Hello")
+        assert message_events[0][1].content == "Hello"
 
-        self.assertIsInstance(message_events[1][1], AssistantMessage)
+        assert isinstance(message_events[1][1], AssistantMessage)
         assert isinstance(message_events[1][1], AssistantMessage)
         assert message_events[1][1].tool_calls is not None
-        self.assertEqual(message_events[1][1].tool_calls[0].name, "create_insight")
+        assert message_events[1][1].tool_calls[0].name == "create_insight"
 
         artifact_msg = message_events[2][1]
-        self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
-        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        assert artifact_msg.source == ArtifactSource.ARTIFACT
         assert isinstance(artifact_msg.content, VisualizationArtifactContent)
-        self.assertEqual(artifact_msg.content.query, query)
+        assert artifact_msg.content.query == query
 
-        self.assertIsInstance(message_events[3][1], AssistantToolCallMessage)
+        assert isinstance(message_events[3][1], AssistantToolCallMessage)
 
         assert isinstance(message_events[4][1], AssistantMessage)
-        self.assertEqual(message_events[4][1].content, "The results indicate a great future for you.")
+        assert message_events[4][1].content == "The results indicate a great future for you."
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 5)
+        assert len(actual_output) == 5
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 5)
+        assert len(actual_output) == 5
 
     @title_generator_mock
     @query_executor_mock
@@ -656,30 +656,30 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         message_events = [e for e in actual_output if e[0] == AssistantEventType.MESSAGE]
 
         # Two conversation events: initial + title update
-        self.assertEqual(len(conversation_events), 2)
+        assert len(conversation_events) == 2
 
         # Check message events in order
-        self.assertEqual(len(message_events), 5)
+        assert len(message_events) == 5
 
         assert isinstance(message_events[0][1], HumanMessage)
-        self.assertEqual(message_events[0][1].content, "Hello")
+        assert message_events[0][1].content == "Hello"
 
-        self.assertIsInstance(message_events[1][1], AssistantMessage)
+        assert isinstance(message_events[1][1], AssistantMessage)
         assert isinstance(message_events[1][1], AssistantMessage)
         assert message_events[1][1].tool_calls is not None
-        self.assertEqual(message_events[1][1].tool_calls[0].name, "execute_sql")
+        assert message_events[1][1].tool_calls[0].name == "execute_sql"
 
         artifact_msg = message_events[2][1]
-        self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
-        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        assert artifact_msg.source == ArtifactSource.ARTIFACT
         assert isinstance(artifact_msg.content, VisualizationArtifactContent)
-        self.assertEqual(artifact_msg.content.query, query)
+        assert artifact_msg.content.query == query
 
-        self.assertIsInstance(message_events[3][1], AssistantToolCallMessage)
+        assert isinstance(message_events[3][1], AssistantToolCallMessage)
 
         assert isinstance(message_events[4][1], AssistantMessage)
-        self.assertEqual(message_events[4][1].content, "The results indicate a great future for you.")
+        assert message_events[4][1].content == "The results indicate a great future for you."
 
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingFinalizeNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
@@ -760,9 +760,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify the memory was saved
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(
-            core_memory.initial_text,
-            "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
+        assert (
+            core_memory.initial_text
+            == "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:"
         )
 
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingFinalizeNode._model")
@@ -838,7 +838,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         self.assertConversationEqual(output, expected_output)
 
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        self.assertEqual(core_memory.initial_text, "Question: What is your target market?\nAnswer:")
+        assert core_memory.initial_text == "Question: What is your target market?\nAnswer:"
 
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model")
     async def test_memory_collector_flow(self, model_mock):
@@ -884,7 +884,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify memory was appended
         await self.core_memory.arefresh_from_db()
-        self.assertIn("The product uses a subscription model.", self.core_memory.text)
+        assert "The product uses a subscription model." in self.core_memory.text
 
     @title_generator_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -943,11 +943,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify the last message doesn't contain any tool calls and has our expected content
         last_message = cast(AssistantMessage, output[-1][1])
-        self.assertNotIn("tool_calls", last_message, "The final message should not contain any tool calls")
-        self.assertEqual(
-            last_message.content,
-            "No more tool calls after 4th attempt",
-            "Final message should indicate no more tool calls",
+        assert "tool_calls" not in last_message, "The final message should not contain any tool calls"
+        assert last_message.content == "No more tool calls after 4th attempt", (
+            "Final message should indicate no more tool calls"
         )
 
     async def test_conversation_is_locked_when_generating(self):
@@ -957,18 +955,18 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             .add_root()
             .compile()
         )
-        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+        assert self.conversation.status == Conversation.Status.IDLE
         with patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock:
 
             def assert_lock_status(_):
                 self.conversation.refresh_from_db()
-                self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
+                assert self.conversation.status == Conversation.Status.IN_PROGRESS
                 return messages.AIMessage(content="")
 
             root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(assert_lock_status)
             await self._run_assistant_graph(graph)
             await self.conversation.arefresh_from_db()
-            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+            assert self.conversation.status == Conversation.Status.IDLE
 
     async def test_conversation_saves_state_after_cancellation(self):
         graph = (
@@ -978,7 +976,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             .compile()
         )
 
-        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+        assert self.conversation.status == Conversation.Status.IDLE
         with (
             patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock,
             patch("ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun") as root_tool_mock,
@@ -1006,8 +1004,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(assert_lock_status)
             await self._run_assistant_graph(graph)
             snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
-            self.assertEqual(snapshot.next, (AssistantNodeName.ROOT_TOOLS,))
-            self.assertEqual(snapshot.values["messages"][-1].content, "")
+            assert snapshot.next == (AssistantNodeName.ROOT_TOOLS,)
+            assert snapshot.values["messages"][-1].content == ""
             root_tool_mock.assert_not_called()
 
         with patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock:
@@ -1030,7 +1028,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         initial_updated_at = self.conversation.updated_at
         initial_created_at = self.conversation.created_at
 
-        self.assertIsNone(self.conversation.title)
+        assert self.conversation.title is None
 
         # Mock the title generator to return "Generated Conversation Title"
         title_generator_model_mock.return_value = FakeChatOpenAI(
@@ -1047,11 +1045,11 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         # Assert the conversation doesn't have a title yet
         await self.conversation.arefresh_from_db()
         # Verify the title has been set
-        self.assertEqual(self.conversation.title, "Generated Conversation Title")
+        assert self.conversation.title == "Generated Conversation Title"
         assert self.conversation.updated_at is not None
         assert initial_updated_at is not None
-        self.assertGreater(self.conversation.updated_at, initial_updated_at)
-        self.assertEqual(self.conversation.created_at, initial_created_at)
+        assert self.conversation.updated_at > initial_updated_at
+        assert self.conversation.created_at == initial_created_at
 
     async def test_merges_messages_with_same_id(self):
         """Test that messages with the same ID are merged into one."""
@@ -1085,15 +1083,15 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # First run should add the message with initial content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
-        self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_ids[0])
-        self.assertEqual(cast(AssistantMessage, output[1][1]).content, first_content)
+        assert len(output) == 2  # Human message + AI message
+        assert cast(AssistantMessage, output[1][1]).id == message_ids[0]
+        assert cast(AssistantMessage, output[1][1]).content == first_content
 
         # Second run should update the message with new content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
-        self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_ids[1])
-        self.assertEqual(cast(AssistantMessage, output[1][1]).content, updated_content)
+        assert len(output) == 2  # Human message + AI message
+        assert cast(AssistantMessage, output[1][1]).id == message_ids[1]
+        assert cast(AssistantMessage, output[1][1]).content == updated_content
 
         # Verify the message was actually replaced, not duplicated
         snapshot = await graph.aget_state(config)
@@ -1101,11 +1099,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Count messages with our test ID
         messages_with_id = [msg for msg in messages if msg.id == message_ids[1]]
-        self.assertEqual(len(messages_with_id), 1, "There should be exactly one message with the test ID")
-        self.assertEqual(
-            messages_with_id[0].content,
-            updated_content,
-            "The merged message should have the content of the last message",
+        assert len(messages_with_id) == 1, "There should be exactly one message with the test ID"
+        assert messages_with_id[0].content == updated_content, (
+            "The merged message should have the content of the last message"
         )
 
     async def test_assistant_filters_messages_correctly(self):
@@ -1211,14 +1207,14 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Find all human messages in the final stored messages
         human_messages = [msg for msg in stored_messages2 if isinstance(msg, HumanMessage)]
-        self.assertEqual(len(human_messages), 2, "Should have exactly two human messages")
+        assert len(human_messages) == 2, "Should have exactly two human messages"
 
         first_message = human_messages[0]
-        self.assertEqual(first_message.ui_context, ui_context)
+        assert first_message.ui_context == ui_context
 
         # Check second message has new ui_context
         second_message = human_messages[1]
-        self.assertEqual(second_message.ui_context, ui_context_2)
+        assert second_message.ui_context == ui_context_2
 
     @patch("ee.hogai.chat_agent.query_executor.nodes.QueryExecutorNode.arun")
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -1273,42 +1269,42 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         )
 
         # Verify output length
-        self.assertEqual(len(output), 6)
+        assert len(output) == 6
 
         # Check conversation output
-        self.assertEqual(output[0], ("conversation", self.conversation))
+        assert output[0] == ("conversation", self.conversation)
 
         # Check human message
-        self.assertEqual(output[1][0], "message")
+        assert output[1][0] == "message"
         assert isinstance(output[1][1], HumanMessage)
-        self.assertEqual(output[1][1].content, "Hello")
+        assert output[1][1].content == "Hello"
 
         # Check assistant message with tool calls
-        self.assertEqual(output[2][0], "message")
-        self.assertIsInstance(output[2][1], AssistantMessage)
+        assert output[2][0] == "message"
+        assert isinstance(output[2][1], AssistantMessage)
         assert isinstance(output[2][1], AssistantMessage)
         assert output[2][1].tool_calls is not None
-        self.assertEqual(output[2][1].tool_calls[0].name, "create_insight")
+        assert output[2][1].tool_calls[0].name == "create_insight"
 
         # Check artifact message - enriched from ArtifactRefMessage
-        self.assertEqual(output[3][0], "message")
+        assert output[3][0] == "message"
         artifact_msg = output[3][1]
-        self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
-        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        assert artifact_msg.source == ArtifactSource.ARTIFACT
         assert isinstance(artifact_msg.content, VisualizationArtifactContent)
-        self.assertEqual(artifact_msg.content.query, query)
+        assert artifact_msg.content.query == query
 
         # Check tool call message
-        self.assertEqual(output[4][0], "message")
-        self.assertIsInstance(output[4][1], AssistantToolCallMessage)
+        assert output[4][0] == "message"
         assert isinstance(output[4][1], AssistantToolCallMessage)
-        self.assertEqual(output[4][1].tool_call_id, "xyz")
+        assert isinstance(output[4][1], AssistantToolCallMessage)
+        assert output[4][1].tool_call_id == "xyz"
 
         # Check final assistant message
-        self.assertEqual(output[5][0], "message")
+        assert output[5][0] == "message"
         assert isinstance(output[5][1], AssistantMessage)
-        self.assertEqual(output[5][1].content, "Everything is fine")
+        assert output[5][1].content == "Everything is fine"
 
         # Verify state messages contain ArtifactRefMessage
         snapshot = await assistant._graph.aget_state(assistant._get_config())
@@ -1317,9 +1313,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # State should contain ArtifactRefMessage (from database artifact)
         artifact_ref_messages = [m for m in state.messages if isinstance(m, ArtifactRefMessage)]
-        self.assertEqual(len(artifact_ref_messages), 1)
-        self.assertEqual(artifact_ref_messages[0].source, ArtifactSource.ARTIFACT)
-        self.assertEqual(artifact_ref_messages[0].content_type, ArtifactContentType.VISUALIZATION)
+        assert len(artifact_ref_messages) == 1
+        assert artifact_ref_messages[0].source == ArtifactSource.ARTIFACT
+        assert artifact_ref_messages[0].content_type == ArtifactContentType.VISUALIZATION
 
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     async def test_continue_generation_without_new_message(self, root_mock):
@@ -1375,13 +1371,11 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify the assistant continued generation with the expected message
         assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertTrue(len(assistant_messages) > 0, "Expected at least one assistant message")
+        assert len(assistant_messages) > 0, "Expected at least one assistant message"
         # The root node should have generated the continuation message we mocked
         final_message = assistant_messages[-1]
-        self.assertEqual(
-            final_message.content,
-            "Based on the previous analysis, I can provide insights.",
-            "Expected the root node to generate continuation message",
+        assert final_message.content == "Based on the previous analysis, I can provide insights.", (
+            "Expected the root node to generate continuation message"
         )
 
     # Tests for ainvoke method
@@ -1412,15 +1406,15 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         result = await assistant.ainvoke()
 
         # Should return list of tuples with correct structure
-        self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 1)
+        assert isinstance(result, list)
+        assert len(result) == 1
         item = result[0]
         # Check structure of each result
-        self.assertIsInstance(item, tuple)
-        self.assertEqual(len(item), 2)
-        self.assertEqual(item[0], AssistantEventType.MESSAGE)
-        self.assertIsInstance(item[1], AssistantMessage)
-        self.assertEqual(cast(AssistantMessage, item[1]).content, "Response")
+        assert isinstance(item, tuple)
+        assert len(item) == 2
+        assert item[0] == AssistantEventType.MESSAGE
+        assert isinstance(item[1], AssistantMessage)
+        assert cast(AssistantMessage, item[1]).content == "Response"
 
     def test_billing_context_in_config(self):
         billing_context = MaxBillingContext(
@@ -1457,7 +1451,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         )
 
         config = assistant._get_config()
-        self.assertEqual(config["configurable"]["billing_context"], billing_context)
+        assert config["configurable"]["billing_context"] == billing_context
 
     @patch("ee.hogai.context.context.AssistantContextManager.check_user_has_billing_access", return_value=True)
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
@@ -1535,17 +1529,17 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             output.append(event)
 
         # Verify we received messages
-        self.assertGreater(len(output), 0)
+        assert len(output) > 0
 
         # Find the assistant's final response
         assistant_messages = [msg for event_type, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertGreater(len(assistant_messages), 0)
+        assert len(assistant_messages) > 0
 
         # Verify the assistant received and used the billing information
         # The mock returns "Your billing information shows you're on a startup plan."
         final_message = cast(AssistantMessage, assistant_messages[-1])
-        self.assertIn("billing", final_message.content.lower())
-        self.assertIn("startup", final_message.content.lower())
+        assert "billing" in final_message.content.lower()
+        assert "startup" in final_message.content.lower()
 
     async def test_messages_without_id_are_yielded(self):
         """Test that messages without ID are always yielded."""
@@ -1577,8 +1571,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         output2, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
 
         # Both runs should yield their messages (human + assistant message each)
-        self.assertEqual(len(output1), 3)  # Human message + AI message + AI message
-        self.assertEqual(len(output2), 3)  # Human message + AI message + AI message
+        assert len(output1) == 3  # Human message + AI message + AI message
+        assert len(output2) == 3  # Human message + AI message + AI message
 
     async def test_messages_with_id_are_deduplicated(self):
         """Test that messages with ID are deduplicated during streaming."""
@@ -1626,7 +1620,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         assistant_messages = [
             msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id == message_id
         ]
-        self.assertEqual(len(assistant_messages), 1, "Message with same ID should only be yielded once")
+        assert len(assistant_messages) == 1, "Message with same ID should only be yielded once"
 
     async def test_replaced_messaged_are_not_double_streamed(self):
         """Test that existing messages are not streamed again"""
@@ -1668,14 +1662,14 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
         # Filter for assistant messages only, as the test is about tracking assistant message IDs
         assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertEqual(len(assistant_output), 1)
-        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_1)
+        assert len(assistant_output) == 1
+        assert cast(AssistantMessage, assistant_output[0][1]).id == message_id_1
 
         output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
         # Filter for assistant messages only, as the test is about tracking assistant message IDs
         assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
-        self.assertEqual(len(assistant_output), 1)
-        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
+        assert len(assistant_output) == 1
+        assert cast(AssistantMessage, assistant_output[0][1]).id == message_id_2
 
     @patch(
         "ee.hogai.utils.conversation_summarizer.summarizer.AnthropicConversationSummarizer.summarize",
@@ -1737,10 +1731,10 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         state = AssistantState.model_validate(snapshot.values)
         # should be equal to the copied human message
         new_human_message = cast(HumanMessage, output[3][1])
-        self.assertEqual(state.start_id, new_human_message.id)
+        assert state.start_id == new_human_message.id
         # should be equal to the summary message (ContextMessage)
-        self.assertIsInstance(state.messages[4], ContextMessage)
-        self.assertEqual(state.root_conversation_start_id, state.messages[4].id)
+        assert isinstance(state.messages[4], ContextMessage)
+        assert state.root_conversation_start_id == state.messages[4].id
 
     @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(

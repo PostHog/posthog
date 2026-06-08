@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -171,23 +172,20 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 }
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_day_interval(self):
@@ -219,42 +217,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_month_interval(self):
@@ -297,58 +289,49 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result, "label"),
+        assert pluck(result, "label") == [
+            "Month 0",
+            "Month 1",
+            "Month 2",
+            "Month 3",
+            "Month 4",
+            "Month 5",
+            "Month 6",
+            "Month 7",
+            "Month 8",
+            "Month 9",
+            "Month 10",
+        ]
+
+        assert pluck(result, "values", "count") == pad(
             [
-                "Month 0",
-                "Month 1",
-                "Month 2",
-                "Month 3",
-                "Month 4",
-                "Month 5",
-                "Month 6",
-                "Month 7",
-                "Month 8",
-                "Month 9",
-                "Month 10",
-            ],
+                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 1, 0, 0],
+                [2, 1, 0, 1, 0, 1],
+                [1, 0, 0, 0, 1],
+                [0, 0, 0, 0],
+                [1, 0, 0],
+                [0, 0],
+                [1],
+            ]
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 1, 0, 0],
-                    [2, 1, 0, 1, 0, 1],
-                    [1, 0, 0, 0, 1],
-                    [0, 0, 0, 0],
-                    [1, 0, 0],
-                    [0, 0],
-                    [1],
-                ]
-            ),
-        )
-
-        self.assertEqual(
-            pluck(result, "date"),
-            [
-                datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
-            ],
-        )
+        assert pluck(result, "date") == [
+            datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
+        ]
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -473,59 +456,50 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Month 0",
-                "Month 1",
-                "Month 2",
-                "Month 3",
-                "Month 4",
-                "Month 5",
-                "Month 6",
-                "Month 7",
-                "Month 8",
-                "Month 9",
-                "Month 10",
-            ],
-        )
+        assert pluck(result, "label") == [
+            "Month 0",
+            "Month 1",
+            "Month 2",
+            "Month 3",
+            "Month 4",
+            "Month 5",
+            "Month 6",
+            "Month 7",
+            "Month 8",
+            "Month 9",
+            "Month 10",
+        ]
 
         # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1],
-                    [1, 1, 1, 1],
-                    [1, 1, 1],
-                    [1, 1],
-                    [1],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1],
+                [1, 1],
+                [1],
+            ]
         )
 
-        self.assertEqual(
-            pluck(result, "date"),
-            [
-                datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
-            ],
-        )
+        assert pluck(result, "date") == [
+            datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
+        ]
 
     @snapshot_clickhouse_queries
     def test_week_interval(self):
@@ -568,38 +542,21 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         }
         result_sunday = self.run_query(query=query)
 
-        self.assertEqual(
-            pluck(result_sunday, "label"),
-            ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
+        assert pluck(result_sunday, "label") == ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"]
+
+        assert pluck(result_sunday, "values", "count") == pad(
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]
         )
 
-        self.assertEqual(
-            pluck(result_sunday, "values", "count"),
-            pad(
-                [
-                    [2, 2, 1, 2, 2, 0, 1],
-                    [2, 1, 2, 2, 0, 1],
-                    [1, 1, 1, 0, 0],
-                    [2, 2, 0, 1],
-                    [2, 0, 1],
-                    [0, 0],
-                    [1],
-                ]
-            ),
-        )
-
-        self.assertEqual(
-            pluck(result_sunday, "date"),
-            [
-                datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 21, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 28, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
-            ],
-        )
+        assert pluck(result_sunday, "date") == [
+            datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 21, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 28, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
+        ]
 
         # Starting with Monday
         self.team.week_start_day = 1  # WeekStartDay.MONDAY's concrete value
@@ -607,38 +564,21 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         result_monday = self.run_query(query=query)
 
-        self.assertEqual(
-            pluck(result_monday, "label"),
-            ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
+        assert pluck(result_monday, "label") == ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"]
+
+        assert pluck(result_monday, "values", "count") == pad(
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]
         )
 
-        self.assertEqual(
-            pluck(result_monday, "values", "count"),
-            pad(
-                [
-                    [2, 2, 1, 2, 2, 0, 1],
-                    [2, 1, 2, 2, 0, 1],
-                    [1, 1, 1, 0, 0],
-                    [2, 2, 0, 1],
-                    [2, 0, 1],
-                    [0, 0],
-                    [1],
-                ]
-            ),
-        )
-
-        self.assertEqual(
-            pluck(result_monday, "date"),
-            [
-                datetime(2020, 6, 8, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 15, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 22, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 29, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 6, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 13, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 20, 0, tzinfo=ZoneInfo("UTC")),
-            ],
-        )
+        assert pluck(result_monday, "date") == [
+            datetime(2020, 6, 8, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 15, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 22, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 29, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 6, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 13, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 20, 0, tzinfo=ZoneInfo("UTC")),
+        ]
 
     def test_hour_interval(self):
         _create_person(
@@ -680,58 +620,49 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result, "label"),
+        assert pluck(result, "label") == [
+            "Hour 0",
+            "Hour 1",
+            "Hour 2",
+            "Hour 3",
+            "Hour 4",
+            "Hour 5",
+            "Hour 6",
+            "Hour 7",
+            "Hour 8",
+            "Hour 9",
+            "Hour 10",
+        ]
+
+        assert pluck(result, "values", "count") == pad(
             [
-                "Hour 0",
-                "Hour 1",
-                "Hour 2",
-                "Hour 3",
-                "Hour 4",
-                "Hour 5",
-                "Hour 6",
-                "Hour 7",
-                "Hour 8",
-                "Hour 9",
-                "Hour 10",
-            ],
+                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 1, 0, 0],
+                [2, 1, 0, 1, 0, 1],
+                [1, 0, 0, 0, 1],
+                [0, 0, 0, 0],
+                [1, 0, 0],
+                [0, 0],
+                [1],
+            ]
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 1, 0, 0],
-                    [2, 1, 0, 1, 0, 1],
-                    [1, 0, 0, 0, 1],
-                    [0, 0, 0, 0],
-                    [1, 0, 0],
-                    [0, 0],
-                    [1],
-                ]
-            ),
-        )
-
-        self.assertEqual(
-            pluck(result, "date"),
-            [
-                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("UTC")),
-            ],
-        )
+        assert pluck(result, "date") == [
+            datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("UTC")),
+        ]
 
     def test_hour_interval_team_timezone(self):
         self.team.timezone = "US/Pacific"
@@ -776,58 +707,49 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result, "label"),
+        assert pluck(result, "label") == [
+            "Hour 0",
+            "Hour 1",
+            "Hour 2",
+            "Hour 3",
+            "Hour 4",
+            "Hour 5",
+            "Hour 6",
+            "Hour 7",
+            "Hour 8",
+            "Hour 9",
+            "Hour 10",
+        ]
+
+        assert pluck(result, "values", "count") == pad(
             [
-                "Hour 0",
-                "Hour 1",
-                "Hour 2",
-                "Hour 3",
-                "Hour 4",
-                "Hour 5",
-                "Hour 6",
-                "Hour 7",
-                "Hour 8",
-                "Hour 9",
-                "Hour 10",
-            ],
+                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 1, 0, 0],
+                [2, 1, 0, 1, 0, 1],
+                [1, 0, 0, 0, 1],
+                [0, 0, 0, 0],
+                [1, 0, 0],
+                [0, 0],
+                [1],
+            ]
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 1, 0, 0],
-                    [2, 1, 0, 1, 0, 1],
-                    [1, 0, 0, 0, 1],
-                    [0, 0, 0, 0],
-                    [1, 0, 0],
-                    [0, 0],
-                    [1],
-                ]
-            ),
-        )
-
-        self.assertEqual(
-            pluck(result, "date"),
-            [
-                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("US/Pacific")),
-                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("US/Pacific")),
-            ],
-        )
+        assert pluck(result, "date") == [
+            datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("US/Pacific")),
+            datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("US/Pacific")),
+        ]
 
     # ensure that the first interval is properly rounded according to the specified period
     def test_interval_rounding(self):
@@ -870,28 +792,21 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
+        assert pluck(result, "label") == ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"]
+
+        assert pluck(result, "values", "count") == pad(
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad([[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]),
-        )
-
-        self.assertEqual(
-            pluck(result, "date"),
-            [
-                datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 21, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 28, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
-            ],
-        )
+        assert pluck(result, "date") == [
+            datetime(2020, 6, 7, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 14, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 21, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 6, 28, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 5, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 12, 0, tzinfo=ZoneInfo("UTC")),
+            datetime(2020, 7, 19, 0, tzinfo=ZoneInfo("UTC")),
+        ]
 
     def test_rolling_retention(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -930,10 +845,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]]),
-        )
+        assert pluck(result, "values", "count") == pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]])
 
     def test_rolling_retention_with_minimum_occurrences(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -974,10 +886,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(
-            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 1, 0], [3, 0], [0]]),
-            pluck(result, "values", "count"),
-        )
+        assert pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 1, 0], [3, 0], [0]]) == pluck(result, "values", "count")
 
     def test_rolling_retention_doesnt_double_count_same_user(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -1015,25 +924,22 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    # first row, [2, 2, 1, 1, 0, 0], is explained below
-                    # day 0 is person 1, 2 -> 2
-                    # day 1 is person 2, 3 -> 1 (but we see person 1 later) so becomes 2
-                    # day 2 is person 3 -> 0 (but we see person 1 later) so becomes 1
-                    # day 3 is person 1, 3, 4 -> 1 (won't double count person 1 even though we see them again later)
-                    # day 4 is person 1, 4, 5 -> 1
-                    # day 5 is no one -> 0
-                    [2, 2, 1, 1, 1, 0],
-                    [2, 1, 1, 0, 0],
-                    [1, 1, 0, 0],
-                    [3, 2, 0],
-                    [3, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                # first row, [2, 2, 1, 1, 0, 0], is explained below
+                # day 0 is person 1, 2 -> 2
+                # day 1 is person 2, 3 -> 1 (but we see person 1 later) so becomes 2
+                # day 2 is person 3 -> 0 (but we see person 1 later) so becomes 1
+                # day 3 is person 1, 3, 4 -> 1 (won't double count person 1 even though we see them again later)
+                # day 4 is person 1, 4, 5 -> 1
+                # day 5 is no one -> 0
+                [2, 2, 1, 1, 1, 0],
+                [2, 1, 1, 0, 0],
+                [1, 1, 0, 0],
+                [3, 2, 0],
+                [3, 0],
+                [0],
+            ]
         )
 
     def test_all_events(self):
@@ -1066,23 +972,20 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
         action = Action.objects.create(
@@ -1104,23 +1007,20 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_all_events_with_minimum_occurrences(self):
@@ -1154,24 +1054,21 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(
-            pad(
-                [
-                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-                    [2, 0, 0, 1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
-            pluck(result, "values", "count"),
-        )
+        assert pad(
+            [
+                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                [2, 0, 0, 1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
+        ) == pluck(result, "values", "count")
 
     def test_all_events_target_first_time(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -1219,19 +1116,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result_specific_event, "values", "count"),
-            pad(
-                [
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [1],
-                ]
-            ),
-        )
+        assert pluck(result_specific_event, "values", "count") == pad([[0, 0, 0, 0], [0, 0, 0], [0, 0], [1]])
 
-        self.assertEqual(result_specific_event, result_all_events)
+        assert result_specific_event == result_all_events
 
     def test_retention_people_basic(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1263,8 +1150,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             },
         )
-        self.assertEqual(len(result), 1, result)
-        self.assertEqual(result[0][0]["id"], person1.uuid, person1.uuid)
+        assert len(result) == 1, result
+        assert result[0][0]["id"] == person1.uuid, person1.uuid
 
         # test selecting appearances directly (defauly: days)
         result_2 = self.run_actors_query(
@@ -1277,12 +1164,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             },
             select=["day_0", "day_1", "day_2", "day_3", "day_4"],
         )
-        self.assertEqual(len(result_2), len(result))
-        self.assertEqual(result_2[0][2], 1)  # day_0
-        self.assertEqual(result_2[0][3], 1)  # day_1
-        self.assertEqual(result_2[0][4], 1)  # day_2
-        self.assertEqual(result_2[0][5], 0)  # day_3
-        self.assertEqual(result_2[0][6], 0)  # day_4
+        assert len(result_2) == len(result)
+        assert result_2[0][2] == 1  # day_0
+        assert result_2[0][3] == 1  # day_1
+        assert result_2[0][4] == 1  # day_2
+        assert result_2[0][5] == 0  # day_3
+        assert result_2[0][6] == 0  # day_4
 
     def test_retention_people_first_time(self):
         _, _, p3, _ = self._create_first_time_retention_events()
@@ -1301,8 +1188,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             },
         )
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["id"], p3.uuid)
+        assert len(result) == 1
+        assert result[0][0]["id"] == p3.uuid
 
         result = self.run_actors_query(
             interval=0,
@@ -1316,7 +1203,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             },
         )
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     def test_retention_people_in_period(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1351,11 +1238,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # should be descending order on number of appearances
-        self.assertEqual(result[0][0]["id"], person2.uuid)
-        self.assertCountEqual(result[0][1], [0, 1, 4, 5])
+        assert result[0][0]["id"] == person2.uuid
+        assert Counter(result[0][1]) == Counter([0, 1, 4, 5])
 
-        self.assertEqual(result[1][0]["id"], person1.uuid)
-        self.assertCountEqual(result[1][1], [0, 3, 4])
+        assert result[1][0]["id"] == person1.uuid
+        assert Counter(result[1][1]) == Counter([0, 3, 4])
 
     def test_retention_people_search(self):
         _create_person(
@@ -1396,7 +1283,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             },
             search="test",
         )
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
     def test_retention_people_in_period_first_time(self):
         p1, p2, p3, p4 = self._create_first_time_retention_events()
@@ -1413,9 +1300,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             },
         )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["id"], p3.uuid)
-        self.assertCountEqual(result[0][1], [0, 1, 3, 4, 5])
+        assert len(result) == 1
+        assert result[0][0]["id"] == p3.uuid
+        assert Counter(result[0][1]) == Counter([0, 1, 3, 4, 5])
 
     def test_retention_multiple_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1457,25 +1344,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 0, 0, 0, 0, 2, 1],
-                    [2, 0, 0, 0, 2, 1],
-                    [2, 0, 0, 2, 1],
-                    [2, 0, 2, 1],
-                    [0, 0, 0],
-                    [1, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]]
         )
 
     def test_retention_any_event(self):
@@ -1517,25 +1390,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 2, 2, 2, 0, 2, 1],
-                    [2, 2, 2, 0, 2, 1],
-                    [2, 2, 0, 2, 1],
-                    [2, 0, 2, 1],
-                    [0, 0, 0],
-                    [3, 1],
-                    [1],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[2, 2, 2, 2, 0, 2, 1], [2, 2, 2, 0, 2, 1], [2, 2, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [3, 1], [1]]
         )
 
     @snapshot_clickhouse_queries
@@ -1579,26 +1438,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 0, 0, 1, 0, 1, 0],
-                    [2, 0, 1, 0, 1, 0],
-                    [2, 1, 0, 1, 0],
-                    [2, 0, 1, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[2, 0, 0, 1, 0, 1, 0], [2, 0, 1, 0, 1, 0], [2, 1, 0, 1, 0], [2, 0, 1, 0], [0, 0, 0], [0, 0], [0]]
         )
 
     def test_first_time_retention(self):
@@ -1621,25 +1466,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 1, 2, 2, 1, 0, 1],
-                    [1, 1, 0, 1, 1, 1],
-                    [0, 0, 0, 0, 0],
-                    [1, 1, 0, 1],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[2, 1, 2, 2, 1, 0, 1], [1, 1, 0, 1, 1, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [0, 0, 0], [0, 0], [0]]
         )
 
     def test_first_time_retention_weeks(self):
@@ -1662,11 +1493,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
+        assert len(result) == 7
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad([[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0], [4, 4], [0]]),
+        assert pluck(result, "values", "count") == pad(
+            [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0], [4, 4], [0]]
         )
 
     def test_retention_with_properties(self):
@@ -1712,42 +1542,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
-                    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+                [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_with_properties_on_start_event(self):
@@ -1790,42 +1614,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_with_properties_on_start_event_for_first_time(self):
@@ -1869,42 +1687,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_with_properties_on_return_event(self):
@@ -1947,42 +1759,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
-                    [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
+                [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_with_properties_on_all_events_target_entity(self):
@@ -2022,7 +1828,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(result[0]["values"][0]["count"], 1)
+        assert result[0]["values"][0]["count"] == 1
 
     def test_retention_with_properties_on_all_events_returning_entity(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -2061,8 +1867,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(result[0]["values"][0]["count"], 2)
-        self.assertEqual(result[0]["values"][1]["count"], 1)
+        assert result[0]["values"][0]["count"] == 2
+        assert result[0]["values"][1]["count"] == 1
 
     def test_retention_with_properties_on_action_target_entity(self):
         action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
@@ -2103,7 +1909,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(result[0]["values"][0]["count"], 1)
+        assert result[0]["values"][0]["count"] == 1
 
     def test_retention_with_properties_on_action_returning_entity(self):
         action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
@@ -2144,8 +1950,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(result[0]["values"][0]["count"], 2)
-        self.assertEqual(result[0]["values"][1]["count"], 1)
+        assert result[0]["values"][0]["count"] == 2
+        assert result[0]["values"][1]["count"] == 1
 
     def test_retention_with_properties_on_return_event_with_first_time(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -2188,42 +1994,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_with_user_properties(self):
@@ -2279,25 +2079,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1],
-                    [1, 1, 0, 0, 1, 1],
-                    [1, 0, 0, 1, 1],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [1, 1],
-                    [1],
-                ]
-            ),
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
+        assert pluck(result, "values", "count") == pad(
+            [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]]
         )
 
     def test_retention_with_user_properties_and_minimum_occurrences(self):
@@ -2359,26 +2145,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
-        self.assertEqual(
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1],
-                    [1, 1, 0, 0, 1, 1],
-                    [1, 0, 0, 1, 1],
-                    [1, 0, 1, 1],
-                    [0, 0, 0],
-                    [1, 1],
-                    [1],
-                ]
-            ),
-            pluck(result, "values", "count"),
-        )
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
+        assert pad(
+            [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [1, 0, 1, 1], [0, 0, 0], [1, 1], [1]]
+        ) == pluck(result, "values", "count")
 
     @snapshot_clickhouse_queries
     def test_retention_with_user_properties_via_action(self):
@@ -2431,25 +2203,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1],
-                    [1, 1, 0, 0, 1, 1],
-                    [1, 0, 0, 1, 1],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [1, 1],
-                    [1],
-                ]
-            ),
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
+        assert pluck(result, "values", "count") == pad(
+            [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]]
         )
 
     def test_retention_action_start_point(self):
@@ -2484,26 +2242,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 7)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 7
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1],
-                    [2, 2, 1, 0, 1, 2],
-                    [2, 1, 0, 1, 2],
-                    [1, 0, 0, 1],
-                    [0, 0, 0],
-                    [1, 1],
-                    [2],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2]]
         )
 
     def test_filter_test_accounts(self):
@@ -2539,42 +2283,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 0, 0, 1, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 1, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 1, 0, 0, 1, 0, 0, 0, 0],
+                [1, 1, 0, 0, 1, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def _create_first_time_retention_events(self):
@@ -2692,11 +2430,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        assert len(result) == 8
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"]
 
         # Person1: first $user_signed_up on day 1, returns on days 1,3,5 (intervals 0,2,4)
         # Person2: first $user_signed_up on day 1, returns on days 2,4 (intervals 1,3)
@@ -2704,27 +2439,24 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Person4: first $user_signed_up on day 2, returns on day 3 (interval 1)
         # Person5: first $user_signed_up on day 3, returns on days 4,5 (intervals 1,2)
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
+        assert pluck(result, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one starts retention here (no one does signup on day 0)
             [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one starts retention here (no one does signup on day 0)
-                [
-                    2,
-                    1,
-                    1,
-                    1,
-                    1,
-                    0,
-                    0,
-                ],  # Day 1: person1 + person2 start; returns: day1(p1), day2(p2), day3(p1), day4(p2), day5(p1)
-                [1, 1, 0, 0, 0, 0, 0],  # Day 2: person4 starts; returns: day3(p4)
-                [2, 2, 1, 1, 0, 0, 0],  # Day 3: person3 + person5 start; returns: day4(p3+p5), day5(p5), day6(p3)
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+                2,
+                1,
+                1,
+                1,
+                1,
+                0,
+                0,
+            ],  # Day 1: person1 + person2 start; returns: day1(p1), day2(p2), day3(p1), day4(p2), day5(p1)
+            [1, 1, 0, 0, 0, 0, 0],  # Day 2: person4 starts; returns: day3(p4)
+            [2, 2, 1, 1, 0, 0, 0],  # Day 3: person3 + person5 start; returns: day4(p3+p5), day5(p5), day6(p3)
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
     def test_retention_first_time_ever_with_person_breakdown(self):
         """Test first time ever retention with person property breakdown"""
@@ -2775,48 +2507,42 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Should have results for each age group across the 8 days (Day 0-7)
-        self.assertEqual(len(result), 16)  # 8 days * 2 age groups
+        assert len(result) == 16  # 8 days * 2 age groups
 
         # Get results by breakdown value
         age_25_results = [r for r in result if r.get("breakdown_value") == "25"]
         age_30_results = [r for r in result if r.get("breakdown_value") == "30"]
 
-        self.assertEqual(len(age_25_results), 8)
-        self.assertEqual(len(age_30_results), 8)
+        assert len(age_25_results) == 8
+        assert len(age_30_results) == 8
 
         # Check age 25 group (person1 and person3)
         # Person1: first event ever day 1 (pageview), signup day 2 - should start retention on day 2
         # Person3: first event ever day 2 (signup) - should start retention on day 2
-        self.assertEqual(
-            pluck(age_25_results, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
-                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(age_25_results, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
+            [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
         # Check age 30 group (person2 and person4)
         # Person2: first event ever day 1 (signup) - should start retention on day 1
         # Person4: first event ever day 3 (pageview), signup day 4 - should start retention on day 4
-        self.assertEqual(
-            pluck(age_30_results, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2 (signup), returns day 2,4
-                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first event (pageview), but no signup yet
-                [1, 1, 1, 0, 0, 0, 0],  # Day 4: person4 (signup), returns day 5,6
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(age_30_results, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2 (signup), returns day 2,4
+            [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first event (pageview), but no signup yet
+            [1, 1, 1, 0, 0, 0, 0],  # Day 4: person4 (signup), returns day 5,6
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
     def test_retention_first_time_ever_with_event_breakdown(self):
         """Test first time ever retention with event property breakdown"""
@@ -2869,46 +2595,40 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Should have results for each source across the 8 days (Day 0-7)
-        self.assertEqual(len(result), 16)  # 8 days * 2 sources
+        assert len(result) == 16  # 8 days * 2 sources
 
         # Get results by breakdown value
         web_results = [r for r in result if r.get("breakdown_value") == "web"]
         mobile_results = [r for r in result if r.get("breakdown_value") == "mobile"]
 
-        self.assertEqual(len(web_results), 8)
-        self.assertEqual(len(mobile_results), 8)
+        assert len(web_results) == 8
+        assert len(mobile_results) == 8
 
         # Check web source (person1 and person3)
         # Person1: first event day 1 (pageview web), signup day 2 (web)
         # Person3: first event day 2 (signup web)
-        self.assertEqual(
-            pluck(web_results, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
-                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup web), both return day 3,5
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(web_results, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
+            [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup web), both return day 3,5
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
         # Check mobile source (person2)
-        self.assertEqual(
-            pluck(mobile_results, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
-                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(mobile_results, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
+            [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
     def test_retention_first_time_ever_breakdown_does_not_inflate_buckets(self):
         # First-ever retention with a breakdown by an event property that was
@@ -2956,10 +2676,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             per_date_totals[row["date"]] = per_date_totals.get(row["date"], 0) + row["values"][0]["count"]
 
         for unbroken_row in unbroken:
-            self.assertEqual(
-                per_date_totals.get(unbroken_row["date"], 0),
-                unbroken_row["values"][0]["count"],
-                f"breakdown bucket sum should equal unbroken total on {unbroken_row['date']}",
+            assert per_date_totals.get(unbroken_row["date"], 0) == unbroken_row["values"][0]["count"], (
+                f"breakdown bucket sum should equal unbroken total on {unbroken_row['date']}"
             )
 
         def cohort_count(breakdown_value: str, day_index: int) -> int:
@@ -2970,9 +2688,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 if row.get("breakdown_value") == breakdown_value and row["date"] == target_date
             )
 
-        self.assertEqual(cohort_count("", 0), 1)  # old_user, first event had no flag
-        self.assertEqual(cohort_count("variant_a", 2), 1)  # new_user
-        self.assertEqual(cohort_count("control", 2), 0)  # old_user must not leak here
+        assert cohort_count("", 0) == 1  # old_user, first event had no flag
+        assert cohort_count("variant_a", 2) == 1  # new_user
+        assert cohort_count("control", 2) == 0  # old_user must not leak here
 
         # Pin down person identities per bucket — same data the cohort modal shows.
         actors_query = {
@@ -2984,9 +2702,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             rows = self.run_actors_query(interval=interval, query=actors_query, breakdown=[breakdown_value])
             return sorted(distinct_id for row in rows for distinct_id in row[0]["distinct_ids"])
 
-        self.assertEqual(actor_distinct_ids(0, ""), ["old_user"])
-        self.assertEqual(actor_distinct_ids(2, "variant_a"), ["new_user"])
-        self.assertEqual(actor_distinct_ids(2, "control"), [])
+        assert actor_distinct_ids(0, "") == ["old_user"]
+        assert actor_distinct_ids(2, "variant_a") == ["new_user"]
+        assert actor_distinct_ids(2, "control") == []
 
     def test_retention_first_time_ever_with_cohort_breakdown(self):
         """Test first time ever retention with cohort breakdown"""
@@ -3075,48 +2793,42 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Should have results for each cohort across the 8 days (Day 0-7)
-        self.assertEqual(len(result), 16)  # 8 days * 2 cohorts
+        assert len(result) == 16  # 8 days * 2 cohorts
 
         # Get results by breakdown value
         cohort1_results = [r for r in result if r.get("breakdown_value") == str(cohort1.pk)]
         cohort2_results = [r for r in result if r.get("breakdown_value") == str(cohort2.pk)]
 
-        self.assertEqual(len(cohort1_results), 8)
-        self.assertEqual(len(cohort2_results), 8)
+        assert len(cohort1_results) == 8
+        assert len(cohort2_results) == 8
 
         # Check cohort1 (person1 and person3)
         # Person1: first event day 1 (pageview), signup day 2 - should start retention on day 2
         # Person3: first event day 2 (signup) - should start retention on day 2
-        self.assertEqual(
-            pluck(cohort1_results, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
-                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(cohort1_results, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [0, 0, 0, 0, 0, 0, 0],  # Day 1: person1's first event (pageview), but no signup yet
+            [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (both signup), both return day 3,5
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
         # Check cohort2 (person2 and person4)
         # Person2: first event day 1 (signup) - should start retention on day 1
         # Person4: first event day 3 (pageview), signup day 4 - should start retention on day 4
-        self.assertEqual(
-            pluck(cohort2_results, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
-                [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first event (pageview), but no signup yet
-                [1, 1, 1, 0, 0, 0, 0],  # Day 4: person4 (signup), returns day 5,6
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(cohort2_results, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [1, 1, 0, 1, 0, 0, 0],  # Day 1: person2's first event (signup), returns day 2,4
+            [0, 0, 0, 0, 0, 0, 0],  # Day 2: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: person4's first event (pageview), but no signup yet
+            [1, 1, 1, 0, 0, 0, 0],  # Day 4: person4 (signup), returns day 5,6
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
     def test_retention_first_time_ever_with_minimum_occurrences(self):
         """Test first time ever retention with minimum occurrences requirement"""
@@ -3162,28 +2874,22 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        assert len(result) == 8
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"]
 
         # Person1: first event on day 1 (signup), has 2 pageviews on day 2 (qualifies)
         # Person2: first event on day 2 (signup), has 3 pageviews on day 3 and 2 on day 5 (both qualify)
         # Person3: first event on day 3 (signup), has only 1 pageview on day 4 (doesn't qualify)
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [1, 1, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), returns day 2 with 2+ pageviews
-                [1, 1, 0, 1, 0, 0, 0],  # Day 2: person2 (signup), returns day 3 and 5 with 2+ pageviews
-                [1, 0, 0, 0, 0, 0, 0],  # Day 3: person3 (signup), but doesn't return with 2+ pageviews
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(result, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [1, 1, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), returns day 2 with 2+ pageviews
+            [1, 1, 0, 1, 0, 0, 0],  # Day 2: person2 (signup), returns day 3 and 5 with 2+ pageviews
+            [1, 0, 0, 0, 0, 0, 0],  # Day 3: person3 (signup), but doesn't return with 2+ pageviews
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
     def test_retention_first_time_ever_actors_query(self):
         """Test actors query for first time ever retention"""
@@ -3207,26 +2913,26 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Test actors for day 1 interval 0 (people who signed up on day 1 when it was their first event ever)
         actors_day1_interval0 = self.run_actors_query(interval=1, query=query)
         # Should be person1 (first event day 0, signup day 1) and person2 (first event signup on day 1)
-        self.assertEqual(len(actors_day1_interval0), 2)
+        assert len(actors_day1_interval0) == 2
 
         # Extract distinct_ids from results to check (order might vary)
         # Format is [[person_dict, intervals_list], ...]
         distinct_ids = {frozenset(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
-        self.assertIn(frozenset(["alias1", "person1"]), distinct_ids)
-        self.assertIn(frozenset(["person2"]), distinct_ids)
+        assert frozenset(["alias1", "person1"]) in distinct_ids
+        assert frozenset(["person2"]) in distinct_ids
 
         # Test actors for day 1 interval 3 (people who signed up on day 1 and returned on day 4)
         actors_day1_interval3 = self.run_actors_query(interval=1, query=query)
         # Filter results to only those who appeared on interval 3
         interval3_actors = [a for a in actors_day1_interval3 if 3 in a[1]]
         # Should be person2 (returned on day 4)
-        self.assertEqual(len(interval3_actors), 1)
-        self.assertEqual(interval3_actors[0][0]["distinct_ids"], ["person2"])
+        assert len(interval3_actors) == 1
+        assert interval3_actors[0][0]["distinct_ids"] == ["person2"]
 
         # Test actors for day 3 interval 0 (people who signed up on day 3 when it was their first event ever)
         actors_day3_interval0 = self.run_actors_query(interval=3, query=query)
         # Should be person3 (first event pageview day 2, signup day 3) and person5 (first event signup day 3)
-        self.assertEqual(len(actors_day3_interval0), 2)
+        assert len(actors_day3_interval0) == 2
 
     def test_retention_first_time_ever_different_intervals(self):
         """Test first time ever retention with different time intervals"""
@@ -3269,28 +2975,31 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Week 0", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7"],
-        )
+        assert len(result) == 8
+        assert pluck(result, "label") == [
+            "Week 0",
+            "Week 1",
+            "Week 2",
+            "Week 3",
+            "Week 4",
+            "Week 5",
+            "Week 6",
+            "Week 7",
+        ]
 
         # Person1: first $user_signed_up on day 1 (week 0), returns weeks 1,2 with pageviews
         # Person2: first $user_signed_up on day 14 (week 2), returns week 3 with pageview
         # Person3: first $user_signed_up on day 14 (week 2), returns week 3 with pageview (week 5 is out of range)
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0],  # Week 0: person1 (signup), returns weeks 1,2
-                [0, 0, 0, 0, 0],  # Week 1: no new users
-                [2, 2, 0, 0, 0],  # Week 2: person2 + person3 (signup), return week 3 (both)
-                [0, 0, 0, 0, 0],  # Week 3: no new users
-                [0, 0, 0, 0, 0],  # Week 4: no new users
-                [0, 0, 0, 0, 0],  # Week 5: no new users
-                [0, 0, 0, 0, 0],  # Week 6: no new users
-                [0, 0, 0, 0, 0],  # Week 7: no new users
-            ],
-        )
+        assert pluck(result, "values", "count") == [
+            [1, 1, 1, 0, 0],  # Week 0: person1 (signup), returns weeks 1,2
+            [0, 0, 0, 0, 0],  # Week 1: no new users
+            [2, 2, 0, 0, 0],  # Week 2: person2 + person3 (signup), return week 3 (both)
+            [0, 0, 0, 0, 0],  # Week 3: no new users
+            [0, 0, 0, 0, 0],  # Week 4: no new users
+            [0, 0, 0, 0, 0],  # Week 5: no new users
+            [0, 0, 0, 0, 0],  # Week 6: no new users
+            [0, 0, 0, 0, 0],  # Week 7: no new users
+        ]
 
     def test_retention_first_time_ever_with_properties(self):
         """Test first time ever retention with event properties and filters"""
@@ -3350,29 +3059,23 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(len(result), 8)
-        self.assertEqual(
-            pluck(result, "label"),
-            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
-        )
+        assert len(result) == 8
+        assert pluck(result, "label") == ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"]
 
         # Only organic events should be considered
         # Person2 is excluded because their events are from "paid" source
         # Person1: first $user_signed_up on day 2 (organic), returns day 3,5
         # Person3: first $user_signed_up on day 2 (organic), returns day 3,5
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [0, 0, 0, 0, 0, 0, 0],  # Day 1: no signups yet
-                [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (first organic signup), return day 3,5
-                [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        assert pluck(result, "values", "count") == [
+            [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+            [0, 0, 0, 0, 0, 0, 0],  # Day 1: no signups yet
+            [2, 2, 0, 2, 0, 0, 0],  # Day 2: person1 + person3 (first organic signup), return day 3,5
+            [0, 0, 0, 0, 0, 0, 0],  # Day 3: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+            [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+        ]
 
     def test_retention_first_time_ever_events_query(self):
         """Test events query for first time ever retention"""
@@ -3408,21 +3111,21 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # and performed the target action (signup)
         # Person2: first event ever was signup on day 1, returns with pageviews on day 2,4
         events = events_result.results
-        self.assertGreater(len(events), 0)
+        assert len(events) > 0
 
         # Based on the to_events_query method, event_type should be in index 5
         if len(events) > 0 and len(events[0]) > 5:
             event_types = {event[5] for event in events}  # event_type column (0-indexed)
-            self.assertIn("start_event", event_types)
-            self.assertIn("return_event", event_types)
+            assert "start_event" in event_types
+            assert "return_event" in event_types
         else:
             # If the structure is different, let's just check we have events
-            self.assertGreater(len(events), 0)
+            assert len(events) > 0
 
         # Check that events are from person2
         person_ids = {event[8] for event in events}  # person_id column
         # Should contain person2
-        self.assertIn("person2", person_ids)
+        assert "person2" in person_ids
 
     @snapshot_clickhouse_queries
     def test_timezones(self):
@@ -3464,65 +3167,53 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             }
         )
 
-        self.assertEqual(
-            pluck(result_pacific, "label"),
+        assert pluck(result_pacific, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+
+        assert result_pacific[0]["date"] == datetime(2020, 6, 10, tzinfo=ZoneInfo("US/Pacific"))
+        assert result_pacific[0]["date"].isoformat() == "2020-06-10T00:00:00-07:00"
+
+        assert pluck(result, "values", "count") == pad(
             [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
+                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0],  # person 2
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
-        self.assertEqual(
-            result_pacific[0]["date"],
-            datetime(2020, 6, 10, tzinfo=ZoneInfo("US/Pacific")),
-        )
-        self.assertEqual(result_pacific[0]["date"].isoformat(), "2020-06-10T00:00:00-07:00")
-
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0],  # person 2
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
-        )
-
-        self.assertEqual(
-            pluck(result_pacific, "values", "count"),
-            pad(
-                [
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
-                    [1, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result_pacific, "values", "count") == pad(
+            [
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                [1, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     @snapshot_clickhouse_queries
@@ -3556,42 +3247,36 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             }
         )
-        self.assertEqual(len(result), 11)
-        self.assertEqual(
-            pluck(result, "label"),
-            [
-                "Day 0",
-                "Day 1",
-                "Day 2",
-                "Day 3",
-                "Day 4",
-                "Day 5",
-                "Day 6",
-                "Day 7",
-                "Day 8",
-                "Day 9",
-                "Day 10",
-            ],
-        )
-        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        assert len(result) == 11
+        assert pluck(result, "label") == [
+            "Day 0",
+            "Day 1",
+            "Day 2",
+            "Day 3",
+            "Day 4",
+            "Day 5",
+            "Day 6",
+            "Day 7",
+            "Day 8",
+            "Day 9",
+            "Day 10",
+        ]
+        assert result[0]["date"] == datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC"))
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                    [1, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0, 0],
-                    [2, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_with_breakdown_with_person_properties(self):
@@ -3634,53 +3319,44 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Verify we have results for each country
         breakdown_values = {c.get("breakdown_value") for c in result}
 
-        self.assertEqual(breakdown_values, {"Germany", "UK", "US"})
+        assert breakdown_values == {"Germany", "UK", "US"}
 
         # Verify US cohort data
         us_cohorts = pluck([c for c in result if c.get("breakdown_value") == "US"], "values", "count")
 
-        self.assertEqual(
-            us_cohorts,
-            pad(
-                [
-                    [2, 1, 1, 1, 0, 0],
-                    [1, 0, 1, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert us_cohorts == pad(
+            [
+                [2, 1, 1, 1, 0, 0],
+                [1, 0, 1, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         uk_cohorts = pluck([c for c in result if c.get("breakdown_value") == "UK"], "values", "count")
-        self.assertEqual(
-            uk_cohorts,
-            pad(
-                [
-                    [1, 1, 0, 0, 1, 0],
-                    [1, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert uk_cohorts == pad(
+            [
+                [1, 1, 0, 0, 1, 0],
+                [1, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         germany_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Germany"], "values", "count")
-        self.assertEqual(
-            germany_cohorts,
-            pad(
-                [
-                    [1, 0, 0, 0, 0, 1],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert germany_cohorts == pad(
+            [
+                [1, 0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+            ]
         )
 
     @override_settings(IN_UNIT_TESTING=True)
@@ -3731,28 +3407,22 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         breakdown_values = {c.get("breakdown_value") for c in result}
 
-        self.assertEqual(
-            breakdown_values,
-            {"person1@example.com", "person2@example.com", "person3@example.com"},
-        )
+        assert breakdown_values == {"person1@example.com", "person2@example.com", "person3@example.com"}
 
         person1_cohorts = pluck(
             [c for c in result if c.get("breakdown_value") == "person1@example.com"],
             "values",
             "count",
         )
-        self.assertEqual(
-            person1_cohorts,
-            pad(
-                [
-                    [1, 1, 0, 1, 0, 0],
-                    [1, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert person1_cohorts == pad(
+            [
+                [1, 1, 0, 1, 0, 0],
+                [1, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         person2_cohorts = pluck(
@@ -3760,18 +3430,15 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             "values",
             "count",
         )
-        self.assertEqual(
-            person2_cohorts,
-            pad(
-                [
-                    [1, 1, 0, 0, 1, 0],
-                    [1, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert person2_cohorts == pad(
+            [
+                [1, 1, 0, 0, 1, 0],
+                [1, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         person3_cohorts = pluck(
@@ -3779,18 +3446,15 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             "values",
             "count",
         )
-        self.assertEqual(
-            person3_cohorts,
-            pad(
-                [
-                    [1, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert person3_cohorts == pad(
+            [
+                [1, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
     def test_retention_actor_query_with_breakdown(self):
@@ -3826,14 +3490,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Should only return the US persons
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         person1_us = next(r for r in result if "person1" in r[0]["distinct_ids"])
         person3_us = next(r for r in result if "person3" in r[0]["distinct_ids"])
 
         # counts are index 1
-        self.assertEqual(person1_us[1], [0, 1, 2])
-        self.assertEqual(person3_us[1], [0, 1])
+        assert person1_us[1] == [0, 1, 2]
+        assert person3_us[1] == [0, 1]
 
         result = self.run_actors_query(
             interval=1,
@@ -3849,7 +3513,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         person2_uk = next(r for r in result if "person2" in r[0]["distinct_ids"])
-        self.assertEqual(person2_uk[1], [0, 1])
+        assert person2_uk[1] == [0, 1]
 
     def test_retention_actor_query_with_breakdown_and_minimum_occurrences(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "US"})
@@ -3889,14 +3553,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Should only return the US persons
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         person1_us = next(r for r in result if "person1" in r[0]["distinct_ids"])
         person3_us = next(r for r in result if "person3" in r[0]["distinct_ids"])
 
         # counts are index 1
-        self.assertEqual(person1_us[1], [0, 1, 2])
-        self.assertEqual(person3_us[1], [0, 1])
+        assert person1_us[1] == [0, 1, 2]
+        assert person3_us[1] == [0, 1]
 
         result = self.run_actors_query(
             interval=1,
@@ -3913,7 +3577,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         person2_uk = next(r for r in result if "person2" in r[0]["distinct_ids"])
-        self.assertEqual(person2_uk[1], [0, 1])
+        assert person2_uk[1] == [0, 1]
 
     def test_retention_with_breakdown_event_properties(self):
         """Test retention with breakdown by event properties"""
@@ -3954,52 +3618,43 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+        assert breakdown_values == {"Chrome", "Safari", "Firefox"}
 
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
 
-        self.assertEqual(
-            chrome_cohorts,
-            pad(
-                [
-                    [2, 1, 1, 1, 0, 0],
-                    [1, 0, 1, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert chrome_cohorts == pad(
+            [
+                [2, 1, 1, 1, 0, 0],
+                [1, 0, 1, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
-        self.assertEqual(
-            safari_cohorts,
-            pad(
-                [
-                    [1, 1, 0, 0, 1, 0],
-                    [1, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert safari_cohorts == pad(
+            [
+                [1, 1, 0, 0, 1, 0],
+                [1, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         firefox_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Firefox"], "values", "count")
-        self.assertEqual(
-            firefox_cohorts,
-            pad(
-                [
-                    [1, 0, 0, 0, 0, 1],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert firefox_cohorts == pad(
+            [
+                [1, 0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+            ]
         )
 
     @parameterized.expand(
@@ -4048,21 +3703,18 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"CHROME", "SAFARI", "FIREFOX"})
+        assert breakdown_values == {"CHROME", "SAFARI", "FIREFOX"}
 
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "CHROME"], "values", "count")
-        self.assertEqual(
-            chrome_cohorts,
-            pad(
-                [
-                    [2, 1, 1, 1, 0, 0],
-                    [1, 0, 1, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert chrome_cohorts == pad(
+            [
+                [2, 1, 1, 1, 0, 0],
+                [1, 0, 1, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
     def test_retention_with_breakdown_event_properties_and_minimum_occurrences(self):
@@ -4118,11 +3770,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+        assert breakdown_values == {"Chrome", "Safari", "Firefox"}
 
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
 
-        self.assertEqual(
+        assert (
             pad(
                 [
                     [2, 1, 1, 1, 0, 0],
@@ -4132,12 +3784,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                     [0, 0, 0, 0, 0, 0],
                     [1, 0, 0, 0, 0, 0],
                 ]
-            ),
-            chrome_cohorts,
+            )
+            == chrome_cohorts
         )
 
         safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
-        self.assertEqual(
+        assert (
             pad(
                 [
                     [1, 1, 0, 0, 1, 0],
@@ -4147,12 +3799,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                     [1, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
                 ]
-            ),
-            safari_cohorts,
+            )
+            == safari_cohorts
         )
 
         firefox_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Firefox"], "values", "count")
-        self.assertEqual(
+        assert (
             pad(
                 [
                     [1, 0, 0, 0, 0, 1],
@@ -4162,8 +3814,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                     [0, 0, 0, 0, 0, 0],
                     [1, 0, 0, 0, 0, 0],
                 ]
-            ),
-            firefox_cohorts,
+            )
+            == firefox_cohorts
         )
 
     def test_retention_cumulative_with_breakdown_event_properties(self):
@@ -4204,13 +3856,13 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         # Verify the query runs without error and returns breakdown results
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+        assert breakdown_values == {"Chrome", "Safari", "Firefox"}
 
         # Verify Chrome cohort results (cumulative mode means if they return on day 3, they count for days 1, 2, 3)
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
         # Day 0 cohort: 1 person, returns on day 1 and day 3
         # In cumulative mode: day 1 = 1, day 2 = 1 (from day 1), day 3 = 1 (from day 1 and day 3)
-        self.assertEqual(chrome_cohorts[0][:4], [1, 1, 1, 1])
+        assert chrome_cohorts[0][:4] == [1, 1, 1, 1]
 
     def test_retention_actor_query_with_event_property_breakdown(self):
         """Test actor query with event property breakdown filter"""
@@ -4247,14 +3899,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Should only return the Chrome people
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         person1_chrome = next(r for r in result if "person1" in r[0]["distinct_ids"])
         person3_chrome = next(r for r in result if "person3" in r[0]["distinct_ids"])
 
         # counts are index 1
-        self.assertEqual(person1_chrome[1], [0, 1, 2])
-        self.assertEqual(person3_chrome[1], [0, 1])
+        assert person1_chrome[1] == [0, 1, 2]
+        assert person3_chrome[1] == [0, 1]
 
         result = self.run_actors_query(
             interval=0,
@@ -4269,11 +3921,11 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             breakdown=["Safari"],
         )
 
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
         person2_safari = next(r for r in result if "person2" in r[0]["distinct_ids"])
 
-        self.assertEqual(person2_safari[1], [0, 1, 2])
+        assert person2_safari[1] == [0, 1, 2]
 
     def test_retention_with_breakdown_different_entities(self):
         """Test retention with breakdown by event properties where target and returning entities are different"""
@@ -4342,36 +3994,30 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         # Verify we have results for each category
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"clothing", "electronics"})
+        assert breakdown_values == {"clothing", "electronics"}
 
         clothing_cohorts = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
-        self.assertEqual(
-            clothing_cohorts,
-            pad(
-                [
-                    [2, 1, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert clothing_cohorts == pad(
+            [
+                [2, 1, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         electronics_cohorts = pluck([c for c in result if c.get("breakdown_value") == "electronics"], "values", "count")
-        self.assertEqual(
-            electronics_cohorts,
-            pad(
-                [
-                    [1, 1, 0, 0, 1, 0],
-                    [1, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert electronics_cohorts == pad(
+            [
+                [1, 1, 0, 0, 1, 0],
+                [1, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         result = self.run_actors_query(
@@ -4390,7 +4036,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         person4_electronics = next(r for r in result if "person4" in r[0]["distinct_ids"])
-        self.assertEqual(person4_electronics[1], [0, 1])
+        assert person4_electronics[1] == [0, 1]
 
         result = self.run_actors_query(
             interval=0,
@@ -4408,10 +4054,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         person1_clothing = next(r for r in result if "person1" in r[0]["distinct_ids"])
-        self.assertEqual(person1_clothing[1], [0, 1])
+        assert person1_clothing[1] == [0, 1]
 
         person2_clothing = next(r for r in result if "person2" in r[0]["distinct_ids"])
-        self.assertEqual(person2_clothing[1], [0, 2])
+        assert person2_clothing[1] == [0, 2]
 
     def test_retention_with_breakdown_event_metadata(self):
         """Test retention with breakdown by event metadata"""
@@ -4459,22 +4105,19 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"Apple", "Google", "Stripe"})
+        assert breakdown_values == {"Apple", "Google", "Stripe"}
 
         apple_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Apple"], "values", "count")
 
-        self.assertEqual(
-            apple_cohorts,
-            pad(
-                [
-                    [2, 1, 1, 1, 0, 0],
-                    [1, 0, 1, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert apple_cohorts == pad(
+            [
+                [2, 1, 1, 1, 0, 0],
+                [1, 0, 1, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
     def test_retention_with_breakdown_on_start_event(self):
@@ -4535,23 +4178,20 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         # Verify we have results for each category
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"clothing", "electronics"})
+        assert breakdown_values == {"clothing", "electronics"}
 
         # none of the return events have the same breakdown value so
         # they won't get counted
         clothing_cohorts = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
-        self.assertEqual(
-            clothing_cohorts,
-            pad(
-                [
-                    [2, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert clothing_cohorts == pad(
+            [
+                [2, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
     def test_events_query(self):
@@ -4604,15 +4244,15 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         results = response.results
 
         # Verify we get both start and return events
-        self.assertTrue(len(results) > 0, "Expected events to be returned")
+        assert len(results) > 0, "Expected events to be returned"
 
         # Check that we have at least one start event
         start_events = [row for row in results if row[5] == "start_event"]
-        self.assertTrue(len(start_events) > 0, "Expected at least one start event")
+        assert len(start_events) > 0, "Expected at least one start event"
 
         # Check that we have at least one return event
         return_events = [row for row in results if row[5] == "return_event"]
-        self.assertTrue(len(return_events) > 0, "Expected at least one return event")
+        assert len(return_events) > 0, "Expected at least one return event"
 
         # Get specific event types from the results
         event_timestamps = [(row[0], row[5]) for row in results]
@@ -4631,13 +4271,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         # Check that each expected timestamp is in the results
         for expected_time, expected_type in expected_timestamps:
-            self.assertTrue(
-                any(
-                    datetime.fromisoformat(expected_time).date() == actual_time.date() and expected_type == actual_type
-                    for actual_time, actual_type in event_timestamps
-                ),
-                f"Missing expected {expected_type} at {expected_time}",
-            )
+            assert any(
+                datetime.fromisoformat(expected_time).date() == actual_time.date() and expected_type == actual_type
+                for actual_time, actual_type in event_timestamps
+            ), f"Missing expected {expected_type} at {expected_time}"
 
         # Test with a different interval - interval 1 should only return person2
         events_query_day1 = runner.to_events_query(interval=1, person_id=person2.uuid)
@@ -4649,7 +4286,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         results_day1 = response_day1.results
 
         # Verify we have events for person2 on day 1
-        self.assertTrue(len(results_day1) > 0, "Expected events for day 1")
+        assert len(results_day1) > 0, "Expected events for day 1"
 
         # Check timestamps for day 1 events
         day1_event_timestamps = [(row[0], row[5]) for row in results_day1]
@@ -4666,13 +4303,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         # Check that each expected timestamp is in the day 1 results
         for expected_time, expected_type in expected_day1_timestamps:
-            self.assertTrue(
-                any(
-                    datetime.fromisoformat(expected_time).date() == actual_time.date() and expected_type == actual_type
-                    for actual_time, actual_type in day1_event_timestamps
-                ),
-                f"Missing expected {expected_type} at {expected_time} for person2 on day 1",
-            )
+            assert any(
+                datetime.fromisoformat(expected_time).date() == actual_time.date() and expected_type == actual_type
+                for actual_time, actual_type in day1_event_timestamps
+            ), f"Missing expected {expected_type} at {expected_time} for person2 on day 1"
 
     @snapshot_clickhouse_queries
     def test_retention_first_time_vs_first_ever_occurrence(self):
@@ -4721,7 +4355,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         result_first_ever = self.run_query(query=query_first_ever)
 
         # Assert results are different
-        self.assertNotEqual(result_first_time, result_first_ever)
+        assert result_first_time != result_first_ever
 
         # Assert correctness of RETENTION_FIRST_TIME
         # Cohort is on day 1 as that's the first time the event has the correct property.
@@ -4734,10 +4368,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             [0, 0, 0, 0, 0],  # Day 4
             [0, 0, 0, 0, 0],  # Day 5
         ]
-        self.assertEqual(
-            pluck(result_first_time, "values", "count"),
-            expected_first_time_counts,
-        )
+        assert pluck(result_first_time, "values", "count") == expected_first_time_counts
 
         # Assert correctness of RETENTION_FIRST_EVER_OCCURRENCE
         # First `target_event` is at `_date(0)` but doesn't match properties.
@@ -4750,10 +4381,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             [0, 0, 0, 0, 0],
             [0, 0, 0, 0, 0],
         ]
-        self.assertEqual(
-            pluck(result_first_ever, "values", "count"),
-            expected_first_ever_counts,
-        )
+        assert pluck(result_first_ever, "values", "count") == expected_first_ever_counts
 
     def test_cohort_filter_optimization_with_property_filter(self):
         """Test that cohort filters in properties trigger LEFTJOIN optimization"""
@@ -4916,26 +4544,23 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Day 0: User 1 (10) + User 2 (40) = 50
         # Day 1: User 1 (20) + User 2 (50) = 70
         # Day 2: User 1 (30) + User 2 (60) = 90
-        self.assertEqual(
-            pluck(result_sum, "values", "aggregation_value"),
-            pad(
+        assert pluck(result_sum, "values", "aggregation_value") == pad(
+            [
+                [50, 70, 90, 0, 0, 0, 0],
                 [
-                    [50, 70, 90, 0, 0, 0, 0],
-                    [
-                        70,
-                        90,
-                        0,
-                        0,
-                        0,
-                        0,
-                    ],  # Day 1 cohort: user1(20) + user2(50) on day 1, user1(30) + user2(60) on day 2
-                    [90, 0, 0, 0, 0],  # Day 2 cohort: user1(30) + user2(60) on day 2
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+                    70,
+                    90,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],  # Day 1 cohort: user1(20) + user2(50) on day 1, user1(30) + user2(60) on day 2
+                [90, 0, 0, 0, 0],  # Day 2 cohort: user1(30) + user2(60) on day 2
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_aggregation_avg(self):
@@ -4988,19 +4613,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Day 0: (10 + 40) / 2 = 25
         # Day 1: (20 + 50) / 2 = 35
         # Day 2: (30 + 60) / 2 = 45
-        self.assertEqual(
-            pluck(result_avg, "values", "aggregation_value"),
-            pad(
-                [
-                    [25, 35, 45, 0, 0, 0, 0],
-                    [35, 45, 0, 0, 0, 0],
-                    [45, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result_avg, "values", "aggregation_value") == pad(
+            [[25, 35, 45, 0, 0, 0, 0], [35, 45, 0, 0, 0, 0], [45, 0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0], [0, 0], [0]]
         )
 
     def test_retention_aggregation_multiple_events_same_day(self):
@@ -5050,19 +4664,16 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Day 0: User1(10) + User2(100) = 110
         # Day 1: User1(20+30=50) + User2(200) = 250  # Multiple events on Day 1 for User1
         # Day 2: User1(40+50+60=150) + User2(300) = 450  # Multiple events on Day 2 for User1
-        self.assertEqual(
-            pluck(result_sum, "values", "aggregation_value"),
-            pad(
-                [
-                    [110, 250, 450, 0, 0, 0, 0],
-                    [250, 450, 0, 0, 0, 0],
-                    [450, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result_sum, "values", "aggregation_value") == pad(
+            [
+                [110, 250, 450, 0, 0, 0, 0],
+                [250, 450, 0, 0, 0, 0],
+                [450, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
         # Test AVG aggregation
@@ -5082,19 +4693,16 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # Day 0: (10 + 100) / 2 = 55
         # Day 1: (50 + 200) / 2 = 125  # User1's multiple events are summed first: 20+30=50
         # Day 2: (150 + 300) / 2 = 225  # User1's multiple events are summed first: 40+50+60=150
-        self.assertEqual(
-            pluck(result_avg, "values", "aggregation_value"),
-            pad(
-                [
-                    [55, 125, 225, 0, 0, 0, 0],
-                    [125, 225, 0, 0, 0, 0],
-                    [225, 0, 0, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0],
-                    [0],
-                ]
-            ),
+        assert pluck(result_avg, "values", "aggregation_value") == pad(
+            [
+                [55, 125, 225, 0, 0, 0, 0],
+                [125, 225, 0, 0, 0, 0],
+                [225, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ]
         )
 
     def test_retention_aggregation_cohort_size_sum(self):
@@ -5132,10 +4740,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Day 0 cohort has 3 users, so size = 3
-        self.assertEqual(result[0]["values"][0]["aggregation_value"], 150)  # SUM of revenues: 10+40+100
-        self.assertEqual(result[0]["values"][0]["count"], 3)  # 3 distinct users
-        self.assertEqual(result[0]["values"][1]["count"], 2)  # only user1 and user2 returned on Day 1
-        self.assertEqual(result[0]["values"][2]["count"], 1)  # only user1 returned on Day 2
+        assert result[0]["values"][0]["aggregation_value"] == 150  # SUM of revenues: 10+40+100
+        assert result[0]["values"][0]["count"] == 3  # 3 distinct users
+        assert result[0]["values"][1]["count"] == 2  # only user1 and user2 returned on Day 1
+        assert result[0]["values"][2]["count"] == 1  # only user1 returned on Day 2
 
     def test_retention_aggregation_cohort_size_avg(self):
         """In AVG aggregation mode, the size column should reflect distinct actor count, not the avg value"""
@@ -5166,9 +4774,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Day 0 cohort has 2 users — size should be 2, not 25 (the avg)
-        self.assertEqual(result[0]["values"][0]["aggregation_value"], 25.0)  # AVG: (10+40)/2
-        self.assertEqual(result[0]["values"][0]["count"], 2)  # 2 distinct users
-        self.assertEqual(result[0]["values"][1]["count"], 2)  # both returned on Day 1
+        assert result[0]["values"][0]["aggregation_value"] == 25.0  # AVG: (10+40)/2
+        assert result[0]["values"][0]["count"] == 2  # 2 distinct users
+        assert result[0]["values"][1]["count"] == 2  # both returned on Day 1
 
     def test_retention_aggregation_cohort_size_with_breakdown(self):
         """Cohort size reflects distinct actors per breakdown in property aggregation mode"""
@@ -5205,14 +4813,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         firefox_result = next(r for r in result if r["breakdown_value"] == "Firefox")
 
         # Chrome: 2 users on Day 0
-        self.assertEqual(chrome_result["values"][0]["count"], 2)
+        assert chrome_result["values"][0]["count"] == 2
         # Chrome: only user1 returned on Day 1
-        self.assertEqual(chrome_result["values"][1]["count"], 1)
+        assert chrome_result["values"][1]["count"] == 1
 
         # Firefox: 1 user on Day 0
-        self.assertEqual(firefox_result["values"][0]["count"], 1)
+        assert firefox_result["values"][0]["count"] == 1
         # Firefox: user3 returned on Day 1
-        self.assertEqual(firefox_result["values"][1]["count"], 1)
+        assert firefox_result["values"][1]["count"] == 1
 
     def test_retention_aggregation_different_events_interval_0_includes_return_after_start(self):
         # When start and return events are different, return events that happen after the
@@ -5258,9 +4866,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         day0_values = result_sum[0]["values"]
         # Interval 0: user1(50) + user2(30) = 80 — return events after start event in same interval
-        self.assertEqual(day0_values[0]["aggregation_value"], 80)
+        assert day0_values[0]["aggregation_value"] == 80
         # Interval 1: user1(100) only — user2 didn't return on day 1
-        self.assertEqual(day0_values[1]["aggregation_value"], 100)
+        assert day0_values[1]["aggregation_value"] == 100
 
     @snapshot_clickhouse_queries
     def test_retention_aggregation_different_events_ignores_start_event_property_value(self):
@@ -5285,8 +4893,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         day0_values = result_sum[0]["values"]
-        self.assertEqual(day0_values[0]["count"], 1)
-        self.assertEqual(day0_values[0]["aggregation_value"], 50)
+        assert day0_values[0]["count"] == 1
+        assert day0_values[0]["aggregation_value"] == 50
 
     def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
         # Return events that happen BEFORE the start event in the same interval must NOT be
@@ -5323,7 +4931,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         day0_values = result_sum[0]["values"]
         # Interval 0: only 50 (hour-12 purchase), NOT 999 (hour-8 purchase before signup)
-        self.assertEqual(day0_values[0]["aggregation_value"], 50)
+        assert day0_values[0]["aggregation_value"] == 50
 
     def test_retention_aggregation_same_events_interval_0_unchanged(self):
         # When start and return events are the same, the interval 0 behavior is unchanged:
@@ -5353,9 +4961,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         day0_values = result_sum[0]["values"]
         # Interval 0: 10 (just the start event value, no double-counting from return event)
-        self.assertEqual(day0_values[0]["aggregation_value"], 10)
+        assert day0_values[0]["aggregation_value"] == 10
         # Interval 1: 20
-        self.assertEqual(day0_values[1]["aggregation_value"], 20)
+        assert day0_values[1]["aggregation_value"] == 20
 
     def test_retention_aggregation_different_events_avg_interval_0(self):
         # AVG aggregation with different start/return events includes return events in interval 0.
@@ -5393,7 +5001,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         day0_values = result_avg[0]["values"]
         # Interval 0: (50 + 30) / 2 = 40 — avg of return events after start events per user
-        self.assertEqual(day0_values[0]["aggregation_value"], 40)
+        assert day0_values[0]["aggregation_value"] == 40
 
     def test_retention_aggregation_person_property_sum(self):
         """Aggregating on a person property reads person.properties, not event.properties."""
@@ -5429,10 +5037,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # interval 0: high_value (100) + low_value (10) = 110
         # interval 1: both returned — high_value (100) + low_value (10) = 110
         day0_values = result[0]["values"]
-        self.assertEqual(day0_values[0]["count"], 2)
-        self.assertEqual(day0_values[0]["aggregation_value"], 110)
-        self.assertEqual(day0_values[1]["count"], 2)
-        self.assertEqual(day0_values[1]["aggregation_value"], 110)
+        assert day0_values[0]["count"] == 2
+        assert day0_values[0]["aggregation_value"] == 110
+        assert day0_values[1]["count"] == 2
+        assert day0_values[1]["aggregation_value"] == 110
 
     def test_retention_aggregation_person_property_avg(self):
         """AVG over a person property divides the sum by the number of distinct actors."""
@@ -5464,10 +5072,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
         # Day 0 cohort: avg((80 + 60) / 2) = 70
         day0_values = result[0]["values"]
-        self.assertEqual(day0_values[0]["count"], 2)
-        self.assertEqual(day0_values[0]["aggregation_value"], 70)
-        self.assertEqual(day0_values[1]["count"], 2)
-        self.assertEqual(day0_values[1]["aggregation_value"], 70)
+        assert day0_values[0]["count"] == 2
+        assert day0_values[0]["aggregation_value"] == 70
+        assert day0_values[1]["count"] == 2
+        assert day0_values[1]["aggregation_value"] == 70
 
     def test_retention_aggregation_person_property_no_self_join(self):
         """Using person property aggregation must not generate a self-join (events__events)."""
@@ -5489,17 +5097,15 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         base_query = runner._base_query()
         context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            modifiers=create_default_modifiers_for_team(self.team),
+            team_id=self.team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(self.team)
         )
         sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
 
-        self.assertNotIn("events__events", sql, "Self-join detected with person property aggregation")
-        self.assertIn("_start_event_data", sql)
-        self.assertIn("_return_event_data", sql)
+        assert "events__events" not in sql, "Self-join detected with person property aggregation"
+        assert "_start_event_data" in sql
+        assert "_return_event_data" in sql
         # person properties are accessed via the persons join, not via event properties
-        self.assertIn("person", sql)
+        assert "person" in sql
 
     def test_retention_aggregation_event_property_default(self):
         """Omitting aggregationPropertyType defaults to event property behaviour."""
@@ -5520,15 +5126,13 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         base_query = runner._base_query()
         context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            modifiers=create_default_modifiers_for_team(self.team),
+            team_id=self.team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(self.team)
         )
         sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
 
-        self.assertNotIn("events__events", sql)
+        assert "events__events" not in sql
         # event property access should be present, not person property access
-        self.assertIn("properties", sql)
+        assert "properties" in sql
 
 
 class TestClickhouseRetentionGroupAggregation(
@@ -5653,19 +5257,8 @@ class TestClickhouseRetentionGroupAggregation(
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 2, 1, 2, 2, 0, 1],
-                    [2, 1, 2, 2, 0, 1],
-                    [1, 1, 1, 0, 0],
-                    [2, 2, 0, 1],
-                    [2, 0, 1],
-                    [0, 0],
-                    [1],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]
         )
 
         actor_result = self.run_actors_query(
@@ -5680,7 +5273,7 @@ class TestClickhouseRetentionGroupAggregation(
             },
             actor="group",
         )
-        self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:5", "org:6"])
+        assert Counter([actor[0]["id"] for actor in actor_result]) == Counter(["org:5", "org:6"])
 
         result = self.run_query(
             query={
@@ -5692,19 +5285,8 @@ class TestClickhouseRetentionGroupAggregation(
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 0, 0, 1, 0, 0, 1],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [1, 0, 0, 1],
-                    [0, 0, 0],
-                    [0, 0],
-                    [1],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]]
         )
 
     def test_groups_in_period(self):
@@ -5723,11 +5305,11 @@ class TestClickhouseRetentionGroupAggregation(
             actor="group",
         )
 
-        self.assertEqual(actor_result[0][0]["id"], "org:5")
-        self.assertEqual(actor_result[0][1], [0, 1, 2, 3, 4])
+        assert actor_result[0][0]["id"] == "org:5"
+        assert actor_result[0][1] == [0, 1, 2, 3, 4]
 
-        self.assertEqual(actor_result[1][0]["id"], "org:6")
-        self.assertEqual(actor_result[1][1], [0, 1, 3, 4, 6])
+        assert actor_result[1][0]["id"] == "org:6"
+        assert actor_result[1][1] == [0, 1, 3, 4, 6]
 
     @snapshot_clickhouse_queries
     def test_groups_aggregating_person_on_events(self):
@@ -5743,19 +5325,8 @@ class TestClickhouseRetentionGroupAggregation(
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 2, 1, 2, 2, 0, 1],
-                    [2, 1, 2, 2, 0, 1],
-                    [1, 1, 1, 0, 0],
-                    [2, 2, 0, 1],
-                    [2, 0, 1],
-                    [0, 0],
-                    [1],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]
         )
 
         actor_result = self.run_actors_query(
@@ -5771,7 +5342,7 @@ class TestClickhouseRetentionGroupAggregation(
             actor="group",
         )
 
-        self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:5", "org:6"])
+        assert Counter([actor[0]["id"] for actor in actor_result]) == Counter(["org:5", "org:6"])
 
         result = self.run_query(
             query={
@@ -5783,19 +5354,8 @@ class TestClickhouseRetentionGroupAggregation(
                 },
             }
         )
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [1, 0, 0, 1, 0, 0, 1],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0],
-                    [1, 0, 0, 1],
-                    [0, 0, 0],
-                    [0, 0],
-                    [1],
-                ]
-            ),
+        assert pluck(result, "values", "count") == pad(
+            [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]]
         )
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
@@ -5803,7 +5363,7 @@ class TestClickhouseRetentionGroupAggregation(
         self.run_query(query={}, limit_context=LimitContext.RETENTION)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        assert f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME}," in mock_sync_execute.call_args[0][0]
 
     def test_retention_with_breakdown_limit(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p_chrome_1"])
@@ -5853,63 +5413,54 @@ class TestClickhouseRetentionGroupAggregation(
 
         # 1. Check that breakdown values are Chrome, Safari, and Other
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"Chrome", "Safari", BREAKDOWN_OTHER_STRING_LABEL})
+        assert breakdown_values == {"Chrome", "Safari", BREAKDOWN_OTHER_STRING_LABEL}
 
         # 2. Check Chrome counts (should be top cohort)
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
-        self.assertEqual(
-            chrome_cohorts,
-            pad(
-                [
-                    [3, 1, 1, 0, 0, 0],  # Day 0: 3 start, Day 1: 1 returns, Day 2: 1 returns
-                    [1, 0, 0, 0, 0, 0],  # Day 1: p_chrome_1 event. No returns in subsequent intervals.
-                    [1, 0, 0, 0, 0, 0],  # Day 2: p_chrome_2 event. No returns.
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert chrome_cohorts == pad(
+            [
+                [3, 1, 1, 0, 0, 0],  # Day 0: 3 start, Day 1: 1 returns, Day 2: 1 returns
+                [1, 0, 0, 0, 0, 0],  # Day 1: p_chrome_1 event. No returns in subsequent intervals.
+                [1, 0, 0, 0, 0, 0],  # Day 2: p_chrome_2 event. No returns.
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         # 3. Check Safari counts (should be second cohort)
         safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
-        self.assertEqual(
-            safari_cohorts,
-            pad(
-                [
-                    [2, 1, 0, 0, 0, 0],  # Day 0: 2 start, Day 1: 1 returns
-                    [1, 0, 0, 0, 0, 0],  # Day 1: (p_safari_1 started)
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert safari_cohorts == pad(
+            [
+                [2, 1, 0, 0, 0, 0],  # Day 0: 2 start, Day 1: 1 returns
+                [1, 0, 0, 0, 0, 0],  # Day 1: (p_safari_1 started)
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
         # 4. Check "Other" counts (should be sum of Firefox + Edge)
         other_cohorts = pluck(
             [c for c in result if c.get("breakdown_value") == BREAKDOWN_OTHER_STRING_LABEL], "values", "count"
         )
-        self.assertEqual(
-            other_cohorts,
-            pad(
+        assert other_cohorts == pad(
+            [
                 [
-                    [
-                        2,
-                        0,
-                        0,
-                        1,
-                        1,
-                        0,
-                    ],  # Day 0: 2 start (firefox+edge), Day 3: 1 returns (firefox), Day 4: 1 returns (edge)
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],  # Day 3: (p_firefox_1 started)
-                    [1, 0, 0, 0, 0, 0],  # Day 4: (p_edge_1 started)
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+                    2,
+                    0,
+                    0,
+                    1,
+                    1,
+                    0,
+                ],  # Day 0: 2 start (firefox+edge), Day 3: 1 returns (firefox), Day 4: 1 returns (edge)
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],  # Day 3: (p_firefox_1 started)
+                [1, 0, 0, 0, 0, 0],  # Day 4: (p_edge_1 started)
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
     def test_retention_with_virtual_person_property_breakdown(self):
@@ -6051,7 +5602,7 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         cohort_person_ids = {row[0] for row in cohort_people}
-        self.assertEqual(cohort_person_ids, {person1.uuid, person2.uuid})
+        assert cohort_person_ids == {person1.uuid, person2.uuid}
 
         # Run retention query with cohort breakdown
         result = self.run_query(
@@ -6064,7 +5615,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify results
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {str(cohort.pk)})
+        assert breakdown_values == {str(cohort.pk)}
 
         cohort_results = pluck([c for c in result if c.get("breakdown_value") == str(cohort.pk)], "values", "count")
         # Expected pattern based on our event data:
@@ -6075,10 +5626,7 @@ class TestClickhouseRetentionGroupAggregation(
         # Day 0 cohort: 2 people start, 2 retained on day 1, 1 retained on day 2
         # Day 1 cohort: 2 people start, 1 retained on day 1 (day 2)
         # Day 2 cohort: 1 person starts
-        self.assertEqual(
-            cohort_results,
-            pad([[2, 2, 1, 0, 0], [2, 1, 0, 0], [1, 0, 0], [0, 0], [0]]),
-        )
+        assert cohort_results == pad([[2, 2, 1, 0, 0], [2, 1, 0, 0], [1, 0, 0], [0, 0], [0]])
 
     def test_retention_with_multiple_cohort_breakdowns(self):
         # Person 1 in cohort 1
@@ -6130,7 +5678,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify results
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {str(cohort1.pk), str(cohort2.pk)})
+        assert breakdown_values == {str(cohort1.pk), str(cohort2.pk)}
 
     def test_retention_with_all_users_cohort_breakdown(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
@@ -6166,7 +5714,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify results
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {str(ALL_USERS_COHORT_ID)})
+        assert breakdown_values == {str(ALL_USERS_COHORT_ID)}
 
         # Get results for "all users" cohort
         all_users_results = pluck(
@@ -6182,10 +5730,7 @@ class TestClickhouseRetentionGroupAggregation(
         # Day 1 cohort: 2 people start, 1 retained on day 1 (day 2), 0 retained on day 2 (day 3)
         # Day 2 cohort: 1 person starts, 0 retained on day 1 (day 3)
         # Day 3 cohort: 1 person starts
-        self.assertEqual(
-            all_users_results,
-            pad([[3, 2, 1, 1, 0], [2, 1, 0, 0], [1, 0, 0], [1, 0], [0]]),
-        )
+        assert all_users_results == pad([[3, 2, 1, 1, 0], [2, 1, 0, 0], [1, 0, 0], [1, 0], [0]])
 
     def test_retention_with_all_users_cohort_breakdown_string_value(self):
         """Test that "all" string value is correctly converted to ALL_USERS_COHORT_ID"""
@@ -6217,7 +5762,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify results
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {str(ALL_USERS_COHORT_ID)})
+        assert breakdown_values == {str(ALL_USERS_COHORT_ID)}
 
         # Get results for "all users" cohort
         all_users_results = pluck(
@@ -6226,10 +5771,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Expected: Based on events - person1 and person2 both start on day 0, only person1 is retained on day 1
         # But looking at actual retention calculation, it's only counting 1 person starting on day 0
-        self.assertEqual(
-            all_users_results,
-            pad([[1, 0], [0]]),
-        )
+        assert all_users_results == pad([[1, 0], [0]])
 
     def test_retention_actor_query_with_multiple_cohort_breakdowns(self):
         # Person 1 in cohort 1
@@ -6277,9 +5819,9 @@ class TestClickhouseRetentionGroupAggregation(
             breakdown=[str(cohort1.pk)],
         )
 
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["id"], person1.uuid)
-        self.assertEqual(result[0][1], [0, 1])
+        assert len(result) == 1
+        assert result[0][0]["id"] == person1.uuid
+        assert result[0][1] == [0, 1]
 
         # Run retention actors query for cohort2
         result = self.run_actors_query(
@@ -6291,9 +5833,9 @@ class TestClickhouseRetentionGroupAggregation(
             },
             breakdown=[str(cohort2.pk)],
         )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0]["id"], person2.uuid)
-        self.assertEqual(result[0][1], [0, 2])
+        assert len(result) == 1
+        assert result[0][0]["id"] == person2.uuid
+        assert result[0][1] == [0, 2]
 
     def test_retention_breakdown_person_property_is_stable(self):
         # This test reproduces the bug where a person's breakdown value splits between
@@ -6357,10 +5899,8 @@ class TestClickhouseRetentionGroupAggregation(
 
         # The test expects Taiwan to be in the results (it should have 2 people)
         # but with the current bug, it might not be due to the splitting issue
-        self.assertIn(
-            "Taiwan",
-            breakdown_values,
-            "Taiwan should appear in breakdown results but got pushed out due to person property splitting bug",
+        assert "Taiwan" in breakdown_values, (
+            "Taiwan should appear in breakdown results but got pushed out due to person property splitting bug"
         )
 
         # Taiwan should show 2 people in the cohort, not split between empty and Taiwan
@@ -6369,10 +5909,8 @@ class TestClickhouseRetentionGroupAggregation(
             # Day 0 cohort should have 2 people (both person_no_country and person_with_country)
             taiwan_day0_cohort = next((r for r in taiwan_results if r["label"] == "Day 0"), None)
             if taiwan_day0_cohort:
-                self.assertEqual(
-                    taiwan_day0_cohort["values"][0]["count"],
-                    2,
-                    "Taiwan cohort should have 2 people, not split due to property timing",
+                assert taiwan_day0_cohort["values"][0]["count"] == 2, (
+                    "Taiwan cohort should have 2 people, not split due to property timing"
                 )
 
     def test_retention_breakdown_uses_most_recent_property_value(self):
@@ -6427,25 +5965,19 @@ class TestClickhouseRetentionGroupAggregation(
 
         # USA should be in the top results because it has 2 users (person_changing + usa_baseline)
         # based on the most recent property values
-        self.assertIn(
-            "USA", breakdown_values, "USA should be in top breakdown results based on most recent property values"
-        )
+        assert "USA" in breakdown_values, "USA should be in top breakdown results based on most recent property values"
 
         # Canada should NOT be in the top results because person_changing's final value is USA
-        self.assertNotIn(
-            "Canada",
-            breakdown_values,
-            "Canada should not be in top breakdown results as person_changing's final value is USA",
+        assert "Canada" not in breakdown_values, (
+            "Canada should not be in top breakdown results as person_changing's final value is USA"
         )
 
         # Verify USA has 2 users in the Day 0 cohort
         usa_results = [r for r in results if r["breakdown_value"] == "USA"]
         usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
         assert usa_day0_cohort is not None
-        self.assertEqual(
-            usa_day0_cohort["values"][0]["count"],
-            2,
-            "USA should have 2 users: person_changing (latest value) + usa_baseline",
+        assert usa_day0_cohort["values"][0]["count"] == 2, (
+            "USA should have 2 users: person_changing (latest value) + usa_baseline"
         )
 
     def test_retention_breakdown_other_grouping_logic(self):
@@ -6490,35 +6022,31 @@ class TestClickhouseRetentionGroupAggregation(
         breakdown_values = {r["breakdown_value"] for r in results}
 
         # Top 3 countries should be present
-        self.assertIn("USA", breakdown_values, "USA should be in top 3 (5 users)")
-        self.assertIn("Canada", breakdown_values, "Canada should be in top 3 (3 users)")
-        self.assertIn("Germany", breakdown_values, "Germany should be in top 3 (2 users)")
+        assert "USA" in breakdown_values, "USA should be in top 3 (5 users)"
+        assert "Canada" in breakdown_values, "Canada should be in top 3 (3 users)"
+        assert "Germany" in breakdown_values, "Germany should be in top 3 (2 users)"
 
         # Bottom 2 countries should be grouped into "Other"
-        self.assertNotIn("France", breakdown_values, "France should be grouped into Other (1 user)")
-        self.assertNotIn("Spain", breakdown_values, "Spain should be grouped into Other (1 user)")
-        self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values, "Other group should be present")
+        assert "France" not in breakdown_values, "France should be grouped into Other (1 user)"
+        assert "Spain" not in breakdown_values, "Spain should be grouped into Other (1 user)"
+        assert BREAKDOWN_OTHER_STRING_LABEL in breakdown_values, "Other group should be present"
 
         # Verify the "Other" group has the correct count (France + Spain = 2 users)
         other_results = [r for r in results if r["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL]
         other_day0_cohort = next((r for r in other_results if r["label"] == "Day 0"), None)
         assert other_day0_cohort is not None
-        self.assertEqual(
-            other_day0_cohort["values"][0]["count"],
-            2,
-            "Other group should contain 2 users (France + Spain)",
-        )
+        assert other_day0_cohort["values"][0]["count"] == 2, "Other group should contain 2 users (France + Spain)"
 
         # Verify the top countries have correct counts
         usa_results = [r for r in results if r["breakdown_value"] == "USA"]
         usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
         assert usa_day0_cohort is not None
-        self.assertEqual(usa_day0_cohort["values"][0]["count"], 5, "USA should have 5 users")
+        assert usa_day0_cohort["values"][0]["count"] == 5, "USA should have 5 users"
 
         canada_results = [r for r in results if r["breakdown_value"] == "Canada"]
         canada_day0_cohort = next((r for r in canada_results if r["label"] == "Day 0"), None)
         assert canada_day0_cohort is not None
-        self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
+        assert canada_day0_cohort["values"][0]["count"] == 3, "Canada should have 3 users"
 
     @snapshot_clickhouse_queries
     def test_retention_24h_window_calculation(self):
@@ -6558,8 +6086,8 @@ class TestClickhouseRetentionGroupAggregation(
         # - Day 1: user did event (both 1 AM and 11 PM count as Day 1)
         # Expected: Day 0 retention = 1, Day 1 retention = 1
         calendar_day_0 = next(row for row in calendar_result if row["label"] == "Day 0")
-        self.assertEqual(calendar_day_0["values"][0]["count"], 1)  # Day 0
-        self.assertEqual(calendar_day_0["values"][1]["count"], 1)  # Day 1 (both events count)
+        assert calendar_day_0["values"][0]["count"] == 1  # Day 0
+        assert calendar_day_0["values"][1]["count"] == 1  # Day 1 (both events count)
 
         # Test with 24-hour window retention
         window_result = self.run_query(
@@ -6579,8 +6107,8 @@ class TestClickhouseRetentionGroupAggregation(
         # - Interval 1 (24-48h): event at 11 PM Day 1 (24h after start)
         # Expected: Interval 0 retention = 1, Interval 1 retention = 1
         window_day_0 = next(row for row in window_result if row["label"] == "Day 0")
-        self.assertEqual(window_day_0["values"][0]["count"], 1)  # Interval 0 (includes 1 AM event)
-        self.assertEqual(window_day_0["values"][1]["count"], 1)  # Interval 1 (11 PM event)
+        assert window_day_0["values"][0]["count"] == 1  # Interval 0 (includes 1 AM event)
+        assert window_day_0["values"][1]["count"] == 1  # Interval 1 (11 PM event)
 
         # Create another test case where the difference is more obvious
         # User 2:
@@ -6612,8 +6140,8 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Day 1 cohort: person2 did event on Day 1 (1 AM) and Day 2 (2 AM)
         calendar_day_1 = next(row for row in calendar_result_2 if row["label"] == "Day 1")
-        self.assertEqual(calendar_day_1["values"][0]["count"], 2)  # Day 0 (same day, includes person1 and person2)
-        self.assertEqual(calendar_day_1["values"][1]["count"], 1)  # Day 1 (next day, only person2)
+        assert calendar_day_1["values"][0]["count"] == 2  # Day 0 (same day, includes person1 and person2)
+        assert calendar_day_1["values"][1]["count"] == 1  # Day 1 (next day, only person2)
 
         # With 24-hour windows
         window_result_2 = self.run_query(
@@ -6631,8 +6159,8 @@ class TestClickhouseRetentionGroupAggregation(
         # Interval 0 (0-24h from 1 AM): includes 1 AM and 11 PM events
         # Interval 1 (24-48h from 1 AM): includes 2 AM Day 2 event
         window_day_1 = next(row for row in window_result_2 if row["label"] == "Day 1")
-        self.assertEqual(window_day_1["values"][0]["count"], 1)  # Interval 0 (includes 11 PM same day)
-        self.assertEqual(window_day_1["values"][1]["count"], 1)  # Interval 1 (2 AM next day)
+        assert window_day_1["values"][0]["count"] == 1  # Interval 0 (includes 11 PM same day)
+        assert window_day_1["values"][1]["count"] == 1  # Interval 1 (2 AM next day)
 
     def test_retention_24h_window_with_person_breakdown(self):
         # Test 24-hour windows with person property breakdown
@@ -6665,13 +6193,13 @@ class TestClickhouseRetentionGroupAggregation(
 
         # USA: person1's return event is in interval 0 (within 24h)
         usa_row = next(row for row in result if row.get("breakdown_value") == "USA")
-        self.assertEqual(usa_row["values"][0]["count"], 1)  # Interval 0
-        self.assertEqual(usa_row["values"][1]["count"], 0)  # Interval 1
+        assert usa_row["values"][0]["count"] == 1  # Interval 0
+        assert usa_row["values"][1]["count"] == 0  # Interval 1
 
         # Canada: person2's return event is in interval 1 (after 24h)
         canada_row = next(row for row in result if row.get("breakdown_value") == "Canada")
-        self.assertEqual(canada_row["values"][0]["count"], 1)  # Interval 0
-        self.assertEqual(canada_row["values"][1]["count"], 1)  # Interval 1
+        assert canada_row["values"][0]["count"] == 1  # Interval 0
+        assert canada_row["values"][1]["count"] == 1  # Interval 1
 
     def test_retention_24h_window_with_event_breakdown(self):
         # Test 24-hour windows with event property breakdown
@@ -6702,12 +6230,12 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Chrome: both events in interval 0 (within 24h)
         chrome_row = next(row for row in result if row.get("breakdown_value") == "Chrome")
-        self.assertEqual(chrome_row["values"][0]["count"], 1)  # Interval 0
+        assert chrome_row["values"][0]["count"] == 1  # Interval 0
 
         # Firefox: event in interval 1 (after 24h)
         firefox_row = next(row for row in result if row.get("breakdown_value") == "Firefox")
-        self.assertEqual(firefox_row["values"][0]["count"], 1)  # Interval 0
-        self.assertEqual(firefox_row["values"][1]["count"], 1)  # Interval 1
+        assert firefox_row["values"][0]["count"] == 1  # Interval 0
+        assert firefox_row["values"][1]["count"] == 1  # Interval 1
 
     def test_retention_24h_window_first_time_ever(self):
         # Test 24-hour windows with first-ever retention
@@ -6742,8 +6270,8 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Both users should be in Day 0 cohort
         day_0 = next(row for row in result if row["label"] == "Day 0")
-        self.assertEqual(day_0["values"][0]["count"], 2)  # Both users in interval 0
-        self.assertEqual(day_0["values"][1]["count"], 0)  # No one returned after 24h
+        assert day_0["values"][0]["count"] == 2  # Both users in interval 0
+        assert day_0["values"][1]["count"] == 0  # No one returned after 24h
 
     def test_retention_24h_window_first_time_matching_filters(self):
         # Test 24-hour windows with first time matching filters
@@ -6783,8 +6311,8 @@ class TestClickhouseRetentionGroupAggregation(
 
         # User cohorted at 2 PM on Day 0
         day_0 = next(row for row in result if row["label"] == "Day 0")
-        self.assertEqual(day_0["values"][0]["count"], 1)  # Interval 0 (includes 1 PM event)
-        self.assertEqual(day_0["values"][1]["count"], 1)  # Interval 1 (3 PM event)
+        assert day_0["values"][0]["count"] == 1  # Interval 0 (includes 1 PM event)
+        assert day_0["values"][1]["count"] == 1  # Interval 1 (3 PM event)
 
     def test_retention_24h_window_with_minimum_occurrences(self):
         # Test 24-hour windows with minimum occurrences
@@ -6822,9 +6350,9 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         day_0 = next(row for row in result if row["label"] == "Day 0")
-        self.assertEqual(day_0["values"][0]["count"], 3)  # All users start
+        assert day_0["values"][0]["count"] == 3  # All users start
         # person3 returned 2+ times, person2 returned once (counted if min=1)
-        self.assertGreaterEqual(day_0["values"][1]["count"], 1)  # At least person3
+        assert day_0["values"][1]["count"] >= 1  # At least person3
 
     def test_retention_24h_window_with_week_interval(self):
         # Test 24-hour windows with weekly intervals
@@ -6858,9 +6386,9 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         # Verify at least one cohort exists and has data
-        self.assertGreater(len(result), 0)
+        assert len(result) > 0
         week_0 = result[0]
-        self.assertGreater(len(week_0["values"]), 0)
+        assert len(week_0["values"]) > 0
 
     def test_retention_24h_window_with_properties_on_events(self):
         # Test 24-hour windows with properties on start and return events
@@ -6900,8 +6428,8 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         day_0 = next(row for row in result if row["label"] == "Day 0")
-        self.assertEqual(day_0["values"][0]["count"], 1)  # Interval 0 (1 PM return counts)
-        self.assertEqual(day_0["values"][1]["count"], 0)  # Interval 1 (3 PM doesn't count)
+        assert day_0["values"][0]["count"] == 1  # Interval 0 (1 PM return counts)
+        assert day_0["values"][1]["count"] == 0  # Interval 1 (3 PM doesn't count)
 
     def test_retention_24h_window_with_cohort_breakdown(self):
         # Test 24-hour windows with cohort breakdown
@@ -6936,8 +6464,8 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         cohort_row = next(row for row in result if row.get("breakdown_value") == str(cohort1.pk))
-        self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
-        self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
+        assert cohort_row["values"][0]["count"] == 1  # Interval 0
+        assert cohort_row["values"][1]["count"] == 0  # Interval 1
 
     def test_retention_24h_window_rejects_cumulative(self):
         with self.assertRaisesMessage(
@@ -7011,13 +6539,10 @@ class TestClickhouseRetentionGroupAggregation(
         day0_row = next(row for row in result if row["label"] == "Day 0")
 
         # Column labels should reflect custom brackets
-        self.assertEqual(
-            [v["label"] for v in day0_row["values"]],
-            ["Day 0", "Day 1-4", "Day 5-14", "Day 15-17"],
-        )
+        assert [v["label"] for v in day0_row["values"]] == ["Day 0", "Day 1-4", "Day 5-14", "Day 15-17"]
 
         # Counts per bracket for Day 0 cohort
-        self.assertEqual([v["count"] for v in day0_row["values"]], [3, 2, 2, 1])
+        assert [v["count"] for v in day0_row["values"]] == [3, 2, 2, 1]
 
     def test_custom_brackets_day_period_single_day_bracket_label(self):
         """
@@ -7046,12 +6571,9 @@ class TestClickhouseRetentionGroupAggregation(
 
         day0_row = next(row for row in result if row["label"] == "Day 0")
         # Expect labels Day 0, Day 1-7, Day 8-9
-        self.assertEqual(
-            [v["label"] for v in day0_row["values"]],
-            ["Day 0", "Day 1-7", "Day 8-9"],
-        )
+        assert [v["label"] for v in day0_row["values"]] == ["Day 0", "Day 1-7", "Day 8-9"]
         # Counts: cohort size 1, returned in first bracket once, none in second
-        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
+        assert [v["count"] for v in day0_row["values"]] == [1, 1, 0]
 
     def test_custom_brackets_with_person_breakdown(self):
         """Test custom brackets with person property breakdown"""
@@ -7091,20 +6613,17 @@ class TestClickhouseRetentionGroupAggregation(
         usa_day0 = next(r for r in usa_results if r["label"] == "Day 0")
 
         # Check labels
-        self.assertEqual(
-            [v["label"] for v in usa_day0["values"]],
-            ["Day 0", "Day 1-4", "Day 5-10"],
-        )
+        assert [v["label"] for v in usa_day0["values"]] == ["Day 0", "Day 1-4", "Day 5-10"]
 
         # USA: 2 users start, both return in bracket 1, 1 returns in bracket 2
-        self.assertEqual([v["count"] for v in usa_day0["values"]], [2, 2, 1])
+        assert [v["count"] for v in usa_day0["values"]] == [2, 2, 1]
 
         # Get Canada results
         canada_results = [r for r in result if r.get("breakdown_value") == "Canada"]
         canada_day0 = next(r for r in canada_results if r["label"] == "Day 0")
 
         # Canada: 1 user starts, doesn't return in bracket 1, returns in bracket 2
-        self.assertEqual([v["count"] for v in canada_day0["values"]], [1, 0, 1])
+        assert [v["count"] for v in canada_day0["values"]] == [1, 0, 1]
 
     def test_custom_brackets_with_event_breakdown(self):
         """Test custom brackets with event property breakdown"""
@@ -7137,12 +6656,12 @@ class TestClickhouseRetentionGroupAggregation(
         # Chrome results
         chrome_results = [r for r in result if r.get("breakdown_value") == "Chrome"]
         chrome_day0 = next(r for r in chrome_results if r["label"] == "Day 0")
-        self.assertEqual([v["count"] for v in chrome_day0["values"]], [1, 1, 1])
+        assert [v["count"] for v in chrome_day0["values"]] == [1, 1, 1]
 
         # Safari results
         safari_results = [r for r in result if r.get("breakdown_value") == "Safari"]
         safari_day0 = next(r for r in safari_results if r["label"] == "Day 0")
-        self.assertEqual([v["count"] for v in safari_day0["values"]], [1, 1, 0])
+        assert [v["count"] for v in safari_day0["values"]] == [1, 1, 0]
 
     def test_custom_brackets_with_cohort_breakdown(self):
         """Test custom brackets with cohort breakdown"""
@@ -7185,7 +6704,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         cohort_results = [r for r in result if r.get("breakdown_value") == str(cohort1.pk)]
         cohort_day0 = next(r for r in cohort_results if r["label"] == "Day 0")
-        self.assertEqual([v["count"] for v in cohort_day0["values"]], [1, 1, 1])
+        assert [v["count"] for v in cohort_day0["values"]] == [1, 1, 1]
 
     def test_custom_brackets_first_time_ever(self):
         """Test custom brackets with first-ever occurrence retention"""
@@ -7223,12 +6742,12 @@ class TestClickhouseRetentionGroupAggregation(
 
         # person1 cohorts on Day 1 (first signup), returns Day 3 (bracket 1), Day 8 (bracket 2)
         day1_row = next(r for r in result if r["label"] == "Day 1")
-        self.assertEqual([v["label"] for v in day1_row["values"]], ["Day 0", "Day 1-5", "Day 6-10"])
-        self.assertEqual([v["count"] for v in day1_row["values"]], [1, 1, 1])
+        assert [v["label"] for v in day1_row["values"]] == ["Day 0", "Day 1-5", "Day 6-10"]
+        assert [v["count"] for v in day1_row["values"]] == [1, 1, 1]
 
         # person2 cohorts on Day 2, returns Day 4 (bracket 1), Day 9 (bracket 2)
         day2_row = next(r for r in result if r["label"] == "Day 2")
-        self.assertEqual([v["count"] for v in day2_row["values"]], [1, 1, 1])
+        assert [v["count"] for v in day2_row["values"]] == [1, 1, 1]
 
     def test_custom_brackets_first_time_matching_filters(self):
         """Test custom brackets with first-time matching filters retention"""
@@ -7267,7 +6786,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Cohorts on Day 2 (first event with premium property)
         day2_row = next(r for r in result if r["label"] == "Day 2")
-        self.assertEqual([v["count"] for v in day2_row["values"]], [1, 1, 1])
+        assert [v["count"] for v in day2_row["values"]] == [1, 1, 1]
 
     def test_custom_brackets_with_minimum_occurrences(self):
         """Test custom brackets with minimum occurrences (counted per day within bracket)"""
@@ -7304,7 +6823,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         day0_row = next(row for row in result if row["label"] == "Day 0")
         # Both start, person1 qualifies for bracket 1 only (Day 2 has 2 events), person2 qualifies for bracket 2 only (Day 8 has 2 events)
-        self.assertEqual([v["count"] for v in day0_row["values"]], [2, 1, 1])
+        assert [v["count"] for v in day0_row["values"]] == [2, 1, 1]
 
     def test_custom_brackets_week_period(self):
         """Test custom brackets with week period"""
@@ -7334,8 +6853,8 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         week0_row = next(row for row in result if row["label"] == "Week 0")
-        self.assertEqual([v["label"] for v in week0_row["values"]], ["Week 0", "Week 1-4", "Week 5-8"])
-        self.assertEqual([v["count"] for v in week0_row["values"]], [1, 1, 1])
+        assert [v["label"] for v in week0_row["values"]] == ["Week 0", "Week 1-4", "Week 5-8"]
+        assert [v["count"] for v in week0_row["values"]] == [1, 1, 1]
 
     def test_custom_brackets_month_period(self):
         """Test custom brackets with month period"""
@@ -7364,8 +6883,8 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         month0_row = next(row for row in result if row["label"] == "Month 0")
-        self.assertEqual([v["label"] for v in month0_row["values"]], ["Month 0", "Month 1-3", "Month 4-6"])
-        self.assertEqual([v["count"] for v in month0_row["values"]], [1, 1, 1])
+        assert [v["label"] for v in month0_row["values"]] == ["Month 0", "Month 1-3", "Month 4-6"]
+        assert [v["count"] for v in month0_row["values"]] == [1, 1, 1]
 
     def test_custom_brackets_cumulative(self):
         """Test custom brackets with cumulative retention"""
@@ -7398,7 +6917,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         day0_row = next(row for row in result if row["label"] == "Day 0")
         # Both start, both count in bracket 1 (cumulative), only person1 in bracket 2
-        self.assertEqual([v["count"] for v in day0_row["values"]], [2, 2, 1])
+        assert [v["count"] for v in day0_row["values"]] == [2, 2, 1]
 
     def test_custom_brackets_with_properties_on_events(self):
         """Test custom brackets with properties on start and return events"""
@@ -7431,7 +6950,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         day0_row = next(row for row in result if row["label"] == "Day 0")
         # Returns in bracket 1 and 2 with matching property
-        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 1])
+        assert [v["count"] for v in day0_row["values"]] == [1, 1, 1]
 
     def test_custom_brackets_actors_query(self):
         """Test actors query works with custom brackets"""
@@ -7463,10 +6982,10 @@ class TestClickhouseRetentionGroupAggregation(
             },
         )
 
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
         person1_result = next(r for r in result if r[0]["id"] == person1.uuid)
         # person1 appears in intervals 0 (cohort), 1 (bracket 1), 2 (bracket 2)
-        self.assertEqual(person1_result[1], [0, 1, 2])
+        assert person1_result[1] == [0, 1, 2]
 
     def test_custom_brackets_empty_bracket_handling(self):
         """Test that empty brackets in the middle are handled correctly"""
@@ -7493,7 +7012,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         day0_row = next(row for row in result if row["label"] == "Day 0")
         # No returns in brackets 1 or 2, but returns in bracket 3
-        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 0, 0, 1])
+        assert [v["count"] for v in day0_row["values"]] == [1, 0, 0, 1]
 
     def test_custom_brackets_different_start_cohorts(self):
         """Test custom brackets work correctly for different cohort start days"""
@@ -7525,11 +7044,11 @@ class TestClickhouseRetentionGroupAggregation(
 
         day0_row = next(row for row in result if row["label"] == "Day 0")
         # person1 returns in bracket 1 (Day 2)
-        self.assertEqual([v["count"] for v in day0_row["values"]], [1, 1, 0])
+        assert [v["count"] for v in day0_row["values"]] == [1, 1, 0]
 
         day3_row = next(row for row in result if row["label"] == "Day 3")
         # person2 returns in bracket 1 (Day 5, which is 2 days after Day 3)
-        self.assertEqual([v["count"] for v in day3_row["values"]], [1, 1, 0])
+        assert [v["count"] for v in day3_row["values"]] == [1, 1, 0]
 
     def test_retention_24h_window_weekly_cohorts(self):
         # Test 24-hour windows with weekly retention cohorts
@@ -7563,7 +7082,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify we have results (weekly cohorts with 24h windows)
         # Note: This validates the query runs successfully with Week period + 24h windows
-        self.assertIsInstance(result, list)
+        assert isinstance(result, list)
 
     def test_retention_24h_window_monthly_cohorts(self):
         # Test 24-hour windows with monthly retention cohorts
@@ -7600,7 +7119,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify we have results (monthly cohorts with 24h windows)
         # Note: This validates the query runs successfully with Month period + 24h windows
-        self.assertIsInstance(result, list)
+        assert isinstance(result, list)
 
     def test_retention_24h_window_weekly_with_breakdown(self):
         # Test 24-hour windows with weekly cohorts and breakdown
@@ -7635,11 +7154,11 @@ class TestClickhouseRetentionGroupAggregation(
         )
 
         # Verify we have breakdown results
-        self.assertGreater(len(result), 0)
+        assert len(result) > 0
         # Should have USA and Canada breakdowns
         breakdown_values = {r.get("breakdown_value") for r in result}
-        self.assertIn("USA", breakdown_values)
-        self.assertIn("Canada", breakdown_values)
+        assert "USA" in breakdown_values
+        assert "Canada" in breakdown_values
 
     def test_retention_24h_window_monthly_first_time_ever(self):
         # Test 24-hour windows with monthly cohorts and first-ever retention
@@ -7678,7 +7197,7 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Verify we have results (monthly cohorts with 24h windows and first-ever)
         # Note: This validates the query runs successfully with Month period + 24h windows + first-ever
-        self.assertIsInstance(result, list)
+        assert isinstance(result, list)
 
     # TRICKY: for later if/when we want a different ranking logic for breakdowns
     # def test_retention_breakdown_ranking_by_unique_users(self):

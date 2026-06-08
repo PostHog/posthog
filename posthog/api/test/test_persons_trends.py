@@ -127,7 +127,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "display": "ActionsLineGraphCumulative",
             },
         ).json()
-        self.assertEqual(event_response["results"][0]["count"], 80)
+        assert event_response["results"][0]["count"] == 80
 
         with freeze_time("2020-01-31 00:06:34"):
             event_response = self.client.get(
@@ -141,7 +141,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                     "display": "ActionsLineGraphCumulative",
                 },
             ).json()
-            self.assertEqual(event_response["results"][0]["count"], 80)
+            assert event_response["results"][0]["count"] == 80
 
     def _create_breakdown_events(self):
         freeze_without_time = ["2020-01-02"]
@@ -179,9 +179,9 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(event_response["results"][0]["people"]), 100)
+        assert len(event_response["results"][0]["people"]) == 100
         event_response_next = self.client.get(event_response["next"]).json()
-        self.assertEqual(len(event_response_next["results"][0]["people"]), 50)
+        assert len(event_response_next["results"][0]["people"]) == 50
 
     def _create_people_interval_events(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -295,8 +295,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 ENTITY_ID: "sign up",
             },
         ).json()
-        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.uuid))
-        self.assertEqual(len(action_response["results"][0]["people"]), 1)
+        assert str(action_response["results"][0]["people"][0]["id"]) == str(person1.uuid)
+        assert len(action_response["results"][0]["people"]) == 1
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
         # check grouped hour
@@ -321,8 +321,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         all_people_ids = [str(person["id"]) for person in hour_grouped_action_response["results"][0]["people"]]
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person2.uuid), str(person3.uuid)]))
-        self.assertEqual(len(all_people_ids), 2)
+        assert sorted(all_people_ids) == sorted([str(person2.uuid), str(person3.uuid)])
+        assert len(all_people_ids) == 2
         self.assertEntityResponseEqual(
             hour_grouped_action_response["results"],
             hour_grouped_grevent_response["results"],
@@ -381,8 +381,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(action_response["results"][0]["people"]), 1)
-        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.uuid))
+        assert len(action_response["results"][0]["people"]) == 1
+        assert str(action_response["results"][0]["people"][0]["id"]) == str(person1.uuid)
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
     def test_day_interval_cumulative(self):
@@ -438,10 +438,9 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "display": TRENDS_CUMULATIVE,
             },
         ).json()
-        self.assertEqual(len(action_response["results"][0]["people"]), 2)
-        self.assertEqual(
-            sorted(p["id"] for p in action_response["results"][0]["people"]),
-            sorted([str(person1.uuid), str(person2.uuid)]),
+        assert len(action_response["results"][0]["people"]) == 2
+        assert sorted(p["id"] for p in action_response["results"][0]["people"]) == sorted(
+            [str(person1.uuid), str(person2.uuid)]
         )
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
@@ -495,8 +494,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.maxDiff = None
         all_people_ids = [str(person["id"]) for person in week_grouped_action_response["results"][0]["people"]]
-        self.assertEqual(len(all_people_ids), 2)
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid)]))
+        assert len(all_people_ids) == 2
+        assert sorted(all_people_ids) == sorted([str(person6.uuid), str(person7.uuid)])
 
         self.assertEntityResponseEqual(
             week_grouped_action_response["results"],
@@ -553,11 +552,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
-        self.assertEqual(len(all_people_ids), 3)
-        self.assertListEqual(
-            sorted(all_people_ids),
-            sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)]),
-        )
+        assert len(all_people_ids) == 3
+        assert sorted(all_people_ids) == sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)])
 
         self.assertEntityResponseEqual(
             month_group_action_response["results"],
@@ -681,9 +677,9 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(people["results"][0]["people"]), 1)
+        assert len(people["results"][0]["people"]) == 1
         ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["id"])
-        self.assertEqual(ordered_people[0]["id"], str(person1.uuid))
+        assert ordered_people[0]["id"] == str(person1.uuid)
 
         # all people
         people = self.client.get(
@@ -700,9 +696,9 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(people["results"][0]["people"]), 4)
+        assert len(people["results"][0]["people"]) == 4
         ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["created_at"])
-        self.assertEqual(ordered_people[0]["id"], str(person1.uuid))
+        assert ordered_people[0]["id"] == str(person1.uuid)
 
     def test_breakdown_by_person_property_people_endpoint(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -721,8 +717,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "name",
             },
         ).json()
-        self.assertEqual(len(people["results"][0]["people"]), 1)
-        self.assertEqual(people["results"][0]["people"][0]["id"], str(person3.uuid))
+        assert len(people["results"][0]["people"]) == 1
+        assert people["results"][0]["people"][0]["id"] == str(person3.uuid)
 
     def test_breakdown_by_event_property_people_endpoint(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -742,9 +738,9 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(people["results"][0]["people"]), 2)
+        assert len(people["results"][0]["people"]) == 2
         ordered_people = sorted(p["id"] for p in people["results"][0]["people"])
-        self.assertEqual(ordered_people, sorted([str(person1.uuid), str(person2.uuid)]))
+        assert ordered_people == sorted([str(person1.uuid), str(person2.uuid)])
 
     def test_filtering_by_person_properties(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -760,8 +756,8 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        self.assertEqual(len(people["results"][0]["people"]), 1)
-        self.assertEqual(people["results"][0]["people"][0]["id"], str(person2.uuid))
+        assert len(people["results"][0]["people"]) == 1
+        assert people["results"][0]["people"][0]["id"] == str(person2.uuid)
 
     def test_active_user_weekly_people(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -813,7 +809,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 ENTITY_MATH: "weekly_active",
             },
         ).json()
-        self.assertEqual(len(people["results"][0]["people"]), 2)
+        assert len(people["results"][0]["people"]) == 2
 
     def test_breakdown_by_person_property_nones_people_endpoint(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -874,7 +870,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "name",
             },
         ).json()
-        self.assertEqual(len(people["results"][0]["people"]), 1)
+        assert len(people["results"][0]["people"]) == 1
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
@@ -888,7 +884,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "name",
             },
         ).json()
-        self.assertEqual(len(people["results"][0]["people"]), 1)
+        assert len(people["results"][0]["people"]) == 1
 
     def test_breakdown_by_event_property_none_people_endpoint(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -943,7 +939,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "key",
             },
         ).json()
-        self.assertEqual(len(people["results"][0]["people"]), 2)
+        assert len(people["results"][0]["people"]) == 2
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
@@ -958,7 +954,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "key",
             },
         ).json()
-        self.assertEqual(len(people["results"][0]["people"]), 1)
+        assert len(people["results"][0]["people"]) == 1
 
     @snapshot_clickhouse_queries
     def test_trends_people_endpoint_includes_recordings(self):
@@ -1000,21 +996,18 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             },
         ).json()
-        self.assertEqual(
-            people["results"][0]["people"][0]["matched_recordings"],
-            [
-                {
-                    "session_id": "s1",
-                    "events": [
-                        {
-                            "window_id": "w1",
-                            "timestamp": "2020-01-09T12:00:00Z",
-                            "uuid": "693402ed-590e-4737-ba26-93ebf18121bd",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert people["results"][0]["people"][0]["matched_recordings"] == [
+            {
+                "session_id": "s1",
+                "events": [
+                    {
+                        "window_id": "w1",
+                        "timestamp": "2020-01-09T12:00:00Z",
+                        "uuid": "693402ed-590e-4737-ba26-93ebf18121bd",
+                    }
+                ],
+            }
+        ]
 
     @snapshot_clickhouse_queries
     def test_trends_people_endpoint_filters_search(self):

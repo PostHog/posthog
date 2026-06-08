@@ -79,12 +79,54 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual(results[0][0], persons["user_one"].uuid)
-        self.assertEqual(
-            # [person["matched_recordings"][0]["session_id"] for person in results],
-            [next(iter(results[0][2]))["session_id"]],
-            ["s1b"],
+        assert results[0][0] == persons["user_one"].uuid
+        assert [next(iter(results[0][2]))["session_id"]] == ["s1b"]
+
+    @snapshot_clickhouse_queries
+    def test_funnel_trend_persons_with_no_to_step(self):
+        persons = journeys_for(
+            {
+                "user_one": [
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1),
+                        "properties": {"$session_id": "s1a"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 2),
+                        "properties": {"$session_id": "s1b"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$session_id": "s1c"},
+                    },
+                ]
+            },
+            self.team,
         )
+        # the session recording can start a little before the events in the funnel
+        timestamp = datetime(2021, 5, 1) - timedelta(hours=12)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1c",
+            distinct_id="user_one",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
+
+        results = get_actors(
+            funnels_query,
+            self.team,
+            funnel_trends_drop_off=False,
+            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
+            include_recordings=True,
+        )
+
+        # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
+        assert results[0][0] == persons["user_one"].uuid
+        assert [next(iter(results[0][2]))["session_id"]] == ["s1c"]
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_returns_recording_when_converting_step_has_no_session_id(self):
@@ -131,61 +173,8 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             include_recordings=True,
         )
 
-        self.assertEqual(results[0][0], persons["user_one"].uuid)
-        self.assertEqual(
-            [next(iter(results[0][2]))["session_id"]],
-            ["s1a"],
-        )
-
-    @snapshot_clickhouse_queries
-    def test_funnel_trend_persons_with_no_to_step(self):
-        persons = journeys_for(
-            {
-                "user_one": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 1),
-                        "properties": {"$session_id": "s1a"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 2),
-                        "properties": {"$session_id": "s1b"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$session_id": "s1c"},
-                    },
-                ]
-            },
-            self.team,
-        )
-        # the session recording can start a little before the events in the funnel
-        timestamp = datetime(2021, 5, 1) - timedelta(hours=12)
-        produce_replay_summary(
-            team_id=self.team.pk,
-            session_id="s1c",
-            distinct_id="user_one",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
-        )
-
-        results = get_actors(
-            funnels_query,
-            self.team,
-            funnel_trends_drop_off=False,
-            funnel_trends_entrance_period_start="2021-05-01 00:00:00",
-            include_recordings=True,
-        )
-
-        # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual(results[0][0], persons["user_one"].uuid)
-        self.assertEqual(
-            # [person["matched_recordings"][0]["session_id"] for person in results],
-            [next(iter(results[0][2]))["session_id"]],
-            ["s1c"],
-        )
+        assert results[0][0] == persons["user_one"].uuid
+        assert [next(iter(results[0][2]))["session_id"]] == ["s1a"]
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_filters_by_breakdown(self):
@@ -293,9 +282,5 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
         )
 
         # self.assertEqual([person[0]["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual(results[0][0], persons["user_one"].uuid)
-        self.assertEqual(
-            # [person["matched_recordings"][0].get("session_id") for person in results],
-            [next(iter(results[0][2]))["session_id"]],
-            ["s1a"],
-        )
+        assert results[0][0] == persons["user_one"].uuid
+        assert [next(iter(results[0][2]))["session_id"]] == ["s1a"]

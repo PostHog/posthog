@@ -45,7 +45,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         experiment_id = response.json()["id"]
 
         # Rename the action
@@ -54,14 +54,14 @@ class TestExperimentActionNameRefresh(APILicensedTest):
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify the action name was refreshed in the inline metric
         metrics = response.json()[metrics_field]
-        self.assertEqual(len(metrics), 1)
-        self.assertEqual(metrics[0]["source"]["name"], "Renamed Action")
+        assert len(metrics) == 1
+        assert metrics[0]["source"]["name"] == "Renamed Action"
         # ID can be int or string depending on how it was stored
-        self.assertIn(metrics[0]["source"]["id"], [action.id, str(action.id)])
+        assert metrics[0]["source"]["id"] in [action.id, str(action.id)]
 
     @parameterized.expand(
         [
@@ -101,7 +101,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         experiment_id = response.json()["id"]
 
         # Rename the action
@@ -110,12 +110,12 @@ class TestExperimentActionNameRefresh(APILicensedTest):
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify the action name was refreshed regardless of ID type
         metrics = response.json()["metrics"]
-        self.assertEqual(len(metrics), 1)
-        self.assertEqual(metrics[0]["source"]["name"], "Action Name Renamed")
+        assert len(metrics) == 1
+        assert metrics[0]["source"]["name"] == "Action Name Renamed"
 
     def test_inline_metric_preserves_name_for_deleted_action(self):
         # Create an action
@@ -150,7 +150,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         experiment_id = response.json()["id"]
 
         # Delete the action
@@ -159,14 +159,14 @@ class TestExperimentActionNameRefresh(APILicensedTest):
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify the old name is preserved
         metrics = response.json()["metrics"]
-        self.assertEqual(len(metrics), 1)
-        self.assertEqual(metrics[0]["source"]["name"], "Action to Delete")
+        assert len(metrics) == 1
+        assert metrics[0]["source"]["name"] == "Action to Delete"
         # ID can be int or string depending on how it was stored
-        self.assertIn(metrics[0]["source"]["id"], [action_id, str(action_id)])
+        assert metrics[0]["source"]["id"] in [action_id, str(action_id)]
 
     @parameterized.expand(
         [
@@ -214,7 +214,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         experiment_id = response.json()["id"]
 
         # Rename both actions
@@ -225,14 +225,14 @@ class TestExperimentActionNameRefresh(APILicensedTest):
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify both action names were refreshed
         metrics = response.json()[metrics_field]
-        self.assertEqual(len(metrics), 1)
-        self.assertEqual(len(metrics[0]["series"]), 2)
-        self.assertEqual(metrics[0]["series"][0]["name"], "Funnel Step 1 Renamed")
-        self.assertEqual(metrics[0]["series"][1]["name"], "Funnel Step 2 Renamed")
+        assert len(metrics) == 1
+        assert len(metrics[0]["series"]) == 2
+        assert metrics[0]["series"][0]["name"] == "Funnel Step 1 Renamed"
+        assert metrics[0]["series"][1]["name"] == "Funnel Step 2 Renamed"
 
     @parameterized.expand(
         [
@@ -278,7 +278,7 @@ class TestExperimentActionNameRefresh(APILicensedTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         experiment_id = response.json()["id"]
 
         # Rename both actions
@@ -289,10 +289,10 @@ class TestExperimentActionNameRefresh(APILicensedTest):
 
         # Fetch the experiment
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify both action names were refreshed
         metrics = response.json()[metrics_field]
-        self.assertEqual(len(metrics), 1)
-        self.assertEqual(metrics[0]["numerator"]["name"], "Numerator Renamed")
-        self.assertEqual(metrics[0]["denominator"]["name"], "Denominator Renamed")
+        assert len(metrics) == 1
+        assert metrics[0]["numerator"]["name"] == "Numerator Renamed"
+        assert metrics[0]["denominator"]["name"] == "Denominator Renamed"

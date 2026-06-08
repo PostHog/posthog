@@ -12,42 +12,42 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
         self.tool = ReadTaxonomyMCPTool(team=self.team, user=self.user)
 
     async def test_tool_has_correct_name(self):
-        self.assertEqual(self.tool.name, "read_taxonomy")
+        assert self.tool.name == "read_taxonomy"
 
     async def test_read_events_returns_yaml(self):
         content = await self.tool.execute(
             ReadTaxonomyToolArgs(query={"kind": "events"}),
         )
 
-        self.assertIn("events:", content)
+        assert "events:" in content
 
     async def test_nonexistent_event_returns_empty_properties(self):
         content = await self.tool.execute(
             ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "nonexistent_event"}),
         )
 
-        self.assertIsNotNone(content)
+        assert content is not None
 
     async def test_schema_validates_query(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})
-        self.assertEqual(validated.query.kind, "events")
+        assert validated.query.kind == "events"
 
         validated = self.tool.args_schema.model_validate(
             {"query": {"kind": "event_properties", "event_name": "$pageview"}}
         )
-        self.assertEqual(validated.query.kind, "event_properties")
+        assert validated.query.kind == "event_properties"
         assert isinstance(validated.query, ReadEventProperties)
-        self.assertEqual(validated.query.event_name, "$pageview")
+        assert validated.query.event_name == "$pageview"
 
     async def test_schema_validates_events_with_pagination(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events", "limit": 100, "offset": 50}})
-        self.assertEqual(validated.query.kind, "events")
+        assert validated.query.kind == "events"
         assert isinstance(validated.query, ReadEvents)
-        self.assertEqual(validated.query.limit, 100)
-        self.assertEqual(validated.query.offset, 50)
+        assert validated.query.limit == 100
+        assert validated.query.offset == 50
 
     async def test_schema_validates_events_default_pagination(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})
         assert isinstance(validated.query, ReadEvents)
-        self.assertEqual(validated.query.limit, 500)
-        self.assertEqual(validated.query.offset, 0)
+        assert validated.query.limit == 500
+        assert validated.query.offset == 0

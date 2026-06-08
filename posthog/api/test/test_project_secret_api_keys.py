@@ -82,7 +82,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             {"label": "not the one", "scopes": ["endpoint:read"]},
         )
         assert response.status_code == 400
-        self.assertIn("You can only have", response.json()["detail"])
+        assert "You can only have" in response.json()["detail"]
 
     def test_label_required(self):
         response = self.client.post(

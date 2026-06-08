@@ -29,10 +29,10 @@ class TestTitleGenerator(BaseTest):
                 AssistantState(messages=[HumanMessage(content="Test Message")]),
                 {"configurable": {"thread_id": self.conversation.id}},
             )
-            self.assertIsNone(new_state)
+            assert new_state is None
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Test title")
+            assert self.conversation.title == "Test title"
 
     def test_saves_a_long_title_truncated(self):
         """Test that if a title over our length is generated, it is truncated on save, without error."""
@@ -45,12 +45,12 @@ class TestTitleGenerator(BaseTest):
                 AssistantState(messages=[HumanMessage(content="Test Message")]),
                 {"configurable": {"thread_id": self.conversation.id}},
             )
-            self.assertIsNone(new_state)
+            assert new_state is None
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(
-                self.conversation.title,
-                "Long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long",
+            assert (
+                self.conversation.title
+                == "Long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long"
             )
 
     def test_title_already_set_should_stay_the_same(self):
@@ -67,10 +67,10 @@ class TestTitleGenerator(BaseTest):
                 AssistantState(messages=[HumanMessage(content="Test Message")]),
                 {"configurable": {"thread_id": self.conversation.id}},
             )
-            self.assertIsNone(new_state)
+            assert new_state is None
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Existing Title")
+            assert self.conversation.title == "Existing Title"
 
     def test_two_messages_in_conversation_no_title_should_set_title(self):
         """Test that a title is generated when there are multiple messages in the conversation."""
@@ -87,10 +87,10 @@ class TestTitleGenerator(BaseTest):
                 ),
                 {"configurable": {"thread_id": self.conversation.id}},
             )
-            self.assertIsNone(new_state)
+            assert new_state is None
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Conversation title")
+            assert self.conversation.title == "Conversation title"
 
     def test_no_messages_should_skip(self):
         """Test that title generation is skipped when there are no messages in the conversation."""
@@ -99,10 +99,10 @@ class TestTitleGenerator(BaseTest):
             AssistantState(messages=[]),
             {"configurable": {"thread_id": self.conversation.id}},
         )
-        self.assertIsNone(new_state)
+        assert new_state is None
         # Refresh from DB to ensure we get latest value
         self.conversation.refresh_from_db()
-        self.assertIsNone(self.conversation.title)
+        assert self.conversation.title is None
 
     def test_emits_conversation_title_action_to_stream_writer(self):
         written = []
@@ -121,10 +121,10 @@ class TestTitleGenerator(BaseTest):
                 {"configurable": {"thread_id": self.conversation.id}},
             )
 
-        self.assertEqual(len(written), 1)
+        assert len(written) == 1
         action = written[0]
-        self.assertIsInstance(action, ConversationTitleAction)
-        self.assertEqual(action.title, "Stream title")
+        assert isinstance(action, ConversationTitleAction)
+        assert action.title == "Stream title"
 
     def test_does_not_raise_when_stream_writer_unavailable(self):
         with (
@@ -144,9 +144,9 @@ class TestTitleGenerator(BaseTest):
                 {"configurable": {"thread_id": self.conversation.id}},
             )
 
-        self.assertIsNone(result)
+        assert result is None
         self.conversation.refresh_from_db()
-        self.assertEqual(self.conversation.title, "Some title")
+        assert self.conversation.title == "Some title"
 
     def test_handles_json_content_without_error(self):
         """Test that title generation works when user message contains JSON with curly braces."""
@@ -180,6 +180,6 @@ The query below is currently set up as an SQL insight, but the visualization opt
                 {"configurable": {"thread_id": self.conversation.id}},
             )
 
-            self.assertIsNone(new_state)
+            assert new_state is None
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Convert SQL to trends")
+            assert self.conversation.title == "Convert SQL to trends"

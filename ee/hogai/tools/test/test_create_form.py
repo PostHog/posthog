@@ -50,8 +50,8 @@ class TestCreateFormTool(BaseTest):
             mock_interrupt.assert_called_once()
             call_args = mock_interrupt.call_args
             form = call_args.kwargs["value"]
-            self.assertIsInstance(form, MultiQuestionForm)
-            self.assertEqual(len(form.questions), 2)
+            assert isinstance(form, MultiQuestionForm)
+            assert len(form.questions) == 2
 
     async def test_raises_retryable_error_when_more_than_4_questions(self):
         tool = self._create_tool()
@@ -60,7 +60,7 @@ class TestCreateFormTool(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=questions)
 
-        self.assertIn("Do not ask more than 4 questions", str(context.exception))
+        assert "Do not ask more than 4 questions" in str(context.exception)
 
     async def test_raises_retryable_error_when_empty_questions(self):
         tool = self._create_tool()
@@ -68,7 +68,7 @@ class TestCreateFormTool(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=[])
 
-        self.assertIn("At least one question is required", str(context.exception))
+        assert "At least one question is required" in str(context.exception)
 
     @parameterized.expand(
         [
@@ -111,7 +111,7 @@ class TestCreateFormTool(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=questions)
 
-        self.assertIn("requires options", str(context.exception))
+        assert "requires options" in str(context.exception)
 
     @parameterized.expand(
         [
@@ -152,8 +152,8 @@ class TestCreateFormTool(BaseTest):
 
             result, metadata = await tool._arun_impl(questions=questions)
 
-            self.assertEqual(result, expected_line)
-            self.assertEqual(metadata["answers"], answers)
+            assert result == expected_line
+            assert metadata["answers"] == answers
 
     def _create_multi_field_question(self, fields: list[MultiQuestionFormField]) -> MultiQuestionFormQuestion:
         return MultiQuestionFormQuestion(
@@ -202,8 +202,8 @@ class TestCreateFormTool(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=[question])
 
-        self.assertIn("requires options", str(context.exception))
-        self.assertIn("f1", str(context.exception))
+        assert "requires options" in str(context.exception)
+        assert "f1" in str(context.exception)
 
     async def test_multi_field_raises_error_when_slider_missing_min_max(self):
         tool = self._create_tool()
@@ -216,8 +216,8 @@ class TestCreateFormTool(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await tool._arun_impl(questions=[question])
 
-        self.assertIn("requires min and max", str(context.exception))
-        self.assertIn("f1", str(context.exception))
+        assert "requires min and max" in str(context.exception)
+        assert "f1" in str(context.exception)
 
     async def test_multi_field_merges_multiple_composites(self):
         tool = self._create_tool()
@@ -243,11 +243,11 @@ class TestCreateFormTool(BaseTest):
             form = mock_interrupt.call_args.kwargs["value"]
             # Should have merged into one multi_field question with both fields
             multi_field_qs = [q for q in form.questions if (q.type or "select") == "multi_field"]
-            self.assertEqual(len(multi_field_qs), 1)
-            self.assertEqual(len(multi_field_qs[0].fields), 2)
+            assert len(multi_field_qs) == 1
+            assert len(multi_field_qs[0].fields) == 2
             field_ids = [f.id for f in multi_field_qs[0].fields]
-            self.assertIn("f1", field_ids)
-            self.assertIn("f2", field_ids)
+            assert "f1" in field_ids
+            assert "f2" in field_ids
 
     async def test_multi_field_valid_question_passes_validation(self):
         tool = self._create_tool()
@@ -284,11 +284,8 @@ class TestCreateFormTool(BaseTest):
 
             result, metadata = await tool._arun_impl(questions=[question])
 
-            self.assertEqual(
-                result,
-                "Configure settings:\n  Sample size: 1000\n  Notify me: true",
-            )
-            self.assertEqual(metadata["answers"], {"sample": "1000", "notify": "true"})
+            assert result == "Configure settings:\n  Sample size: 1000\n  Notify me: true"
+            assert metadata["answers"] == {"sample": "1000", "notify": "true"}
 
     async def test_formats_skipped_questions(self):
         tool = self._create_tool()
@@ -302,11 +299,8 @@ class TestCreateFormTool(BaseTest):
 
             result, metadata = await tool._arun_impl(questions=questions)
 
-            self.assertEqual(
-                result,
-                "Question 0?: Option A\nQuestion 1?: (skipped)",
-            )
-            self.assertEqual(metadata["answers"], {"q0": "Option A"})
+            assert result == "Question 0?: Option A\nQuestion 1?: (skipped)"
+            assert metadata["answers"] == {"q0": "Option A"}
 
     @parameterized.expand(
         [
@@ -323,7 +317,7 @@ class TestCreateFormTool(BaseTest):
             options=[{"value": "A"}, {"value": "B"}],
             allow_custom_answer=False,
         )
-        self.assertFalse(q.allow_custom_answer)
+        assert not q.allow_custom_answer
 
     async def test_formats_multi_select_with_custom_entries(self):
         tool = self._create_tool()
@@ -345,8 +339,8 @@ class TestCreateFormTool(BaseTest):
 
             result, metadata = await tool._arun_impl(questions=questions)
 
-            self.assertEqual(result, "Pick areas: Option A, My custom choice")
-            self.assertEqual(metadata["answers"], {"q0": ["Option A", "My custom choice"]})
+            assert result == "Pick areas: Option A, My custom choice"
+            assert metadata["answers"] == {"q0": ["Option A", "My custom choice"]}
 
     async def test_returns_dismissed_response_when_user_dismisses_form(self):
         tool = self._create_tool()
@@ -357,5 +351,5 @@ class TestCreateFormTool(BaseTest):
 
             result, metadata = await tool._arun_impl(questions=questions)
 
-            self.assertIn("dismissed the form", result)
-            self.assertEqual(metadata, {"status": "dismiss_form"})
+            assert "dismissed the form" in result
+            assert metadata == {"status": "dismiss_form"}

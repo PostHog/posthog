@@ -23,8 +23,8 @@ from products.data_modeling.backend.services.saved_query_dag_sync import (
 @pytest.mark.django_db
 class TestGetDagId(BaseTest):
     def test_get_dag_id_returns_expected_format(self):
-        self.assertEqual(get_dag_id(123), "posthog_123")
-        self.assertEqual(get_dag_id(1), "posthog_1")
+        assert get_dag_id(123) == "posthog_123"
+        assert get_dag_id(1) == "posthog_1"
 
 
 @pytest.mark.django_db
@@ -39,7 +39,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         sync_saved_query_to_dag(saved_query)
 
         dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
-        self.assertEqual(dag.name, DEFAULT_DAG_NAME)
+        assert dag.name == DEFAULT_DAG_NAME
 
     def test_sync_reuses_existing_dag_model(self):
         existing_dag = DAG.objects.create(team=self.team, name=DEFAULT_DAG_NAME)
@@ -51,8 +51,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
         sync_saved_query_to_dag(saved_query)
 
-        self.assertEqual(DAG.objects.filter(team=self.team, name=DEFAULT_DAG_NAME).count(), 1)
-        self.assertEqual(DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME).id, existing_dag.id)
+        assert DAG.objects.filter(team=self.team, name=DEFAULT_DAG_NAME).count() == 1
+        assert DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME).id == existing_dag.id
 
     def test_sync_creates_node_for_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -63,15 +63,15 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         node = sync_saved_query_to_dag(saved_query)
         assert node is not None
-        self.assertEqual(node.name, "test_view")
-        self.assertEqual(node.team, self.team)
+        assert node.name == "test_view"
+        assert node.team == self.team
         assert node.dag is not None
-        self.assertEqual(node.dag.name, DEFAULT_DAG_NAME)
-        self.assertEqual(node.type, NodeType.VIEW)
-        self.assertEqual(node.saved_query, saved_query)
+        assert node.dag.name == DEFAULT_DAG_NAME
+        assert node.type == NodeType.VIEW
+        assert node.saved_query == saved_query
 
         dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
-        self.assertEqual(node.dag_id, dag.id)
+        assert node.dag_id == dag.id
 
     def test_sync_creates_table_node_for_posthog_source(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -89,17 +89,17 @@ class TestSyncSavedQueryToDag(BaseTest):
         ).first()
 
         assert events_node is not None
-        self.assertEqual(events_node.type, NodeType.TABLE)
-        self.assertEqual(events_node.properties.get("origin"), "posthog")
+        assert events_node.type == NodeType.TABLE
+        assert events_node.properties.get("origin") == "posthog"
 
         dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
-        self.assertEqual(events_node.dag_id, dag.id)
+        assert events_node.dag_id == dag.id
 
         # edge from events -> test_view
         edge = Edge.objects.filter(source=events_node, target=node).first()
-        self.assertIsNotNone(edge)
         assert edge is not None
-        self.assertEqual(edge.dag_id, dag.id)
+        assert edge is not None
+        assert edge.dag_id == dag.id
 
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -116,8 +116,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         # events -> test_view and persons -> test_view
         incoming_edges = Edge.objects.filter(target=node)
         source_names = {edge.source.name for edge in incoming_edges}
-        self.assertIn("events", source_names)
-        self.assertIn("persons", source_names)
+        assert "events" in source_names
+        assert "persons" in source_names
 
     def test_sync_updates_existing_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -135,9 +135,9 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert before is not None
         assert after is not None
 
-        self.assertEqual(before.id, after.id)
+        assert before.id == after.id
         after.refresh_from_db()
-        self.assertEqual(after.name, "updated_view")
+        assert after.name == "updated_view"
 
     def test_sync_deletes_old_edges_when_dependencies_change(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -151,8 +151,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         # initially depends on events
         edge = Edge.objects.filter(target=node).first()
         assert edge is not None
-        self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(edge.source.name, "events")
+        assert Edge.objects.filter(target=node).count() == 1
+        assert edge.source.name == "events"
 
         # change to depend on persons instead
         saved_query.query = {"query": "SELECT * FROM persons", "kind": "HogQLQuery"}
@@ -161,8 +161,8 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         edge = Edge.objects.filter(target=node).first()
         assert edge is not None
-        self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(edge.source.name, "persons")  # not events
+        assert Edge.objects.filter(target=node).count() == 1
+        assert edge.source.name == "persons"  # not events
 
     def test_sync_creates_edge_to_other_saved_query(self):
         upstream_query = DataWarehouseSavedQuery.objects.create(
@@ -180,7 +180,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         downstream_node = sync_saved_query_to_dag(downstream_query)
 
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
-        self.assertIsNotNone(edge)
+        assert edge is not None
 
     def test_sync_raises_on_cycle(self):
         query_a = DataWarehouseSavedQuery.objects.create(
@@ -204,7 +204,7 @@ class TestSyncSavedQueryToDag(BaseTest):
             sync_saved_query_to_dag(query_a)
 
         # node for query_a should be cleaned up
-        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
+        assert not Node.objects.filter(saved_query=query_a).exists()
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(
@@ -253,15 +253,15 @@ class TestDeleteNodeFromDag(BaseTest):
         )
         sync_saved_query_to_dag(saved_query)
 
-        self.assertEqual(Node.objects.filter(saved_query=saved_query).count(), 1)
+        assert Node.objects.filter(saved_query=saved_query).count() == 1
 
         delete_node_from_dag(saved_query)
 
-        self.assertEqual(Node.objects.filter(saved_query=saved_query).count(), 0)
+        assert Node.objects.filter(saved_query=saved_query).count() == 0
 
         # doesn't update saved query name via soft delete
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.name, "test_view")
+        assert saved_query.name == "test_view"
 
     def test_delete_cascades_to_edges(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -271,11 +271,11 @@ class TestDeleteNodeFromDag(BaseTest):
         )
         node = sync_saved_query_to_dag(saved_query)
 
-        self.assertTrue(Edge.objects.filter(target=node).exists())
+        assert Edge.objects.filter(target=node).exists()
 
         delete_node_from_dag(saved_query)
 
-        self.assertFalse(Edge.objects.filter(target=node).exists())
+        assert not Edge.objects.filter(target=node).exists()
 
     def test_delete_handles_nonexistent_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -310,7 +310,7 @@ class TestDeleteNodeFromDag(BaseTest):
         )
         sync_saved_query_to_dag(upstream)
         delete_node_from_dag(upstream)
-        self.assertEqual(Node.objects.filter(saved_query=upstream).count(), 0)
+        assert Node.objects.filter(saved_query=upstream).count() == 0
 
 
 @pytest.mark.django_db
@@ -323,7 +323,7 @@ class TestGetDependents(BaseTest):
         )
         sync_saved_query_to_dag(saved_query)
         dependents = get_dependent_saved_queries(saved_query)
-        self.assertEqual(dependents, [])
+        assert dependents == []
 
     def test_get_dependents_returns_immediate_dependents(self):
         upstream = DataWarehouseSavedQuery.objects.create(
@@ -346,9 +346,9 @@ class TestGetDependents(BaseTest):
         sync_saved_query_to_dag(downstream2)
         dependents = get_dependent_saved_queries(upstream)
         dependent_names = {d.name for d in dependents}
-        self.assertEqual(len(dependents), 2)
-        self.assertIn("downstream1", dependent_names)
-        self.assertIn("downstream2", dependent_names)
+        assert len(dependents) == 2
+        assert "downstream1" in dependent_names
+        assert "downstream2" in dependent_names
 
     def test_get_dependents_excludes_deleted_views(self):
         upstream = DataWarehouseSavedQuery.objects.create(
@@ -367,7 +367,7 @@ class TestGetDependents(BaseTest):
         downstream.deleted = True
         downstream.save()
         dependents = get_dependent_saved_queries(upstream)
-        self.assertEqual(dependents, [])
+        assert dependents == []
 
     def test_get_dependents_returns_empty_when_no_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -377,7 +377,7 @@ class TestGetDependents(BaseTest):
         )
         # no node exists
         dependents = get_dependent_saved_queries(saved_query)
-        self.assertEqual(dependents, [])
+        assert dependents == []
 
 
 @pytest.mark.django_db
@@ -390,13 +390,13 @@ class TestUpdateNodeType(BaseTest):
         )
         node = sync_saved_query_to_dag(saved_query)
         assert node is not None
-        self.assertEqual(node.type, NodeType.VIEW)
+        assert node.type == NodeType.VIEW
         update_node_type(saved_query, NodeType.MAT_VIEW)
         node.refresh_from_db()
-        self.assertEqual(node.type, NodeType.MAT_VIEW)
+        assert node.type == NodeType.MAT_VIEW
         update_node_type(saved_query, NodeType.VIEW)
         node.refresh_from_db()
-        self.assertEqual(node.type, NodeType.VIEW)
+        assert node.type == NodeType.VIEW
 
     def test_update_handles_nonexistent_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

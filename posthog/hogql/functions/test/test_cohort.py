@@ -58,8 +58,8 @@ class TestCohort(BaseTest):
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0], random_uuid)
+        assert len(response.results) == 1
+        assert response.results[0][0] == random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -78,8 +78,8 @@ class TestCohort(BaseTest):
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0], random_uuid)
+        assert len(response.results) == 1
+        assert response.results[0][0] == random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -116,14 +116,14 @@ class TestCohort(BaseTest):
     def test_in_cohort_error(self):
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(f"SELECT event FROM events WHERE person_id IN COHORT true", self.team)
-        self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
+        assert str(e.exception) == "cohort() takes exactly one string or integer argument"
 
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,
             )
-        self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+        assert str(e.exception) == "Could not find a cohort with the name 'blabla'"
 
 
 class TestInlineCohortSubquery(BaseTest):
@@ -170,7 +170,7 @@ class TestInlineCohortSubquery(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia="subquery", inlineCohortCalculation=InlineCohortCalculation.OFF),
             pretty=False,
         )
-        self.assertEqual(len(off_response.results), 1)
+        assert len(off_response.results) == 1
 
         always_response = execute_hogql_query(
             query,
@@ -180,7 +180,7 @@ class TestInlineCohortSubquery(BaseTest):
             ),
             pretty=False,
         )
-        self.assertEqual(len(always_response.results), 2)
+        assert len(always_response.results) == 2
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_static_always_uses_cohortpeople(self):
@@ -203,7 +203,7 @@ class TestInlineCohortSubquery(BaseTest):
             ),
             pretty=False,
         )
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_auto_mode_with_fast_history(self):
@@ -225,7 +225,7 @@ class TestInlineCohortSubquery(BaseTest):
                 ),
                 pretty=False,
             )
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_auto_mode_newest_calc_failed(self):
@@ -255,7 +255,7 @@ class TestInlineCohortSubquery(BaseTest):
                 ),
                 pretty=False,
             )
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_cohort_auto_mode_flag_disabled(self):
@@ -269,7 +269,7 @@ class TestInlineCohortSubquery(BaseTest):
                 ),
                 pretty=False,
             )
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
     @parameterized.expand(
         [

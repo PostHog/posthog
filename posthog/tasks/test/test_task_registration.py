@@ -14,6 +14,6 @@ class TestAllTasksRegistered(TestCase):
     def test_all_posthog_tasks_registered_snapshot(self) -> None:
         all_tasks = sorted([name for name in app.tasks.keys() if name.startswith("posthog.")])
 
-        self.assertGreater(len(all_tasks), 0, "No PostHog tasks found. This likely indicates a registration problem.")
+        assert len(all_tasks) > 0, "No PostHog tasks found. This likely indicates a registration problem."
 
         assert all_tasks == self.snapshot

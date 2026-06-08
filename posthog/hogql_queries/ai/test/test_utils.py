@@ -18,14 +18,14 @@ class TestTaxonomyUtils(BaseTest):
         date = timezone.now()
 
         mixin = Mixin()
-        self.assertFalse(mixin._is_stale(last_refresh=date, lazy=False))
-        self.assertFalse(mixin._is_stale(last_refresh=date, lazy=True))
-        self.assertFalse(mixin._is_stale(last_refresh=date - timedelta(minutes=15), lazy=False))
-        self.assertFalse(mixin._is_stale(last_refresh=date - timedelta(minutes=15), lazy=True))
-        self.assertFalse(mixin._is_stale(last_refresh=date - timedelta(minutes=59), lazy=True))
-        self.assertFalse(mixin._is_stale(last_refresh=date - timedelta(minutes=59), lazy=False))
-        self.assertTrue(mixin._is_stale(last_refresh=date - timedelta(minutes=60), lazy=True))
-        self.assertTrue(mixin._is_stale(last_refresh=date - timedelta(minutes=60), lazy=False))
+        assert not mixin._is_stale(last_refresh=date, lazy=False)
+        assert not mixin._is_stale(last_refresh=date, lazy=True)
+        assert not mixin._is_stale(last_refresh=date - timedelta(minutes=15), lazy=False)
+        assert not mixin._is_stale(last_refresh=date - timedelta(minutes=15), lazy=True)
+        assert not mixin._is_stale(last_refresh=date - timedelta(minutes=59), lazy=True)
+        assert not mixin._is_stale(last_refresh=date - timedelta(minutes=59), lazy=False)
+        assert mixin._is_stale(last_refresh=date - timedelta(minutes=60), lazy=True)
+        assert mixin._is_stale(last_refresh=date - timedelta(minutes=60), lazy=False)
 
 
 class TestMergeHeavyProperties(BaseTest):
@@ -40,22 +40,22 @@ class TestMergeHeavyProperties(BaseTest):
             "tools": "",
         }
         result = merge_heavy_properties(props_json, heavy)
-        self.assertEqual(result["$ai_model"], "gpt-4")
-        self.assertEqual(result["$browser"], "Chrome")
-        self.assertEqual(result["$ai_input"], [{"role": "user", "content": "hello"}])
-        self.assertEqual(result["$ai_output"], {"role": "assistant", "content": "hi"})
-        self.assertNotIn("$ai_output_choices", result)
-        self.assertNotIn("$ai_tools", result)
+        assert result["$ai_model"] == "gpt-4"
+        assert result["$browser"] == "Chrome"
+        assert result["$ai_input"] == [{"role": "user", "content": "hello"}]
+        assert result["$ai_output"] == {"role": "assistant", "content": "hi"}
+        assert "$ai_output_choices" not in result
+        assert "$ai_tools" not in result
 
     def test_skips_empty_heavy_columns(self):
         props_json = orjson.dumps({"$ai_model": "gpt-4"}).decode()
         heavy = {"input": "", "output": "", "output_choices": "", "input_state": "", "output_state": "", "tools": ""}
         result = merge_heavy_properties(props_json, heavy)
-        self.assertEqual(result, {"$ai_model": "gpt-4"})
+        assert result == {"$ai_model": "gpt-4"}
 
     def test_handles_empty_properties(self):
         result = merge_heavy_properties("", {"input": '"hello"'})
-        self.assertEqual(result, {"$ai_input": "hello"})
+        assert result == {"$ai_input": "hello"}
 
     @parameterized.expand(
         [
@@ -69,4 +69,4 @@ class TestMergeHeavyProperties(BaseTest):
     )
     def test_maps_each_column_to_correct_property(self, column_name, expected_prop):
         result = merge_heavy_properties("{}", {column_name: '"test_value"'})
-        self.assertEqual(result[expected_prop], "test_value")
+        assert result[expected_prop] == "test_value"

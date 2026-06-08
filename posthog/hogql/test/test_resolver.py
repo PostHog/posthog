@@ -67,10 +67,7 @@ class TestResolver(BaseTest):
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         with self.assertRaises(ResolutionError) as context:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(
-            str(context.exception),
-            "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
-        )
+        assert str(context.exception) == "Type already resolved for SelectQuery (SelectQueryType). Can't run again."
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_alias(self):
@@ -110,20 +107,14 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(
-            str(context.exception),
-            "LIMIT percent with expressions is not supported in clickhouse dialect",
-        )
+        assert str(context.exception) == "LIMIT percent with expressions is not supported in clickhouse dialect"
 
     def test_resolve_limit_percent_range_guard(self):
         expr = self._select("SELECT 1 FROM events LIMIT (100.1) %")
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            "Limit percent must be between 0 and 100",
-        )
+        assert str(context.exception) == "Limit percent must be between 0 and 100"
 
     @parameterized.expand(
         [
@@ -188,10 +179,7 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(
-            str(context.exception),
-            'Column "first_names" in EXCLUDE list was not found in events',
-        )
+        assert str(context.exception) == 'Column "first_names" in EXCLUDE list was not found in events'
 
     def test_resolve_exclude_with_column_aliases(self):
         expr = ast.SelectQuery(
@@ -311,30 +299,21 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            'Column "does_not_exist" in REPLACE list was not found in events',
-        )
+        assert str(context.exception) == 'Column "does_not_exist" in REPLACE list was not found in events'
 
     def test_resolve_replace_exclude_same_column(self):
         expr = self._select("SELECT (* EXCLUDE (event) REPLACE (1 AS event)) FROM events")
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            'Column "event" cannot occur in both EXCLUDE and REPLACE list',
-        )
+        assert str(context.exception) == 'Column "event" cannot occur in both EXCLUDE and REPLACE list'
 
     def test_resolve_replace_expression_references_excluded_column(self):
         expr = self._select("SELECT (* EXCLUDE (event) REPLACE (concat(event, 'x') AS other)) FROM events")
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            'Replace expression for "other" cannot reference excluded column "event"',
-        )
+        assert str(context.exception) == 'Replace expression for "other" cannot reference excluded column "event"'
 
     def test_resolve_replace_with_column_aliases_success(self):
         expr = self._select(
@@ -356,10 +335,7 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            'Column "customer_id" in REPLACE list was not found in customers',
-        )
+        assert str(context.exception) == 'Column "customer_id" in REPLACE list was not found in customers'
 
     def test_resolve_unpivot_tuple_shape_guard(self):
         expr = self._select(
@@ -368,10 +344,7 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            "UNPIVOT value and name columns must both be tuples or both be single columns",
-        )
+        assert str(context.exception) == "UNPIVOT value and name columns must both be tuples or both be single columns"
 
     def test_resolve_unpivot_tuple_length_guard(self):
         expr = self._select(
@@ -380,10 +353,7 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="postgres")
-        self.assertEqual(
-            str(context.exception),
-            "UNPIVOT IN values must be tuples of length 2",
-        )
+        assert str(context.exception) == "UNPIVOT IN values must be tuples of length 2"
 
     def test_resolve_lambda_style_dialect_guard(self):
         expr = self._select("SELECT lambda x: x + 1")
@@ -408,7 +378,7 @@ class TestResolver(BaseTest):
 
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "TRY_CAST is not allowed in clickhouse dialect")
+        assert str(context.exception) == "TRY_CAST is not allowed in clickhouse dialect"
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.TryCast)
@@ -417,7 +387,7 @@ class TestResolver(BaseTest):
         expr = self._select("SELECT missing is distinct from 1")
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "Unable to resolve field: missing")
+        assert str(context.exception) == "Unable to resolve field: missing"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
@@ -432,7 +402,7 @@ class TestResolver(BaseTest):
         )
         with self.assertRaises(QueryError) as e:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(str(e.exception), "Unable to resolve field: e")
+        assert str(e.exception) == "Unable to resolve field: e"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
@@ -468,7 +438,7 @@ class TestResolver(BaseTest):
         for query in queries:
             with self.assertRaises(QueryError) as e:
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
-            self.assertIn("Unable to resolve field:", str(e.exception))
+            assert "Unable to resolve field:" in str(e.exception)
 
     def test_unresolved_field_type(self):
         query = "SELECT x"
@@ -488,9 +458,9 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
         message = str(ctx.exception)
-        self.assertIn("Unknown table `event`", message)
-        self.assertIn("Did you mean:", message)
-        self.assertIn("events", message)
+        assert "Unknown table `event`" in message
+        assert "Did you mean:" in message
+        assert "events" in message
 
     def test_unresolved_field_suggests_close_matches(self):
         # user_id isn't on events, but distinct_id and person_id are close enough to suggest
@@ -501,13 +471,10 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
         message = str(ctx.exception)
-        self.assertIn("Unable to resolve field: user_id", message)
-        self.assertIn("Did you mean:", message)
+        assert "Unable to resolve field: user_id" in message
+        assert "Did you mean:" in message
         # At least one of the obvious suggestions should show up
-        self.assertTrue(
-            "distinct_id" in message or "person_id" in message,
-            f"expected a plausible suggestion in: {message}",
-        )
+        assert "distinct_id" in message or "person_id" in message, f"expected a plausible suggestion in: {message}"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
@@ -579,7 +546,7 @@ class TestResolver(BaseTest):
         assert node.type is not None
         table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(node.type)]
 
-        self.assertEqual(table_names, expected_tables)
+        assert table_names == expected_tables
 
     def test_extract_base_table_types_from_select_set_type(self):
         select_set_type = ast.SelectSetQueryType(
@@ -591,7 +558,7 @@ class TestResolver(BaseTest):
 
         table_names = [table_type.table.to_printed_hogql() for table_type in extract_base_table_types(select_set_type)]
 
-        self.assertEqual(table_names, ["events", "persons"])
+        assert table_names == ["events", "persons"]
 
     @parameterized.expand(
         [
@@ -621,119 +588,99 @@ class TestResolver(BaseTest):
         with self.assertRaises(ResolutionError) as context:
             lookup_field_by_name(scope, "properties", self.context)
 
-        self.assertEqual(
-            str(context.exception),
-            f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
-            "Use a qualified field name.",
+        assert (
+            str(context.exception)
+            == f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
+            "Use a qualified field name."
         )
 
     def test_select_set_order_by_prints(self):
         printed = self._print_hogql("select 1 union all select 2 order by 1")
-        self.assertEqual(printed, "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000")
+        assert printed == "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000"
 
     def test_ctes_loop(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
-        self.assertIn("Unknown table `cte`.", str(e.exception))
+        assert "Unknown table `cte`." in str(e.exception)
 
     def test_ctes_basic_column(self):
         expr = self._print_hogql("with 1 as cte select cte from events")
-        self.assertEqual(expr, "WITH 1 AS cte SELECT cte FROM events LIMIT 50000")
+        assert expr == "WITH 1 AS cte SELECT cte FROM events LIMIT 50000"
 
     def test_ctes_recursive_column(self):
-        self.assertEqual(
-            self._print_hogql("with 1 as cte, cte as soap select soap from events"),
-            "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000",
+        assert (
+            self._print_hogql("with 1 as cte, cte as soap select soap from events")
+            == "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000"
         )
 
     def test_ctes_field_access(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+        assert "No scope or CTE available" in str(e.exception)
 
     def test_ctes_subqueries(self):
-        self.assertEqual(
-            self._print_hogql("with my_table as (select event from events) select event from my_table"),
-            "WITH my_table AS (SELECT event FROM events) SELECT event FROM my_table LIMIT 50000",
+        assert (
+            self._print_hogql("with my_table as (select event from events) select event from my_table")
+            == "WITH my_table AS (SELECT event FROM events) SELECT event FROM my_table LIMIT 50000"
         )
 
-        self.assertEqual(
-            self._print_hogql(
-                "with my_table as (select timestamp from events) select my_table.timestamp from my_table"
-            ),
-            "WITH my_table AS (SELECT timestamp FROM events) SELECT my_table.timestamp FROM my_table LIMIT 50000",
+        assert (
+            self._print_hogql("with my_table as (select timestamp from events) select my_table.timestamp from my_table")
+            == "WITH my_table AS (SELECT timestamp FROM events) SELECT my_table.timestamp FROM my_table LIMIT 50000"
         )
 
-        self.assertEqual(
-            self._print_hogql("with my_table as (select timestamp from events) select timestamp from my_table"),
-            "WITH my_table AS (SELECT timestamp FROM events) SELECT timestamp FROM my_table LIMIT 50000",
+        assert (
+            self._print_hogql("with my_table as (select timestamp from events) select timestamp from my_table")
+            == "WITH my_table AS (SELECT timestamp FROM events) SELECT timestamp FROM my_table LIMIT 50000"
         )
 
     def test_ctes_subquery_deep(self):
-        self.assertEqual(
+        assert (
             self._print_hogql(
                 "with my_table as (select event from events), "
                 "other_table as (select event from (select event from (select event from my_table))) "
                 "select event from other_table"
-            ),
-            "WITH my_table AS (SELECT event FROM events), other_table AS (SELECT event FROM (SELECT event FROM (SELECT event FROM my_table))) SELECT event FROM other_table LIMIT 50000",
+            )
+            == "WITH my_table AS (SELECT event FROM events), other_table AS (SELECT event FROM (SELECT event FROM (SELECT event FROM my_table))) SELECT event FROM other_table LIMIT 50000"
         )
 
     def test_ctes_subquery_recursion(self):
-        self.assertEqual(
+        assert (
             self._print_hogql(
                 "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
-            ),
-            "WITH users AS (SELECT event, timestamp AS tt FROM events), final AS (SELECT tt FROM users) SELECT tt FROM final LIMIT 50000",
+            )
+            == "WITH users AS (SELECT event, timestamp AS tt FROM events), final AS (SELECT tt FROM users) SELECT tt FROM final LIMIT 50000"
         )
 
     def test_ctes_with_aliases(self):
-        self.assertEqual(
+        assert (
             self._print_hogql(
                 "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
-            ),
-            "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000",
+            )
+            == "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000"
         )
 
     def test_ctes_with_aliases_in_joins(self):
-        self.assertEqual(
+        assert (
             self._print_hogql(
-                """
-                WITH
-                    exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
-                    conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
-                SELECT
-                    e.person_id,
-                    e.exposure_time,
-                    c.conversion_time
-                FROM exposures AS e
-                LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
-                """
-            ),
-            "WITH exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events), "
+                """\n                WITH\n                    exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),\n                    conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)\n                SELECT\n                    e.person_id,\n                    e.exposure_time,\n                    c.conversion_time\n                FROM exposures AS e\n                LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time\n                """
+            )
+            == "WITH exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events), "
             "conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events) "
             "SELECT e.person_id, e.exposure_time, c.conversion_time "
             "FROM exposures AS e LEFT JOIN conversions AS c "
             "ON and(equals(e.person_id, c.person_id), greaterOrEquals(c.conversion_time, e.exposure_time)) "
-            "LIMIT 50000",
+            "LIMIT 50000"
         )
 
-        self.assertEqual(
+        assert (
             self._print_hogql(
-                """
-                WITH
-                    users AS (SELECT event AS user_id FROM events)
-                SELECT
-                    users.user_id,
-                    u2.user_id
-                FROM users
-                LEFT JOIN users AS u2 ON users.user_id = u2.user_id
-                """
-            ),
-            "WITH users AS (SELECT event AS user_id FROM events) "
+                """\n                WITH\n                    users AS (SELECT event AS user_id FROM events)\n                SELECT\n                    users.user_id,\n                    u2.user_id\n                FROM users\n                LEFT JOIN users AS u2 ON users.user_id = u2.user_id\n                """
+            )
+            == "WITH users AS (SELECT event AS user_id FROM events) "
             "SELECT users.user_id, u2.user_id "
             "FROM users LEFT JOIN users AS u2 ON equals(users.user_id, u2.user_id) "
-            "LIMIT 50000",
+            "LIMIT 50000"
         )
 
     def test_ctes_with_union_all(self):
@@ -750,9 +697,9 @@ class TestResolver(BaseTest):
                     """
         )
 
-        self.assertEqual(
-            union_printed,
-            "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000",
+        assert (
+            union_printed
+            == "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000"
         )
 
     def test_root_ctes_propagate_to_union_branches(self):
@@ -766,37 +713,37 @@ class TestResolver(BaseTest):
             SELECT * FROM page_view_stats
             """
         )
-        self.assertEqual(
-            printed,
-            "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
+        assert (
+            printed
+            == "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000"
         )
 
     def test_with_clause_before_parens_select_set(self):
         printed = self._print_hogql("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
-        self.assertEqual(
-            printed,
-            "WITH cte AS (SELECT 1 AS a) SELECT a FROM cte LIMIT 50000 UNION ALL SELECT a FROM cte LIMIT 50000",
+        assert (
+            printed
+            == "WITH cte AS (SELECT 1 AS a) SELECT a FROM cte LIMIT 50000 UNION ALL SELECT a FROM cte LIMIT 50000"
         )
 
     def test_ctes_scalar_subquery(self):
-        self.assertEqual(
-            self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events"),
-            "WITH (SELECT 1) AS x SELECT x FROM events LIMIT 50000",
+        assert (
+            self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events")
+            == "WITH (SELECT 1) AS x SELECT x FROM events LIMIT 50000"
         )
 
-        self.assertEqual(
-            self._print_hogql("WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events"),
-            "WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events LIMIT 50000",
+        assert (
+            self._print_hogql("WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events")
+            == "WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events LIMIT 50000"
         )
 
-        self.assertEqual(
+        assert (
             self._print_hogql(
                 "WITH params AS (SELECT 1 AS a, 2 AS b), "
                 "(SELECT a FROM params) AS val_a, "
                 "(SELECT b FROM params) AS val_b "
                 "SELECT val_a + val_b FROM events"
-            ),
-            "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000",
+            )
+            == "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000"
         )
 
     def test_ctes_with_scalar_subquery_column(self):
@@ -814,7 +761,7 @@ class TestResolver(BaseTest):
     def test_ctes_table_subquery_as_scalar_error(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
-        self.assertIn("Cannot use table CTE", str(e.exception))
+        assert "Cannot use table CTE" in str(e.exception)
 
     def test_ctes_in_subquery_for_clickhouse(self):
         # Test that CTEs defined in a subquery remain with that subquery for ClickHouse
@@ -984,10 +931,7 @@ class TestResolver(BaseTest):
         node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
         with self.assertRaises(QueryError) as e:
             resolve_types(node, self.context, dialect="clickhouse")
-        self.assertEqual(
-            str(e.exception),
-            "Cannot use '*' without table name when there are multiple tables in the query",
-        )
+        assert str(e.exception) == "Cannot use '*' without table name when there are multiple tables in the query"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1101,10 +1045,10 @@ class TestResolver(BaseTest):
         lambda_type: ast.SelectQueryType = cast(
             ast.SelectQueryType, cast(ast.Call, cast(ast.Alias, node.select[1]).expr).args[0].type
         )
-        self.assertEqual(lambda_type.parent, node.type)
-        self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
+        assert lambda_type.parent == node.type
+        assert list(lambda_type.aliases.keys()) == ["x"]
         assert isinstance(lambda_type.parent, ast.SelectQueryType)
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp", "am"])
+        assert list(lambda_type.parent.columns.keys()) == ["timestamp", "am"]
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
@@ -1477,7 +1421,7 @@ class TestResolver(BaseTest):
         node: ast.SelectQuery = self._select("select globalVar.nested from events")
         with self.assertRaises(QueryError) as ctx:
             node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
-        self.assertEqual(str(ctx.exception), "Cannot resolve field: globalVar.nested")
+        assert str(ctx.exception) == "Cannot resolve field: globalVar.nested"
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"

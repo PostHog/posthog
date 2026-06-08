@@ -63,9 +63,9 @@ class TestWithMetadata(BaseTest):
         details = _make_call_details(metadata=existing_metadata)
         result = _with_metadata(details, extra)
 
-        self.assertEqual(list(result.metadata), expected)
-        self.assertEqual(result.method, details.method)
-        self.assertEqual(result.timeout, details.timeout)
+        assert list(result.metadata) == expected
+        assert result.method == details.method
+        assert result.timeout == details.timeout
 
 
 class TestClientNameInterceptor(BaseTest):
@@ -87,10 +87,10 @@ class TestClientNameInterceptor(BaseTest):
 
         result = interceptor.intercept_unary_unary(mock_continuation, original_details, request=b"")
 
-        self.assertEqual(result, "ok")
-        self.assertEqual(len(captured_details), 1)
+        assert result == "ok"
+        assert len(captured_details) == 1
         metadata = dict(captured_details[0].metadata)
-        self.assertEqual(metadata["x-client-name"], client_name)
+        assert metadata["x-client-name"] == client_name
 
 
 class TestConsistencyHeaderInterceptor(BaseTest):
@@ -137,7 +137,7 @@ class TestConsistencyHeaderInterceptor(BaseTest):
 
         result = interceptor.intercept_unary_unary(mock_continuation, original_details, request=request)
 
-        self.assertEqual(result, "ok")
-        self.assertEqual(len(captured_details), 1)
+        assert result == "ok"
+        assert len(captured_details) == 1
         metadata = dict(captured_details[0].metadata)
-        self.assertEqual(metadata["x-read-consistency"], expected)
+        assert metadata["x-read-consistency"] == expected

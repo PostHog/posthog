@@ -36,11 +36,11 @@ class TestExternalTicketAPI(BaseTest):
 
     def test_get_requires_auth(self):
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_patch_requires_auth(self):
         response = self.client.patch(self.url, {"status": "resolved"}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
         [
@@ -53,61 +53,61 @@ class TestExternalTicketAPI(BaseTest):
     def test_get_rejects_invalid_auth(self, _name, auth_value):
         headers = {"HTTP_AUTHORIZATION": auth_value} if auth_value else {}
         response = self.client.get(self.url, **headers)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_rejects_public_api_token(self):
         response = self.client.get(self.url, **self._auth_headers(token=self.team.api_token))
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_accepts_backup_token(self):
         backup_token = generate_random_token_secret()
         self.team.secret_api_token_backup = backup_token
         self.team.save(update_fields=["secret_api_token_backup"])
         response = self.client.get(self.url, **self._auth_headers(token=backup_token))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_rejects_when_conversations_disabled(self):
         self.team.conversations_enabled = False
         self.team.save(update_fields=["conversations_enabled"])
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     # -- GET ticket -------------------------------------------------------
 
     def test_get_ticket_returns_all_fields(self):
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["id"], str(self.ticket.id))
-        self.assertEqual(data["number"], self.ticket.ticket_number)
-        self.assertEqual(data["status"], "new")
-        self.assertIsNone(data["priority"])
-        self.assertEqual(data["channel_source"], "widget")
-        self.assertIsNone(data["channel_detail"])
-        self.assertEqual(data["distinct_id"], "user-ext-123")
-        self.assertEqual(data["message_count"], 0)
-        self.assertIsNone(data["last_message_at"])
-        self.assertIsNone(data["last_message_text"])
-        self.assertEqual(data["unread_team_count"], 0)
-        self.assertEqual(data["unread_customer_count"], 0)
-        self.assertIsNone(data["sla"])
-        self.assertIsNone(data["assignee"])
-        self.assertIsNone(data["url"])
-        self.assertIsNone(data["slack_channel_id"])
-        self.assertIsNone(data["slack_thread_ts"])
-        self.assertIsNone(data["slack_team_id"])
-        self.assertIsNone(data["email_subject"])
-        self.assertIsNone(data["email_from"])
-        self.assertIsNone(data["email_to"])
-        self.assertEqual(data["cc_participants"], [])
-        self.assertEqual(data["tags"], [])
-        self.assertIn("created_at", data)
-        self.assertIn("updated_at", data)
+        assert data["id"] == str(self.ticket.id)
+        assert data["number"] == self.ticket.ticket_number
+        assert data["status"] == "new"
+        assert data["priority"] is None
+        assert data["channel_source"] == "widget"
+        assert data["channel_detail"] is None
+        assert data["distinct_id"] == "user-ext-123"
+        assert data["message_count"] == 0
+        assert data["last_message_at"] is None
+        assert data["last_message_text"] is None
+        assert data["unread_team_count"] == 0
+        assert data["unread_customer_count"] == 0
+        assert data["sla"] is None
+        assert data["assignee"] is None
+        assert data["url"] is None
+        assert data["slack_channel_id"] is None
+        assert data["slack_thread_ts"] is None
+        assert data["slack_team_id"] is None
+        assert data["email_subject"] is None
+        assert data["email_from"] is None
+        assert data["email_to"] is None
+        assert data["cc_participants"] == []
+        assert data["tags"] == []
+        assert "created_at" in data
+        assert "updated_at" in data
 
     def test_get_ticket_not_found(self):
         url = f"/api/conversations/external/ticket/{uuid.uuid4()}"
         response = self.client.get(url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_ticket_cross_team_isolation(self):
         other_token = generate_random_token_secret()
@@ -115,7 +115,7 @@ class TestExternalTicketAPI(BaseTest):
             organization=self.organization, name="Other team", conversations_enabled=True, secret_api_token=other_token
         )
         response = self.client.get(self.url, **self._auth_headers(token=other_team.secret_api_token))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # -- PATCH ticket -----------------------------------------------------
 
@@ -124,18 +124,18 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.patch(
             self.url, {"status": new_status}, content_type="application/json", **self._auth_headers()
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, new_status)
+        assert self.ticket.status == new_status
 
     @parameterized.expand([(p.value,) for p in Priority])
     def test_patch_priority_valid(self, new_priority):
         response = self.client.patch(
             self.url, {"priority": new_priority}, content_type="application/json", **self._auth_headers()
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.priority, new_priority)
+        assert self.ticket.priority == new_priority
 
     def test_patch_status_and_priority_together(self):
         response = self.client.patch(
@@ -144,35 +144,35 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, "pending")
-        self.assertEqual(self.ticket.priority, "high")
+        assert self.ticket.status == "pending"
+        assert self.ticket.priority == "high"
 
     def test_patch_invalid_status(self):
         response = self.client.patch(
             self.url, {"status": "nonexistent"}, content_type="application/json", **self._auth_headers()
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_patch_invalid_priority(self):
         response = self.client.patch(
             self.url, {"priority": "critical"}, content_type="application/json", **self._auth_headers()
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_patch_empty_body_is_noop(self):
         response = self.client.patch(self.url, {}, content_type="application/json", **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, "new")
+        assert self.ticket.status == "new"
 
     def test_patch_ticket_not_found(self):
         url = f"/api/conversations/external/ticket/{uuid.uuid4()}"
         response = self.client.patch(
             url, {"status": "resolved"}, content_type="application/json", **self._auth_headers()
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_patch_cross_team_isolation(self):
         other_token = generate_random_token_secret()
@@ -185,9 +185,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(token=other_team.secret_api_token),
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, "new")
+        assert self.ticket.status == "new"
 
     def test_patch_ignores_unknown_fields(self):
         response = self.client.patch(
@@ -196,9 +196,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, "resolved")
+        assert self.ticket.status == "resolved"
 
     # -- SLA updates --------------------------------------------------------
 
@@ -209,10 +209,10 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertIsNotNone(self.ticket.sla_due_at)
-        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-03-15T14:30:00+00:00")
+        assert self.ticket.sla_due_at is not None
+        assert self.ticket.sla_due_at.isoformat() == "2026-03-15T14:30:00+00:00"
 
     def test_patch_sla_due_at_null_clears_sla(self):
         from django.utils import timezone
@@ -226,9 +226,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertIsNone(self.ticket.sla_due_at)
+        assert self.ticket.sla_due_at is None
 
     def test_patch_sla_due_at_invalid_format(self):
         response = self.client.patch(
@@ -237,7 +237,7 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_patch_sla_amount_calendar_hours(self):
         from datetime import UTC, datetime
@@ -253,10 +253,10 @@ class TestExternalTicketAPI(BaseTest):
                 content_type="application/json",
                 **self._auth_headers(),
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
-        self.assertIsNotNone(self.ticket.sla_due_at)
-        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-05T14:00:00+00:00")
+        assert self.ticket.sla_due_at is not None
+        assert self.ticket.sla_due_at.isoformat() == "2026-01-05T14:00:00+00:00"
 
     def test_patch_sla_amount_business_hours(self):
         from datetime import UTC, datetime
@@ -279,10 +279,10 @@ class TestExternalTicketAPI(BaseTest):
                 content_type="application/json",
                 **self._auth_headers(),
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.ticket.refresh_from_db()
         # 1h Thursday + 8h Friday + 1h Monday -> Monday 10:00 UTC
-        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-12T10:00:00+00:00")
+        assert self.ticket.sla_due_at.isoformat() == "2026-01-12T10:00:00+00:00"
 
     def test_patch_sla_amount_rejects_zero(self):
         response = self.client.patch(
@@ -291,7 +291,7 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_patch_rejects_both_sla_due_at_and_sla_amount(self):
         response = self.client.patch(
@@ -300,7 +300,7 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [
@@ -317,7 +317,7 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_get_ticket_returns_sla_due_at(self):
         from django.utils import timezone
@@ -326,8 +326,8 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.save()
 
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["sla"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["sla"] is not None
 
     # -- GET enriched fields -----------------------------------------------
 
@@ -336,12 +336,12 @@ class TestExternalTicketAPI(BaseTest):
 
         TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assignee = response.json()["assignee"]
-        self.assertIsNotNone(assignee)
-        self.assertEqual(assignee["type"], "user")
-        self.assertEqual(assignee["id"], self.user.id)
-        self.assertEqual(assignee["user"]["email"], self.user.email)
+        assert assignee is not None
+        assert assignee["type"] == "user"
+        assert assignee["id"] == self.user.id
+        assert assignee["user"]["email"] == self.user.email
 
     def test_get_ticket_returns_role_assignee(self):
         from products.conversations.backend.models import TicketAssignment
@@ -351,19 +351,19 @@ class TestExternalTicketAPI(BaseTest):
         role = Role.objects.create(name="Support", organization=self.organization)
         TicketAssignment.objects.create(ticket=self.ticket, role=role)
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assignee = response.json()["assignee"]
-        self.assertEqual(assignee["type"], "role")
-        self.assertEqual(assignee["id"], str(role.id))
-        self.assertEqual(assignee["role"]["name"], "Support")
-        self.assertIsNone(assignee["user"])
+        assert assignee["type"] == "role"
+        assert assignee["id"] == str(role.id)
+        assert assignee["role"]["name"] == "Support"
+        assert assignee["user"] is None
 
     def test_get_ticket_returns_url(self):
         self.ticket.session_context = {"current_url": "https://example.com/page"}
         self.ticket.save(update_fields=["session_context"])
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["url"], "https://example.com/page")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["url"] == "https://example.com/page"
 
     def test_get_ticket_returns_slack_fields(self):
         self.ticket.slack_channel_id = "C1234567890"
@@ -371,11 +371,11 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.slack_team_id = "T0987654321"
         self.ticket.save(update_fields=["slack_channel_id", "slack_thread_ts", "slack_team_id"])
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["slack_channel_id"], "C1234567890")
-        self.assertEqual(data["slack_thread_ts"], "1234567890.123456")
-        self.assertEqual(data["slack_team_id"], "T0987654321")
+        assert data["slack_channel_id"] == "C1234567890"
+        assert data["slack_thread_ts"] == "1234567890.123456"
+        assert data["slack_team_id"] == "T0987654321"
 
     def test_get_ticket_returns_email_fields(self):
         from products.conversations.backend.models.team_conversations_email_config import EmailChannel
@@ -389,12 +389,12 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
         self.ticket.save(update_fields=["email_config", "email_subject", "email_from", "cc_participants"])
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["email_subject"], "Need help with billing")
-        self.assertEqual(data["email_from"], "customer@example.com")
-        self.assertEqual(data["email_to"], "support@example.com")
-        self.assertEqual(data["cc_participants"], ["cc1@example.com", "cc2@example.com"])
+        assert data["email_subject"] == "Need help with billing"
+        assert data["email_from"] == "customer@example.com"
+        assert data["email_to"] == "support@example.com"
+        assert data["cc_participants"] == ["cc1@example.com", "cc2@example.com"]
 
     def test_get_ticket_returns_tags(self):
         from posthog.models import Tag
@@ -402,8 +402,8 @@ class TestExternalTicketAPI(BaseTest):
         tag = Tag.objects.create(name="bug", team_id=self.team.id)
         self.ticket.tagged_items.create(tag=tag)
         response = self.client.get(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], ["bug"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["bug"]
 
     # -- PATCH tags --------------------------------------------------------
 
@@ -419,9 +419,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["bug", "urgent"])
+        assert tags == ["bug", "urgent"]
 
     def test_patch_tags_add_is_idempotent(self):
         from posthog.models import Tag
@@ -435,8 +435,8 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(self.ticket.tagged_items.count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert self.ticket.tagged_items.count() == 1
 
     def test_patch_tags_concurrent_add_produces_union(self):
         self.client.patch(
@@ -452,7 +452,7 @@ class TestExternalTicketAPI(BaseTest):
             **self._auth_headers(),
         )
         tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["billing", "urgent"])
+        assert tags == ["billing", "urgent"]
 
     def test_patch_tags_default_mode_is_add(self):
         from posthog.models import Tag
@@ -466,9 +466,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["bug", "feature"])
+        assert tags == ["bug", "feature"]
 
     def test_patch_tags_set_mode_replaces_all(self):
         from posthog.models import Tag
@@ -482,9 +482,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["urgent"])
+        assert tags == ["urgent"]
 
     def test_patch_tags_remove_mode_strips_named(self):
         from posthog.models import Tag
@@ -499,28 +499,28 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["urgent"])
+        assert tags == ["urgent"]
 
     # -- URL validation ---------------------------------------------------
 
     def test_invalid_uuid_in_url_returns_404(self):
         response = self.client.get("/api/conversations/external/ticket/not-a-uuid", **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # -- HTTP methods not allowed -----------------------------------------
 
     def test_post_not_allowed(self):
         response = self.client.post(self.url, {}, content_type="application/json", **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_delete_not_allowed(self):
         response = self.client.delete(self.url, **self._auth_headers())
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_put_not_allowed(self):
         response = self.client.put(
             self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers()
         )
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED

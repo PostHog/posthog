@@ -142,7 +142,7 @@ class TestDashboardRunWidgets(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
             {"tile_ids": ",".join(str(tile_id) for tile_id in tile_ids)},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        assert response.status_code == status.HTTP_200_OK, response.content
         return response.json()
 
     @parameterized.expand(
@@ -161,8 +161,8 @@ class TestDashboardRunWidgets(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
             query_params,
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_detail, response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_detail in response.json()["detail"]
 
     @patch(
         "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
@@ -177,11 +177,11 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id])
 
-        self.assertEqual(len(body["results"]), 1)
-        self.assertEqual(body["results"][0]["tile_id"], tile_id)
-        self.assertEqual(body["results"][0]["widget_type"], "error_tracking_list")
-        self.assertIsNone(body["results"][0]["error"])
-        self.assertEqual(body["results"][0]["result"]["limit"], 10)
+        assert len(body["results"]) == 1
+        assert body["results"][0]["tile_id"] == tile_id
+        assert body["results"][0]["widget_type"] == "error_tracking_list"
+        assert body["results"][0]["error"] is None
+        assert body["results"][0]["result"]["limit"] == 10
         mock_calculate.assert_called_once()
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
@@ -195,13 +195,13 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id])
 
-        self.assertEqual(len(body["results"]), 1)
-        self.assertEqual(body["results"][0]["tile_id"], tile_id)
-        self.assertEqual(body["results"][0]["widget_type"], "session_replay_list")
-        self.assertIsNone(body["results"][0]["error"])
-        self.assertEqual(body["results"][0]["result"]["limit"], 10)
+        assert len(body["results"]) == 1
+        assert body["results"][0]["tile_id"] == tile_id
+        assert body["results"][0]["widget_type"] == "session_replay_list"
+        assert body["results"][0]["error"] is None
+        assert body["results"][0]["result"]["limit"] == 10
         mock_list_recordings.assert_called_once()
-        self.assertEqual(mock_list_recordings.call_args.kwargs["user"], self.user)
+        assert mock_list_recordings.call_args.kwargs["user"] == self.user
 
     @patch(
         "posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.allow_request", return_value=True
@@ -227,7 +227,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id])
 
-        self.assertEqual(body["results"][0]["error"], "Rate limit exceeded. Expected available in 30 seconds.")
+        assert body["results"][0]["error"] == "Rate limit exceeded. Expected available in 30 seconds."
         mock_list_recordings.assert_not_called()
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
@@ -249,7 +249,7 @@ class TestDashboardRunWidgets(APIBaseTest):
                 user=self.user,
             )
 
-        self.assertEqual(result["limit"], 10)
+        assert result["limit"] == 10
         mock_list_recordings.assert_called_once()
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
@@ -272,8 +272,8 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id])
 
-        self.assertIsNone(body["results"][0]["error"])
-        self.assertEqual(body["results"][0]["result"]["results"][0]["person"]["name"], "widget-test@example.com")
+        assert body["results"][0]["error"] is None
+        assert body["results"][0]["result"]["results"][0]["person"]["name"] == "widget-test@example.com"
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_requests_listing_volume_resolution(self, mock_runner_cls: MagicMock) -> None:
@@ -287,7 +287,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self._run(dashboard_id, [tile_id])
 
         query = mock_runner_cls.call_args.kwargs["query"]
-        self.assertEqual(query.volumeResolution, ERROR_TRACKING_LISTING_VOLUME_RESOLUTION)
+        assert query.volumeResolution == ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_uses_team_filter_test_accounts_default(self, mock_runner_cls: MagicMock) -> None:
@@ -303,7 +303,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self._run(dashboard_id, [tile_id])
 
         query = mock_runner_cls.call_args.kwargs["query"]
-        self.assertTrue(query.filterTestAccounts)
+        assert query.filterTestAccounts
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_applies_filter_test_accounts_when_enabled(self, mock_runner_cls: MagicMock) -> None:
@@ -319,9 +319,9 @@ class TestDashboardRunWidgets(APIBaseTest):
         self._run(dashboard_id, [tile_id])
 
         mock_runner_cls.assert_called_once()
-        self.assertEqual(mock_runner_cls.call_args.kwargs["user"], self.user)
+        assert mock_runner_cls.call_args.kwargs["user"] == self.user
         query = mock_runner_cls.call_args.kwargs["query"]
-        self.assertTrue(query.filterTestAccounts)
+        assert query.filterTestAccounts
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_skips_filter_test_accounts_when_disabled(self, mock_runner_cls: MagicMock) -> None:
@@ -338,7 +338,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         mock_runner_cls.assert_called_once()
         query = mock_runner_cls.call_args.kwargs["query"]
-        self.assertFalse(query.filterTestAccounts)
+        assert not query.filterTestAccounts
 
     def test_rejects_non_widget_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -349,7 +349,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [insight_tile_id])
 
-        self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
+        assert body["results"][0]["error"] == "Tile not found or is not a widget tile."
 
     def test_rejects_foreign_tile_id(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -359,7 +359,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(other_id, [tile_id])
 
-        self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
+        assert body["results"][0]["error"] == "Tile not found or is not a widget tile."
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_widgets_enabled", return_value=False)
     def test_disabled_when_feature_flag_off(self, _mock_flag: MagicMock) -> None:
@@ -368,7 +368,7 @@ class TestDashboardRunWidgets(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
             {"tile_ids": "1"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_run_widgets_denies_without_product_access(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -394,11 +394,11 @@ class TestDashboardRunWidgets(APIBaseTest):
         ):
             body = self._run(dashboard_id, [tile_id])
 
-        self.assertEqual(len(body["results"]), 1)
-        self.assertEqual(body["results"][0]["tile_id"], tile_id)
-        self.assertEqual(body["results"][0]["widget_type"], "error_tracking_list")
-        self.assertIsNone(body["results"][0]["result"])
-        self.assertEqual(body["results"][0]["error"], "You do not have access to error tracking.")
+        assert len(body["results"]) == 1
+        assert body["results"][0]["tile_id"] == tile_id
+        assert body["results"][0]["widget_type"] == "error_tracking_list"
+        assert body["results"][0]["result"] is None
+        assert body["results"][0]["error"] == "You do not have access to error tracking."
 
     def test_run_widgets_rejects_too_many_tile_ids(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -409,8 +409,8 @@ class TestDashboardRunWidgets(APIBaseTest):
             {"tile_ids": ",".join(str(tile_id) for tile_id in tile_ids)},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(str(MAX_WIDGETS_BATCH_SIZE), response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert str(MAX_WIDGETS_BATCH_SIZE) in response.json()["detail"]
 
     @patch(
         "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
@@ -425,7 +425,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id, tile_id])
 
-        self.assertEqual(len(body["results"]), 1)
+        assert len(body["results"]) == 1
         mock_calculate.assert_called_once()
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
@@ -437,11 +437,8 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id])
 
-        self.assertEqual(
-            body["results"][0]["error"],
-            "Widget query failed. Please try again later.",
-        )
-        self.assertNotIn("secret_table", body["results"][0]["error"])
+        assert body["results"][0]["error"] == "Widget query failed. Please try again later."
+        assert "secret_table" not in body["results"][0]["error"]
 
     def test_run_widgets_denies_without_api_scope_on_personal_api_key(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -464,9 +461,9 @@ class TestDashboardRunWidgets(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self.assertEqual(body["results"][0]["error"], "API key missing required scope 'error_tracking:read'")
+        assert body["results"][0]["error"] == "API key missing required scope 'error_tracking:read'"
 
     @patch(
         "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
@@ -496,12 +493,12 @@ class TestDashboardRunWidgets(APIBaseTest):
             if call.kwargs.get("event") == "slo_operation_completed"
             and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
         ]
-        self.assertEqual(len(started_calls), 1)
-        self.assertEqual(len(completed_calls), 1)
-        self.assertEqual(started_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")
-        self.assertEqual(started_calls[0].kwargs["properties"]["dashboard_id"], dashboard_id)
-        self.assertEqual(started_calls[0].kwargs["properties"]["tile_id"], tile_id)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.SUCCESS)
+        assert len(started_calls) == 1
+        assert len(completed_calls) == 1
+        assert started_calls[0].kwargs["properties"]["widget_type"] == "error_tracking_list"
+        assert started_calls[0].kwargs["properties"]["dashboard_id"] == dashboard_id
+        assert started_calls[0].kwargs["properties"]["tile_id"] == tile_id
+        assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     @patch("posthog.slo.events.posthoganalytics.capture")
@@ -521,6 +518,6 @@ class TestDashboardRunWidgets(APIBaseTest):
             if call.kwargs.get("event") == "slo_operation_completed"
             and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
         ]
-        self.assertEqual(len(completed_calls), 1)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.FAILURE)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")
+        assert len(completed_calls) == 1
+        assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
+        assert completed_calls[0].kwargs["properties"]["widget_type"] == "error_tracking_list"

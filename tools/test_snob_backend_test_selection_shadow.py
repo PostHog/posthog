@@ -44,11 +44,11 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
             features = selection.classify_test_file("products/feature_flags/backend/test/test_api.py")
 
-            self.assertTrue(features.imports_api_client)
-            self.assertTrue(features.calls_http_client)
-            self.assertTrue(features.uses_api_url)
-            self.assertTrue(features.is_django_api_test)
-            self.assertIn("feature_flags", features.api_tokens)
+            assert features.imports_api_client
+            assert features.calls_http_client
+            assert features.uses_api_url
+            assert features.is_django_api_test
+            assert "feature_flags" in features.api_tokens
 
     def test_ast_selection_groups_product_api_client_tests(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -73,10 +73,10 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 features_by_path,
             )
 
-            self.assertIn("product_api_client:feature_flags", result.groups)
-            self.assertIn("product_api_route_tokens:feature_flags", result.groups)
-            self.assertIn("same_app:products/feature_flags/backend", result.groups)
-            self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
+            assert "product_api_client:feature_flags" in result.groups
+            assert "product_api_route_tokens:feature_flags" in result.groups
+            assert "same_app:products/feature_flags/backend" in result.groups
+            assert ["products/feature_flags/backend/test/test_api.py"] == result.tests
 
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
         selection = _load_selection_module()
@@ -97,12 +97,12 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             },
         )
 
-        self.assertIn("conventional_neighbors", result.groups)
-        self.assertIn("posthog_api_route_tokens", result.groups)
+        assert "conventional_neighbors" in result.groups
+        assert "posthog_api_route_tokens" in result.groups
         # same-app fallback includes all tests under posthog/api/
-        self.assertIn("same_app:posthog/api", result.groups)
-        self.assertIn("posthog/api/test/test_project.py", result.tests)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+        assert "same_app:posthog/api" in result.groups
+        assert "posthog/api/test/test_project.py" in result.tests
+        assert "posthog/api/test/test_user.py" in result.tests
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
@@ -131,11 +131,8 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 else:
                     sys.modules["snob_lib"] = previous_snob
 
-            self.assertEqual([["posthog/api/feature_flags.py"]], seen_changed_files)
-            self.assertEqual(
-                {"status": "ok", "tests": ["posthog/api/test/test_feature_flags.py"], "count": 1},
-                result,
-            )
+            assert [["posthog/api/feature_flags.py"]] == seen_changed_files
+            assert {"status": "ok", "tests": ["posthog/api/test/test_feature_flags.py"], "count": 1} == result
 
     def test_signal_handler_change_expands_to_app_and_api_tests(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -164,8 +161,8 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 features_by_path,
             )
 
-            self.assertIn("signal_handler_app:posthog/models", result.groups)
-            self.assertIn("posthog/models/test/test_models.py", result.tests)
+            assert "signal_handler_app:posthog/models" in result.groups
+            assert "posthog/models/test/test_models.py" in result.tests
 
     def test_middleware_change_expands_to_api_tests(self) -> None:
         selection = _load_selection_module()
@@ -183,10 +180,10 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             },
         )
 
-        self.assertIn("middleware_api_tests", result.groups)
-        self.assertIn("posthog/api/test/test_capture.py", result.tests)
+        assert "middleware_api_tests" in result.groups
+        assert "posthog/api/test/test_capture.py" in result.tests
         # Non-API tests are NOT included by middleware expansion
-        self.assertNotIn("posthog/models/test/test_utils.py", result.groups.get("middleware_api_tests", []))
+        assert "posthog/models/test/test_utils.py" not in result.groups.get("middleware_api_tests", [])
 
     def test_db_router_change_expands_to_api_tests(self) -> None:
         selection = _load_selection_module()
@@ -201,8 +198,8 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             },
         )
 
-        self.assertIn("db_router_api_tests", result.groups)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+        assert "db_router_api_tests" in result.groups
+        assert "posthog/api/test/test_user.py" in result.tests
 
     def test_same_app_fallback_includes_sibling_tests(self) -> None:
         selection = _load_selection_module()
@@ -220,9 +217,9 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         )
 
         # Same-app tests included
-        self.assertIn("products/surveys/backend/test/test_api.py", result.tests)
+        assert "products/surveys/backend/test/test_api.py" in result.tests
         # Different app tests NOT included
-        self.assertNotIn("products/experiments/backend/test/test_api.py", result.tests)
+        assert "products/experiments/backend/test/test_api.py" not in result.tests
 
     def test_too_many_files_signals_full_run(self) -> None:
         selection = _load_selection_module()
@@ -230,7 +227,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         many_files = [f"posthog/models/model_{i}.py" for i in range(60)]
         result = selection.ast_select_tests(many_files, {})
 
-        self.assertTrue(any("too many changed files" in r for r in result.full_run_reasons))
+        assert any("too many changed files" in r for r in result.full_run_reasons)
 
     def test_high_fanout_file_signals_full_run(self) -> None:
         selection = _load_selection_module()
@@ -242,7 +239,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 selection.HIGH_FANOUT_PATH = Path(f.name)
 
             result = selection.ast_select_tests(["posthog/redis.py"], {})
-            self.assertTrue(any("high-fanout" in r for r in result.full_run_reasons))
+            assert any("high-fanout" in r for r in result.full_run_reasons)
         finally:
             selection.HIGH_FANOUT_PATH = original_path
 
@@ -258,8 +255,8 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             },
         )
 
-        self.assertEqual([], result.full_run_reasons)
-        self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
+        assert [] == result.full_run_reasons
+        assert {"changed_tests": ["posthog/test/test_version_requirement.py"]} == result.groups
 
 
 if __name__ == "__main__":

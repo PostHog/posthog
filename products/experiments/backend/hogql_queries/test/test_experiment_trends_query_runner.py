@@ -155,15 +155,15 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
 
         control_result = next(variant for variant in result.variants if variant.key == "control")
         test_result = next(variant for variant in result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.count, 11)
-        self.assertEqual(test_result.count, 15)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
+        assert control_result.count == 11
+        assert test_result.count == 15
+        assert control_result.absolute_exposure == 7
+        assert test_result.absolute_exposure == 9
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_custom_exposure(self):
@@ -281,11 +281,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.count, 3)
-        self.assertEqual(test_result.count, 5)
+        assert control_result.count == 3
+        assert test_result.count == 5
 
-        self.assertEqual(control_result.absolute_exposure, 2)
-        self.assertEqual(test_result.absolute_exposure, 2)
+        assert control_result.absolute_exposure == 2
+        assert test_result.absolute_exposure == 2
 
         # Run again with filterTestAccounts=False
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
@@ -314,11 +314,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.count, 3)
-        self.assertEqual(test_result.count, 5)
+        assert control_result.count == 3
+        assert test_result.count == 5
 
-        self.assertEqual(control_result.absolute_exposure, 2)
-        self.assertEqual(test_result.absolute_exposure, 3)
+        assert control_result.absolute_exposure == 2
+        assert test_result.absolute_exposure == 3
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_custom_exposure_sum_math(self):
@@ -449,11 +449,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.count, 400)
-        self.assertEqual(test_result.count, 900)
+        assert control_result.count == 400
+        assert test_result.count == 900
 
-        self.assertEqual(control_result.absolute_exposure, 2)
-        self.assertEqual(test_result.absolute_exposure, 2)
+        assert control_result.absolute_exposure == 2
+        assert test_result.absolute_exposure == 2
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_default_exposure(self):
@@ -541,11 +541,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.count, 3)
-        self.assertEqual(test_result.count, 5)
+        assert control_result.count == 3
+        assert test_result.count == 5
 
-        self.assertEqual(control_result.absolute_exposure, 2)
-        self.assertEqual(test_result.absolute_exposure, 2)
+        assert control_result.absolute_exposure == 2
+        assert test_result.absolute_exposure == 2
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -637,11 +637,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.count, 3)
-        self.assertEqual(test_result.count, 5)
+        assert control_result.count == 3
+        assert test_result.count == 5
 
-        self.assertEqual(control_result.absolute_exposure, 2)
-        self.assertEqual(test_result.absolute_exposure, 2)
+        assert control_result.absolute_exposure == 2
+        assert test_result.absolute_exposure == 2
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):
@@ -693,18 +693,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 3)
+        assert len(result.variants) == 3
 
         control_result = next(variant for variant in result.variants if variant.key == "control")
         test_result = next(variant for variant in result.variants if variant.key == "test")
         holdout_result = next(variant for variant in result.variants if variant.key == f"holdout-{holdout.id}")
 
-        self.assertEqual(control_result.count, 11)
-        self.assertEqual(test_result.count, 15)
-        self.assertEqual(holdout_result.count, 8)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
-        self.assertEqual(holdout_result.absolute_exposure, 4)
+        assert control_result.count == 11
+        assert test_result.count == 15
+        assert holdout_result.count == 8
+        assert control_result.absolute_exposure == 7
+        assert test_result.absolute_exposure == 9
+        assert holdout_result.absolute_exposure == 4
 
     @parameterized.expand(
         [
@@ -916,7 +916,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-            self.assertEqual(cohort.people.count(), 3)
+            assert cohort.people.count() == 3
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
@@ -935,7 +935,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                 }
             )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            assert cast(list, context.exception.detail)[0] == expected_errors
         else:
             result = query_runner.calculate()
             trend_result = cast(ExperimentTrendsQueryResponse, result)
@@ -943,8 +943,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             control_result = next(variant for variant in trend_result.variants if variant.key == "control")
             test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-            self.assertEqual(control_result.absolute_exposure, expected_results["control_absolute_exposure"])
-            self.assertEqual(test_result.absolute_exposure, expected_results["test_absolute_exposure"])
+            assert control_result.absolute_exposure == expected_results["control_absolute_exposure"]
+            assert test_result.absolute_exposure == expected_results["test_absolute_exposure"]
 
         ## Run again with filterTestAccounts=False
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
@@ -968,8 +968,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.absolute_exposure, 14)
-        self.assertEqual(test_result.absolute_exposure, 16)
+        assert control_result.absolute_exposure == 14
+        assert test_result.absolute_exposure == 16
 
     # Uses mirrored values for easy comparison with the avg-math scenario
     @freeze_time("2020-01-01T00:00:00Z")
@@ -1051,16 +1051,16 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         prepared_count_query = query_runner.prepared_count_query
-        self.assertEqual(prepared_count_query.series[0].math, "sum")
+        assert prepared_count_query.series[0].math == "sum"
 
         result = query_runner.calculate()
         trend_result = cast(ExperimentTrendsQueryResponse, result)
 
-        self.assertEqual(trend_result.significant, False)
-        self.assertEqual(trend_result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
-        self.assertEqual(trend_result.p_value, 1.0)
+        assert not trend_result.significant
+        assert trend_result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
+        assert trend_result.p_value == 1.0
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
 
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
@@ -1068,19 +1068,45 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "control")
         test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
 
-        self.assertEqual(control_result.count, 100)
-        self.assertAlmostEqual(test_result.count, 205)
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 3)
+        assert control_result.count == 100
+        assert test_result.count == pytest.approx(205, abs=10 ** (-7) * 0.5)
+        assert control_result.absolute_exposure == 1
+        assert test_result.absolute_exposure == 3
 
-        self.assertEqual(
-            control_insight["data"],
-            [0.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-        )
-        self.assertEqual(
-            test_insight["data"],
-            [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0],
-        )
+        assert control_insight["data"] == [
+            0.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+        ]
+        assert test_insight["data"] == [
+            0.0,
+            50.0,
+            125.0,
+            125.0,
+            125.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+        ]
 
     @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")
@@ -1167,41 +1193,41 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
         for variant in result.variants:
-            self.assertIn(variant.key, ["control", "test"])
+            assert variant.key in ["control", "test"]
 
         control_variant = next(v for v in result.variants if v.key == "control")
         test_variant = next(v for v in result.variants if v.key == "test")
 
-        self.assertEqual(control_variant.count, 3)
-        self.assertEqual(test_variant.count, 5)
-        self.assertEqual(control_variant.absolute_exposure, 2)
-        self.assertEqual(test_variant.absolute_exposure, 2)
+        assert control_variant.count == 3
+        assert test_variant.count == 5
+        assert control_variant.absolute_exposure == 2
+        assert test_variant.absolute_exposure == 2
 
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3633, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 2.9224, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.7339, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 3.8894, delta=0.1)
+        assert result.credible_intervals["control"][0] == pytest.approx(0.3633, abs=0.1)
+        assert result.credible_intervals["control"][1] == pytest.approx(2.9224, abs=0.1)
+        assert result.credible_intervals["test"][0] == pytest.approx(0.7339, abs=0.1)
+        assert result.credible_intervals["test"][1] == pytest.approx(3.8894, abs=0.1)
 
-        self.assertAlmostEqual(result.p_value, 1.0, delta=0.1)
+        assert result.p_value == pytest.approx(1.0, abs=0.1)
 
-        self.assertAlmostEqual(result.probability["control"], 0.2549, delta=0.1)
-        self.assertAlmostEqual(result.probability["test"], 0.7453, delta=0.1)
+        assert result.probability["control"] == pytest.approx(0.2549, abs=0.1)
+        assert result.probability["test"] == pytest.approx(0.7453, abs=0.1)
 
-        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 
-        self.assertFalse(result.significant)
+        assert not result.significant
 
-        self.assertEqual(len(result.variants), 2)
+        assert len(result.variants) == 2
 
-        self.assertEqual(control_variant.absolute_exposure, 2.0)
-        self.assertEqual(control_variant.count, 3.0)
-        self.assertEqual(control_variant.exposure, 1.0)
+        assert control_variant.absolute_exposure == 2.0
+        assert control_variant.count == 3.0
+        assert control_variant.exposure == 1.0
 
-        self.assertEqual(test_variant.absolute_exposure, 2.0)
-        self.assertEqual(test_variant.count, 5.0)
-        self.assertEqual(test_variant.exposure, 1.0)
+        assert test_variant.absolute_exposure == 2.0
+        assert test_variant.count == 5.0
+        assert test_variant.exposure == 1.0
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_control(self):
@@ -1238,7 +1264,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        assert cast(list, context.exception.detail)[0] == expected_errors
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_test(self):
@@ -1283,7 +1309,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        assert cast(list, context.exception.detail)[0] == expected_errors
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_exposure(self):
@@ -1329,7 +1355,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        assert cast(list, context.exception.detail)[0] == expected_errors
 
     def test_get_metric_type(self):
         feature_flag = self.create_feature_flag()
@@ -1345,7 +1371,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 count_query=count_query,
             )
             query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-            self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.COUNT)
+            assert query_runner._get_metric_type() == ExperimentMetricType.COUNT
 
         # Test allowed sum math types
         allowed_sum_math_types: list[Any] = [PropertyMathType.SUM, "hogql"]
@@ -1359,7 +1385,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 count_query=count_query,
             )
             query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-            self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+            assert query_runner._get_metric_type() == ExperimentMetricType.CONTINUOUS
 
         # Test that AVG math gets converted to SUM and returns CONTINUOUS
         count_query = TrendsQuery(
@@ -1371,6 +1397,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             count_query=count_query,
         )
         query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-        self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+        assert query_runner._get_metric_type() == ExperimentMetricType.CONTINUOUS
         # Verify the math type was converted to sum
-        self.assertEqual(query_runner.query.count_query.series[0].math, PropertyMathType.SUM)
+        assert query_runner.query.count_query.series[0].math == PropertyMathType.SUM

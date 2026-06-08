@@ -1356,28 +1356,34 @@ class Database(BaseModel):
                         # name, and the final database may resolve that name to the table even if a view exists too.
                         views = define_mappings(
                             views,
-                            lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                            .latest("created_at"),
+                            lambda team, warehouse_modifier: (
+                                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                                .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                                .latest("created_at")
+                            ),
                         )
                         warehouse_tables = define_mappings(
                             warehouse_tables,
-                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(
-                                team_id=team.pk,
-                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
-                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
-                                else warehouse_modifier.table_name,
-                            )
-                            .select_related("credential", "external_data_source")
-                            .latest("created_at"),
+                            lambda team, warehouse_modifier: (
+                                DataWarehouseTable.objects.exclude(deleted=True)
+                                .filter(
+                                    team_id=team.pk,
+                                    name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
+                                    if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
+                                    else warehouse_modifier.table_name,
+                                )
+                                .select_related("credential", "external_data_source")
+                                .latest("created_at")
+                            ),
                         )
                         self_managed_warehouse_tables = define_mappings(
                             self_managed_warehouse_tables,
-                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                            .select_related("credential", "external_data_source")
-                            .latest("created_at"),
+                            lambda team, warehouse_modifier: (
+                                DataWarehouseTable.objects.exclude(deleted=True)
+                                .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                                .select_related("credential", "external_data_source")
+                                .latest("created_at")
+                            ),
                         )
 
         database._add_warehouse_tables(warehouse_tables)

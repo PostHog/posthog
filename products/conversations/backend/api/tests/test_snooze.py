@@ -42,11 +42,11 @@ class TestTicketSnoozeAPI(APIBaseTest):
     def test_set_snoozed_until(self, _):
         snooze_time = (timezone.now() + timedelta(hours=2)).isoformat()
         response = self.client.patch(self.url, {"snoozed_until": snooze_time})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["snoozed_until"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["snoozed_until"] is not None
 
         self.ticket.refresh_from_db()
-        self.assertIsNotNone(self.ticket.snoozed_until)
+        assert self.ticket.snoozed_until is not None
 
     def test_clear_snoozed_until(self, _):
         self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
@@ -54,18 +54,18 @@ class TestTicketSnoozeAPI(APIBaseTest):
         self.ticket.save(update_fields=["snoozed_until", "status"])
 
         response = self.client.patch(self.url, {"snoozed_until": None})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertIsNone(self.ticket.snoozed_until)
+        assert self.ticket.snoozed_until is None
 
     def test_snooze_auto_sets_on_hold(self, _):
         snooze_time = (timezone.now() + timedelta(hours=2)).isoformat()
         response = self.client.patch(self.url, {"snoozed_until": snooze_time})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.ON_HOLD)
+        assert self.ticket.status == Status.ON_HOLD
 
     def test_unsnooze_auto_sets_open(self, _):
         self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
@@ -73,18 +73,18 @@ class TestTicketSnoozeAPI(APIBaseTest):
         self.ticket.save(update_fields=["snoozed_until", "status"])
 
         response = self.client.patch(self.url, {"snoozed_until": None})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.OPEN)
+        assert self.ticket.status == Status.OPEN
 
     def test_snooze_with_explicit_status_respects_status(self, _):
         snooze_time = (timezone.now() + timedelta(hours=2)).isoformat()
         response = self.client.patch(self.url, {"snoozed_until": snooze_time, "status": Status.PENDING})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.PENDING)
+        assert self.ticket.status == Status.PENDING
 
     def test_unsnooze_with_explicit_status_respects_status(self, _):
         self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
@@ -92,10 +92,10 @@ class TestTicketSnoozeAPI(APIBaseTest):
         self.ticket.save(update_fields=["snoozed_until", "status"])
 
         response = self.client.patch(self.url, {"snoozed_until": None, "status": Status.RESOLVED})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.RESOLVED)
+        assert self.ticket.status == Status.RESOLVED
 
     def test_snooze_logs_activity(self, _):
         snooze_time = (timezone.now() + timedelta(hours=2)).isoformat()
@@ -113,12 +113,12 @@ class TestTicketSnoozeAPI(APIBaseTest):
 
         snooze_change = next((c for c in changes if c["field"] == "snoozed_until"), None)
         assert snooze_change is not None
-        self.assertIsNone(snooze_change["before"])
-        self.assertIsNotNone(snooze_change["after"])
+        assert snooze_change["before"] is None
+        assert snooze_change["after"] is not None
 
         status_change = next((c for c in changes if c["field"] == "status"), None)
         assert status_change is not None
-        self.assertEqual(status_change["after"], Status.ON_HOLD)
+        assert status_change["after"] == Status.ON_HOLD
 
     def test_retrieve_includes_snoozed_until(self, _):
         snooze_time = timezone.now() + timedelta(hours=2)
@@ -126,8 +126,8 @@ class TestTicketSnoozeAPI(APIBaseTest):
         self.ticket.save(update_fields=["snoozed_until"])
 
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["snoozed_until"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["snoozed_until"] is not None
 
     def test_list_includes_snoozed_until(self, _):
         snooze_time = timezone.now() + timedelta(hours=2)
@@ -135,8 +135,8 @@ class TestTicketSnoozeAPI(APIBaseTest):
         self.ticket.save(update_fields=["snoozed_until"])
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["results"][0]["snoozed_until"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["snoozed_until"] is not None
 
     @parameterized.expand([("true", True), ("false", False)])
     def test_filter_by_snoozed(self, _, param_value, expect_snoozed):
@@ -151,14 +151,14 @@ class TestTicketSnoozeAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?snoozed={param_value}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
         returned_id = response.json()["results"][0]["id"]
         if expect_snoozed:
-            self.assertEqual(returned_id, str(self.ticket.id))
+            assert returned_id == str(self.ticket.id)
         else:
-            self.assertEqual(returned_id, str(unsnoozed.id))
+            assert returned_id == str(unsnoozed.id)
 
 
 # -- External ticket API: snooze -----------------------------------------------
@@ -188,23 +188,23 @@ class TestExternalTicketSnoozeAPI(BaseTest):
         self.ticket.save(update_fields=["snoozed_until"])
 
         response = self.client.get(self.url, **self._auth())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["snoozed_until"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["snoozed_until"] is not None
 
     def test_get_returns_null_when_not_snoozed(self):
         response = self.client.get(self.url, **self._auth())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["snoozed_until"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["snoozed_until"] is None
 
     def test_patch_set_snoozed_until(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
         response = self.client.patch(
             self.url, {"snoozed_until": snooze_time}, content_type="application/json", **self._auth()
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertIsNotNone(self.ticket.snoozed_until)
+        assert self.ticket.snoozed_until is not None
 
     def test_patch_clear_snoozed_until(self):
         self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
@@ -212,17 +212,17 @@ class TestExternalTicketSnoozeAPI(BaseTest):
         self.ticket.save(update_fields=["snoozed_until", "status"])
 
         response = self.client.patch(self.url, {"snoozed_until": None}, content_type="application/json", **self._auth())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.ticket.refresh_from_db()
-        self.assertIsNone(self.ticket.snoozed_until)
+        assert self.ticket.snoozed_until is None
 
     def test_patch_snooze_auto_sets_on_hold(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
         self.client.patch(self.url, {"snoozed_until": snooze_time}, content_type="application/json", **self._auth())
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.ON_HOLD)
+        assert self.ticket.status == Status.ON_HOLD
 
     def test_patch_unsnooze_auto_sets_open(self):
         self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
@@ -232,7 +232,7 @@ class TestExternalTicketSnoozeAPI(BaseTest):
         self.client.patch(self.url, {"snoozed_until": None}, content_type="application/json", **self._auth())
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.OPEN)
+        assert self.ticket.status == Status.OPEN
 
     def test_patch_snooze_with_explicit_status_respects_status(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
@@ -244,7 +244,7 @@ class TestExternalTicketSnoozeAPI(BaseTest):
         )
 
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, Status.PENDING)
+        assert self.ticket.status == Status.PENDING
 
     def test_patch_snooze_logs_activity(self):
         snooze_time = (timezone.now() + timedelta(hours=3)).isoformat()
@@ -265,13 +265,13 @@ class TestExternalTicketSnoozeAPI(BaseTest):
 
         status_change = next((c for c in changes if c["field"] == "status"), None)
         assert status_change is not None
-        self.assertEqual(status_change["after"], "on_hold")
+        assert status_change["after"] == "on_hold"
 
     def test_patch_invalid_snoozed_until(self):
         response = self.client.patch(
             self.url, {"snoozed_until": "not-a-date"}, content_type="application/json", **self._auth()
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 # -- Wake task -----------------------------------------------------------------
@@ -298,8 +298,8 @@ class TestWakeSnoozedTickets(BaseTest):
         wake_snoozed_tickets()
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.status, Status.OPEN)
-        self.assertIsNone(ticket.snoozed_until)
+        assert ticket.status == Status.OPEN
+        assert ticket.snoozed_until is None
         mock_capture.assert_called_once_with(ticket, Status.ON_HOLD, Status.OPEN)
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
@@ -312,8 +312,8 @@ class TestWakeSnoozedTickets(BaseTest):
         wake_snoozed_tickets()
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.status, Status.RESOLVED)
-        self.assertIsNone(ticket.snoozed_until)
+        assert ticket.status == Status.RESOLVED
+        assert ticket.snoozed_until is None
         mock_capture.assert_not_called()
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
@@ -326,8 +326,8 @@ class TestWakeSnoozedTickets(BaseTest):
         wake_snoozed_tickets()
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.status, Status.ON_HOLD)
-        self.assertIsNotNone(ticket.snoozed_until)
+        assert ticket.status == Status.ON_HOLD
+        assert ticket.snoozed_until is not None
         mock_capture.assert_not_called()
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
@@ -337,7 +337,7 @@ class TestWakeSnoozedTickets(BaseTest):
         wake_snoozed_tickets()
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.status, Status.ON_HOLD)
+        assert ticket.status == Status.ON_HOLD
         mock_capture.assert_not_called()
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
@@ -352,11 +352,11 @@ class TestWakeSnoozedTickets(BaseTest):
 
         t1.refresh_from_db()
         t2.refresh_from_db()
-        self.assertEqual(t1.status, Status.OPEN)
-        self.assertIsNone(t1.snoozed_until)
-        self.assertEqual(t2.status, Status.OPEN)
-        self.assertIsNone(t2.snoozed_until)
-        self.assertEqual(mock_capture.call_count, 2)
+        assert t1.status == Status.OPEN
+        assert t1.snoozed_until is None
+        assert t2.status == Status.OPEN
+        assert t2.snoozed_until is None
+        assert mock_capture.call_count == 2
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
     def test_noop_when_no_expired_tickets(self, mock_capture):

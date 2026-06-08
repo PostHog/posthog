@@ -104,11 +104,11 @@ class TestGetEmailFromIdToken(BaseTest):
         email, token_payload = self._get_email_with_mocked_jwks(token)
 
         if expected_success:
-            self.assertEqual(email, "test@posthog.com")
-            self.assertEqual(token_payload.get("email"), "test@posthog.com")
+            assert email == "test@posthog.com"
+            assert token_payload.get("email") == "test@posthog.com"
         else:
-            self.assertEqual(email, "")
-            self.assertEqual(token_payload, {})
+            assert email == ""
+            assert token_payload == {}
 
     @parameterized.expand(
         [
@@ -131,10 +131,10 @@ class TestGetEmailFromIdToken(BaseTest):
         email, token_payload = self._get_email_with_mocked_jwks(token, allowed_domains)
 
         if expected_success:
-            self.assertEqual(email, "test@posthog.com")
+            assert email == "test@posthog.com"
         else:
-            self.assertEqual(email, "")
-            self.assertEqual(token_payload, {})
+            assert email == ""
+            assert token_payload == {}
 
     def test_hd_validation_skipped_when_no_allowed_domains(self):
         """When ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS is empty, any domain should work."""
@@ -144,7 +144,7 @@ class TestGetEmailFromIdToken(BaseTest):
         token = self.jwt_helper.create_id_token(payload)
         email, _ = self._get_email_with_mocked_jwks(token, allowed_domains=[])
 
-        self.assertEqual(email, "test@posthog.com")
+        assert email == "test@posthog.com"
 
     def test_unverified_email_rejected(self):
         payload = {**self.base_payload, "email_verified": False}
@@ -152,8 +152,8 @@ class TestGetEmailFromIdToken(BaseTest):
 
         email, token_payload = self._get_email_with_mocked_jwks(token)
 
-        self.assertEqual(email, "")
-        self.assertEqual(token_payload, {})
+        assert email == ""
+        assert token_payload == {}
 
     def test_email_normalized_to_lowercase(self):
         payload = {**self.base_payload, "email": "Test@PostHog.COM"}
@@ -161,7 +161,7 @@ class TestGetEmailFromIdToken(BaseTest):
 
         email, _ = self._get_email_with_mocked_jwks(token)
 
-        self.assertEqual(email, "test@posthog.com")
+        assert email == "test@posthog.com"
 
 
 class TestNonceValidation(BaseTest):
@@ -213,11 +213,11 @@ class TestNonceValidation(BaseTest):
 
         response = self._assert_redirects_to_admin(response)
         # Nonce should be cleared from session
-        self.assertNotIn(AdminOAuth2Middleware.SESSION_NONCE_KEY, request.session)
+        assert AdminOAuth2Middleware.SESSION_NONCE_KEY not in request.session
         # Verify success: verification secret should be set
-        self.assertIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
+        assert AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY in request.session
         # Verify success: verification cookie should be set
-        self.assertIn(AdminOAuth2Middleware.COOKIE_NAME, response.cookies)
+        assert AdminOAuth2Middleware.COOKIE_NAME in response.cookies
 
     def test_nonce_mismatch_rejected(self):
         state = secrets.token_urlsafe(32)
@@ -234,9 +234,9 @@ class TestNonceValidation(BaseTest):
 
         response = self._assert_redirects_to_admin(response)
         # Verify rejection: no verification secret should be set
-        self.assertNotIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
+        assert AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY not in request.session
         # Verify rejection: no verification cookie should be set
-        self.assertNotIn(AdminOAuth2Middleware.COOKIE_NAME, response.cookies)
+        assert AdminOAuth2Middleware.COOKIE_NAME not in response.cookies
 
     def test_missing_nonce_in_token_rejected(self):
         state = secrets.token_urlsafe(32)
@@ -253,9 +253,9 @@ class TestNonceValidation(BaseTest):
 
         response = self._assert_redirects_to_admin(response)
         # Verify rejection: no verification secret should be set
-        self.assertNotIn(AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY, request.session)
+        assert AdminOAuth2Middleware.SESSION_VERIFICATION_SECRET_KEY not in request.session
         # Verify rejection: no verification cookie should be set
-        self.assertNotIn(AdminOAuth2Middleware.COOKIE_NAME, response.cookies)
+        assert AdminOAuth2Middleware.COOKIE_NAME not in response.cookies
 
 
 class TestRedirectIncludesNonce(BaseTest):
@@ -288,12 +288,12 @@ class TestRedirectIncludesNonce(BaseTest):
         assert isinstance(response, HttpResponseRedirect)
 
         # Check nonce is in the redirect URL
-        self.assertIn("nonce=", response.url)
+        assert "nonce=" in response.url
         # Check nonce is stored in session
-        self.assertIn(AdminOAuth2Middleware.SESSION_NONCE_KEY, request.session)
+        assert AdminOAuth2Middleware.SESSION_NONCE_KEY in request.session
         # Check the nonce in URL matches session
         session_nonce = request.session[AdminOAuth2Middleware.SESSION_NONCE_KEY]
-        self.assertIn(f"nonce={session_nonce}", response.url)
+        assert f"nonce={session_nonce}" in response.url
 
 
 class TestAllowedDomainsSettings:
@@ -374,8 +374,8 @@ class TestMiddlewareVerification(BaseTest):
         middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse("OK"))
         response = middleware(request)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"OK")
+        assert response.status_code == 200
+        assert response.content == b"OK"
 
     @override_settings(
         ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
@@ -400,9 +400,9 @@ class TestMiddlewareVerification(BaseTest):
         response = middleware(request)
 
         # Should redirect to Google OAuth
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         assert isinstance(response, HttpResponseRedirect)
-        self.assertIn("accounts.google.com", response.url)
+        assert "accounts.google.com" in response.url
 
     @parameterized.expand(
         [
@@ -423,7 +423,7 @@ class TestMiddlewareVerification(BaseTest):
         middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse("OK"))
         response = middleware(request)
 
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     @parameterized.expand(
         [
@@ -453,5 +453,5 @@ class TestMiddlewareVerification(BaseTest):
         middleware = AdminOAuth2Middleware(get_response=lambda r: HttpResponse("OK"))
         response = middleware(request)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"OK")
+        assert response.status_code == 200
+        assert response.content == b"OK"

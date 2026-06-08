@@ -40,7 +40,7 @@ class RetentionBaseQueryVariantComparisonMixin:
         with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
             dwh_variant_result = calculate(dwh_variant_query)
 
-        cast(Any, self).assertEqual(dwh_variant_result, legacy_result)
+        assert dwh_variant_result == legacy_result
         return legacy_result
 
     def should_compare_retention_base_query_variants(self, query: dict[str, Any]) -> bool:

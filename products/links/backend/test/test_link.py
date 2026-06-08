@@ -35,18 +35,18 @@ class TestLinkModel(BaseTest):
 
         # Test getting links for team 1
         team1_links = Link.get_links_for_team(self.team.id)
-        self.assertEqual(len(team1_links), 5)
+        assert len(team1_links) == 5
 
         # Test getting links for team 2
         team2_links = Link.get_links_for_team(self.another_team.id)
-        self.assertEqual(len(team2_links), 3)
+        assert len(team2_links) == 3
 
         # Test pagination
         team1_links_limited = Link.get_links_for_team(self.team.id, limit=2)
-        self.assertEqual(len(team1_links_limited), 2)
+        assert len(team1_links_limited) == 2
 
         team1_links_offset = Link.get_links_for_team(self.team.id, offset=2)
-        self.assertEqual(len(team1_links_offset), 3)
+        assert len(team1_links_offset) == 3
 
     def test_unique_constraint_violation(self):
         # Create a link

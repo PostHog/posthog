@@ -45,13 +45,13 @@ class TestSearch(APIBaseTest):
     def test_search(self):
         response = self.client.get("/api/projects/@current/search?q=sec")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["results"]), 4)
-        self.assertEqual(response.json()["counts"]["action"], 0)
-        self.assertEqual(response.json()["counts"]["dashboard"], 1)
-        self.assertEqual(response.json()["counts"]["feature_flag"], 1)
-        self.assertEqual(response.json()["counts"]["insight"], 1)
-        self.assertEqual(response.json()["counts"]["notebook"], 1)
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 4
+        assert response.json()["counts"]["action"] == 0
+        assert response.json()["counts"]["dashboard"] == 1
+        assert response.json()["counts"]["feature_flag"] == 1
+        assert response.json()["counts"]["insight"] == 1
+        assert response.json()["counts"]["notebook"] == 1
 
     def test_search_without_counts(self):
         response = self.client.get("/api/projects/@current/search?q=sec&include_counts=false")
@@ -69,24 +69,24 @@ class TestSearch(APIBaseTest):
     def test_search_without_query(self):
         response = self.client.get("/api/projects/@current/search")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["results"]), 11)
-        self.assertEqual(response.json()["counts"]["action"], 0)
-        self.assertEqual(response.json()["counts"]["dashboard"], 3)
-        self.assertEqual(response.json()["counts"]["feature_flag"], 3)
-        self.assertEqual(response.json()["counts"]["insight"], 3)
-        self.assertEqual(response.json()["counts"]["notebook"], 2)
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 11
+        assert response.json()["counts"]["action"] == 0
+        assert response.json()["counts"]["dashboard"] == 3
+        assert response.json()["counts"]["feature_flag"] == 3
+        assert response.json()["counts"]["insight"] == 3
+        assert response.json()["counts"]["notebook"] == 2
 
     def test_search_filtered_by_entity(self):
         response = self.client.get(
             "/api/projects/@current/search?q=sec&entities=insight&entities=dashboard&entities=notebook"
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["results"]), 3)
-        self.assertEqual(response.json()["counts"]["dashboard"], 1)
-        self.assertEqual(response.json()["counts"]["insight"], 1)
-        self.assertEqual(response.json()["counts"]["notebook"], 1)
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 3
+        assert response.json()["counts"]["dashboard"] == 1
+        assert response.json()["counts"]["insight"] == 1
+        assert response.json()["counts"]["notebook"] == 1
 
     def test_response_format_and_ids(self):
         response = self.client.get(
@@ -95,47 +95,44 @@ class TestSearch(APIBaseTest):
 
         sorted_results = sorted(response.json()["results"], key=lambda entity: entity["type"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            sorted_results,
-            [
-                {
-                    "rank": sorted_results[0]["rank"],
-                    "type": "dashboard",
-                    "result_id": str(self.dashboard_1.id),
-                    "extra_fields": {"description": "", "name": "second dashboard"},
-                },
-                {
-                    "rank": sorted_results[1]["rank"],
-                    "type": "insight",
-                    "result_id": self.insight_1.short_id,
-                    "extra_fields": {"name": "second insight", "description": None, "query": None},
-                },
-                {
-                    "rank": sorted_results[2]["rank"],
-                    "type": "notebook",
-                    "result_id": self.notebook_1.short_id,
-                    "extra_fields": {"title": "second notebook", "content": None},
-                },
-            ],
-        )
+        assert response.status_code == 200
+        assert sorted_results == [
+            {
+                "rank": sorted_results[0]["rank"],
+                "type": "dashboard",
+                "result_id": str(self.dashboard_1.id),
+                "extra_fields": {"description": "", "name": "second dashboard"},
+            },
+            {
+                "rank": sorted_results[1]["rank"],
+                "type": "insight",
+                "result_id": self.insight_1.short_id,
+                "extra_fields": {"name": "second insight", "description": None, "query": None},
+            },
+            {
+                "rank": sorted_results[2]["rank"],
+                "type": "notebook",
+                "result_id": self.notebook_1.short_id,
+                "extra_fields": {"title": "second notebook", "content": None},
+            },
+        ]
 
     def test_extra_fields(self):
         response = self.client.get("/api/projects/@current/search?entities=insight")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         results = response.json()["results"]
         for result in results:
-            self.assertEqual(set(result["extra_fields"].keys()), {"name", "description", "query"})
+            assert set(result["extra_fields"].keys()) == {"name", "description", "query"}
 
     def test_search_with_fully_invalid_query(self):
         response = self.client.get("/api/projects/@current/search?q=%3E")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()["results"]), 11)
-        self.assertEqual(response.json()["counts"]["action"], 0)
-        self.assertEqual(response.json()["counts"]["dashboard"], 3)
-        self.assertEqual(response.json()["counts"]["feature_flag"], 3)
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 11
+        assert response.json()["counts"]["action"] == 0
+        assert response.json()["counts"]["dashboard"] == 3
+        assert response.json()["counts"]["feature_flag"] == 3
 
     def test_entities_from_other_teams(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -144,11 +141,11 @@ class TestSearch(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/search?q=permissions")
 
-        self.assertEqual(response.json()["counts"]["dashboard"], 1)
+        assert response.json()["counts"]["dashboard"] == 1
 
     def test_dangerous_characters(self):
         response = self.client.get("/api/projects/@current/search?q=%21%3A%28%29%5B%5D%26%7C%3C%3E%20str1%20str2")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_event_definitions(self):
         EventDefinition.objects.create(name="first event", team=self.team)
@@ -157,7 +154,7 @@ class TestSearch(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_early_access_features(self):
         EarlyAccessFeature.objects.create(name="first feature", team=self.team, stage="beta")
@@ -166,13 +163,13 @@ class TestSearch(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/search?q=sec&entities=early_access_feature")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["counts"]["early_access_feature"], 1)
+        assert response.status_code == 200
+        assert response.json()["counts"]["early_access_feature"] == 1
 
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["type"], "early_access_feature")
-        self.assertEqual(results[0]["extra_fields"]["name"], "second feature")
+        assert len(results) == 1
+        assert results[0]["type"] == "early_access_feature"
+        assert results[0]["extra_fields"]["name"] == "second feature"
 
     def test_hog_flows(self):
         HogFlow.objects.create(name="first workflow", team=self.team)
@@ -181,13 +178,13 @@ class TestSearch(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/search?q=sec&entities=hog_flow")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["counts"]["hog_flow"], 1)
+        assert response.status_code == 200
+        assert response.json()["counts"]["hog_flow"] == 1
 
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["type"], "hog_flow")
-        self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
+        assert len(results) == 1
+        assert results[0]["type"] == "hog_flow"
+        assert results[0]["extra_fields"]["name"] == "second workflow"
 
     def test_build_search_vector_requires_search_fields(self):
         with pytest.raises(ValueError, match="search_fields cannot be empty"):
@@ -234,12 +231,12 @@ class TestSearch(APIBaseTest):
         count_with_filter = qs_with_filter.count()
 
         # The filtered count should be less than unfiltered (we created 1 inactive flag)
-        self.assertLess(count_with_filter, count_without_filter)
+        assert count_with_filter < count_without_filter
 
         # Verify all returned flags with filter are active
         results = list(qs_with_filter)
         for result in results:
-            self.assertTrue(result["extra_fields"]["active"])
+            assert result["extra_fields"]["active"]
 
         # Test with specific key filter
         qs_key_filter, entity_name = class_queryset(
@@ -251,8 +248,8 @@ class TestSearch(APIBaseTest):
             extra_fields=["key", "name"],
             filters={"key": "filter_active1"},
         )
-        self.assertEqual(qs_key_filter.count(), 1)
-        self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
+        assert qs_key_filter.count() == 1
+        assert next(iter(qs_key_filter))["extra_fields"]["key"] == "filter_active1"
 
     def test_search_query_count_with_and_without_counts(self):
         mock_view = Mock()
@@ -296,8 +293,8 @@ class TestSearch(APIBaseTest):
             entity_map=ENTITY_MAP,
         )
 
-        self.assertEqual(total_count, 5)
-        self.assertEqual(len(results), 5)
+        assert total_count == 5
+        assert len(results) == 5
 
     def test_search_entities_pagination_with_limit(self):
         for i in range(10):
@@ -315,8 +312,8 @@ class TestSearch(APIBaseTest):
             limit=3,
         )
 
-        self.assertEqual(total_count, 10)
-        self.assertEqual(len(results), 3)
+        assert total_count == 10
+        assert len(results) == 3
 
     def test_search_entities_pagination_with_offset(self):
         for i in range(10):
@@ -344,14 +341,14 @@ class TestSearch(APIBaseTest):
             offset=3,
         )
 
-        self.assertEqual(total_count1, 10)
-        self.assertEqual(total_count2, 10)
-        self.assertEqual(len(results_page1), 3)
-        self.assertEqual(len(results_page2), 3)
+        assert total_count1 == 10
+        assert total_count2 == 10
+        assert len(results_page1) == 3
+        assert len(results_page2) == 3
 
         page1_ids = {r["result_id"] for r in results_page1}
         page2_ids = {r["result_id"] for r in results_page2}
-        self.assertEqual(len(page1_ids & page2_ids), 0)
+        assert len(page1_ids & page2_ids) == 0
 
 
 @pytest.mark.django_db

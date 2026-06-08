@@ -49,11 +49,11 @@ class TestPropertyTypesPrompt(BaseTest):
         ]
     )
     def test_dynamic_person_properties_section_contains_pattern(self, _name, pattern):
-        self.assertIn(pattern, PROPERTY_TYPES_PROMPT)
+        assert pattern in PROPERTY_TYPES_PROMPT
 
     def test_dynamic_person_properties_section_exists(self):
-        self.assertIn("<dynamic_person_properties>", PROPERTY_TYPES_PROMPT)
-        self.assertIn("</dynamic_person_properties>", PROPERTY_TYPES_PROMPT)
+        assert "<dynamic_person_properties>" in PROPERTY_TYPES_PROMPT
+        assert "</dynamic_person_properties>" in PROPERTY_TYPES_PROMPT
 
 
 class TestTaxonomyAgentNode(BaseTest):
@@ -62,19 +62,19 @@ class TestTaxonomyAgentNode(BaseTest):
         self.node = ConcreteTaxonomyAgentNode(self.team, self.user, MockTaxonomyAgentToolkit)
 
     def test_node_initialization(self):
-        self.assertEqual(self.node._team, self.team)
-        self.assertEqual(self.node._user, self.user)
-        self.assertIsInstance(self.node._toolkit, MockTaxonomyAgentToolkit)
+        assert self.node._team == self.team
+        assert self.node._user == self.user
+        assert isinstance(self.node._toolkit, MockTaxonomyAgentToolkit)
 
     def test_get_state_class(self):
         state_class, partial_state_class = self.node._get_state_class(TaxonomyAgentNode)
-        self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, TaxonomyAgentState)
+        assert state_class == TaxonomyAgentState
+        assert partial_state_class == TaxonomyAgentState
 
     def test_get_system_prompt_concrete_implementation(self):
         prompts = self.node._get_system_prompt()
-        self.assertTrue(len(prompts.messages) == 1)
-        self.assertEqual(prompts.messages[0].prompt.template, "test system prompt")
+        assert len(prompts.messages) == 1
+        assert prompts.messages[0].prompt.template == "test system prompt"
 
     def test_construct_messages(self):
         from langchain_core.messages import HumanMessage
@@ -84,8 +84,8 @@ class TestTaxonomyAgentNode(BaseTest):
 
         result = self.node._construct_messages(state)
 
-        self.assertIsNotNone(result)
-        self.assertTrue(len(result.messages) > 0)
+        assert result is not None
+        assert len(result.messages) > 0
 
     @patch("ee.hogai.chat_agent.taxonomy.nodes.merge_message_runs")
     @patch("ee.hogai.chat_agent.taxonomy.nodes.format_events_yaml")
@@ -118,19 +118,19 @@ class TestTaxonomyAgentNode(BaseTest):
             config = RunnableConfig()
             result = self.node.run(state, config)
 
-            self.assertIsInstance(result, TaxonomyAgentState)
+            assert isinstance(result, TaxonomyAgentState)
             assert result.intermediate_steps is not None
-            self.assertEqual(len(result.intermediate_steps), 2)
+            assert len(result.intermediate_steps) == 2
 
             # Old step is preserved with its result
             old_action, old_obs = result.intermediate_steps[0]
-            self.assertEqual(old_action.log, "old_id")
-            self.assertEqual(old_obs, "old_result")
+            assert old_action.log == "old_id"
+            assert old_obs == "old_result"
 
             # New step is appended with None observation (pending)
             new_action, new_obs = result.intermediate_steps[1]
-            self.assertEqual(new_action.log, "new_id")
-            self.assertIsNone(new_obs)
+            assert new_action.log == "new_id"
+            assert new_obs is None
 
     @patch("ee.hogai.chat_agent.taxonomy.nodes.merge_message_runs")
     @patch("ee.hogai.chat_agent.taxonomy.nodes.format_events_yaml")
@@ -166,12 +166,12 @@ class TestTaxonomyAgentNode(BaseTest):
             config = RunnableConfig()
             result = self.node.run(state, config)
 
-            self.assertIsInstance(result, TaxonomyAgentState)
+            assert isinstance(result, TaxonomyAgentState)
             assert result.intermediate_steps is not None
-            self.assertEqual(len(result.intermediate_steps), 1)
-            self.assertEqual(len(result.tool_progress_messages), 1)
-            self.assertEqual(result.intermediate_steps[0][0].tool, "test_tool")
-            self.assertEqual(result.intermediate_steps[0][0].tool_input, {"param": "value"})
+            assert len(result.intermediate_steps) == 1
+            assert len(result.tool_progress_messages) == 1
+            assert result.intermediate_steps[0][0].tool == "test_tool"
+            assert result.intermediate_steps[0][0].tool_input == {"param": "value"}
 
     @patch("ee.hogai.chat_agent.taxonomy.nodes.merge_message_runs")
     @patch("ee.hogai.chat_agent.taxonomy.nodes.format_events_yaml")
@@ -198,7 +198,7 @@ class TestTaxonomyAgentNode(BaseTest):
             with self.assertRaises(ValueError) as context:
                 self.node.run(state, RunnableConfig())
 
-            self.assertIn("No tool calls found", str(context.exception))
+            assert "No tool calls found" in str(context.exception)
 
 
 class TestTaxonomyAgentToolsNode(BaseTest):
@@ -207,15 +207,15 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.node = ConcreteTaxonomyAgentToolsNode(self.team, self.user, MockTaxonomyAgentToolkit)
 
     def test_node_initialization(self):
-        self.assertEqual(self.node._team, self.team)
-        self.assertEqual(self.node._user, self.user)
-        self.assertIsInstance(self.node._toolkit, MockTaxonomyAgentToolkit)
-        self.assertEqual(self.node.MAX_ITERATIONS, 10)
+        assert self.node._team == self.team
+        assert self.node._user == self.user
+        assert isinstance(self.node._toolkit, MockTaxonomyAgentToolkit)
+        assert self.node.MAX_ITERATIONS == 10
 
     def test_get_state_class(self):
         state_class, partial_state_class = self.node._get_state_class(TaxonomyAgentToolsNode)
-        self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, TaxonomyAgentState)
+        assert state_class == TaxonomyAgentState
+        assert partial_state_class == TaxonomyAgentState
 
     def test_get_state_class_no_generic_error(self):
         # Test error case for non-generic class
@@ -225,7 +225,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         with self.assertRaises(ValueError) as context:
             NonGenericToolsNode(self.team, self.user, MockTaxonomyAgentToolkit)
 
-        self.assertIn("Could not determine state type", str(context.exception))
+        assert "Could not determine state type" in str(context.exception)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     @patch.object(MockTaxonomyAgentToolkit, "handle_tools")
@@ -244,12 +244,12 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         result = await self.node.arun(state, RunnableConfig())
 
-        self.assertIsInstance(result, TaxonomyAgentState)
-        self.assertIsNotNone(result.intermediate_steps)
+        assert isinstance(result, TaxonomyAgentState)
         assert result.intermediate_steps is not None
-        self.assertEqual(len(result.intermediate_steps), 1)
-        self.assertEqual(result.intermediate_steps[0][1], "tool output")
-        self.assertEqual(result.intermediate_steps[0][0].log, "test_tool_id")
+        assert result.intermediate_steps is not None
+        assert len(result.intermediate_steps) == 1
+        assert result.intermediate_steps[0][1] == "tool output"
+        assert result.intermediate_steps[0][0].log == "test_tool_id"
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     async def test_run_validation_error(self, mock_get_tool_input):
@@ -265,8 +265,8 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         result = await self.node.arun(state, RunnableConfig())
 
-        self.assertIsInstance(result, TaxonomyAgentState)
-        self.assertEqual(len(result.tool_progress_messages), 1)
+        assert isinstance(result, TaxonomyAgentState)
+        assert len(result.tool_progress_messages) == 1
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     async def test_run_final_answer(self, mock_get_tool_input):
@@ -291,9 +291,9 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         result = await self.node.arun(state, RunnableConfig())
 
-        self.assertIsInstance(result, TaxonomyAgentState)
-        self.assertEqual(result.output, expected_data)
-        self.assertIsNone(result.intermediate_steps)
+        assert isinstance(result, TaxonomyAgentState)
+        assert result.output == expected_data
+        assert result.intermediate_steps is None
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     async def test_run_ask_user_for_help(self, mock_get_tool_input):
@@ -333,7 +333,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
             mock_reset.assert_called_once()
             call_args = mock_reset.call_args
-            self.assertEqual(call_args[0][1], "max_iterations")
+            assert call_args[0][1] == "max_iterations"
 
     @parameterized.expand(
         [
@@ -361,7 +361,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
             state.intermediate_steps = [(AgentAction("normal_tool", {}, ""), "result")]
 
         result = self.node.router(state)
-        self.assertEqual(result, expected)
+        assert result == expected
 
     async def test_get_reset_state(self):
         original_state: TaxonomyAgentState = TaxonomyAgentState()
@@ -373,13 +373,13 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
             result = self.node._get_reset_state("test output", "test_tool", original_state)
 
-            self.assertIsNotNone(result.intermediate_steps)
             assert result.intermediate_steps is not None
-            self.assertEqual(len(result.intermediate_steps), 1)
+            assert result.intermediate_steps is not None
+            assert len(result.intermediate_steps) == 1
             action, output = result.intermediate_steps[0]
-            self.assertEqual(action.tool, "test_tool")
-            self.assertEqual(action.tool_input, "test output")
-            self.assertIsNone(output)
+            assert action.tool == "test_tool"
+            assert action.tool_input == "test output"
+            assert output is None
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
     @patch.object(MockTaxonomyAgentToolkit, "retrieve_event_or_action_properties_parallel")
@@ -401,8 +401,8 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         result = await self.node.arun(state, RunnableConfig())
 
         # Verify both actions got results
-        self.assertIsNotNone(result.intermediate_steps)
         assert result.intermediate_steps is not None
-        self.assertEqual(len(result.intermediate_steps), 2)
-        self.assertEqual(result.intermediate_steps[0][0].log, "id1")
-        self.assertEqual(result.intermediate_steps[1][0].log, "id2")
+        assert result.intermediate_steps is not None
+        assert len(result.intermediate_steps) == 2
+        assert result.intermediate_steps[0][0].log == "id1"
+        assert result.intermediate_steps[1][0].log == "id2"

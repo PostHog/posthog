@@ -1,3 +1,4 @@
+import pytest
 from unittest import TestCase
 
 from parameterized import parameterized
@@ -18,16 +19,16 @@ class TestEvaluateBiasRisk(TestCase):
         result = evaluate_bias_risk(
             UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 800, "test": 200, "$multiple": 20}
         )
-        self.assertIsInstance(result, BiasRisk)
+        assert isinstance(result, BiasRisk)
         assert result is not None
-        self.assertAlmostEqual(result.multiple_variant_percentage, 20 / 1020 * 100, places=5)
+        assert result.multiple_variant_percentage == pytest.approx(20 / 1020 * 100, abs=10 ** (-5) * 0.5)
 
     def test_auto_even_3way_is_treated_as_even(self):
         # 34/33/33 is what the auto-distribution produces — must NOT be flagged as uneven.
         result = evaluate_bias_risk(
             AUTO_EVEN_3WAY, MultipleVariantHandling.EXCLUDE, {"a": 340, "b": 330, "c": 330, "$multiple": 50}
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_reordered_auto_even_is_uneven(self):
         # 33/34/33 doesn't match the auto-distribution result (34/33/33) — counts as uneven,
@@ -36,7 +37,7 @@ class TestEvaluateBiasRisk(TestCase):
         result = evaluate_bias_risk(
             reordered, MultipleVariantHandling.EXCLUDE, {"a": 330, "b": 340, "c": 330, "$multiple": 50}
         )
-        self.assertIsNotNone(result)
+        assert result is not None
 
     @parameterized.expand(
         [
@@ -86,14 +87,14 @@ class TestEvaluateBiasRisk(TestCase):
     )
     def test_returns_none_when_not_at_risk(self, _name, flag_variants, handling, exposures):
         result = evaluate_bias_risk(flag_variants, handling, exposures)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_threshold_boundary_strictly_greater_than(self):
         # Exactly at threshold (1 / 1000 = 0.1%) should NOT trigger — uses strict `>`.
         result = evaluate_bias_risk(
             UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 799, "test": 200, "$multiple": 1}
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_threshold_boundary_just_above(self):
         # 2 / 1000 = 0.2% — above the 0.1% threshold.
@@ -101,4 +102,4 @@ class TestEvaluateBiasRisk(TestCase):
             UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 798, "test": 200, "$multiple": 2}
         )
         assert result is not None
-        self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+        assert result.multiple_variant_percentage > MULTIPLE_VARIANT_BIAS_THRESHOLD

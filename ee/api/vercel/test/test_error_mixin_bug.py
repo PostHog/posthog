@@ -34,11 +34,11 @@ class TestVercelErrorMixin(VercelTestBase):
         exc = ValueError("Non-DRF exception")
         response = viewset.handle_exception(exc)
 
-        self.assertIsNotNone(response)
-        self.assertIsInstance(response, Response)
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.data["error"]["code"], "request_failed")
-        self.assertNotIn("Non-DRF exception", response.data["error"]["message"])
+        assert response is not None
+        assert isinstance(response, Response)
+        assert response.status_code == 500
+        assert response.data["error"]["code"] == "request_failed"
+        assert "Non-DRF exception" not in response.data["error"]["message"]
 
     def test_non_drf_exception_calls_capture_exception(self):
         viewset = self._make_viewset()
@@ -52,28 +52,28 @@ class TestVercelErrorMixin(VercelTestBase):
         exc = exceptions.ValidationError("DRF exception")
         response = viewset.handle_exception(exc)
 
-        self.assertIsNotNone(response)
-        self.assertIsInstance(response, Response)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data["error"]["code"], "request_failed")
-        self.assertIn("DRF exception", response.data["error"]["message"])
+        assert response is not None
+        assert isinstance(response, Response)
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "request_failed"
+        assert "DRF exception" in response.data["error"]["message"]
 
     def test_drf_validation_error_with_list_detail(self):
         viewset = self._make_viewset()
         exc = exceptions.ValidationError(["error one", "error two"])
         response = viewset.handle_exception(exc)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("error one", response.data["error"]["message"])
-        self.assertIn("error two", response.data["error"]["message"])
+        assert response.status_code == 400
+        assert "error one" in response.data["error"]["message"]
+        assert "error two" in response.data["error"]["message"]
 
     def test_drf_validation_error_with_dict_detail(self):
         viewset = self._make_viewset()
         exc = exceptions.ValidationError({"field": "is required"})
         response = viewset.handle_exception(exc)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("field", response.data["error"]["message"])
+        assert response.status_code == 400
+        assert "field" in response.data["error"]["message"]
 
     def test_drf_validation_error_does_not_call_capture_exception(self):
         viewset = self._make_viewset()
@@ -87,8 +87,8 @@ class TestVercelErrorMixin(VercelTestBase):
         exc = exceptions.NotFound("Not found")
         response = viewset.handle_exception(exc)
 
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.data["error"]["code"], "request_failed")
+        assert response.status_code == 404
+        assert response.data["error"]["code"] == "request_failed"
 
     def test_dispatch_with_non_drf_exception(self):
         factory = RequestFactory()
@@ -98,10 +98,10 @@ class TestVercelErrorMixin(VercelTestBase):
         with patch.object(_TestViewSet, "test_action", side_effect=ValueError("Test error")):
             response = viewset(django_request)
 
-            self.assertIsNotNone(response)
-            self.assertEqual(response.status_code, 500)
-            self.assertEqual(response.data["error"]["code"], "request_failed")
-            self.assertNotIn("Test error", response.data["error"]["message"])
+            assert response is not None
+            assert response.status_code == 500
+            assert response.data["error"]["code"] == "request_failed"
+            assert "Test error" not in response.data["error"]["message"]
 
 
 class TestVercelSSOEndpointMissingCredentials(VercelTestBase):
@@ -125,11 +125,11 @@ class TestVercelSSOEndpointMissingCredentials(VercelTestBase):
         with self.settings(VERCEL_CLIENT_INTEGRATION_ID=client_id, VERCEL_CLIENT_INTEGRATION_SECRET=client_secret):
             response = self.client.get("/login/vercel/", {"mode": "sso", "code": "fake", "state": "fake"})
 
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
         data = response.json()
-        self.assertEqual(data["error"]["code"], "request_failed")
-        self.assertNotIn(expected_setting_name, data["error"]["message"])
+        assert data["error"]["code"] == "request_failed"
+        assert expected_setting_name not in data["error"]["message"]
         mock_capture.assert_called_once()
         captured_exc = mock_capture.call_args[0][0]
-        self.assertIsInstance(captured_exc, RuntimeError)
-        self.assertIn(expected_setting_name, str(captured_exc))
+        assert isinstance(captured_exc, RuntimeError)
+        assert expected_setting_name in str(captured_exc)

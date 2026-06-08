@@ -44,21 +44,21 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         data = response.json()
-        self.assertIn("client_id", data)
-        self.assertEqual(data["redirect_uris"], ["https://example.com/callback"])
-        self.assertEqual(data["grant_types"], ["authorization_code"])
-        self.assertEqual(data["response_types"], ["code"])
-        self.assertEqual(data["token_endpoint_auth_method"], "none")
-        self.assertIn("client_id_issued_at", data)
+        assert "client_id" in data
+        assert data["redirect_uris"] == ["https://example.com/callback"]
+        assert data["grant_types"] == ["authorization_code"]
+        assert data["response_types"] == ["code"]
+        assert data["token_endpoint_auth_method"] == "none"
+        assert "client_id_issued_at" in data
 
         # Verify in database
         app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertTrue(app.is_dcr_client)
-        self.assertIsNone(app.organization)
-        self.assertIsNone(app.user)
+        assert app.is_dcr_client
+        assert app.organization is None
+        assert app.user is None
 
     def test_register_full_client(self):
         response = self.client.post(
@@ -72,15 +72,15 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         data = response.json()
-        self.assertEqual(data["client_name"], "Test MCP Client")
-        self.assertEqual(len(data["redirect_uris"]), 2)
+        assert data["client_name"] == "Test MCP Client"
+        assert len(data["redirect_uris"]) == 2
 
         # Verify name stored
         app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.name, "Test MCP Client")
+        assert app.name == "Test MCP Client"
 
     def test_register_localhost_http_allowed(self):
         response = self.client.post(
@@ -90,7 +90,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_register_127_http_allowed(self):
         response = self.client.post(
@@ -100,7 +100,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_register_http_non_localhost_rejected(self):
         response = self.client.post(
@@ -110,9 +110,9 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         # Model validation returns invalid_redirect_uri
-        self.assertEqual(response.json()["error"], "invalid_redirect_uri")
+        assert response.json()["error"] == "invalid_redirect_uri"
 
     def test_register_missing_redirect_uris(self):
         response = self.client.post(
@@ -122,8 +122,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_register_empty_redirect_uris(self):
         response = self.client.post(
@@ -133,7 +133,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_register_invalid_grant_type(self):
         response = self.client.post(
@@ -144,7 +144,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_dcr_client_can_be_used_for_oauth(self):
         """E2E: DCR client should work with the OAuth authorization flow."""
@@ -157,7 +157,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(register_response.status_code, status.HTTP_201_CREATED)
+        assert register_response.status_code == status.HTTP_201_CREATED
         client_id = register_response.json()["client_id"]
 
         # Try to start OAuth flow (should not 404 or error on invalid client)
@@ -175,7 +175,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
         )
         # Should get consent page or redirect, not a client_id error
-        self.assertIn(auth_response.status_code, [200, 302])
+        assert auth_response.status_code in [200, 302]
 
     def test_no_authentication_required(self):
         """DCR endpoint should work without any authentication."""
@@ -188,7 +188,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_redirect_uri_with_space_rejected(self):
         """Redirect URIs with spaces should be rejected to prevent injection attacks."""
@@ -199,8 +199,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_redirect_uri_with_whitespace_rejected(self):
         """Redirect URIs with any whitespace should be rejected."""
@@ -211,8 +211,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_public_client_no_secret_returned(self):
         response = self.client.post(
@@ -222,14 +222,14 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         data = response.json()
-        self.assertNotIn("client_secret", data)
-        self.assertNotIn("client_secret_expires_at", data)
+        assert "client_secret" not in data
+        assert "client_secret_expires_at" not in data
 
         app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.client_type, "public")
+        assert app.client_type == "public"
 
     def test_confidential_client_registration(self):
         response = self.client.post(
@@ -241,22 +241,22 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         data = response.json()
-        self.assertIn("client_secret", data)
-        self.assertEqual(data["client_secret_expires_at"], 0)
-        self.assertEqual(data["token_endpoint_auth_method"], "client_secret_post")
+        assert "client_secret" in data
+        assert data["client_secret_expires_at"] == 0
+        assert data["token_endpoint_auth_method"] == "client_secret_post"
 
         app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.client_type, "confidential")
-        self.assertTrue(app.is_dcr_client)
+        assert app.client_type == "confidential"
+        assert app.is_dcr_client
 
         # The returned secret must be plaintext (not a hash) and must verify against the stored hash
         from django.contrib.auth.hashers import check_password
 
-        self.assertFalse(data["client_secret"].startswith("pbkdf2_sha256$"))
-        self.assertTrue(check_password(data["client_secret"], app.client_secret))
+        assert not data["client_secret"].startswith("pbkdf2_sha256$")
+        assert check_password(data["client_secret"], app.client_secret)
 
     def test_unsupported_auth_method_rejected(self):
         response = self.client.post(
@@ -267,8 +267,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_rate_limiting_enforced(self):
         """DCR endpoint should enforce rate limiting."""
@@ -287,7 +287,7 @@ class TestDynamicClientRegistration(APIBaseTest):
                         {"redirect_uris": [f"https://example{i}.com/callback"]},
                         format="json",
                     )
-                    self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
+                    assert response.status_code == status.HTTP_201_CREATED, f"Request {i + 1} should succeed"
 
                 # Third request should be rate limited
                 response = self.client.post(
@@ -295,7 +295,7 @@ class TestDynamicClientRegistration(APIBaseTest):
                     {"redirect_uris": ["https://example-limited.com/callback"]},
                     format="json",
                 )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_blocked_client_name_starts_with_posthog(self):
         """Client names starting with 'posthog' should be rejected to prevent confusion attacks."""
@@ -307,8 +307,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_client_name_containing_posthog_allowed(self):
         """Client names containing 'posthog' (but not starting with it) should be allowed."""
@@ -320,7 +320,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_blocked_client_name_official(self):
         """Client names containing 'official' should be rejected."""
@@ -332,8 +332,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_blocked_client_name_verified(self):
         """Client names containing 'verified' should be rejected."""
@@ -345,8 +345,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_blocked_client_name_case_insensitive(self):
         """Blocked word check should be case-insensitive."""
@@ -358,8 +358,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
         # Also test "official" case-insensitivity
         response = self.client.post(
@@ -370,7 +370,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_valid_client_name_accepted(self):
         """Normal client names without blocked words should be accepted."""
@@ -382,8 +382,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["client_name"], "My Analytics Dashboard")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["client_name"] == "My Analytics Dashboard"
 
     @parameterized.expand(
         [
@@ -430,13 +430,13 @@ class TestDynamicClientRegistration(APIBaseTest):
             {"redirect_uris": ["https://example.com/callback"], "scope": scope},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
-        self.assertEqual(app.scopes, expected_scopes)
+        assert app.scopes == expected_scopes
         if expected_response_scope is None:
-            self.assertNotIn("scope", response.json())
+            assert "scope" not in response.json()
         else:
-            self.assertEqual(response.json()["scope"], expected_response_scope)
+            assert response.json()["scope"] == expected_response_scope
 
     @parameterized.expand(
         [
@@ -450,8 +450,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             {"redirect_uris": ["https://example.com/callback"], "scope": scope},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_register_without_scope_leaves_ceiling_empty(self):
         # Distinct from blank_string above: the `scope` key is absent entirely, exercising
@@ -461,10 +461,10 @@ class TestDynamicClientRegistration(APIBaseTest):
             {"redirect_uris": ["https://example.com/callback"]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
-        self.assertEqual(app.scopes, [])
-        self.assertNotIn("scope", response.json())
+        assert app.scopes == []
+        assert "scope" not in response.json()
 
     CODE_VERIFIER = "dcr_scope_test_verifier"
 
@@ -476,7 +476,7 @@ class TestDynamicClientRegistration(APIBaseTest):
     def _register_dcr_client(self, **extra) -> str:
         body = {"redirect_uris": ["https://example.com/callback"], **extra}
         response = self.client.post("/oauth/register/", body, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()["client_id"]
 
     def _authorize_consent_post(self, client_id: str, scope: str):
@@ -506,10 +506,10 @@ class TestDynamicClientRegistration(APIBaseTest):
         an unprivileged scope is granted (code issued, not invalid_scope)."""
         client_id = self._register_dcr_client()
         response = self._authorize_consent_post(client_id, "experiment:read")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         redirect_to = response.json()["redirect_to"]
-        self.assertNotIn("error=invalid_scope", redirect_to)
-        self.assertIn("code=", redirect_to)
+        assert "error=invalid_scope" not in redirect_to
+        assert "code=" in redirect_to
 
     def test_no_scope_dcr_client_rejects_privileged_scope_at_authorize(self):
         """The broad default excludes PRIVILEGED_SCOPES, so a no-ceiling DCR
@@ -528,7 +528,7 @@ class TestDynamicClientRegistration(APIBaseTest):
                 "state": "test123",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
         location = response.get("Location")
         assert location
-        self.assertIn("error=invalid_scope", location)
+        assert "error=invalid_scope" in location

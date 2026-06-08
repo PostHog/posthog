@@ -161,21 +161,21 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(result, CachedPathsQueryResponse)
             response = result.results
 
-        self.assertEqual(response[0].source, "1_/", response)
-        self.assertEqual(response[0].target, "2_/pricing")
-        self.assertEqual(response[0].value, 2)
+        assert response[0].source == "1_/", response
+        assert response[0].target == "2_/pricing"
+        assert response[0].value == 2
 
-        self.assertEqual(response[1].source, "1_/")
-        self.assertEqual(response[1].target, "2_/about")
-        self.assertEqual(response[1].value, 1)
+        assert response[1].source == "1_/"
+        assert response[1].target == "2_/about"
+        assert response[1].value == 1
 
-        self.assertEqual(response[2].source, "1_/pricing")
-        self.assertEqual(response[2].target, "2_/")
-        self.assertEqual(response[2].value, 1)
+        assert response[2].source == "1_/pricing"
+        assert response[2].target == "2_/"
+        assert response[2].value == 1
 
-        self.assertEqual(response[3].source, "2_/pricing", response[3])
-        self.assertEqual(response[3].target, "3_/about")
-        self.assertEqual(response[3].value, 1)
+        assert response[3].source == "2_/pricing", response[3]
+        assert response[3].target == "3_/about"
+        assert response[3].value == 1
 
         with freeze_time("2012-01-15T03:21:34.000Z"):
             date_from = now() - relativedelta(days=7)
@@ -191,7 +191,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ).run()
 
             assert hasattr(result, "results")
-            self.assertEqual(len(result.results), 4)
+            assert len(result.results) == 4
 
             date_to = now()
             result = PathsQueryRunner(
@@ -206,7 +206,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ).run()
 
             assert isinstance(result, CachedPathsQueryResponse)
-            self.assertEqual(len(result.results), 4)
+            assert len(result.results) == 4
 
             date_from = now() + relativedelta(days=7)
             result = PathsQueryRunner(
@@ -221,7 +221,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ).run()
 
             assert isinstance(result, CachedPathsQueryResponse)
-            self.assertEqual(len(result.results), 0)
+            assert len(result.results) == 0
 
             date_to = now() - relativedelta(days=7)
             result = PathsQueryRunner(
@@ -236,7 +236,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ).run()
 
             assert isinstance(result, CachedPathsQueryResponse)
-            self.assertEqual(len(result.results), 0)
+            assert len(result.results) == 0
 
             date_from = now() - relativedelta(days=7)
             date_to = now() + relativedelta(days=7)
@@ -253,7 +253,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
             assert isinstance(result, CachedPathsQueryResponse)
-            self.assertEqual(len(result.results), 4)
+            assert len(result.results) == 4
 
             # Test account filter
             result = PathsQueryRunner(
@@ -270,7 +270,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ).run()
 
             assert isinstance(result, CachedPathsQueryResponse)
-            self.assertEqual(len(result.results), 3)
+            assert len(result.results) == 3
 
             date_from = now() + relativedelta(days=7)
             date_to = now() - relativedelta(days=7)
@@ -287,7 +287,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ).run()
 
             assert isinstance(result, CachedPathsQueryResponse)
-            self.assertEqual(len(result.results), 0)
+            assert len(result.results) == 0
 
     def test_custom_event_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -388,21 +388,21 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
-        self.assertEqual(response[0].source, "1_custom_event_1", response)
-        self.assertEqual(response[0].target, "2_custom_event_2")
-        self.assertEqual(response[0].value, 2)
+        assert response[0].source == "1_custom_event_1", response
+        assert response[0].target == "2_custom_event_2"
+        assert response[0].value == 2
 
-        self.assertEqual(response[1].source, "1_custom_event_1")
-        self.assertEqual(response[1].target, "2_custom_event_3")
-        self.assertEqual(response[1].value, 1)
+        assert response[1].source == "1_custom_event_1"
+        assert response[1].target == "2_custom_event_3"
+        assert response[1].value == 1
 
-        self.assertEqual(response[2].source, "1_custom_event_2")
-        self.assertEqual(response[2].target, "2_custom_event_1")
-        self.assertEqual(response[2].value, 1)
+        assert response[2].source == "1_custom_event_2"
+        assert response[2].target == "2_custom_event_1"
+        assert response[2].value == 1
 
-        self.assertEqual(response[3].source, "2_custom_event_2", response[3])
-        self.assertEqual(response[3].target, "3_custom_event_3")
-        self.assertEqual(response[3].value, 1)
+        assert response[3].source == "2_custom_event_2", response[3]
+        assert response[3].target == "3_custom_event_3"
+        assert response[3].value == 1
 
     def test_custom_hogql_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -504,21 +504,21 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
-        self.assertEqual(response[0].source, "1_custom_event_1!", response)
-        self.assertEqual(response[0].target, "2_custom_event_2!")
-        self.assertEqual(response[0].value, 2)
+        assert response[0].source == "1_custom_event_1!", response
+        assert response[0].target == "2_custom_event_2!"
+        assert response[0].value == 2
 
-        self.assertEqual(response[1].source, "1_custom_event_1!")
-        self.assertEqual(response[1].target, "2_custom_event_3!")
-        self.assertEqual(response[1].value, 1)
+        assert response[1].source == "1_custom_event_1!"
+        assert response[1].target == "2_custom_event_3!"
+        assert response[1].value == 1
 
-        self.assertEqual(response[2].source, "1_custom_event_2!")
-        self.assertEqual(response[2].target, "2_custom_event_1!")
-        self.assertEqual(response[2].value, 1)
+        assert response[2].source == "1_custom_event_2!"
+        assert response[2].target == "2_custom_event_1!"
+        assert response[2].value == 1
 
-        self.assertEqual(response[3].source, "2_custom_event_2!", response[3])
-        self.assertEqual(response[3].target, "3_custom_event_3!")
-        self.assertEqual(response[3].value, 1)
+        assert response[3].source == "2_custom_event_2!", response[3]
+        assert response[3].target == "3_custom_event_3!"
+        assert response[3].value == 1
 
     def test_screen_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -611,21 +611,21 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
-        self.assertEqual(response[0].source, "1_/", response)
-        self.assertEqual(response[0].target, "2_/pricing")
-        self.assertEqual(response[0].value, 2)
+        assert response[0].source == "1_/", response
+        assert response[0].target == "2_/pricing"
+        assert response[0].value == 2
 
-        self.assertEqual(response[1].source, "1_/")
-        self.assertEqual(response[1].target, "2_/about")
-        self.assertEqual(response[1].value, 1)
+        assert response[1].source == "1_/"
+        assert response[1].target == "2_/about"
+        assert response[1].value == 1
 
-        self.assertEqual(response[2].source, "1_/pricing")
-        self.assertEqual(response[2].target, "2_/")
-        self.assertEqual(response[2].value, 1)
+        assert response[2].source == "1_/pricing"
+        assert response[2].target == "2_/"
+        assert response[2].value == 1
 
-        self.assertEqual(response[3].source, "2_/pricing", response[3])
-        self.assertEqual(response[3].target, "3_/about")
-        self.assertEqual(response[3].value, 1)
+        assert response[3].source == "2_/pricing", response[3]
+        assert response[3].target == "3_/about"
+        assert response[3].value == 1
 
     def test_paths_properties_filter(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -732,17 +732,17 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
-        self.assertEqual(response[0].source, "1_/")
-        self.assertEqual(response[0].target, "2_/about")
-        self.assertEqual(response[0].value, 1)
+        assert response[0].source == "1_/"
+        assert response[0].target == "2_/about"
+        assert response[0].value == 1
 
-        self.assertEqual(response[1].source, "1_/")
-        self.assertEqual(response[1].target, "2_/pricing")
-        self.assertEqual(response[1].value, 1)
+        assert response[1].source == "1_/"
+        assert response[1].target == "2_/pricing"
+        assert response[1].value == 1
 
-        self.assertEqual(response[2].source, "2_/pricing")
-        self.assertEqual(response[2].target, "3_/about")
-        self.assertEqual(response[2].value, 1)
+        assert response[2].source == "2_/pricing"
+        assert response[2].target == "3_/about"
+        assert response[2].value == 1
 
     def test_paths_start(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -876,17 +876,13 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
-        self.assertEqual(len(response), 5)
+        assert len(response) == 5
 
-        self.assertTrue(
-            response[0].dict().items() >= {"source": "1_/pricing", "target": "2_/about", "value": 2}.items()
-        )
-        self.assertTrue(response[1].dict().items() >= {"source": "1_/pricing", "target": "2_/", "value": 1}.items())
-        self.assertTrue(response[2].dict().items() >= {"source": "2_/", "target": "3_/about", "value": 1}.items())
-        self.assertTrue(
-            response[3].dict().items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items()
-        )
-        self.assertTrue(response[4].dict().items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
+        assert response[0].dict().items() >= {"source": "1_/pricing", "target": "2_/about", "value": 2}.items()
+        assert response[1].dict().items() >= {"source": "1_/pricing", "target": "2_/", "value": 1}.items()
+        assert response[2].dict().items() >= {"source": "2_/", "target": "3_/about", "value": 1}.items()
+        assert response[3].dict().items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items()
+        assert response[4].dict().items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items()
 
         # ensure trailing slashes make no difference
         result = PathsQueryRunner(
@@ -902,17 +898,13 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        self.assertEqual(len(response), 5)
+        assert len(response) == 5
 
-        self.assertTrue(
-            response[0].dict().items() >= {"source": "1_/pricing", "target": "2_/about", "value": 2}.items()
-        )
-        self.assertTrue(response[1].dict().items() >= {"source": "1_/pricing", "target": "2_/", "value": 1}.items())
-        self.assertTrue(response[2].dict().items() >= {"source": "2_/", "target": "3_/about", "value": 1}.items())
-        self.assertTrue(
-            response[3].dict().items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items()
-        )
-        self.assertTrue(response[4].dict().items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
+        assert response[0].dict().items() >= {"source": "1_/pricing", "target": "2_/about", "value": 2}.items()
+        assert response[1].dict().items() >= {"source": "1_/pricing", "target": "2_/", "value": 1}.items()
+        assert response[2].dict().items() >= {"source": "2_/", "target": "3_/about", "value": 1}.items()
+        assert response[3].dict().items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items()
+        assert response[4].dict().items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items()
 
         result = PathsQueryRunner(
             query={
@@ -927,13 +919,11 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        self.assertEqual(len(response), 3)
+        assert len(response) == 3
 
-        self.assertTrue(response[0].dict().items() >= {"source": "1_/", "target": "2_/about", "value": 2}.items())
-        self.assertTrue(response[1].dict().items() >= {"source": "1_/", "target": "2_/pricing", "value": 2}.items())
-        self.assertTrue(
-            response[2].dict().items() >= {"source": "2_/pricing", "target": "3_/about", "value": 1}.items()
-        )
+        assert response[0].dict().items() >= {"source": "1_/", "target": "2_/about", "value": 2}.items()
+        assert response[1].dict().items() >= {"source": "1_/", "target": "2_/pricing", "value": 2}.items()
+        assert response[2].dict().items() >= {"source": "2_/pricing", "target": "3_/about", "value": 1}.items()
 
     @parameterized.expand(
         [
@@ -972,7 +962,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).run()
         assert isinstance(baseline, CachedPathsQueryResponse)
-        self.assertGreater(len(baseline.results), 0)
+        assert len(baseline.results) > 0
 
         with_trailing_slashes = PathsQueryRunner(
             query={
@@ -986,7 +976,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
         assert isinstance(with_trailing_slashes, CachedPathsQueryResponse)
 
-        self.assertEqual(with_trailing_slashes.results, baseline.results)
+        assert with_trailing_slashes.results == baseline.results
 
     def test_paths_in_window(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -1043,9 +1033,9 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, CachedPathsQueryResponse)
         response = result.results
 
-        self.assertEqual(response[0].source, "1_/")
-        self.assertEqual(response[0].target, "2_/about")
-        self.assertEqual(response[0].value, 2)
+        assert response[0].source == "1_/"
+        assert response[0].target == "2_/about"
+        assert response[0].value == 2
 
     @freeze_time("2012-01-15T03:21:34.000Z")
     def test_path_replacements_none_does_not_apply_team_cleaning(self):

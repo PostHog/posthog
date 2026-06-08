@@ -22,10 +22,10 @@ class TestExperimentErrorHandling(BaseTest):
         error = ClickHouseQueryMemoryLimitExceeded()
         message = get_user_friendly_message(error)
 
-        self.assertIsNotNone(message)
-        self.assertEqual(
-            message,
-            "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
+        assert message is not None
+        assert (
+            message
+            == "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help."
         )
 
     def test_get_user_friendly_message_for_unmapped_error(self):
@@ -33,7 +33,7 @@ class TestExperimentErrorHandling(BaseTest):
         error = RuntimeError("Some unexpected error")
         message = get_user_friendly_message(error)
 
-        self.assertIsNone(message)
+        assert message is None
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_converts_memory_limit_exception(self, mock_capture):
@@ -55,26 +55,26 @@ class TestExperimentErrorHandling(BaseTest):
             failing_method(mock_self)
 
         # ValidationError.detail can be a list or dict, check it's a list first
-        self.assertIsInstance(context.exception.detail, list)
+        assert isinstance(context.exception.detail, list)
 
         # Cast to list for type checker
         detail_list = cast(list[ErrorDetail], context.exception.detail)
 
-        self.assertEqual(
-            str(detail_list[0]),
-            "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
+        assert (
+            str(detail_list[0])
+            == "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help."
         )
         # Verify error code is set correctly
         # In DRF, the code is stored in the ErrorDetail object, not directly on the exception
-        self.assertIsInstance(detail_list[0], ErrorDetail)
-        self.assertEqual(detail_list[0].code, "memory_limit_exceeded")
+        assert isinstance(detail_list[0], ErrorDetail)
+        assert detail_list[0].code == "memory_limit_exceeded"
 
         # Verify exception was captured with correct properties
         mock_capture.assert_called_once()
         call_args = mock_capture.call_args
-        self.assertIsInstance(call_args[0][0], ClickHouseQueryMemoryLimitExceeded)
-        self.assertEqual(call_args[1]["additional_properties"]["experiment_id"], 123)
-        self.assertEqual(call_args[1]["additional_properties"]["query_runner"], "Mock")
+        assert isinstance(call_args[0][0], ClickHouseQueryMemoryLimitExceeded)
+        assert call_args[1]["additional_properties"]["experiment_id"] == 123
+        assert call_args[1]["additional_properties"]["query_runner"] == "Mock"
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_captures_query_runner_name(self, mock_capture):
@@ -97,8 +97,8 @@ class TestExperimentErrorHandling(BaseTest):
 
         mock_capture.assert_called_once()
         additional_props = mock_capture.call_args[1]["additional_properties"]
-        self.assertEqual(additional_props["query_runner"], "ExperimentExposuresQueryRunner")
-        self.assertEqual(additional_props["experiment_id"], 456)
+        assert additional_props["query_runner"] == "ExperimentExposuresQueryRunner"
+        assert additional_props["experiment_id"] == 456
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_does_not_convert_for_non_user_facing(self, mock_capture):
@@ -122,5 +122,5 @@ class TestExperimentErrorHandling(BaseTest):
 
     def test_error_type_to_code_mapping(self):
         """Test that ClickHouseQueryMemoryLimitExceeded has a code mapping."""
-        self.assertIn(ClickHouseQueryMemoryLimitExceeded, ERROR_TYPE_TO_CODE)
-        self.assertEqual(ERROR_TYPE_TO_CODE[ClickHouseQueryMemoryLimitExceeded], "memory_limit_exceeded")
+        assert ClickHouseQueryMemoryLimitExceeded in ERROR_TYPE_TO_CODE
+        assert ERROR_TYPE_TO_CODE[ClickHouseQueryMemoryLimitExceeded] == "memory_limit_exceeded"

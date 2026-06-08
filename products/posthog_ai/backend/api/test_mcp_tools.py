@@ -14,7 +14,7 @@ class TestMCPToolsAPI(APIBaseTest):
             {"args": {"query": "SELECT 1"}},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_cannot_access_other_organization_team(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -25,7 +25,7 @@ class TestMCPToolsAPI(APIBaseTest):
             {"args": {"query": "SELECT 1"}},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_invoke_tool_not_found(self):
         response = self.client.post(
@@ -34,10 +34,10 @@ class TestMCPToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertIn("not found", data["content"])
+        assert not data["success"]
+        assert "not found" in data["content"]
 
     def test_invoke_execute_sql_with_invalid_args(self):
         response = self.client.post(
@@ -46,10 +46,10 @@ class TestMCPToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertIn("validation error", data["content"].lower())
+        assert not data["success"]
+        assert "validation error" in data["content"].lower()
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_execute_sql_success(self, mock_execute):
@@ -61,10 +61,10 @@ class TestMCPToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertTrue(data["success"])
-        self.assertIn("test_event", data["content"])
+        assert data["success"]
+        assert "test_event" in data["content"]
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
@@ -79,10 +79,10 @@ class TestMCPToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertIn("Tool failed", data["content"])
+        assert not data["success"]
+        assert "Tool failed" in data["content"]
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
@@ -94,10 +94,10 @@ class TestMCPToolsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertIn("internal error", data["content"].lower())
+        assert not data["success"]
+        assert "internal error" in data["content"].lower()
 
 
 class TestDocsSearchAction(APIBaseTest):
@@ -110,11 +110,11 @@ class TestDocsSearchAction(APIBaseTest):
     def test_unauthenticated_request(self):
         self.client.logout()
         response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_missing_query_field_returns_validation_error(self):
         response = self.client.post(self.URL, {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
     def test_docs_search_returns_formatted_content(self, mock_run):
@@ -125,10 +125,10 @@ class TestDocsSearchAction(APIBaseTest):
         with override_settings(INKEEP_API_KEY="test-key"):
             response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self.assertIn("Feature Flags", body["content"])
-        self.assertNotIn("<system_reminder>", body["content"])
+        assert "Feature Flags" in body["content"]
+        assert "<system_reminder>" not in body["content"]
         mock_run.assert_called_once()
 
     def test_docs_search_unavailable_when_key_missing(self):
@@ -137,7 +137,7 @@ class TestDocsSearchAction(APIBaseTest):
         with override_settings(INKEEP_API_KEY=""):
             response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
     def test_docs_search_unexpected_error_returns_500(self, mock_run):
@@ -148,5 +148,5 @@ class TestDocsSearchAction(APIBaseTest):
         with override_settings(INKEEP_API_KEY="test-key"):
             response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertIn("internal error", response.json()["content"].lower())
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "internal error" in response.json()["content"].lower()

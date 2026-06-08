@@ -28,7 +28,7 @@ class TestChangesBetweenPersons(unittest.TestCase):
                 properties={"a": "c"},
             ),
         )
-        self.assertEqual([change.field for change in actual], ["properties"])
+        assert [change.field for change in actual] == ["properties"]
 
     @staticmethod
     def _a_person_with(**kwargs) -> Person:

@@ -11,14 +11,8 @@ class TestUserHomeSettingsAPI(APIBaseTest):
     def test_retrieve_empty_settings(self):
         response = self.client.get("/api/user_home_settings/@me/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "tabs": [],
-                "homepage": None,
-            },
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"tabs": [], "homepage": None}
 
     def test_update_tabs_and_homepage(self):
         payload = {
@@ -50,7 +44,7 @@ class TestUserHomeSettingsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tabs_payload = cast(list[dict[str, Any]], payload["tabs"])
         expected_tab = {k: v for k, v in tabs_payload[0].items() if k != "active"}
         expected_tab["pinned"] = True
@@ -58,26 +52,20 @@ class TestUserHomeSettingsAPI(APIBaseTest):
         expected_homepage = {k: v for k, v in homepage_payload.items() if k != "active"}
         expected_homepage["pinned"] = True
 
-        self.assertEqual(
-            response.json(),
-            {
-                "tabs": [expected_tab],
-                "homepage": expected_homepage,
-            },
-        )
+        assert response.json() == {"tabs": [expected_tab], "homepage": expected_homepage}
 
         stored = UserHomeSettings.objects.get(user=self.user, team=self.team)
-        self.assertEqual(len(stored.tabs), 1)
+        assert len(stored.tabs) == 1
         stored_tab = cast(dict[str, Any], stored.tabs[0])
-        self.assertEqual(stored_tab["id"], "tab-1")
-        self.assertEqual(stored_tab["pinned"], True)
-        self.assertNotIn("active", stored_tab)
-        self.assertIsNotNone(stored.homepage)
+        assert stored_tab["id"] == "tab-1"
+        assert stored_tab["pinned"]
+        assert "active" not in stored_tab
+        assert stored.homepage is not None
         homepage = cast(dict[str, Any], stored.homepage)
-        self.assertEqual(homepage["id"], "home-1")
-        self.assertEqual(homepage["pinned"], True)
+        assert homepage["id"] == "home-1"
+        assert homepage["pinned"]
 
-        self.assertFalse(UserHomeSettings.objects.filter(user=None, team=self.team).exists())
+        assert not UserHomeSettings.objects.filter(user=None, team=self.team).exists()
 
     def test_homepage_can_be_cleared(self):
         instance = UserHomeSettings.objects.create(
@@ -93,6 +81,6 @@ class TestUserHomeSettingsAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         instance.refresh_from_db()
-        self.assertIsNone(instance.homepage)
+        assert instance.homepage is None

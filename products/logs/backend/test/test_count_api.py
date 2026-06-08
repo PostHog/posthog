@@ -32,7 +32,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
 
     def _count(self, query_params, expected_status=status.HTTP_200_OK):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/count", data={"query": query_params})
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
         return response.json() if expected_status == status.HTTP_200_OK else response
 
     @parameterized.expand(
@@ -44,7 +44,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-18T12:00:00Z")
     def test_count_date_range(self, _name, date_range, expected):
         response = self._count({"dateRange": date_range})
-        self.assertEqual(response["count"], expected)
+        assert response["count"] == expected
 
     @parameterized.expand(
         [
@@ -57,7 +57,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-18T12:00:00Z")
     def test_count_severity_filter(self, severities, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "severityLevels": severities})
-        self.assertEqual(response["count"], expected)
+        assert response["count"] == expected
 
     @parameterized.expand(
         [
@@ -70,19 +70,19 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-18T12:00:00Z")
     def test_count_service_filter(self, services, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "serviceNames": services})
-        self.assertEqual(response["count"], expected)
+        assert response["count"] == expected
 
     @freeze_time("2025-12-18T12:00:00Z")
     def test_count_search_term_matches_body_text(self):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "searchTerm": "connection refused"})
-        self.assertEqual(response["count"], 1)
+        assert response["count"] == 1
 
     @freeze_time("2025-12-18T12:00:00Z")
     def test_count_defaults_date_range_to_last_hour(self):
         # No dateRange in request; default should be -1h relative to frozen "now".
         # Fixture's latest timestamp is 2025-12-18T02:00Z — outside the last hour.
         response = self._count({})
-        self.assertEqual(response["count"], 0)
+        assert response["count"] == 0
 
     @parameterized.expand(
         [
@@ -114,7 +114,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/logs/sparkline",
             data={"query": params},
         )
-        self.assertEqual(sparkline_response.status_code, status.HTTP_200_OK)
+        assert sparkline_response.status_code == status.HTTP_200_OK
 
         sparkline_sum = sum(bucket["count"] for bucket in sparkline_response.json())
-        self.assertEqual(count_result["count"], sparkline_sum)
+        assert count_result["count"] == sparkline_sum

@@ -46,11 +46,11 @@ class TestNodeViewSet(APIBaseTest):
     def test_list_nodes(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
         names = {node["name"] for node in response.json()["results"]}
-        self.assertEqual(names, {"events", "test_view"})
+        assert names == {"events", "test_view"}
 
     def test_list_nodes_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -64,23 +64,23 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_get_node(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "test_view")
-        self.assertEqual(response.json()["type"], "view")
-        self.assertEqual(response.json()["dag"], str(self.dag.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "test_view"
+        assert response.json()["type"] == "view"
+        assert response.json()["dag"] == str(self.dag.id)
 
     def test_get_node_includes_upstream_downstream_counts(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["upstream_count"], 0)
-        self.assertEqual(response.json()["downstream_count"], 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["upstream_count"] == 0
+        assert response.json()["downstream_count"] == 0
 
     def test_list_nodes_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
@@ -93,9 +93,9 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/?dag={another_dag.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "another_table")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "another_table"
 
     def test_list_nodes_without_dag_filter_returns_all(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
@@ -108,14 +108,14 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 3
 
     def test_node_response_includes_dag_name(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dag_name"], self.dag_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["dag_name"] == self.dag_id
 
     def test_dag_ids_action(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
@@ -128,9 +128,9 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/dag_ids/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         dag_names = {d["name"] for d in response.json()["dag_ids"]}
-        self.assertEqual(dag_names, {"another_dag", self.dag_id})
+        assert dag_names == {"another_dag", self.dag_id}
 
     def test_run_requires_direction(self):
         response = self.client.post(
@@ -138,8 +138,8 @@ class TestNodeViewSet(APIBaseTest):
             {},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("direction", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "direction" in response.json()["error"]
 
     def test_run_rejects_invalid_direction(self):
         response = self.client.post(
@@ -147,7 +147,7 @@ class TestNodeViewSet(APIBaseTest):
             {"direction": "invalid"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_run_rejects_table_nodes(self):
         response = self.client.post(
@@ -155,8 +155,8 @@ class TestNodeViewSet(APIBaseTest):
             {"direction": "upstream"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("table", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "table" in response.json()["error"].lower()
 
     @patch("products.data_modeling.backend.api.node.sync_connect")
     def test_run_upstream_starts_workflow(self, mock_sync_connect):
@@ -168,8 +168,8 @@ class TestNodeViewSet(APIBaseTest):
             {"direction": "upstream"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn(str(self.view_node.id), response.json()["node_ids"])
+        assert response.status_code == status.HTTP_200_OK
+        assert str(self.view_node.id) in response.json()["node_ids"]
         mock_client.start_workflow.assert_called_once()
 
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -182,7 +182,7 @@ class TestNodeViewSet(APIBaseTest):
             {"direction": "downstream"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_client.start_workflow.assert_called_once()
 
     def test_materialize_rejects_table_nodes(self):
@@ -190,8 +190,8 @@ class TestNodeViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.table_node.id}/materialize/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("table", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "table" in response.json()["error"].lower()
 
     @patch("products.data_modeling.backend.api.node.sync_connect")
     def test_materialize_starts_workflow(self, mock_sync_connect):
@@ -202,7 +202,7 @@ class TestNodeViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_client.start_workflow.assert_called_once()
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=True)
@@ -216,9 +216,9 @@ class TestNodeViewSet(APIBaseTest):
             {"direction": "upstream"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "data-modeling-execute-dag")
+        assert call_args[0][0] == "data-modeling-execute-dag"
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -231,9 +231,9 @@ class TestNodeViewSet(APIBaseTest):
             {"direction": "upstream"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "data-modeling-run")
+        assert call_args[0][0] == "data-modeling-run"
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -245,9 +245,9 @@ class TestNodeViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
+        assert call_args[0][0] == "data-modeling-materialize-view"
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -259,19 +259,19 @@ class TestNodeViewSet(APIBaseTest):
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "data-modeling-run")
+        assert call_args[0][0] == "data-modeling-run"
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         node_ids = {n["id"] for n in response.json()["nodes"]}
-        self.assertIn(str(self.view_node.id), node_ids)
-        self.assertIn(str(self.table_node.id), node_ids)
+        assert str(self.view_node.id) in node_ids
+        assert str(self.table_node.id) in node_ids
         edge_source_ids = {e["source_id"] for e in response.json()["edges"]}
-        self.assertIn(str(self.table_node.id), edge_source_ids)
+        assert str(self.table_node.id) in edge_source_ids
 
     def test_lineage_multi_level(self):
         sq_b = DataWarehouseSavedQuery.objects.create(
@@ -299,12 +299,12 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{view_b.id}/lineage/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         node_ids = {n["id"] for n in response.json()["nodes"]}
-        self.assertIn(str(self.table_node.id), node_ids)
-        self.assertIn(str(self.view_node.id), node_ids)
-        self.assertIn(str(view_b.id), node_ids)
-        self.assertIn(str(view_c.id), node_ids)
+        assert str(self.table_node.id) in node_ids
+        assert str(self.view_node.id) in node_ids
+        assert str(view_b.id) in node_ids
+        assert str(view_c.id) in node_ids
 
     def test_lineage_no_dependencies(self):
         sq_standalone = DataWarehouseSavedQuery.objects.create(
@@ -320,10 +320,10 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{standalone.id}/lineage/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["nodes"]), 1)
-        self.assertEqual(response.json()["nodes"][0]["id"], str(standalone.id))
-        self.assertEqual(len(response.json()["edges"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["nodes"]) == 1
+        assert response.json()["nodes"][0]["id"] == str(standalone.id)
+        assert len(response.json()["edges"]) == 0
 
     def test_lineage_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -353,10 +353,10 @@ class TestNodeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         node_ids = {n["id"] for n in response.json()["nodes"]}
-        self.assertNotIn(str(other_table.id), node_ids)
-        self.assertNotIn(str(other_view.id), node_ids)
+        assert str(other_table.id) not in node_ids
+        assert str(other_view.id) not in node_ids
 
     @parameterized.expand(["post", "put", "patch"])
     def test_dag_field_rejects_other_teams_dag(self, method):
@@ -369,8 +369,8 @@ class TestNodeViewSet(APIBaseTest):
                 data={"name": "new_table", "type": NodeType.TABLE, "dag": str(foreign_dag.id)},
                 format="json",
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="new_table", dag=foreign_dag).exists())
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert not Node.objects.filter(name="new_table", dag=foreign_dag).exists()
             return
 
         original_dag_id = self.view_node.dag_id
@@ -384,9 +384,9 @@ class TestNodeViewSet(APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.dag_id, original_dag_id)
+        assert self.view_node.dag_id == original_dag_id
 
     @parameterized.expand(["put", "patch"])
     def test_saved_query_id_cannot_be_bound_to_other_teams_query(self, method):
@@ -414,8 +414,8 @@ class TestNodeViewSet(APIBaseTest):
             )
 
         self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
-        self.assertNotEqual(self.view_node.name, foreign_sq.name)
+        assert self.view_node.saved_query_id == original_saved_query_id
+        assert self.view_node.name != foreign_sq.name
 
 
 class TestEdgeViewSet(APIBaseTest):
@@ -454,13 +454,13 @@ class TestEdgeViewSet(APIBaseTest):
     def test_list_edges(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
         edge = response.json()["results"][0]
-        self.assertEqual(edge["source_id"], str(self.source_node.id))
-        self.assertEqual(edge["target_id"], str(self.target_node.id))
-        self.assertEqual(edge["dag"], str(self.dag.id))
+        assert edge["source_id"] == str(self.source_node.id)
+        assert edge["target_id"] == str(self.target_node.id)
+        assert edge["dag"] == str(self.dag.id)
 
     def test_list_edges_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
@@ -485,15 +485,15 @@ class TestEdgeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/?dag={another_dag.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["source_id"], str(another_source.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["source_id"] == str(another_source.id)
 
     def test_edge_response_includes_dag_name(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"][0]["dag_name"], self.dag_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["dag_name"] == self.dag_id
 
     def test_list_edges_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -519,5 +519,5 @@ class TestEdgeViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1

@@ -43,10 +43,10 @@ class TestArtifactManagerCreateMessage(BaseTest):
         artifact_id = "abc123"
         message = self.manager.create_message(artifact_id)
 
-        self.assertEqual(message.artifact_id, artifact_id)
-        self.assertEqual(message.source, ArtifactSource.ARTIFACT)
-        self.assertEqual(message.content_type, ArtifactContentType.VISUALIZATION)
-        self.assertIsNotNone(message.id)
+        assert message.artifact_id == artifact_id
+        assert message.source == ArtifactSource.ARTIFACT
+        assert message.content_type == ArtifactContentType.VISUALIZATION
+        assert message.id is not None
 
 
 class TestArtifactManagerCreate(BaseTest):
@@ -64,7 +64,7 @@ class TestArtifactManagerCreate(BaseTest):
         with self.assertRaises(ValueError) as ctx:
             await manager.acreate(content, "Test Artifact")
 
-        self.assertIn("Config is required", str(ctx.exception))
+        assert "Config is required" in str(ctx.exception)
 
     async def test_creates_artifact_persists_to_database(self):
         config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
@@ -77,12 +77,12 @@ class TestArtifactManagerCreate(BaseTest):
 
         artifact = await manager.acreate(content, "Test Artifact")
 
-        self.assertIsNotNone(artifact.id)
-        self.assertEqual(artifact.name, "Test Artifact")
-        self.assertEqual(artifact.type, AgentArtifact.Type.VISUALIZATION)
-        self.assertEqual(artifact.team_id, self.team.id)
-        self.assertEqual(artifact.conversation_id, self.conversation.id)
-        self.assertEqual(artifact.data["name"], "Chart Name")
+        assert artifact.id is not None
+        assert artifact.name == "Test Artifact"
+        assert artifact.type == AgentArtifact.Type.VISUALIZATION
+        assert artifact.team_id == self.team.id
+        assert artifact.conversation_id == self.conversation.id
+        assert artifact.data["name"] == "Chart Name"
 
     async def test_creates_artifact_truncates_long_name(self):
         config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
@@ -92,7 +92,7 @@ class TestArtifactManagerCreate(BaseTest):
 
         artifact = await manager.acreate(content, long_name)
 
-        self.assertEqual(len(artifact.name), 400)
+        assert len(artifact.name) == 400
 
     def test_creates_notebook_artifact_with_correct_type(self):
         config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
@@ -101,10 +101,10 @@ class TestArtifactManagerCreate(BaseTest):
 
         artifact = async_to_sync(manager.acreate)(content, "Test Notebook")
 
-        self.assertIsNotNone(artifact.id)
-        self.assertEqual(artifact.name, "Test Notebook")
-        self.assertEqual(artifact.type, AgentArtifact.Type.NOTEBOOK)
-        self.assertEqual(artifact.data["blocks"], [])
+        assert artifact.id is not None
+        assert artifact.name == "Test Notebook"
+        assert artifact.type == AgentArtifact.Type.NOTEBOOK
+        assert artifact.data["blocks"] == []
 
 
 class TestArtifactManagerGetContentByShortId(BaseTest):
@@ -124,7 +124,7 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
 
         content = await self.manager.aget(artifact.short_id, VisualizationArtifactContent)
 
-        self.assertEqual(content.name, "Test")
+        assert content.name == "Test"
 
     async def test_raises_when_artifact_not_found(self):
         with self.assertRaises(AgentArtifact.DoesNotExist):
@@ -141,8 +141,8 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
 
         content = async_to_sync(self.manager.aget)(artifact.short_id, NotebookArtifactContent)
 
-        self.assertIsInstance(content, NotebookArtifactContent)
-        self.assertEqual(len(content.blocks), 1)
+        assert isinstance(content, NotebookArtifactContent)
+        assert len(content.blocks) == 1
 
     def test_retrieves_content_with_expected_type(self):
         artifact = AgentArtifact.objects.create(
@@ -155,8 +155,8 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
 
         content = async_to_sync(self.manager.aget)(artifact.short_id, VisualizationArtifactContent)
 
-        self.assertIsInstance(content, VisualizationArtifactContent)
-        self.assertEqual(content.name, "Test")
+        assert isinstance(content, VisualizationArtifactContent)
+        assert content.name == "Test"
 
     def test_raises_type_error_when_expected_type_mismatches(self):
         artifact = AgentArtifact.objects.create(
@@ -170,8 +170,8 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
         with self.assertRaises(TypeError) as ctx:
             async_to_sync(self.manager.aget)(artifact.short_id, NotebookArtifactContent)
 
-        self.assertIn("Expected content type=NotebookArtifactContent", str(ctx.exception))
-        self.assertIn("got content type=VisualizationArtifactContent", str(ctx.exception))
+        assert "Expected content type=NotebookArtifactContent" in str(ctx.exception)
+        assert "got content type=VisualizationArtifactContent" in str(ctx.exception)
 
 
 class TestArtifactManagerGetEnrichedMessage(BaseTest):
@@ -197,10 +197,10 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
 
         enriched = await self.manager.aenrich_message(message)
 
-        self.assertIsNotNone(enriched)
+        assert enriched is not None
         assert enriched is not None
         assert isinstance(enriched.content, VisualizationArtifactContent)
-        self.assertEqual(enriched.content.name, "Enriched")
+        assert enriched.content.name == "Enriched"
 
     async def test_enriches_state_source_message(self):
         viz_msg_id = str(uuid4())
@@ -219,11 +219,11 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
 
         enriched = await self.manager.aenrich_message(artifact_message, state_messages=[viz_message, artifact_message])
 
-        self.assertIsNotNone(enriched)
+        assert enriched is not None
         assert enriched is not None
         assert isinstance(enriched.content, VisualizationArtifactContent)
-        self.assertEqual(enriched.content.name, "Insight")
-        self.assertEqual(enriched.content.plan, "test plan")
+        assert enriched.content.name == "Insight"
+        assert enriched.content.plan == "test plan"
 
     async def test_state_source_without_state_messages_raises(self):
         message = ArtifactRefMessage(
@@ -236,7 +236,7 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
         with self.assertRaises(ValueError) as ctx:
             await self.manager.aenrich_message(message, state_messages=None)
 
-        self.assertIn("state_messages required", str(ctx.exception))
+        assert "state_messages required" in str(ctx.exception)
 
     async def test_returns_none_when_content_not_found(self):
         message = ArtifactRefMessage(
@@ -248,7 +248,7 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
 
         enriched = await self.manager.aenrich_message(message)
 
-        self.assertIsNone(enriched)
+        assert enriched is None
 
 
 class TestArtifactManagerGetContentsByMessageId(BaseTest):
@@ -291,13 +291,13 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
 
         contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
 
-        self.assertEqual(len(contents), 2)
+        assert len(contents) == 2
         content1 = contents[msg1_id]
         content2 = contents[msg2_id]
         assert isinstance(content1, VisualizationArtifactContent)
         assert isinstance(content2, VisualizationArtifactContent)
-        self.assertEqual(content1.name, "First")
-        self.assertEqual(content2.name, "Second")
+        assert content1.name == "First"
+        assert content2.name == "Second"
 
     async def test_extracts_content_from_state_visualization_messages(self):
         viz_id = str(uuid4())
@@ -321,11 +321,11 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
 
         contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
 
-        self.assertEqual(len(contents), 1)
+        assert len(contents) == 1
         content = contents[artifact_msg_id]
         assert isinstance(content, VisualizationArtifactContent)
-        self.assertEqual(content.name, "Insight")
-        self.assertEqual(content.plan, "state plan")
+        assert content.name == "Insight"
+        assert content.plan == "state plan"
 
     @parameterized.expand(
         [
@@ -384,12 +384,12 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
 
         contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
 
-        self.assertEqual(len(contents), 1)
+        assert len(contents) == 1
         content = contents[artifact_msg_id]
         assert isinstance(content, VisualizationArtifactContent)
         assert isinstance(content.query, expected_type)
-        self.assertEqual(content.name, "Insight")
-        self.assertEqual(content.plan, "test plan")
+        assert content.name == "Insight"
+        assert content.plan == "test plan"
 
 
 class TestArtifactManagerEnrichMessages(BaseTest):
@@ -416,11 +416,11 @@ class TestArtifactManagerEnrichMessages(BaseTest):
 
         enriched = await self.manager.aenrich_messages(messages)
 
-        self.assertEqual(len(enriched), 1)
+        assert len(enriched) == 1
         msg = enriched[0]
         assert isinstance(msg, ArtifactMessage)
         assert isinstance(msg.content, VisualizationArtifactContent)
-        self.assertEqual(msg.content.name, "Enriched")
+        assert msg.content.name == "Enriched"
 
     async def test_passes_through_non_artifact_messages(self):
         assistant_msg = AssistantMessage(id=str(uuid4()), content="Hello")
@@ -429,9 +429,9 @@ class TestArtifactManagerEnrichMessages(BaseTest):
 
         enriched = await self.manager.aenrich_messages(messages)
 
-        self.assertEqual(len(enriched), 2)
-        self.assertEqual(enriched[0], assistant_msg)
-        self.assertEqual(enriched[1], human_msg)
+        assert len(enriched) == 2
+        assert enriched[0] == assistant_msg
+        assert enriched[1] == human_msg
 
     async def test_filters_visualization_messages(self):
         viz_message = VisualizationMessage(
@@ -448,8 +448,8 @@ class TestArtifactManagerEnrichMessages(BaseTest):
 
         enriched = await self.manager.aenrich_messages(messages)
 
-        self.assertEqual(len(enriched), 1)
-        self.assertEqual(enriched[0], assistant_msg)
+        assert len(enriched) == 1
+        assert enriched[0] == assistant_msg
 
     async def test_artifacts_only_flag_filters_non_artifact_messages(self):
         artifact = await AgentArtifact.objects.acreate(
@@ -473,11 +473,11 @@ class TestArtifactManagerEnrichMessages(BaseTest):
 
         enriched = await self.manager.aenrich_messages(messages, artifacts_only=True)
 
-        self.assertEqual(len(enriched), 1)
+        assert len(enriched) == 1
         msg = enriched[0]
         assert isinstance(msg, ArtifactMessage)
         assert isinstance(msg.content, VisualizationArtifactContent)
-        self.assertEqual(msg.content.name, "Only")
+        assert msg.content.name == "Only"
 
     async def test_skips_artifact_messages_without_content(self):
         artifact_message = ArtifactRefMessage(
@@ -490,7 +490,7 @@ class TestArtifactManagerEnrichMessages(BaseTest):
 
         enriched = await self.manager.aenrich_messages(messages)
 
-        self.assertEqual(len(enriched), 0)
+        assert len(enriched) == 0
 
     async def test_fetches_paths_query_insight(self):
         from ee.hogai.artifacts.handlers import VisualizationHandler
@@ -511,9 +511,9 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         viz_handler = VisualizationHandler()
         results = await viz_handler._from_insights_with_models([insight.short_id], self.team)
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         content, _ = results[insight.short_id]
-        self.assertEqual(content.name, "Paths Insight")
+        assert content.name == "Paths Insight"
 
     async def test_skips_insight_with_invalid_query(self):
         from ee.hogai.artifacts.handlers import VisualizationHandler
@@ -533,7 +533,7 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         viz_handler = VisualizationHandler()
         results = await viz_handler._from_insights_with_models([insight.short_id], self.team)
 
-        self.assertEqual(len(results), 0)
+        assert len(results) == 0
 
 
 class TestArtifactManagerGetConversationArtifacts(BaseTest):
@@ -558,8 +558,8 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
 
         artifacts, total_count = await self.manager.aget_conversation_artifacts()
 
-        self.assertEqual(len(artifacts), 5)
-        self.assertEqual(total_count, 5)
+        assert len(artifacts) == 5
+        assert total_count == 5
 
     async def test_respects_limit(self):
         for i in range(5):
@@ -576,8 +576,8 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
 
         artifacts, total_count = await self.manager.aget_conversation_artifacts(limit=2)
 
-        self.assertEqual(len(artifacts), 2)
-        self.assertEqual(total_count, 5)
+        assert len(artifacts) == 2
+        assert total_count == 5
 
     async def test_respects_offset(self):
         for i in range(5):
@@ -594,8 +594,8 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
 
         artifacts, total_count = await self.manager.aget_conversation_artifacts(limit=2, offset=3)
 
-        self.assertEqual(len(artifacts), 2)
-        self.assertEqual(total_count, 5)
+        assert len(artifacts) == 2
+        assert total_count == 5
 
     async def test_offset_without_limit_returns_remaining(self):
         for i in range(5):
@@ -612,14 +612,14 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
 
         artifacts, total_count = await self.manager.aget_conversation_artifacts(offset=3)
 
-        self.assertEqual(len(artifacts), 2)
-        self.assertEqual(total_count, 5)
+        assert len(artifacts) == 2
+        assert total_count == 5
 
     async def test_returns_empty_for_no_artifacts(self):
         artifacts, total_count = await self.manager.aget_conversation_artifacts()
 
-        self.assertEqual(len(artifacts), 0)
-        self.assertEqual(total_count, 0)
+        assert len(artifacts) == 0
+        assert total_count == 0
 
     async def test_only_returns_artifacts_from_same_conversation(self):
         other_conversation = await Conversation.objects.acreate(user=self.user, team=self.team)
@@ -640,10 +640,10 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
 
         artifacts, total_count = await self.manager.aget_conversation_artifacts()
 
-        self.assertEqual(len(artifacts), 1)
-        self.assertEqual(total_count, 1)
+        assert len(artifacts) == 1
+        assert total_count == 1
         assert isinstance(artifacts[0].content, VisualizationArtifactContent)
-        self.assertEqual(artifacts[0].content.name, "Same")
+        assert artifacts[0].content.name == "Same"
 
 
 class TestArtifactManagerGetVisualizationWithSource(BaseTest):
@@ -667,12 +667,12 @@ class TestArtifactManagerGetVisualizationWithSource(BaseTest):
 
         result = await self.manager.aget_visualization([], insight.short_id)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(result.source, ArtifactSource.INSIGHT)
+        assert result is not None
+        assert result.source == ArtifactSource.INSIGHT
         assert isinstance(result.content, VisualizationArtifactContent)
-        self.assertEqual(result.content.name, "Lifecycle Insight")
-        self.assertEqual(result.content.description, "Test lifecycle insight")
+        assert result.content.name == "Lifecycle Insight"
+        assert result.content.description == "Test lifecycle insight"
         assert isinstance(result.content.query, AssistantLifecycleQuery)
 
     async def test_retrieves_visualizations_in_batch(self):
@@ -693,15 +693,15 @@ class TestArtifactManagerGetVisualizationWithSource(BaseTest):
         # Request in specific order
         results = await self.manager.aget_visualizations([], [insight2.short_id, insight1.short_id, "nonexistent"])
 
-        self.assertEqual(len(results), 3)
+        assert len(results) == 3
         # Results should match input order
         assert results[0] is not None
         assert results[1] is not None
         assert results[2] is None  # nonexistent
         assert isinstance(results[0].content, VisualizationArtifactContent)
         assert isinstance(results[1].content, VisualizationArtifactContent)
-        self.assertEqual(results[0].content.name, "Second Insight")
-        self.assertEqual(results[1].content.name, "First Insight")
+        assert results[0].content.name == "Second Insight"
+        assert results[1].content.name == "First Insight"
 
 
 class TestArtifactManagerUpdate(BaseTest):
@@ -726,9 +726,9 @@ class TestArtifactManagerUpdate(BaseTest):
 
         updated = await self.manager.aupdate(artifact.short_id, new_content)
 
-        self.assertEqual(updated.short_id, artifact.short_id)
-        self.assertEqual(updated.data["name"], "Updated Name")
-        self.assertEqual(updated.data["description"], "Updated description")
+        assert updated.short_id == artifact.short_id
+        assert updated.data["name"] == "Updated Name"
+        assert updated.data["description"] == "Updated description"
 
     async def test_raises_when_artifact_not_found(self):
         new_content = VisualizationArtifactContent(
@@ -739,7 +739,7 @@ class TestArtifactManagerUpdate(BaseTest):
         with self.assertRaises(ValueError) as ctx:
             await self.manager.aupdate("nonexistent", new_content)
 
-        self.assertIn("not found", str(ctx.exception))
+        assert "not found" in str(ctx.exception)
 
 
 class TestArtifactManagerGetContentsByArtifactId(BaseTest):
@@ -767,11 +767,11 @@ class TestArtifactManagerGetContentsByArtifactId(BaseTest):
 
         contents = await self.manager._aget_contents_by_id(messages, aggregate_by="artifact_id")
 
-        self.assertEqual(len(contents), 1)
-        self.assertIn(artifact.short_id, contents)
+        assert len(contents) == 1
+        assert artifact.short_id in contents
         content = contents[artifact.short_id]
         assert isinstance(content, VisualizationArtifactContent)
-        self.assertEqual(content.name, "Test")
+        assert content.name == "Test"
 
     async def test_filter_by_artifact_ids_filters_results(self):
         artifact1 = await AgentArtifact.objects.acreate(
@@ -809,9 +809,9 @@ class TestArtifactManagerGetContentsByArtifactId(BaseTest):
             filter_by_artifact_ids=[artifact1.short_id],
         )
 
-        self.assertEqual(len(contents), 1)
-        self.assertIn(artifact1.short_id, contents)
-        self.assertNotIn(artifact2.short_id, contents)
+        assert len(contents) == 1
+        assert artifact1.short_id in contents
+        assert artifact2.short_id not in contents
 
 
 class TestArtifactTypeRegistry(BaseTest):
@@ -824,11 +824,11 @@ class TestArtifactTypeRegistry(BaseTest):
 
         db_type = self.manager._get_db_type_for_content(content)
 
-        self.assertEqual(db_type, AgentArtifact.Type.VISUALIZATION)
+        assert db_type == AgentArtifact.Type.VISUALIZATION
 
     def test_get_db_type_for_notebook_content(self):
         content = StoredNotebookArtifactContent(blocks=[])
 
         db_type = self.manager._get_db_type_for_content(content)
 
-        self.assertEqual(db_type, AgentArtifact.Type.NOTEBOOK)
+        assert db_type == AgentArtifact.Type.NOTEBOOK

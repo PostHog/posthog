@@ -40,7 +40,7 @@ class TestDeleteDocument(APIBaseTest):
 
         mock_pandadoc_cls.assert_not_called()
         mock_storage.delete.assert_called_once()
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     # --- Unsigned (both paths) ---
 
@@ -57,7 +57,7 @@ class TestDeleteDocument(APIBaseTest):
 
         mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
         mock_storage.delete.assert_not_called()
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     @override_settings(OBJECT_STORAGE_ENABLED=True)
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
@@ -72,7 +72,7 @@ class TestDeleteDocument(APIBaseTest):
 
         delete_document(document)
 
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     @override_settings(OBJECT_STORAGE_ENABLED=True)
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
@@ -88,7 +88,7 @@ class TestDeleteDocument(APIBaseTest):
         with self.assertRaises(pandadoc_module.PandaDocError):
             delete_document(document, strict_pandadoc=True)
 
-        self.assertTrue(LegalDocument.objects.filter(id=document_id).exists())
+        assert LegalDocument.objects.filter(id=document_id).exists()
 
     @override_settings(OBJECT_STORAGE_ENABLED=True)
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
@@ -102,7 +102,7 @@ class TestDeleteDocument(APIBaseTest):
 
         delete_document(document)
 
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     @override_settings(OBJECT_STORAGE_ENABLED=False)
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")

@@ -87,9 +87,9 @@ class TestCreateToolClass(TestCallMCPServerTool):
         tool = await CallMCPServerTool.create_tool_class(
             team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
         )
-        self.assertEqual(tool._installations, [])
-        self.assertEqual(tool._allowed_server_urls, set())
-        self.assertIn("not available", tool.description.lower())
+        assert tool._installations == []
+        assert tool._allowed_server_urls == set()
+        assert "not available" in tool.description.lower()
 
     async def test_with_installations(self):
         await sync_to_async(self._install_server)(name="Linear", url="https://mcp.linear.app")
@@ -97,11 +97,11 @@ class TestCreateToolClass(TestCallMCPServerTool):
         tool = await CallMCPServerTool.create_tool_class(
             team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
         )
-        self.assertEqual(len(tool._installations), 2)
-        self.assertEqual(tool._allowed_server_urls, {"https://mcp.linear.app", "https://mcp.notion.so"})
-        self.assertIn("Linear", tool.description)
-        self.assertIn("Notion", tool.description)
-        self.assertIn("__list_tools__", tool.description)
+        assert len(tool._installations) == 2
+        assert tool._allowed_server_urls == {"https://mcp.linear.app", "https://mcp.notion.so"}
+        assert "Linear" in tool.description
+        assert "Notion" in tool.description
+        assert "__list_tools__" in tool.description
 
     async def test_only_sees_own_installations(self):
         from posthog.models import User
@@ -119,7 +119,7 @@ class TestCreateToolClass(TestCallMCPServerTool):
         tool = await CallMCPServerTool.create_tool_class(
             team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
         )
-        self.assertEqual(tool._installations, [])
+        assert tool._installations == []
 
 
 class TestAuthHeaders(TestCallMCPServerTool):
@@ -136,7 +136,7 @@ class TestAuthHeaders(TestCallMCPServerTool):
 
             MockClient.assert_called_once()
             _, kwargs = MockClient.call_args
-            self.assertEqual(kwargs["headers"], {"Authorization": "Bearer my-oauth-token"})
+            assert kwargs["headers"] == {"Authorization": "Bearer my-oauth-token"}
 
     async def test_api_key_sent_as_bearer_header(self):
         inst = {
@@ -155,7 +155,7 @@ class TestAuthHeaders(TestCallMCPServerTool):
             await tool._arun_impl(server_url="https://mcp.example.com", tool_name="__list_tools__")
 
             _, kwargs = MockClient.call_args
-            self.assertEqual(kwargs["headers"], {"Authorization": "Bearer my-api-key"})
+            assert kwargs["headers"] == {"Authorization": "Bearer my-api-key"}
 
     async def test_no_auth_sends_no_headers(self):
         inst = {
@@ -174,7 +174,7 @@ class TestAuthHeaders(TestCallMCPServerTool):
             await tool._arun_impl(server_url="https://mcp.example.com", tool_name="__list_tools__")
 
             _, kwargs = MockClient.call_args
-            self.assertIsNone(kwargs["headers"])
+            assert kwargs["headers"] is None
 
 
 class TestSSRFPrevention(TestCallMCPServerTool):
@@ -182,7 +182,7 @@ class TestSSRFPrevention(TestCallMCPServerTool):
         tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
         with self.assertRaises(MaxToolFatalError) as ctx:
             await tool._arun_impl(server_url="https://evil.com/mcp", tool_name="__list_tools__")
-        self.assertIn("not in the user's installed MCP servers", str(ctx.exception))
+        assert "not in the user's installed MCP servers" in str(ctx.exception)
 
     async def test_allows_installed_url(self):
         tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
@@ -190,7 +190,7 @@ class TestSSRFPrevention(TestCallMCPServerTool):
             MockClient.return_value = self._make_mock_client()
 
             result, artifact = await tool._arun_impl(server_url="https://mcp.linear.app", tool_name="__list_tools__")
-            self.assertIn("no tools available", result.lower())
+            assert "no tools available" in result.lower()
 
 
 class TestListTools(TestCallMCPServerTool):
@@ -217,11 +217,11 @@ class TestListTools(TestCallMCPServerTool):
             MockClient.return_value = mock_instance
 
             result, artifact = await tool._arun_impl(server_url="https://mcp.linear.app", tool_name="__list_tools__")
-            self.assertIn("create_issue", result)
-            self.assertIn("Create a new issue", result)
-            self.assertIn("title", result)
-            self.assertIn("(required)", result)
-            self.assertIsNone(artifact)
+            assert "create_issue" in result
+            assert "Create a new issue" in result
+            assert "title" in result
+            assert "(required)" in result
+            assert artifact is None
 
     async def test_list_tools_empty_server(self):
         tool = self._create_tool(installations=[{"display_name": "Empty", "url": "https://mcp.empty.com"}])
@@ -229,7 +229,7 @@ class TestListTools(TestCallMCPServerTool):
             MockClient.return_value = self._make_mock_client()
 
             result, _ = await tool._arun_impl(server_url="https://mcp.empty.com", tool_name="__list_tools__")
-            self.assertIn("no tools available", result.lower())
+            assert "no tools available" in result.lower()
 
 
 class TestCallTool(TestCallMCPServerTool):
@@ -245,8 +245,8 @@ class TestCallTool(TestCallMCPServerTool):
                 tool_name="create_issue",
                 arguments={"title": "Fix bug"},
             )
-            self.assertEqual(result, "Issue LIN-123 created successfully")
-            self.assertIsNone(artifact)
+            assert result == "Issue LIN-123 created successfully"
+            assert artifact is None
             mock_instance.call_tool.assert_called_once_with("create_issue", {"title": "Fix bug"})
 
     async def test_mcp_client_error_becomes_retryable(self):
@@ -259,7 +259,7 @@ class TestCallTool(TestCallMCPServerTool):
 
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url="https://mcp.linear.app", tool_name="create_issue", arguments={})
-            self.assertIn("MCP server error", str(ctx.exception))
+            assert "MCP server error" in str(ctx.exception)
 
     async def test_timeout_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Slow", "url": "https://mcp.slow.com"}])
@@ -272,7 +272,7 @@ class TestCallTool(TestCallMCPServerTool):
 
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url="https://mcp.slow.com", tool_name="some_tool", arguments={})
-            self.assertIn("timed out", str(ctx.exception))
+            assert "timed out" in str(ctx.exception)
 
     async def test_connect_error_becomes_retryable(self):
         tool = self._create_tool(installations=[{"display_name": "Down", "url": "https://mcp.down.com"}])
@@ -285,20 +285,20 @@ class TestCallTool(TestCallMCPServerTool):
 
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url="https://mcp.down.com", tool_name="some_tool", arguments={})
-            self.assertIn("Failed to connect", str(ctx.exception))
+            assert "Failed to connect" in str(ctx.exception)
 
 
 class TestGetInstallations(TestCallMCPServerTool):
     def test_returns_installed_servers(self):
         self._install_server(name="Linear", url="https://mcp.linear.app")
         result = _get_installations(self.team, self.user)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["display_name"], "Linear")
-        self.assertEqual(result[0]["url"], "https://mcp.linear.app")
+        assert len(result) == 1
+        assert result[0]["display_name"] == "Linear"
+        assert result[0]["url"] == "https://mcp.linear.app"
 
     def test_returns_empty_when_none_installed(self):
         result = _get_installations(self.team, self.user)
-        self.assertEqual(result, [])
+        assert result == []
 
 
 def _make_oauth_installation(
@@ -351,7 +351,7 @@ class TestIsTokenExpiring(TestCallMCPServerTool):
             sensitive["token_retrieved_at"] = token_retrieved_at
         if expires_in is not None:
             sensitive["expires_in"] = expires_in
-        self.assertEqual(is_token_expiring(sensitive), expected)
+        assert is_token_expiring(sensitive) == expected
 
 
 class TestSSRFProtection(TestCallMCPServerTool):
@@ -369,7 +369,7 @@ class TestSSRFProtection(TestCallMCPServerTool):
         tool = self._create_tool(installations=[inst])
         with self.assertRaises(MaxToolFatalError) as ctx:
             await tool._arun_impl("http://169.254.169.254/latest/meta-data/", "__list_tools__")
-        self.assertIn("blocked by security policy", str(ctx.exception))
+        assert "blocked by security policy" in str(ctx.exception)
 
 
 class TestProactiveTokenRefresh(TestCallMCPServerTool):
@@ -418,7 +418,7 @@ class TestProactiveTokenRefresh(TestCallMCPServerTool):
             MockClient.return_value = self._make_mock_client()
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
-        self.assertIn("no tools available", result.lower())
+        assert "no tools available" in result.lower()
 
 
 class TestAuthRefresh(TestCallMCPServerTool):
@@ -442,7 +442,7 @@ class TestAuthRefresh(TestCallMCPServerTool):
             )
 
         tool._refresh_token_for_server.assert_called_once_with(self.SERVER_URL)
-        self.assertEqual(result, "success after refresh")
+        assert result == "success after refresh"
 
     async def test_refresh_failure_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)
@@ -456,7 +456,7 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
             with self.assertRaises(MaxToolFatalError) as ctx:
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
-            self.assertIn("re-authenticate", str(ctx.exception))
+            assert "re-authenticate" in str(ctx.exception)
 
     async def test_refresh_failure_marks_installation_for_reauth(self):
         installation = await sync_to_async(self._install_server)(
@@ -475,7 +475,7 @@ class TestAuthRefresh(TestCallMCPServerTool):
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
 
         await sync_to_async(installation.refresh_from_db)()
-        self.assertTrue(installation.sensitive_configuration.get("needs_reauth"))
+        assert installation.sensitive_configuration.get("needs_reauth")
 
     async def test_no_refresh_token_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL, refresh_token=None)
@@ -488,7 +488,7 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
             with self.assertRaises(MaxToolFatalError) as ctx:
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
-            self.assertIn("re-authenticate", str(ctx.exception))
+            assert "re-authenticate" in str(ctx.exception)
 
 
 class TestRefreshTokenFromMetadata(TestCallMCPServerTool):
@@ -529,9 +529,9 @@ class TestRefreshTokenFromMetadata(TestCallMCPServerTool):
 
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
-        self.assertIn("no tools available", result.lower())
+        assert "no tools available" in result.lower()
         await sync_to_async(installation.refresh_from_db)()
-        self.assertEqual(installation.sensitive_configuration["access_token"], "new-token")
+        assert installation.sensitive_configuration["access_token"] == "new-token"
 
 
 class TestRefreshTokenPersistence(TestCallMCPServerTool):
@@ -582,12 +582,12 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
             }
             result = await sync_to_async(_refresh_token_sync)(inst_dict)
 
-        self.assertEqual(result["access_token"], "new-access-token")
-        self.assertEqual(result["refresh_token"], "my-refresh")
-        self.assertIn("token_retrieved_at", result)
+        assert result["access_token"] == "new-access-token"
+        assert result["refresh_token"] == "my-refresh"
+        assert "token_retrieved_at" in result
 
         updated = await sync_to_async(MCPServerInstallation.objects.get)(id=installation_obj.id)
-        self.assertEqual(updated.sensitive_configuration["access_token"], "new-access-token")
+        assert updated.sensitive_configuration["access_token"] == "new-access-token"
 
     async def test_rotated_refresh_token_saved(self):
         from ee.hogai.tools.call_mcp_server.installations import _refresh_token_sync
@@ -620,11 +620,11 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
             }
             result = await sync_to_async(_refresh_token_sync)(inst_dict)
 
-        self.assertEqual(result["refresh_token"], "new-refresh")
-        self.assertEqual(result["expires_in"], 7200)
+        assert result["refresh_token"] == "new-refresh"
+        assert result["expires_in"] == 7200
 
         updated = await sync_to_async(MCPServerInstallation.objects.get)(id=installation_obj.id)
-        self.assertEqual(updated.sensitive_configuration["refresh_token"], "new-refresh")
+        assert updated.sensitive_configuration["refresh_token"] == "new-refresh"
 
     async def test_original_refresh_token_preserved_when_not_rotated(self):
         from ee.hogai.tools.call_mcp_server.installations import _refresh_token_sync
@@ -655,10 +655,10 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
             }
             result = await sync_to_async(_refresh_token_sync)(inst_dict)
 
-        self.assertEqual(result["refresh_token"], "original-refresh")
+        assert result["refresh_token"] == "original-refresh"
 
         updated = await sync_to_async(MCPServerInstallation.objects.get)(id=installation_obj.id)
-        self.assertEqual(updated.sensitive_configuration["refresh_token"], "original-refresh")
+        assert updated.sensitive_configuration["refresh_token"] == "original-refresh"
 
 
 class TestToolApprovalEnforcement(TestCallMCPServerTool):
@@ -709,9 +709,9 @@ class TestToolApprovalEnforcement(TestCallMCPServerTool):
 
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
-        self.assertIn("create_issue", result)
-        self.assertNotIn("delete_everything", result)
-        self.assertIn("hidden because the user disabled them", result)
+        assert "create_issue" in result
+        assert "delete_everything" not in result
+        assert "hidden because the user disabled them" in result
 
     async def test_list_tools_annotates_needs_approval(self):
         installation = await sync_to_async(self._seed_installation_and_tools)(
@@ -730,8 +730,8 @@ class TestToolApprovalEnforcement(TestCallMCPServerTool):
 
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
-        self.assertIn("rename_org", result)
-        self.assertIn("require explicit user approval", result)
+        assert "rename_org" in result
+        assert "require explicit user approval" in result
 
     async def test_list_tools_treats_unknown_as_needs_approval(self):
         installation = await sync_to_async(self._seed_installation_and_tools)({})
@@ -745,8 +745,8 @@ class TestToolApprovalEnforcement(TestCallMCPServerTool):
 
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
-        self.assertIn("brand_new_tool", result)
-        self.assertIn("require explicit user approval", result)
+        assert "brand_new_tool" in result
+        assert "require explicit user approval" in result
 
     async def test_call_tool_with_do_not_use_raises_fatal(self):
         installation = await sync_to_async(self._seed_installation_and_tools)({"delete_everything": "do_not_use"})
@@ -757,7 +757,7 @@ class TestToolApprovalEnforcement(TestCallMCPServerTool):
             with self.assertRaises(MaxToolFatalError) as ctx:
                 await tool._arun_impl(server_url=self.SERVER_URL, tool_name="delete_everything", arguments={})
 
-        self.assertIn("disabled by the user", str(ctx.exception))
+        assert "disabled by the user" in str(ctx.exception)
 
     async def test_call_tool_with_approved_state_passes_through(self):
         installation = await sync_to_async(self._seed_installation_and_tools)({"create_issue": "approved"})
@@ -772,7 +772,7 @@ class TestToolApprovalEnforcement(TestCallMCPServerTool):
                 server_url=self.SERVER_URL, tool_name="create_issue", arguments={"title": "x"}
             )
 
-        self.assertEqual(result, "ok")
+        assert result == "ok"
         mock_instance.call_tool.assert_called_once_with("create_issue", {"title": "x"})
 
     async def test_removed_tool_treated_as_do_not_use(self):
@@ -828,30 +828,28 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
     async def test_list_tools_never_triggers_approval(self):
         installation = await sync_to_async(self._seed)({})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
-        self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="__list_tools__"))
+        assert not await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="__list_tools__")
 
     async def test_needs_approval_triggers_approval(self):
         installation = await sync_to_async(self._seed)({"rename_org": "needs_approval"})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
-        self.assertTrue(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="rename_org"))
+        assert await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="rename_org")
 
     async def test_approved_does_not_trigger_approval(self):
         installation = await sync_to_async(self._seed)({"create_issue": "approved"})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
-        self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="create_issue"))
+        assert not await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="create_issue")
 
     async def test_unknown_tool_defaults_to_needs_approval(self):
         installation = await sync_to_async(self._seed)({})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
-        self.assertTrue(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="new_tool"))
+        assert await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="new_tool")
 
     async def test_unknown_server_url_does_not_trigger_approval(self):
         # Validation will reject it during execution; approval gate stays off.
         installation = await sync_to_async(self._seed)({})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
-        self.assertFalse(
-            await tool.is_dangerous_operation(server_url="https://mcp.not-installed.com", tool_name="anything")
-        )
+        assert not await tool.is_dangerous_operation(server_url="https://mcp.not-installed.com", tool_name="anything")
 
     async def test_list_tools_uses_cache_when_available(self):
         def setup():
@@ -886,10 +884,10 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
             MockClient.assert_not_called()
 
-        self.assertIn("create_issue", result)
-        self.assertIn("Issue title", result)
-        self.assertNotIn("delete_everything", result)
-        self.assertIn("hidden because the user disabled them", result)
+        assert "create_issue" in result
+        assert "Issue title" in result
+        assert "delete_everything" not in result
+        assert "hidden because the user disabled them" in result
 
     async def test_list_tools_falls_back_to_upstream_when_cache_empty(self):
         installation = await sync_to_async(self._install_server)(
@@ -906,7 +904,7 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
             MockClient.assert_called_once()
 
-        self.assertIn("fetched", result)
+        assert "fetched" in result
 
     async def test_list_tools_ignores_cache_rows_marked_removed(self):
         def setup():
@@ -935,7 +933,7 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
             result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
             MockClient.assert_called_once()
 
-        self.assertIn("no tools available", result.lower())
+        assert "no tools available" in result.lower()
 
     async def test_preview_includes_tool_and_server(self):
         installation = await sync_to_async(self._seed)({"rename_org": "needs_approval"})
@@ -943,6 +941,6 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
         preview = await tool.format_dangerous_operation_preview(
             server_url=self.SERVER_URL, tool_name="rename_org", arguments={"new_name": "acme"}
         )
-        self.assertIn("rename_org", preview)
-        self.assertIn("Linear", preview)
-        self.assertIn("new_name", preview)
+        assert "rename_org" in preview
+        assert "Linear" in preview
+        assert "new_name" in preview

@@ -46,7 +46,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             [distinct_id],
         )
 
-        self.assertEqual(properties, {"name": "Final", "email": "user@example.com"})
+        assert properties == {"name": "Final", "email": "user@example.com"}
 
     def test_set_once_first_write_wins(self):
         distinct_id = "user-clickhouse-set-once"
@@ -75,7 +75,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             include_set_once=True,
         )
 
-        self.assertEqual(properties, {"first_seen": "2024-05-01"})
+        assert properties == {"first_seen": "2024-05-01"}
 
     def test_set_then_set_once_interleaving(self):
         """Mixed $set and $set_once events: $set always wins on its key, while
@@ -132,15 +132,12 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             include_set_once=True,
         )
 
-        self.assertEqual(
-            properties,
-            {
-                "first_seen": "2024-05-01",
-                "signup_source": "facebook",
-                "name": "Bob",
-                "utm_campaign": "winter",
-            },
-        )
+        assert properties == {
+            "first_seen": "2024-05-01",
+            "signup_source": "facebook",
+            "name": "Bob",
+            "utm_campaign": "winter",
+        }
 
     def test_only_non_property_events_returns_not_existed(self):
         # ``existed`` semantics: had any property-update event at or before timestamp.
@@ -165,7 +162,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             [distinct_id],
         )
 
-        self.assertEqual(properties, {})
+        assert properties == {}
 
     def test_no_events_returns_empty_properties(self):
         upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
@@ -176,7 +173,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             ["user-clickhouse-nonexistent"],
         )
 
-        self.assertEqual(properties, {})
+        assert properties == {}
 
     def test_row_limit_truncates_oldest_first(self):
         """When the property row count exceeds row_limit, the inner ORDER BY ASC + LIMIT
@@ -213,8 +210,8 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
         )
 
         for i in range(row_limit):
-            self.assertEqual(properties.get(f"key_{i}"), f"value_{i}")
-        self.assertNotIn("truncated_key", properties)
+            assert properties.get(f"key_{i}") == f"value_{i}"
+        assert "truncated_key" not in properties
 
     def test_happy_path_with_default_row_limit(self):
         # Happy path with no explicit row_limit — confirms the default flows through.
@@ -236,4 +233,4 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             [distinct_id],
         )
 
-        self.assertEqual(properties, {"hello": "world"})
+        assert properties == {"hello": "world"}

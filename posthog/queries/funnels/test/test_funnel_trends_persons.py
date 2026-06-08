@@ -63,11 +63,8 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data={"funnel_to_step": 1, **filter_data})
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
-        self.assertEqual([person["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual(
-            [person["matched_recordings"][0]["session_id"] for person in results],
-            ["s1b"],
-        )
+        assert [person["id"] for person in results] == [persons["user_one"].uuid]
+        assert [person["matched_recordings"][0]["session_id"] for person in results] == ["s1b"]
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_no_to_step(self):
@@ -105,11 +102,8 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data=filter_data)
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
-        self.assertEqual([person["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual(
-            [person["matched_recordings"][0]["session_id"] for person in results],
-            ["s1c"],
-        )
+        assert [person["id"] for person in results] == [persons["user_one"].uuid]
+        assert [person["matched_recordings"][0]["session_id"] for person in results] == ["s1c"]
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_with_drop_off(self):
@@ -136,8 +130,5 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data={**filter_data, "drop_off": True})
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
-        self.assertEqual([person["id"] for person in results], [persons["user_one"].uuid])
-        self.assertEqual(
-            [person["matched_recordings"][0].get("session_id") for person in results],
-            ["s1a"],
-        )
+        assert [person["id"] for person in results] == [persons["user_one"].uuid]
+        assert [person["matched_recordings"][0].get("session_id") for person in results] == ["s1a"]

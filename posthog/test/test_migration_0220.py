@@ -61,32 +61,23 @@ class TagsTestCase(TestMigrations):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
 
         # CASE 1:
-        self.assertEqual(
-            Team.objects.get(name="t1").primary_dashboard.id,
-            Dashboard.objects.get(name="d2").id,
-        )
+        assert Team.objects.get(name="t1").primary_dashboard.id == Dashboard.objects.get(name="d2").id
 
         # CASE 2:
-        self.assertEqual(Team.objects.get(name="t2").primary_dashboard, None)
+        assert Team.objects.get(name="t2").primary_dashboard is None
 
         # CASE 3:
-        self.assertEqual(
-            Team.objects.get(name="t3").primary_dashboard.id,
-            Dashboard.objects.get(name="d4").id,
-        )
+        assert Team.objects.get(name="t3").primary_dashboard.id == Dashboard.objects.get(name="d4").id
 
         # CASE 4:
-        self.assertEqual(
-            Team.objects.get(name="t4").primary_dashboard.id,
-            Dashboard.objects.get(name="d6").id,
-        )
+        assert Team.objects.get(name="t4").primary_dashboard.id == Dashboard.objects.get(name="d6").id
 
         # BATCH CASE
         teams = Team.objects.filter(name__startswith="batch_team-")
-        self.assertEqual(teams.count(), 501)
+        assert teams.count() == 501
         for team in teams:
             team_number = team.name.split("-")[1]
-            self.assertEqual(team.primary_dashboard.name.split("-")[1], team_number)
+            assert team.primary_dashboard.name.split("-")[1] == team_number
 
     def tearDown(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore

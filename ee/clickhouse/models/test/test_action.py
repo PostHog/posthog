@@ -1,4 +1,5 @@
 import dataclasses
+from collections import Counter
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -96,11 +97,8 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
-        self.assertEqual(len(result), 1)
-        self.assertCountEqual(
-            [str(r[0]) for r in result],
-            [event_target_uuid],
-        )
+        assert len(result) == 1
+        assert Counter([str(r[0]) for r in result]) == Counter([event_target_uuid])
 
     def test_filter_event_exact_url_with_query_params(self):
         first_match_uuid = _create_event(
@@ -140,11 +138,8 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
-        self.assertEqual(len(result), 2)
-        self.assertCountEqual(
-            [str(r[0]) for r in result],
-            [first_match_uuid, second_match_uuid],
-        )
+        assert len(result) == 2
+        assert Counter([str(r[0]) for r in result]) == Counter([first_match_uuid, second_match_uuid])
 
     def test_filter_event_contains_url(self):
         _create_event(
@@ -177,7 +172,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
     def test_filter_event_regex_url(self):
         _create_event(
@@ -216,7 +211,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
     def test_double(self):
         # Tests a regression where the second step properties would override those of the first step, causing issues
@@ -257,7 +252,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         events = _get_events_for_action(action1)
-        self.assertEqual(len(events), 1)
+        assert len(events) == 1
 
     def test_filter_with_hogql(self):
         _create_event(
@@ -285,37 +280,34 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         events = _get_events_for_action(action1)
-        self.assertEqual(len(events), 1)
+        assert len(events) == 1
 
-        self.assertEqual(action1.bytecode, create_bytecode(action_to_expr(action1)).bytecode)
-        self.assertEqual(
-            action1.bytecode,
-            [
-                _H,
-                HOGQL_BYTECODE_VERSION,
-                # event = 'insight viewed'
-                op.STRING,
-                "insight viewed",
-                op.STRING,
-                "event",
-                op.GET_GLOBAL,
-                1,
-                op.EQ,
-                # toInt(properties.filters_count) > 10
-                op.INTEGER,
-                10,
-                op.STRING,
-                "filters_count",
-                op.STRING,
-                "properties",
-                op.GET_GLOBAL,
-                2,
-                op.CALL_GLOBAL,
-                "toInt",
-                1,
-                op.GT,
-                # and
-                op.AND,
-                2,
-            ],
-        )
+        assert action1.bytecode == create_bytecode(action_to_expr(action1)).bytecode
+        assert action1.bytecode == [
+            _H,
+            HOGQL_BYTECODE_VERSION,
+            # event = 'insight viewed'
+            op.STRING,
+            "insight viewed",
+            op.STRING,
+            "event",
+            op.GET_GLOBAL,
+            1,
+            op.EQ,
+            # toInt(properties.filters_count) > 10
+            op.INTEGER,
+            10,
+            op.STRING,
+            "filters_count",
+            op.STRING,
+            "properties",
+            op.GET_GLOBAL,
+            2,
+            op.CALL_GLOBAL,
+            "toInt",
+            1,
+            op.GT,
+            # and
+            op.AND,
+            2,
+        ]

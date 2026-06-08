@@ -179,21 +179,21 @@ class TestFirstTimeAnchorExpr(TestCase):
 
         chains = _collect_field_chains(expr)
         for chain in expected_chains:
-            self.assertIn(chain, chains)
+            assert chain in chains
         for chain in unexpected_chains:
-            self.assertNotIn(chain, chains)
+            assert chain not in chains
 
         constants = _collect_constants(expr)
         for constant in expected_constants:
-            self.assertIn(constant, constants)
+            assert constant in constants
 
         if assert_min_if_predicates_truthy:
             # Every minIf predicate must be a truthy constant — the with-props and no-props branches
             # both collapse to True for a DWH entity without properties.
             # (parse_expr substitution shares nodes so the walker can see more than 2.)
             min_if_predicates = _collect_min_if_predicates(expr)
-            self.assertGreaterEqual(len(min_if_predicates), 2)
+            assert len(min_if_predicates) >= 2
             for pred in min_if_predicates:
-                self.assertIsInstance(pred, ast.Constant)
+                assert isinstance(pred, ast.Constant)
                 assert isinstance(pred, ast.Constant)  # narrow for mypy
-                self.assertTrue(pred.value)
+                assert pred.value

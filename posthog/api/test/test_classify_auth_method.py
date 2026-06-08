@@ -26,4 +26,4 @@ class TestClassifyAuthMethod(TestCase):
         ]
     )
     def test_returns_expected_label(self, authenticator, expected):
-        self.assertEqual(_classify_auth_method(authenticator), expected)
+        assert _classify_auth_method(authenticator) == expected

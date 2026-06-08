@@ -2,6 +2,7 @@ import math
 from collections import defaultdict
 from typing import Any, Optional
 
+import pytest
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -64,17 +65,17 @@ class FloatAwareTestCase(unittest.TestCase):
             if math.isnan(a) and math.isnan(b):
                 return None
             else:
-                self.assertAlmostEqual(first=a, second=b, places=7, msg=f"{msg or ''} Float mismatch at {path}")
+                assert a == pytest.approx(b, abs=10 ** (-7) * 0.5), f"{msg or ''} Float mismatch at {path}"
         elif isinstance(a, list | tuple) and isinstance(b, list | tuple):
-            super().assertEqual(len(a), len(b), f"{msg or ''} Length mismatch at {path}")
+            assert len(a) == len(b), f"{msg or ''} Length mismatch at {path}"
             for i, (x, y) in enumerate(zip(a, b)):
                 self._assertEqualRecursive(x, y, msg=msg, path=f"{path}[{i}]")
         elif isinstance(a, dict) and isinstance(b, dict):
-            super().assertEqual(a.keys(), b.keys(), f"{msg or ''} Dict key mismatch at {path}")
+            assert a.keys() == b.keys(), f"{msg or ''} Dict key mismatch at {path}"
             for k in a:
                 self._assertEqualRecursive(a[k], b[k], msg=msg, path=f"{path}[{repr(k)}]")
         else:
-            super().assertEqual(a, b, f"{msg or ''} Mismatch at {path}")
+            assert a == b, f"{msg or ''} Mismatch at {path}"
 
 
 @snapshot_clickhouse_queries
@@ -283,13 +284,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         results = self._run_web_stats_table_query("2023-12-01", "2023-12-11").results
 
-        self.assertEqual(
-            [
-                ["/", (2, None), (2, None), 2 / 3, ""],
-                ["/login", (1, None), (1, None), 1 / 3, ""],
-            ],
-            results,
-        )
+        assert [["/", (2, None), (2, None), 2 / 3, ""], ["/login", (1, None), (1, None), 1 / 3, ""]] == results
 
     def test_increase_in_users_on_mobile(self):
         s1a = str(uuid7("2023-12-02"))
@@ -1384,7 +1379,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
         )
 
-        self.assertEqual(
+        self.assertEqual(  # noqa: PT009 - NaN-aware comparison via FloatAwareTestCase.assertEqual
             [["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), nan_value, ""]],
             response.results,
         )
@@ -1872,20 +1867,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        self.assertEqual(
+        assert [
             [
-                [
-                    "/a",  # breakdown (page / path)
-                    (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
-                    (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
-                    (stats["/a"]["p90_duration"], 0),  # (p90_time_on_page_this_month, p90_time_on_page_last_month)
-                    (0, 0),
-                    1 / len(results),  # ui fill fraction
-                    "",
-                ],
+                "/a",  # breakdown (page / path)
+                (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
+                (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
+                (stats["/a"]["p90_duration"], 0),  # (p90_time_on_page_this_month, p90_time_on_page_last_month)
+                (0, 0),
+                1 / len(results),  # ui fill fraction
+                "",
             ],
-            results,
-        )
+        ] == results
 
     def test_avg_time_on_page_multiple_users(self):
         p1_page_views = [
@@ -1916,20 +1908,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        self.assertEqual(
+        assert [
             [
-                [
-                    "/a",
-                    (stats["/a"]["user_count"], 0),
-                    (stats["/a"]["view_count"], 0),
-                    (stats["/a"]["p90_duration"], 0),
-                    (0, 0),
-                    1 / len(results),
-                    "",
-                ],
-            ],
-            results,
-        )
+                "/a",
+                (stats["/a"]["user_count"], 0),
+                (stats["/a"]["view_count"], 0),
+                (stats["/a"]["p90_duration"], 0),
+                (0, 0),
+                1 / len(results),
+                "",
+            ]
+        ] == results
 
     def test_avg_time_on_multiple_routes_and_users(self):
         p1_page_views = [
@@ -1968,38 +1957,35 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        self.assertEqual(
+        assert [
             [
-                [
-                    "/a",
-                    (stats["/a"]["user_count"], 0),
-                    (stats["/a"]["view_count"], 0),
-                    (stats["/a"]["p90_duration"], 0),
-                    (0, 0),
-                    1 / len(results),
-                    "",
-                ],
-                [
-                    "/b",
-                    (stats["/a"]["user_count"], 0),
-                    (stats["/b"]["view_count"], 0),
-                    (stats["/b"]["p90_duration"], 0),
-                    (0, 0),
-                    1 / len(results),
-                    "",
-                ],
-                [
-                    "/c",
-                    (stats["/a"]["user_count"], 0),
-                    (stats["/c"]["view_count"], 0),
-                    (stats["/c"]["p90_duration"], 0),
-                    (0, 0),
-                    1 / len(results),
-                    "",
-                ],
+                "/a",
+                (stats["/a"]["user_count"], 0),
+                (stats["/a"]["view_count"], 0),
+                (stats["/a"]["p90_duration"], 0),
+                (0, 0),
+                1 / len(results),
+                "",
             ],
-            results,
-        )
+            [
+                "/b",
+                (stats["/a"]["user_count"], 0),
+                (stats["/b"]["view_count"], 0),
+                (stats["/b"]["p90_duration"], 0),
+                (0, 0),
+                1 / len(results),
+                "",
+            ],
+            [
+                "/c",
+                (stats["/a"]["user_count"], 0),
+                (stats["/c"]["view_count"], 0),
+                (stats["/c"]["p90_duration"], 0),
+                (0, 0),
+                1 / len(results),
+                "",
+            ],
+        ] == results
 
     def test_avg_time_can_compare(self):
         m1_page_views = [
@@ -2024,20 +2010,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        self.assertEqual(
+        assert [
             [
-                [
-                    "/a",
-                    (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
-                    (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
-                    (m2_stats["/a"]["p90_duration"], m1_stats["/a"]["p90_duration"]),
-                    (1, 1),
-                    1 / len(results),
-                    "",
-                ],
-            ],
-            results,
-        )
+                "/a",
+                (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
+                (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
+                (m2_stats["/a"]["p90_duration"], m1_stats["/a"]["p90_duration"]),
+                (1, 1),
+                1 / len(results),
+                "",
+            ]
+        ] == results
 
     def test_time_on_page_caps_at_24_hours(self):
         page_views = [
@@ -2062,20 +2045,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             include_avg_time_on_page=True,
         ).results
 
-        self.assertEqual(
+        assert [
             [
-                [
-                    "/a",
-                    (stats["/a"]["user_count"], 0),
-                    (stats["/a"]["view_count"], 0),
-                    (stats["/a"]["p90_duration"], 0),
-                    (0, 0),
-                    1 / len(results),
-                    "",
-                ],
-            ],
-            results,
-        )
+                "/a",
+                (stats["/a"]["user_count"], 0),
+                (stats["/a"]["view_count"], 0),
+                (stats["/a"]["p90_duration"], 0),
+                (0, 0),
+                1 / len(results),
+                "",
+            ]
+        ] == results
 
     def test_calculate_pageview_statistics_p90_single_session(self):
         p1_page_views = [
@@ -2085,7 +2065,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         stats = self._calculate_pageview_statistics([p1_page_views])
 
-        self.assertAlmostEqual(stats["/a"]["p90_duration"], 28.5, places=2)
+        assert stats["/a"]["p90_duration"] == pytest.approx(28.5, abs=10 ** (-2) * 0.5)
 
     def test_calculate_pageview_statistics_p90_multiple_sessions(self):
         p1_page_views = [
@@ -2105,7 +2085,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
 
-        self.assertAlmostEqual(stats["/a"]["p90_duration"], 36.4, places=2)
+        assert stats["/a"]["p90_duration"] == pytest.approx(36.4, abs=10 ** (-2) * 0.5)
 
     def test_calculate_pageview_statistics_excludes_null_durations(self):
         p1_page_views = [
@@ -2127,7 +2107,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
 
-        self.assertAlmostEqual(stats["/start"]["p90_duration"], 76.0, places=2)
+        assert stats["/start"]["p90_duration"] == pytest.approx(76.0, abs=10 ** (-2) * 0.5)
 
     def test_null_prev_pageview_duration_excluded_from_p90(self):
         p1_page_views = [
@@ -2162,7 +2142,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         start_result = next(r for r in results if r[0] == "/start")
-        self.assertAlmostEqual(start_result[3][0], stats["/start"]["p90_duration"], places=2)
+        assert start_result[3][0] == pytest.approx(stats["/start"]["p90_duration"], abs=10 ** (-2) * 0.5)
 
     @parameterized.expand(
         [

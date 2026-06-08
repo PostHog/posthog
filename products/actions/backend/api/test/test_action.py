@@ -131,18 +131,15 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": "user signed up"},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "unique",
-                "detail": f"This project already has an action with this name, ID {original_action.id}",
-                "attr": "name",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "unique",
+            "detail": f"This project already has an action with this name, ID {original_action.id}",
+            "attr": "name",
+        }
 
-        self.assertEqual(Action.objects.count(), count)
+        assert Action.objects.count() == count
 
     def test_cant_create_action_with_empty_name(self, *args):
         count = Action.objects.count()
@@ -152,17 +149,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": ""},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "blank",
-                "detail": "This field may not be blank.",
-                "attr": "name",
-            },
-        )
-        self.assertEqual(Action.objects.count(), count)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "blank",
+            "detail": "This field may not be blank.",
+            "attr": "name",
+        }
+        assert Action.objects.count() == count
 
     def test_cant_create_action_with_whitespace_only_name(self, *args):
         count = Action.objects.count()
@@ -172,17 +166,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": "   "},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "blank",
-                "detail": "This field may not be blank.",
-                "attr": "name",
-            },
-        )
-        self.assertEqual(Action.objects.count(), count)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "blank",
+            "detail": "This field may not be blank.",
+            "attr": "name",
+        }
+        assert Action.objects.count() == count
 
     @freeze_time("2021-12-12")
     @patch("products.actions.backend.api.action.report_user_action")
@@ -294,8 +285,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up 2", "steps": []},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["steps"]), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["steps"]) == 0
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
     def test_http_to_https(self, *args):
@@ -304,7 +295,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up again"},
             headers={"origin": "https://testserver/"},
         )
-        self.assertEqual(response.status_code, 201, response.json())
+        assert response.status_code == 201, response.json()
 
     @patch("posthoganalytics.capture")
     def test_create_action_event_with_space(self, patch_capture, *args):
@@ -313,7 +304,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "test event", "steps": [{"event": "test_event "}]},
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         action = Action.objects.get(pk=response.json()["id"])
         assert action.steps[0].event == "test_event "
 
@@ -345,6 +336,78 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
+    def test_get_tags_returns_list(self):
+        action = Action.objects.create(team=self.team, name="bla")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["random"]
+        assert Action.objects.all().count() == 1
+
+    def test_create_action_with_tags(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "Default", "tags": ["random", "hello"]},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert sorted(response.json()["tags"]) == ["hello", "random"]
+        assert Tag.objects.all().count() == 2
+
+    def test_update_action_tags(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {
+                "name": "action new name",
+                "tags": ["random", "hello"],
+                "description": "Internal system metrics.",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(response.json()["tags"]) == ["hello", "random"]
+
+    def test_undefined_tags_allows_other_props_to_update(self):
+        action = Action.objects.create(team_id=self.team.id, name="private action")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "description": "Internal system metrics."},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "action new name"
+        assert response.json()["description"] == "Internal system metrics."
+
+    def test_empty_tags_clears_all_tags(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        assert Action.objects.all().count() == 1
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {
+                "name": "action new name",
+                "description": "Internal system metrics.",
+                "tags": [],
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == []
+        assert Tag.objects.all().count() == 0
+
     @parameterized.expand(
         [
             # No params returns every action (the unchanged default the actions page relies on).
@@ -366,80 +429,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             Action.objects.create(team=self.team, name=name, last_calculated_at=base - timedelta(minutes=index))
 
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{params}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([action["name"] for action in response.json()["results"]], expected_names)
-
-    def test_get_tags_returns_list(self):
-        action = Action.objects.create(team=self.team, name="bla")
-        tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tagged_items.create(tag_id=tag.id)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], ["random"])
-        self.assertEqual(Action.objects.all().count(), 1)
-
-    def test_create_action_with_tags(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/",
-            {"name": "Default", "tags": ["random", "hello"]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
-        self.assertEqual(Tag.objects.all().count(), 2)
-
-    def test_update_action_tags(self):
-        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
-        tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tagged_items.create(tag_id=tag.id)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/actions/{action.id}",
-            {
-                "name": "action new name",
-                "tags": ["random", "hello"],
-                "description": "Internal system metrics.",
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
-
-    def test_undefined_tags_allows_other_props_to_update(self):
-        action = Action.objects.create(team_id=self.team.id, name="private action")
-        tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tagged_items.create(tag_id=tag.id)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/actions/{action.id}",
-            {"name": "action new name", "description": "Internal system metrics."},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "action new name")
-        self.assertEqual(response.json()["description"], "Internal system metrics.")
-
-    def test_empty_tags_clears_all_tags(self):
-        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
-        tag = Tag.objects.create(name="random", team_id=self.team.id)
-        action.tagged_items.create(tag_id=tag.id)
-
-        self.assertEqual(Action.objects.all().count(), 1)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/actions/{action.id}",
-            {
-                "name": "action new name",
-                "description": "Internal system metrics.",
-                "tags": [],
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["tags"], [])
-        self.assertEqual(Tag.objects.all().count(), 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert [action["name"] for action in response.json()["results"]] == expected_names
 
     def test_hard_deletion_is_forbidden(self):
         response = self.client.post(
@@ -458,10 +449,10 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             headers={"origin": "http://testserver"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
-        self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert deletion_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_create_action_in_specific_folder(self):
         """

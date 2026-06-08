@@ -31,31 +31,28 @@ class TestActionToExpr(BaseTest):
                 }
             ],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr(
-                "event = '$autocapture' and {regex1}",
-                {
-                    "regex1": ast.And(
-                        exprs=[
-                            self._parse_expr(
-                                "elements_chain =~ {regex}",
-                                {
-                                    "regex": ast.Constant(
-                                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                                    )
-                                },
-                            ),
-                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
-                        ]
-                    ),
-                },
-            ),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "event = '$autocapture' and {regex1}",
+            {
+                "regex1": ast.And(
+                    exprs=[
+                        self._parse_expr(
+                            "elements_chain =~ {regex}",
+                            {
+                                "regex": ast.Constant(
+                                    value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                                )
+                            },
+                        ),
+                        self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
+                    ]
+                )
+            },
         )
         resp = execute_hogql_query(
             parse_select("select count() from events where {prop}", {"prop": action_to_expr(action)}), self.team
         )
-        self.assertEqual(resp.results[0][0], 1)
+        assert resp.results[0][0] == 1
 
     def test_action_to_expr_pageview_url_contains(self):
         """Test pageview action with URL contains matching"""
@@ -69,9 +66,8 @@ class TestActionToExpr(BaseTest):
                 }
             ],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "event = '$pageview' and properties.$current_url like '%https://example.com%'"
         )
 
     def test_action_to_expr_multiple_steps_or(self):
@@ -91,24 +87,18 @@ class TestActionToExpr(BaseTest):
                 },
             ],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr(
-                "{s1} or {s2}",
-                {
-                    "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
-                    "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
-                },
-            ),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "{s1} or {s2}",
+            {
+                "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
+                "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
+            },
         )
 
     def test_action_to_expr_null_event_resolves_to_true(self):
         """Test action with null event step resolves to true"""
         action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}, {"event": None}])
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr("event = '$pageview' OR true"),
-        )
+        assert clear_locations(action_to_expr(action)) == self._parse_expr("event = '$pageview' OR true")
 
     def test_action_to_expr_autocapture_href_regex(self):
         """Test autocapture action with href regex matching"""
@@ -116,9 +106,8 @@ class TestActionToExpr(BaseTest):
             team=self.team,
             steps_json=[{"event": "$autocapture", "href": "https://example4.com", "href_matching": "regex"}],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr("event = '$autocapture' and elements_chain_href =~ 'https://example4.com'"),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "event = '$autocapture' and elements_chain_href =~ 'https://example4.com'"
         )
 
     def test_action_to_expr_autocapture_text_regex(self):
@@ -127,9 +116,8 @@ class TestActionToExpr(BaseTest):
             team=self.team,
             steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "regex"}],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x =~ 'blabla', elements_chain_texts)"),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "event = '$autocapture' and arrayExists(x -> x =~ 'blabla', elements_chain_texts)"
         )
 
     def test_action_to_expr_autocapture_text_contains(self):
@@ -138,9 +126,8 @@ class TestActionToExpr(BaseTest):
             team=self.team,
             steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "contains"}],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x ilike '%blabla%', elements_chain_texts)"),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "event = '$autocapture' and arrayExists(x -> x ilike '%blabla%', elements_chain_texts)"
         )
 
     def test_action_to_expr_autocapture_text_exact(self):
@@ -149,9 +136,8 @@ class TestActionToExpr(BaseTest):
             team=self.team,
             steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "exact"}],
         )
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"),
+        assert clear_locations(action_to_expr(action)) == self._parse_expr(
+            "event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"
         )
 
     def test_steps_to_expr_matches_action_to_expr(self):
@@ -166,13 +152,7 @@ class TestActionToExpr(BaseTest):
             ActionStepJSON(event="$pageview", url="https://example.com", url_matching="contains"),
             ActionStepJSON(event="custom_event"),
         ]
-        self.assertEqual(
-            clear_locations(action_to_expr(action)),
-            clear_locations(steps_to_expr(steps, self.team)),
-        )
+        assert clear_locations(action_to_expr(action)) == clear_locations(steps_to_expr(steps, self.team))
 
     def test_steps_to_expr_empty_steps(self):
-        self.assertEqual(
-            clear_locations(steps_to_expr([], self.team)),
-            clear_locations(parse_expr("true")),
-        )
+        assert clear_locations(steps_to_expr([], self.team)) == clear_locations(parse_expr("true"))

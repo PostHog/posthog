@@ -21,19 +21,16 @@ class TestTrendsUtils(BaseTest):
             HumanMessage(content="Text2"),
         ]
         messages = filter_and_merge_messages(conversation)
-        self.assertEqual(
-            [
-                HumanMessage(content="Text\nText"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="123",
-                    id="123",
-                ),
-                HumanMessage(content="Text2"),
-            ],
-            messages,
-        )
+        assert [
+            HumanMessage(content="Text\nText"),
+            ArtifactRefMessage(
+                content_type=ArtifactContentType.VISUALIZATION,
+                source=ArtifactSource.ARTIFACT,
+                artifact_id="123",
+                id="123",
+            ),
+            HumanMessage(content="Text2"),
+        ] == messages
 
     def test_filters_typical_conversation(self):
         messages = filter_and_merge_messages(
@@ -56,28 +53,25 @@ class TestTrendsUtils(BaseTest):
                 AssistantMessage(content="Summary 2"),
             ]
         )
-        self.assertEqual(len(messages), 6)
-        self.assertEqual(
-            messages,
-            [
-                HumanMessage(content="Question 1"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="123",
-                    id="123",
-                ),
-                AssistantMessage(content="Summary 1"),
-                HumanMessage(content="Question 2"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="456",
-                    id="456",
-                ),
-                AssistantMessage(content="Summary 2"),
-            ],
-        )
+        assert len(messages) == 6
+        assert messages == [
+            HumanMessage(content="Question 1"),
+            ArtifactRefMessage(
+                content_type=ArtifactContentType.VISUALIZATION,
+                source=ArtifactSource.ARTIFACT,
+                artifact_id="123",
+                id="123",
+            ),
+            AssistantMessage(content="Summary 1"),
+            HumanMessage(content="Question 2"),
+            ArtifactRefMessage(
+                content_type=ArtifactContentType.VISUALIZATION,
+                source=ArtifactSource.ARTIFACT,
+                artifact_id="456",
+                id="456",
+            ),
+            AssistantMessage(content="Summary 2"),
+        ]
 
     def test_joins_human_messages(self):
         messages = filter_and_merge_messages(
@@ -86,10 +80,5 @@ class TestTrendsUtils(BaseTest):
                 HumanMessage(content="Question 2"),
             ]
         )
-        self.assertEqual(len(messages), 1)
-        self.assertEqual(
-            messages,
-            [
-                HumanMessage(content="Question 1\nQuestion 2"),
-            ],
-        )
+        assert len(messages) == 1
+        assert messages == [HumanMessage(content="Question 1\nQuestion 2")]

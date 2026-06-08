@@ -36,14 +36,11 @@ class TestLifecycleValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget().validate(self._context(query))
 
-        self.assertIn(
-            "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series.",
-            str(context.exception),
+        assert (
+            "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series."
+            in str(context.exception)
         )
-        self.assertEqual(
-            context.exception.get_codes(),
-            ["lifecycle_custom_aggregation_target_requires_data_warehouse_series"],
-        )
+        assert context.exception.get_codes() == ["lifecycle_custom_aggregation_target_requires_data_warehouse_series"]
 
     def test_custom_aggregation_target_allows_data_warehouse_series(self):
         query = LifecycleQuery(

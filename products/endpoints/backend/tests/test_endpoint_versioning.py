@@ -27,23 +27,23 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
-        self.assertEqual(1, response_data["current_version"])
-        self.assertEqual(1, response_data["versions_count"])
+        assert 1 == response_data["current_version"]
+        assert 1 == response_data["versions_count"]
 
         endpoint = Endpoint.objects.get(name="test_endpoint", team=self.team)
-        self.assertEqual(1, endpoint.current_version)
-        self.assertEqual(1, endpoint.versions.count())
+        assert 1 == endpoint.current_version
+        assert 1 == endpoint.versions.count()
 
         version = endpoint.versions.first()
         assert version is not None
-        self.assertEqual(1, version.version)
+        assert 1 == version.version
         # Check key fields (Pydantic expands with defaults)
-        self.assertEqual("HogQLQuery", version.query["kind"])
-        self.assertEqual(self.sample_query["query"], version.query["query"])
-        self.assertEqual(self.user, version.created_by)
+        assert "HogQLQuery" == version.query["kind"]
+        assert self.sample_query["query"] == version.query["query"]
+        assert self.user == version.created_by
 
     def test_update_query_creates_new_version(self):
         """Changing query should increment version."""
@@ -62,24 +62,24 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(2, response_data["current_version"])
-        self.assertEqual(2, response_data["versions_count"])
+        assert 2 == response_data["current_version"]
+        assert 2 == response_data["versions_count"]
 
         endpoint.refresh_from_db()
-        self.assertEqual(2, endpoint.current_version)
-        self.assertEqual(2, endpoint.versions.count())
+        assert 2 == endpoint.current_version
+        assert 2 == endpoint.versions.count()
 
         # Check version 2 has new query
         v2 = endpoint.get_version(2)
         assert v2 is not None
-        self.assertEqual(new_query["query"], v2.query["query"])
+        assert new_query["query"] == v2.query["query"]
 
         # Check version 1 still has old query
         v1 = endpoint.get_version(1)
         assert v1 is not None
-        self.assertEqual("SELECT 1", v1.query["query"])
+        assert "SELECT 1" == v1.query["query"]
 
     def test_update_metadata_does_not_create_version(self):
         """Changing name/description shouldn't create new version."""
@@ -96,14 +96,14 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(1, response_data["current_version"])
-        self.assertEqual(1, response_data["versions_count"])
+        assert 1 == response_data["current_version"]
+        assert 1 == response_data["versions_count"]
 
         endpoint.refresh_from_db()
-        self.assertEqual(1, endpoint.current_version)
-        self.assertEqual(1, endpoint.versions.count())
+        assert 1 == endpoint.current_version
+        assert 1 == endpoint.versions.count()
 
     def test_update_identical_query_does_not_create_version(self):
         """Submitting same query shouldn't create duplicate version."""
@@ -114,7 +114,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"name": "duplicate_test", "query": query},
             format="json",
         )
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+        assert status.HTTP_201_CREATED == response.status_code
 
         endpoint = Endpoint.objects.get(name="duplicate_test", team=self.team)
 
@@ -125,10 +125,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         endpoint.refresh_from_db()
-        self.assertEqual(1, endpoint.current_version)
-        self.assertEqual(1, endpoint.versions.count())
+        assert 1 == endpoint.current_version
+        assert 1 == endpoint.versions.count()
 
     def test_run_latest_version_by_default(self):
         """Running without version param should use latest."""
@@ -151,10 +151,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         # Run without version
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(2, response_data["endpoint_version"])
-        self.assertIn("endpoint_version_created_at", response_data)
+        assert 2 == response_data["endpoint_version"]
+        assert "endpoint_version_created_at" in response_data
 
     def test_run_specific_version(self):
         """Running with version param should execute that version."""
@@ -177,9 +177,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         # Run version 1 explicitly
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=1")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(1, response_data["endpoint_version"])
+        assert 1 == response_data["endpoint_version"]
 
     def test_run_nonexistent_version_returns_404(self):
         """Running non-existent version should return 404."""
@@ -193,10 +193,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=999")
 
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
         response_data = response.json()
-        self.assertIn("Version 999 not found", response_data["error"])
-        self.assertEqual(1, response_data["current_version"])
+        assert "Version 999 not found" in response_data["error"]
+        assert 1 == response_data["current_version"]
 
     def test_run_invalid_version_returns_400(self):
         """Running with invalid version param should return 400."""
@@ -210,8 +210,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=abc")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("Invalid version parameter", str(response.json()))
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid version parameter" in str(response.json())
 
     def test_list_versions(self):
         """Should list all versions in descending order."""
@@ -232,12 +232,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         versions = response.json()["results"]
-        self.assertEqual(3, len(versions))
-        self.assertEqual(3, versions[0]["version"])
-        self.assertEqual(2, versions[1]["version"])
-        self.assertEqual(1, versions[2]["version"])
+        assert 3 == len(versions)
+        assert 3 == versions[0]["version"]
+        assert 2 == versions[1]["version"]
+        assert 1 == versions[2]["version"]
 
     def test_get_version_detail(self):
         """Should get specific version details via ?version=N query param."""
@@ -250,12 +250,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(1, data["version"])
-        self.assertEqual("SELECT 1", data["query"]["query"])
-        self.assertIn("created_by", data)
-        self.assertIn("created_at", data)
+        assert 1 == data["version"]
+        assert "SELECT 1" == data["query"]["query"]
+        assert "created_by" in data
+        assert "created_at" in data
 
     def test_delete_endpoint_cascades_to_versions(self):
         """Deleting endpoint should delete all versions."""
@@ -275,20 +275,20 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             )
 
         endpoint_id = endpoint.id
-        self.assertEqual(4, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
+        assert 4 == EndpointVersion.objects.filter(endpoint_id=endpoint_id).count()
 
         # Delete endpoint (soft delete)
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
-        self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+        assert response.status_code in [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK]
 
         # Endpoint should be soft-deleted and no longer accessible
         endpoint.refresh_from_db()
-        self.assertTrue(endpoint.deleted)
+        assert endpoint.deleted
 
         # Versions still exist in DB but endpoint is not accessible via API
-        self.assertEqual(4, EndpointVersion.objects.filter(endpoint_id=endpoint_id).count())
+        assert 4 == EndpointVersion.objects.filter(endpoint_id=endpoint_id).count()
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_version_query_immutability(self):
         """Version queries should be immutable."""
@@ -312,7 +312,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # v1 query should be unchanged
         v1.refresh_from_db()
-        self.assertEqual(original_query, v1.query)
+        assert original_query == v1.query
 
     def test_activity_log_tracks_version_creation(self):
         """Activity log should record version changes."""
@@ -336,7 +336,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             activity="version_created",
         )
 
-        self.assertEqual(1, logs.count())
+        assert 1 == logs.count()
 
     def test_materialization_transfer_on_version_update(self):
         """When query changes on materialized endpoint, new version gets materialization and old version keeps its own."""
@@ -402,36 +402,36 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            assert status.HTTP_200_OK == response.status_code, response.json()
 
         endpoint.refresh_from_db()
 
         # Verify version was incremented
-        self.assertEqual(2, endpoint.current_version)
-        self.assertEqual(2, endpoint.versions.count())
+        assert 2 == endpoint.current_version
+        assert 2 == endpoint.versions.count()
 
         # Verify new saved query was created on the new version
         new_version = endpoint.get_version()
         assert new_version is not None
         assert new_version.saved_query is not None
-        self.assertNotEqual(new_version.saved_query.id, old_saved_query_id)
+        assert new_version.saved_query.id != old_saved_query_id
 
         # Verify new saved query has correct properties
         new_saved_query = new_version.saved_query
         assert new_saved_query is not None
-        self.assertTrue(new_saved_query.is_materialized)
-        self.assertEqual(new_saved_query.sync_frequency_interval, timedelta(hours=24))
+        assert new_saved_query.is_materialized
+        assert new_saved_query.sync_frequency_interval == timedelta(hours=24)
 
         # Verify new saved query has the NEW query (not the old one)
         assert new_saved_query.query is not None
-        self.assertEqual(new_saved_query.query["query"], new_query["query"])
+        assert new_saved_query.query["query"] == new_query["query"]
 
         # Verify old version still has its materialization (not deleted)
         version1.refresh_from_db()
         old_saved_query.refresh_from_db()
-        self.assertTrue(version1.is_materialized)
-        self.assertFalse(old_saved_query.deleted)
-        self.assertEqual(version1.saved_query_id, old_saved_query_id)
+        assert version1.is_materialized
+        assert not old_saved_query.deleted
+        assert version1.saved_query_id == old_saved_query_id
 
     def test_no_materialization_transfer_for_non_materialized_endpoint(self):
         """Non-materialized endpoints should not trigger materialization transfer."""
@@ -446,7 +446,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         version = endpoint.get_version()
 
         # Ensure no saved query on version
-        self.assertIsNone(version.saved_query)
+        assert version.saved_query is None
 
         # Update query
         new_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
@@ -456,14 +456,14 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         endpoint.refresh_from_db()
 
         # Verify version was incremented but no saved query was created on new version
-        self.assertEqual(2, endpoint.current_version)
+        assert 2 == endpoint.current_version
         new_version = endpoint.get_version()
-        self.assertIsNone(new_version.saved_query)
+        assert new_version.saved_query is None
 
     def test_version_activate_deactivate(self):
         """Version can be activated and deactivated via update endpoint with version param."""
@@ -476,7 +476,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # Version should be active by default
         version = endpoint.get_version()
-        self.assertTrue(version.is_active)
+        assert version.is_active
 
         # Deactivate version via update endpoint with version param
         response = self.client.put(
@@ -484,11 +484,11 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"is_active": False},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertFalse(response.json()["is_active"])
+        assert status.HTTP_200_OK == response.status_code
+        assert not response.json()["is_active"]
 
         version.refresh_from_db()
-        self.assertFalse(version.is_active)
+        assert not version.is_active
 
         # Reactivate version via update endpoint
         response = self.client.put(
@@ -496,11 +496,11 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"is_active": True},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertTrue(response.json()["is_active"])
+        assert status.HTTP_200_OK == response.status_code
+        assert response.json()["is_active"]
 
         version.refresh_from_db()
-        self.assertTrue(version.is_active)
+        assert version.is_active
 
     def test_endpoint_deactivate(self):
         endpoint = create_endpoint_with_version(
@@ -513,20 +513,20 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         version1 = endpoint.get_version(1)
         version2 = endpoint.get_version(2)
 
-        self.assertTrue(version1.is_active)
-        self.assertTrue(version2.is_active)
+        assert version1.is_active
+        assert version2.is_active
 
         response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}",
             {"is_active": False},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         response_v2 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response_v2.status_code)
+        assert status.HTTP_404_NOT_FOUND == response_v2.status_code
         response_v1 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=1")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response_v1.status_code)
+        assert status.HTTP_404_NOT_FOUND == response_v1.status_code
 
     def test_version_deactivate_keeps_endpoint_activated(self):
         endpoint = create_endpoint_with_version(
@@ -539,20 +539,20 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         version1 = endpoint.get_version(1)
         version2 = endpoint.get_version(2)
 
-        self.assertTrue(version1.is_active)
-        self.assertTrue(version2.is_active)
+        assert version1.is_active
+        assert version2.is_active
 
         response = self.client.put(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
             {"is_active": False},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         response_v2 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
-        self.assertEqual(status.HTTP_200_OK, response_v2.status_code)
+        assert status.HTTP_200_OK == response_v2.status_code
         response_v1 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=1")
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response_v1.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response_v1.status_code
 
     def test_inactive_version_cannot_be_executed(self):
         """Inactive versions should not be executable."""
@@ -572,8 +572,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         # Try to run the endpoint
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("inactive", response.json()["detail"].lower())
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "inactive" in response.json()["detail"].lower()
 
     def test_list_versions_includes_is_active(self):
         """Versions list should include is_active field."""
@@ -586,11 +586,11 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         versions = response.json()["results"]
-        self.assertEqual(1, len(versions))
-        self.assertIn("is_active", versions[0])
-        self.assertTrue(versions[0]["is_active"])
+        assert 1 == len(versions)
+        assert "is_active" in versions[0]
+        assert versions[0]["is_active"]
 
     def test_per_version_materialization_uses_versioned_naming(self):
         """Each version should have its own independently-named saved_query."""
@@ -614,12 +614,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
                 {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
-            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            assert status.HTTP_200_OK == response.status_code, response.json()
 
         v1 = endpoint.get_version(1)
-        self.assertIsNotNone(v1.saved_query)
+        assert v1.saved_query is not None
         # Saved query should use versioned naming: {endpoint_name}_v{version}
-        self.assertEqual(v1.saved_query.name, "versioned_mat_v1")
+        assert v1.saved_query.name == "versioned_mat_v1"
 
         # Create v2 by changing query
         with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
@@ -628,19 +628,16 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
                 {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
                 format="json",
             )
-            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            assert status.HTTP_200_OK == response.status_code, response.json()
 
         endpoint.refresh_from_db()
         v2 = endpoint.get_version(2)
-        self.assertIsNotNone(v2.saved_query)
+        assert v2.saved_query is not None
         # New version should have its own versioned saved_query name
-        self.assertEqual(v2.saved_query.name, "versioned_mat_v2")
+        assert v2.saved_query.name == "versioned_mat_v2"
 
         # Both saved_queries should exist independently (v1 keeps its materialization)
-        self.assertEqual(
-            DataWarehouseSavedQuery.objects.filter(name__startswith="versioned_mat_v", deleted=False).count(),
-            2,
-        )
+        assert DataWarehouseSavedQuery.objects.filter(name__startswith="versioned_mat_v", deleted=False).count() == 2
 
     def test_update_with_version_param_enables_materialization_on_specific_version(self):
         """Update with ?version=N should enable materialization on that specific version."""
@@ -661,16 +658,16 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         endpoint.refresh_from_db()
-        self.assertEqual(2, endpoint.current_version)
+        assert 2 == endpoint.current_version
 
         # Neither version should be materialized yet
         v1 = endpoint.get_version(1)
         v2 = endpoint.get_version(2)
-        self.assertFalse(v1.is_materialized)
-        self.assertFalse(v2.is_materialized)
+        assert not v1.is_materialized
+        assert not v2.is_materialized
 
         # Enable materialization on v1 specifically (not the current version)
         with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
@@ -679,19 +676,19 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
                 {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
-            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            assert status.HTTP_200_OK == response.status_code, response.json()
 
         # Refresh versions
         v1.refresh_from_db()
         v2.refresh_from_db()
 
         # is_materialized is now derived from saved_query.table_id, which is only set after Temporal runs
-        self.assertIsNotNone(v1.saved_query)
-        self.assertEqual(v1.saved_query.name, "target_version_mat_v1")
+        assert v1.saved_query is not None
+        assert v1.saved_query.name == "target_version_mat_v1"
 
         # v2 should still NOT be materialized
-        self.assertFalse(v2.is_materialized)
-        self.assertIsNone(v2.saved_query)
+        assert not v2.is_materialized
+        assert v2.saved_query is None
 
     def test_update_with_version_param_disables_materialization_on_specific_version(self):
         """Update with ?version=N should disable materialization on that specific version."""
@@ -737,10 +734,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         endpoint.refresh_from_db()
-        self.assertEqual(2, endpoint.current_version)
+        assert 2 == endpoint.current_version
 
         # Disable materialization on v1 specifically
         response = self.client.put(
@@ -748,18 +745,18 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"is_materialized": False},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        assert status.HTTP_200_OK == response.status_code, response.json()
 
         # Refresh v1
         v1.refresh_from_db()
 
         # v1 should no longer be materialized
-        self.assertFalse(v1.is_materialized)
-        self.assertIsNone(v1.saved_query)
+        assert not v1.is_materialized
+        assert v1.saved_query is None
 
         # Saved query should be soft-deleted
         saved_query.refresh_from_db()
-        self.assertTrue(saved_query.deleted)
+        assert saved_query.deleted
 
     def test_update_with_version_param_updates_description_on_specific_version(self):
         """Update with ?version=N should update description on that specific version."""
@@ -778,10 +775,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         endpoint.refresh_from_db()
-        self.assertEqual(2, endpoint.current_version)
+        assert 2 == endpoint.current_version
 
         # Update description on v1 specifically
         response = self.client.put(
@@ -789,14 +786,14 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             {"description": "v1 description"},
             format="json",
         )
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
 
         # Verify v1 has the description
         v1 = endpoint.get_version(1)
         v2 = endpoint.get_version(2)
-        self.assertEqual("v1 description", v1.description)
+        assert "v1 description" == v1.description
         # v2 should NOT have been updated
-        self.assertNotEqual("v1 description", v2.description)
+        assert "v1 description" != v2.description
 
     def test_update_with_invalid_version_param_returns_error(self):
         """Update with ?version=N where N doesn't exist should return error."""
@@ -815,8 +812,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("999", str(response.json()))
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "999" in str(response.json())
 
     def test_update_rejects_query_change_with_version_param(self):
         """Cannot change query when targeting a specific version."""
@@ -834,5 +831,5 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("Cannot change query", str(response.json()))
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Cannot change query" in str(response.json())

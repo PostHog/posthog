@@ -124,7 +124,7 @@ class TestAgentToolkit(BaseTest):
 
         # Should not raise an error, just skip the unknown tool
         result = await node.arun(state, config)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     @parameterized.expand(
         [
@@ -163,9 +163,9 @@ class TestAgentToolkit(BaseTest):
             tool_names = [tool.model_fields["name"].default for tool in toolkit.tools]
 
             for expected in expected_tools:
-                self.assertIn(expected, tool_names)
+                assert expected in tool_names
             for unexpected in unexpected_tools:
-                self.assertNotIn(unexpected, tool_names)
+                assert unexpected not in tool_names
 
     @patch("ee.hogai.core.agent_modes.toolkit.AgentToolkitManager.get_tools", new_callable=AsyncMock)
     async def test_toolkit_manager_always_includes_web_search_server_tool(self, mock_get_tools):
@@ -179,7 +179,7 @@ class TestAgentToolkit(BaseTest):
         tools = await toolkit_manager.get_tools(AssistantState(messages=[]), RunnableConfig(configurable={}))
 
         mock_get_tools.assert_awaited_once()
-        self.assertIn({"type": "web_search_20250305", "name": "web_search", "max_uses": 5}, tools)
+        assert {"type": "web_search_20250305", "name": "web_search", "max_uses": 5} in tools
 
     def test_mode_registry_includes_all_modes(self):
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
@@ -204,7 +204,7 @@ class TestAgentToolkit(BaseTest):
             "survey",
             "llm_analytics",
         ]:
-            self.assertIn(expected, mode_names)
+            assert expected in mode_names
 
     @parameterized.expand(
         [
@@ -229,9 +229,9 @@ class TestAgentToolkit(BaseTest):
             mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
 
             for expected in expected_modes:
-                self.assertIn(expected, mode_names)
+                assert expected in mode_names
             for unexpected in unexpected_modes:
-                self.assertNotIn(unexpected, mode_names)
+                assert unexpected not in mode_names
 
     @parameterized.expand(
         [
@@ -249,11 +249,11 @@ class TestAgentToolkit(BaseTest):
             system_prompt = prompt_builder._get_system_prompt()
 
             if should_contain:
-                self.assertIn("Switch to `plan` mode", system_prompt)
-                self.assertIn("When to switch to plan mode", system_prompt)
+                assert "Switch to `plan` mode" in system_prompt
+                assert "When to switch to plan mode" in system_prompt
             else:
-                self.assertNotIn("Switch to `plan` mode", system_prompt)
-                self.assertNotIn("When to switch to plan mode", system_prompt)
+                assert "Switch to `plan` mode" not in system_prompt
+                assert "When to switch to plan mode" not in system_prompt
 
     def test_prompt_builder_includes_slash_commands(self):
         context_manager = AssistantContextManager(
@@ -262,9 +262,9 @@ class TestAgentToolkit(BaseTest):
         prompt_builder = ChatAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
         system_prompt = prompt_builder._get_system_prompt()
 
-        self.assertIn("PostHog AI supports slash commands", system_prompt)
-        self.assertIn("`/usage`", system_prompt)
-        self.assertIn("Do not claim this command is fabricated", system_prompt)
+        assert "PostHog AI supports slash commands" in system_prompt
+        assert "`/usage`" in system_prompt
+        assert "Do not claim this command is fabricated" in system_prompt
 
     async def test_plan_prompt_builder_includes_slash_commands(self):
         context_manager = AssistantContextManager(
@@ -284,9 +284,9 @@ class TestAgentToolkit(BaseTest):
 
         system_prompt = "\n\n".join(str(message.content) for message in messages if isinstance(message, SystemMessage))
 
-        self.assertIn("PostHog AI supports slash commands", system_prompt)
-        self.assertIn("`/usage`", system_prompt)
-        self.assertIn("Do not claim this command is fabricated", system_prompt)
+        assert "PostHog AI supports slash commands" in system_prompt
+        assert "`/usage`" in system_prompt
+        assert "Do not claim this command is fabricated" in system_prompt
 
 
 class TestChatAgentModeManagerPlanMode(BaseTest):
@@ -308,8 +308,8 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
             state=state,
         )
 
-        self.assertEqual(mode_manager._supermode, AgentMode.PLAN)
-        self.assertEqual(mode_manager._mode, AgentMode.PRODUCT_ANALYTICS)
+        assert mode_manager._supermode == AgentMode.PLAN
+        assert mode_manager._mode == AgentMode.PRODUCT_ANALYTICS
 
     def test_plan_mode_uses_plan_mode_registry(self):
         """Test that mode_registry returns plan mode registry when in plan mode"""
@@ -328,10 +328,10 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
         )
 
         mode_names = list(mode_manager.mode_registry.keys())
-        self.assertIn(AgentMode.EXECUTION, mode_names)  # Plan mode has EXECUTION mode
-        self.assertIn(AgentMode.SQL, mode_names)  # Plan mode has SQL mode
-        self.assertIn(AgentMode.SESSION_REPLAY, mode_names)  # Plan mode has SESSION_REPLAY mode
-        self.assertIn(AgentMode.PRODUCT_ANALYTICS, mode_names)  # Plan mode now has PRODUCT_ANALYTICS
+        assert AgentMode.EXECUTION in mode_names  # Plan mode has EXECUTION mode
+        assert AgentMode.SQL in mode_names  # Plan mode has SQL mode
+        assert AgentMode.SESSION_REPLAY in mode_names  # Plan mode has SESSION_REPLAY mode
+        assert AgentMode.PRODUCT_ANALYTICS in mode_names  # Plan mode now has PRODUCT_ANALYTICS
 
     def test_plan_mode_uses_plan_prompt_builder(self):
         """Test that prompt_builder_class returns ChatAgentPlanPromptBuilder when in plan mode"""
@@ -349,7 +349,7 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
             state=state,
         )
 
-        self.assertEqual(mode_manager.prompt_builder_class, ChatAgentPlanPromptBuilder)
+        assert mode_manager.prompt_builder_class == ChatAgentPlanPromptBuilder
 
     def test_plan_mode_uses_plan_toolkit(self):
         """Test that toolkit_class returns ChatAgentPlanToolkit when in plan mode"""
@@ -367,7 +367,7 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
             state=state,
         )
 
-        self.assertEqual(mode_manager.toolkit_class, ChatAgentPlanToolkit)
+        assert mode_manager.toolkit_class == ChatAgentPlanToolkit
 
     def test_normal_mode_does_not_use_plan_classes(self):
         """Test that normal mode uses regular classes, not plan classes"""
@@ -385,10 +385,10 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
             state=state,
         )
 
-        self.assertIsNone(mode_manager._supermode)
-        self.assertEqual(mode_manager.prompt_builder_class, ChatAgentPromptBuilder)
-        self.assertEqual(mode_manager.toolkit_class, ChatAgentToolkit)
-        self.assertNotIn(AgentMode.EXECUTION, mode_manager.mode_registry.keys())
+        assert mode_manager._supermode is None
+        assert mode_manager.prompt_builder_class == ChatAgentPromptBuilder
+        assert mode_manager.toolkit_class == ChatAgentToolkit
+        assert AgentMode.EXECUTION not in mode_manager.mode_registry.keys()
 
 
 class TestAgentNode(ClickhouseTestMixin, BaseTest):
@@ -408,21 +408,21 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             next_state = await node.arun(state, {})
-            self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 3)
+            assert isinstance(next_state, PartialAssistantState)
+            assert len(next_state.messages) == 3
             # Mode context message
-            self.assertIsInstance(next_state.messages[0], ContextMessage)
             assert isinstance(next_state.messages[0], ContextMessage)
-            self.assertIn("product_analytics", next_state.messages[0].content)  # Default mode when no supermode
+            assert isinstance(next_state.messages[0], ContextMessage)
+            assert "product_analytics" in next_state.messages[0].content  # Default mode when no supermode
             # Original human message
-            self.assertIsInstance(next_state.messages[1], HumanMessage)
             assert isinstance(next_state.messages[1], HumanMessage)
-            self.assertEqual(next_state.messages[1].content, "show me long recordings")
+            assert isinstance(next_state.messages[1], HumanMessage)
+            assert next_state.messages[1].content == "show me long recordings"
             # Assistant message
-            self.assertIsInstance(next_state.messages[2], AssistantMessage)
             assert isinstance(next_state.messages[2], AssistantMessage)
-            self.assertEqual(next_state.messages[2].content, "Simple response")
-            self.assertEqual(next_state.messages[2].tool_calls, [])
+            assert isinstance(next_state.messages[2], AssistantMessage)
+            assert next_state.messages[2].content == "Simple response"
+            assert next_state.messages[2].tool_calls == []
             mock_bind_tools.assert_not_called()
 
     async def test_node_injects_contextual_tool_prompts(self):
@@ -449,27 +449,26 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             node = _create_agent_node(self.team, self.user, config=config)
             result = await node.arun(state, config)
             # Verify the node ran successfully and returned a message
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(len(result.messages), 4)
+            assert isinstance(result, PartialAssistantState)
+            assert len(result.messages) == 4
             # Mode context message
-            self.assertIsInstance(result.messages[0], ContextMessage)
+            assert isinstance(result.messages[0], ContextMessage)
             # Contextual tools context message
-            self.assertIsInstance(result.messages[1], ContextMessage)
             assert isinstance(result.messages[1], ContextMessage)
-            self.assertIn("filter_session_recordings", result.messages[1].content)
+            assert isinstance(result.messages[1], ContextMessage)
+            assert "filter_session_recordings" in result.messages[1].content
             # Original human message
-            self.assertIsInstance(result.messages[2], HumanMessage)
+            assert isinstance(result.messages[2], HumanMessage)
             # The message should be an AssistantMessage
-            self.assertIsInstance(result.messages[3], AssistantMessage)
             assert isinstance(result.messages[3], AssistantMessage)
-            self.assertEqual(result.messages[3].content, "I'll help with recordings")
+            assert isinstance(result.messages[3], AssistantMessage)
+            assert result.messages[3].content == "I'll help with recordings"
 
             # Verify _get_model was called with a SearchSessionRecordingsTool instance in the tools arg
             mock_get_model.assert_called()
             tools_arg = mock_get_model.call_args[0][1]
-            self.assertTrue(
-                any(isinstance(tool, FilterSessionRecordingsTool) for tool in tools_arg),
-                "SearchSessionRecordingsTool instance not found in tools arg",
+            assert any(isinstance(tool, FilterSessionRecordingsTool) for tool in tools_arg), (
+                "SearchSessionRecordingsTool instance not found in tools arg"
             )
 
     async def test_node_includes_project_org_user_context_in_prompt_template(self):
@@ -505,8 +504,8 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     content_parts.append(str(msg.content))
             system_content = "\n\n".join(content_parts)
 
-            self.assertIn("You are currently in project ", system_content)
-            self.assertIn("The user's name appears to be ", system_content)
+            assert "You are currently in project " in system_content
+            assert "The user's name appears to be " in system_content
 
     async def test_node_includes_core_memory_in_system_prompt(self):
         """Test that core memory content is appended to the conversation in system prompts"""
@@ -535,7 +534,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
             # Check system messages contain core memory
             system_messages = [msg for msg in messages if isinstance(msg, SystemMessage)]
-            self.assertGreater(len(system_messages), 0)
+            assert len(system_messages) > 0
 
             content_parts = []
             for msg in system_messages:
@@ -545,7 +544,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     content_parts.append(str(msg.content))
             system_content = "\n\n".join(content_parts)
 
-            self.assertIn("User prefers concise responses and technical details", system_content)
+            assert "User prefers concise responses and technical details" in system_content
 
     @parameterized.expand(
         [
@@ -579,7 +578,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
         prompt_builder = ChatAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
-        self.assertEqual(await prompt_builder._get_billing_prompt(), expected_prompt)
+        assert await prompt_builder._get_billing_prompt() == expected_prompt
 
 
 class TestRootNodeTools(BaseTest):
@@ -622,10 +621,10 @@ class TestRootNodeTools(BaseTest):
                 },
             )
 
-            self.assertIsInstance(result, PartialAssistantState)
+            assert isinstance(result, PartialAssistantState)
             assert result is not None
-            self.assertEqual(len(result.messages), 1)
-            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+            assert len(result.messages) == 1
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
 
     async def test_arun_tool_returns_wrong_type_returns_error_message(self):
         """Test that tool returning wrong type returns an error message"""
@@ -647,12 +646,12 @@ class TestRootNodeTools(BaseTest):
         with mock_contextual_tool(mock_tool):
             result = await node.arun(state, {"configurable": {"contextual_tools": {"test_tool": {}}}})
 
-            self.assertIsInstance(result, PartialAssistantState)
+            assert isinstance(result, PartialAssistantState)
             assert result is not None
-            self.assertEqual(len(result.messages), 1)
+            assert len(result.messages) == 1
             assert isinstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-            self.assertIn("This tool does not exist.", result.messages[0].content)
+            assert result.messages[0].tool_call_id == "tool-123"
+            assert "This tool does not exist." in result.messages[0].content
 
     async def test_arun_unknown_tool_returns_error_message(self):
         """Test that unknown tool name returns an error message"""
@@ -671,12 +670,12 @@ class TestRootNodeTools(BaseTest):
         with patch("ee.hogai.registry.get_contextual_tool_class", return_value=None):
             result = await node.arun(state, {})
 
-            self.assertIsInstance(result, PartialAssistantState)
+            assert isinstance(result, PartialAssistantState)
             assert result is not None
-            self.assertEqual(len(result.messages), 1)
+            assert len(result.messages) == 1
             assert isinstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].tool_call_id, "tool-123")
-            self.assertIn("does not exist", result.messages[0].content)
+            assert result.messages[0].tool_call_id == "tool-123"
+            assert "does not exist" in result.messages[0].content
 
 
 class TestChatAgentModeManagerModeFallback(BaseTest):
@@ -702,8 +701,8 @@ class TestChatAgentModeManagerModeFallback(BaseTest):
             context_manager=context_manager,
             state=state,
         )
-        self.assertEqual(mode_manager._mode, mode)
-        self.assertIn(mode_manager._mode, mode_manager.mode_registry)
+        assert mode_manager._mode == mode
+        assert mode_manager._mode in mode_manager.mode_registry
 
 
 class TestChatAgentModeManagerSubagent(BaseTest):
@@ -728,27 +727,27 @@ class TestChatAgentModeManagerSubagent(BaseTest):
             "survey",
             "llm_analytics",
         ]:
-            self.assertIn(expected, mode_names)
+            assert expected in mode_names
         # Plan mode is never available for subagents
-        self.assertNotIn("plan", mode_names)
+        assert "plan" not in mode_names
 
     def test_subagent_product_analytics_toolkit_excludes_dangerous_tools(self):
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
         toolkit = ReadOnlyProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
-        self.assertIn(CreateInsightTool, toolkit.tools)
-        self.assertNotIn(UpsertDashboardTool, toolkit.tools)
-        self.assertNotIn(UpsertAlertTool, toolkit.tools)
+        assert CreateInsightTool in toolkit.tools
+        assert UpsertDashboardTool not in toolkit.tools
+        assert UpsertAlertTool not in toolkit.tools
 
     def test_subagent_survey_toolkit_excludes_dangerous_tools(self):
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
         toolkit = ReadOnlySurveyAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
-        self.assertIn(SurveyAnalysisTool, toolkit.tools)
-        self.assertNotIn(CreateSurveyTool, toolkit.tools)
-        self.assertNotIn(EditSurveyTool, toolkit.tools)
+        assert SurveyAnalysisTool in toolkit.tools
+        assert CreateSurveyTool not in toolkit.tools
+        assert EditSurveyTool not in toolkit.tools
 
     def test_non_subagent_mode_registry_includes_all_modes(self):
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
@@ -762,8 +761,8 @@ class TestChatAgentModeManagerSubagent(BaseTest):
             state=AssistantState(messages=[HumanMessage(content="Test")]),
         )
         mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
-        self.assertIn("product_analytics", mode_names)
-        self.assertIn("survey", mode_names)
-        self.assertIn("error_tracking", mode_names)
-        self.assertIn("flags", mode_names)
-        self.assertIn("llm_analytics", mode_names)
+        assert "product_analytics" in mode_names
+        assert "survey" in mode_names
+        assert "error_tracking" in mode_names
+        assert "flags" in mode_names
+        assert "llm_analytics" in mode_names

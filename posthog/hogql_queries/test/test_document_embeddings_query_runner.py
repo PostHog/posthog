@@ -173,13 +173,13 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # The runner returns the best match for each unique (product, document_type, document_id),
         # which in this case means itself, and the only other document.
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
 
         first_result = response.results[0].result
-        self.assertEqual(first_result.product, origin_document.product)
-        self.assertEqual(first_result.document_type, origin_document.document_type)
-        self.assertEqual(first_result.document_id, origin_document.document_id)
-        self.assertEqual(first_result.model_name, origin_row.model_name)
+        assert first_result.product == origin_document.product
+        assert first_result.document_type == origin_document.document_type
+        assert first_result.document_id == origin_document.document_id
+        assert first_result.model_name == origin_row.model_name
         # Commented out for the sake of being explicit - without specifying a set of possible
         # renderings in the query runner, the runner will return the nearest rendering type within
         # the range of available renderings, for a (product, document_type) universe of renderings
@@ -188,10 +188,10 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # The second document is the one with the opposite (product, document_type, document_id)
         # We again can't assert on rendering, but can assert on model_name
         second_result = response.results[1].result
-        self.assertNotEqual(second_result.product, origin_document.product)
-        self.assertNotEqual(second_result.document_type, origin_document.document_type)
-        self.assertNotEqual(second_result.document_id, origin_document.document_id)
-        self.assertEqual(second_result.model_name, origin_row.model_name)
+        assert second_result.product != origin_document.product
+        assert second_result.document_type != origin_document.document_type
+        assert second_result.document_id != origin_document.document_id
+        assert second_result.model_name == origin_row.model_name
 
     def test_query_respects_product_filter(self):
         # IMPORTANT - we do not filter the origin select, only the returned results - so we re-use
@@ -207,8 +207,8 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             products=["product_b"],
         )
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query_product_b).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].result.product, "product_b")
+        assert len(response.results) == 1
+        assert response.results[0].result.product == "product_b"
 
         query_product_a = build_document_similarity_query(
             origin=origin_document,
@@ -216,8 +216,8 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             products=["product_a"],
         )
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query_product_a).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].result.product, "product_a")
+        assert len(response.results) == 1
+        assert response.results[0].result.product == "product_a"
 
     def test_query_respects_rendering_filter(self):
         # As above, but for renderings rather than products - we support filtering by rendering type.
@@ -237,9 +237,9 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query).calculate()
-        self.assertEqual(len(response.results), 2)
+        assert len(response.results) == 2
         for result in response.results:
-            self.assertEqual(result.result.rendering, "text")
+            assert result.result.rendering == "text"
 
     def test_descending_order_places_other_product_first(self):
         origin_row = self.embedding_rows[0]
@@ -252,10 +252,10 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query).calculate()
-        self.assertIsInstance(response, DocumentSimilarityQueryResponse)
-        self.assertGreaterEqual(len(response.results), 1)
+        assert isinstance(response, DocumentSimilarityQueryResponse)
+        assert len(response.results) >= 1
         top_result = response.results[0].result
-        self.assertFalse(
+        assert not (
             top_result.product == origin_document.product
             and top_result.document_type == origin_document.document_type
             and top_result.document_id == origin_document.document_id

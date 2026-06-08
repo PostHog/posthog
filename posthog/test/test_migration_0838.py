@@ -68,7 +68,7 @@ class RemoveNullValuesFromTeamArraysMigrationTest(NonAtomicTestMigrations):
         team = self.teams[team_key]
         team.refresh_from_db()
 
-        self.assertEqual(team.app_urls, expected_app_urls)
+        assert team.app_urls == expected_app_urls
 
     @parameterized.expand(
         [
@@ -84,4 +84,4 @@ class RemoveNullValuesFromTeamArraysMigrationTest(NonAtomicTestMigrations):
         team = self.teams[team_key]
         team.refresh_from_db()
 
-        self.assertEqual(team.recording_domains, expected_recording_domains)
+        assert team.recording_domains == expected_recording_domains

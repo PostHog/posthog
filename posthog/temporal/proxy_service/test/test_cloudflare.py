@@ -17,4 +17,4 @@ class TestCloudflareAPIErrorIsRateLimited(TestCase):
     )
     def test_is_rate_limited(self, _name, message, errors, expected):
         error = CloudflareAPIError(message, errors=errors)
-        self.assertEqual(error.is_rate_limited(), expected)
+        assert error.is_rate_limited() == expected

@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
@@ -38,8 +39,8 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False),
             )
             response = runner.calculate()
-            self.assertEqual(response.results, [])
-            self.assertFalse(response.usedPreAggregatedTables)
+            assert response.results == []
+            assert not response.usedPreAggregatedTables
 
     def test_scoring_high_traffic_high_change_ranks_above_low_traffic(self):
         runner = WebNotableChangesQueryRunner(
@@ -53,9 +54,9 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         scored = runner._score_results(results)
 
-        self.assertEqual(len(scored), 3)
-        self.assertEqual(scored[0].dimension_value, "/popular")
-        self.assertTrue(scored[1].impact_score > scored[2].impact_score)
+        assert len(scored) == 3
+        assert scored[0].dimension_value == "/popular"
+        assert scored[1].impact_score > scored[2].impact_score
 
     def test_minimum_traffic_filtering(self):
         runner = WebNotableChangesQueryRunner(
@@ -67,8 +68,8 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Page", "/tiny", 3, 2],
         ]
         scored = runner._score_results(results)
-        self.assertEqual(len(scored), 1)
-        self.assertEqual(scored[0].dimension_value, "/popular")
+        assert len(scored) == 1
+        assert scored[0].dimension_value == "/popular"
 
     def test_zero_previous_visitors(self):
         runner = WebNotableChangesQueryRunner(
@@ -79,8 +80,8 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Page", "/new-page", 50, 0],
         ]
         scored = runner._score_results(results)
-        self.assertEqual(len(scored), 1)
-        self.assertLessEqual(scored[0].percent_change, 10.0)
+        assert len(scored) == 1
+        assert scored[0].percent_change <= 10.0
 
     def test_scoring_returns_all_items_before_limit(self):
         runner = WebNotableChangesQueryRunner(
@@ -89,7 +90,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         results = [["Page", f"/page-{i}", 100 + i * 50, 100] for i in range(5)]
         scored = runner._score_results(results)
-        self.assertEqual(len(scored), 5)
+        assert len(scored) == 5
 
     def test_all_dimensions_empty(self):
         runner = WebNotableChangesQueryRunner(
@@ -98,7 +99,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         results: list = []
         scored = runner._score_results(results)
-        self.assertEqual(len(scored), 0)
+        assert len(scored) == 0
 
     def test_percent_change_calculation(self):
         runner = WebNotableChangesQueryRunner(
@@ -109,8 +110,8 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Device", "Mobile", 75, 100],
         ]
         scored = runner._score_results(results)
-        self.assertEqual(len(scored), 1)
-        self.assertAlmostEqual(scored[0].percent_change, -0.25, places=2)
+        assert len(scored) == 1
+        assert scored[0].percent_change == pytest.approx(-0.25, abs=10 ** (-2) * 0.5)
 
     @snapshot_clickhouse_queries
     def test_integration_with_events(self):
@@ -156,18 +157,24 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             response = runner.calculate()
 
-            self.assertFalse(response.usedPreAggregatedTables)
-            self.assertGreater(len(response.results), 0)
+            assert not response.usedPreAggregatedTables
+            assert len(response.results) > 0
 
             # Results should be sorted by impact_score descending
             scores = [item.impact_score for item in response.results]
-            self.assertEqual(scores, sorted(scores, reverse=True))
+            assert scores == sorted(scores, reverse=True)
 
             # Every result should have valid fields
             for item in response.results:
-                self.assertIn(
-                    item.dimension_type,
-                    ["Page", "Entry page", "Referrer", "Device", "Browser", "Country", "Channel", "UTM source"],
-                )
-                self.assertIsNotNone(item.dimension_value)
-                self.assertIsNotNone(item.percent_change)
+                assert item.dimension_type in [
+                    "Page",
+                    "Entry page",
+                    "Referrer",
+                    "Device",
+                    "Browser",
+                    "Country",
+                    "Channel",
+                    "UTM source",
+                ]
+                assert item.dimension_value is not None
+                assert item.percent_change is not None

@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -194,7 +195,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(query, self.team, funnel_step=funnel_step)
 
-        self.assertEqual(expected_count, len(results))
+        assert expected_count == len(results)
 
     def _create_sample_data(self):
         for i in range(110):
@@ -229,11 +230,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # fetch first 100 people
         results = get_actors(query, self.team, funnel_step=1)
-        self.assertEqual(100, len(results))
+        assert 100 == len(results)
 
         # fetch next 100 people (just 10 remaining)
         results = get_actors(query, self.team, funnel_step=1, offset=100)
-        self.assertEqual(10, len(results))
+        assert 10 == len(results)
 
     @also_test_with_materialized_columns(["$browser"])
     def test_first_step_breakdowns(self):
@@ -248,15 +249,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(query, self.team, funnel_step=1)
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid, person2.uuid])
-        self.assertCountEqual([results[0][0], results[1][0]], [person1.uuid, person2.uuid])
+        assert Counter([results[0][0], results[1][0]]) == Counter([person1.uuid, person2.uuid])
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["Chrome"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
-        self.assertCountEqual([results[0][0]], [person1.uuid])
+        assert Counter([results[0][0]]) == Counter([person1.uuid])
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["Safari"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
-        self.assertCountEqual([results[0][0]], [person2.uuid])
+        assert Counter([results[0][0]]) == Counter([person2.uuid])
 
     def test_first_step_breakdowns_with_multi_property_breakdown(self):
         person1, person2 = self._create_browser_breakdown_events()
@@ -270,15 +271,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(query, self.team, funnel_step=1)
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid, person2.uuid])
-        self.assertCountEqual([results[0][0], results[1][0]], [person1.uuid, person2.uuid])
+        assert Counter([results[0][0], results[1][0]]) == Counter([person1.uuid, person2.uuid])
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["Chrome", "95"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
-        self.assertCountEqual([results[0][0]], [person1.uuid])
+        assert Counter([results[0][0]]) == Counter([person1.uuid])
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["Safari", "14"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
-        self.assertCountEqual([results[0][0]], [person2.uuid])
+        assert Counter([results[0][0]]) == Counter([person2.uuid])
 
     @also_test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
@@ -293,15 +294,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(query, self.team, funnel_step=1)
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid, person2.uuid])
-        self.assertCountEqual([results[0][0], results[1][0]], [person1.uuid, person2.uuid])
+        assert Counter([results[0][0], results[1][0]]) == Counter([person1.uuid, person2.uuid])
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["EE"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
-        self.assertCountEqual([results[0][0]], [person2.uuid])
+        assert Counter([results[0][0]]) == Counter([person2.uuid])
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["PL"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
-        self.assertCountEqual([results[0][0]], [person1.uuid])
+        assert Counter([results[0][0]]) == Counter([person1.uuid])
 
     @also_test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):
@@ -328,7 +329,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = get_actors(query, self.team, funnel_step=1)
-        self.assertEqual(results[0][0], person.uuid)
+        assert results[0][0] == person.uuid
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -368,54 +369,42 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors(query, self.team, funnel_step=1, include_recordings=True)
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [],
-        )
+        assert results[0][0] == p1.uuid
+        assert list(results[0][2]) == []
 
         # Second event, with recording
         results = get_actors(query, self.team, funnel_step=2, include_recordings=True)
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0][0] == p1.uuid
+        assert list(results[0][2]) == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]
 
         # Third event dropoff, with recording
         results = get_actors(query, self.team, funnel_step=-3, include_recordings=True)
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0][0] == p1.uuid
+        assert list(results[0][2]) == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]
 
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(
@@ -451,7 +440,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=["test'123"])
-        self.assertCountEqual([results[0][0]], [person1.uuid])
+        assert Counter([results[0][0]]) == Counter([person1.uuid])
 
     def test_first_time_math_basic(self):
         person1 = _create_person(
@@ -495,7 +484,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = get_actors(query, self.team, funnel_step=1)
-        self.assertCountEqual([results[0][0]], [person1.uuid])
+        assert Counter([results[0][0]]) == Counter([person1.uuid])
 
         query = FunnelsQuery(
             series=[
@@ -508,7 +497,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = get_actors(query, self.team, funnel_step=1)
-        self.assertEqual(len(results), 0)
+        assert len(results) == 0
 
     def test_first_time_math_multiple_ids(self):
         _create_person(
@@ -565,8 +554,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = get_actors(query, self.team, funnel_step=1)
-        self.assertEqual(len(results), 1)
-        self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
+        assert len(results) == 1
+        assert Counter(set(results[0][1]["distinct_ids"])) == Counter({"person1", "anon1"})
 
         query = FunnelsQuery(
             series=[
@@ -580,9 +569,9 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = get_actors(query, self.team, funnel_step=1)
-        self.assertEqual(len(results), 2)
-        self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
-        self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
+        assert len(results) == 2
+        assert Counter(set(results[0][1]["distinct_ids"])) == Counter({"person1", "anon1"})
+        assert Counter(set(results[1][1]["distinct_ids"])) == Counter({"person2", "anon2"})
 
     def test_optional_funnel_step_actors_query(self):
         journeys_for(
@@ -621,7 +610,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
         results = response.results
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
 
     def test_optional_funnel_step_dropoff_actors_query(self):
         journeys_for(
@@ -671,7 +660,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = response.results
 
         # Should return 2 users: user_does_step1_only and user_does_step1_and_2_only
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
 
 class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):

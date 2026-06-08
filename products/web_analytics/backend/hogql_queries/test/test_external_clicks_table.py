@@ -85,7 +85,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_crash_when_no_data(self):
         results = self._run_external_clicks_table_query("2023-12-08", "2023-12-15").results
-        self.assertEqual([], results)
+        assert [] == results
 
     def test_increase_in_users(
         self,
@@ -109,13 +109,10 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-11").results
 
-        self.assertEqual(
-            [
-                ["https://www.example.com/", (2, 0), (2, 0)],
-                ["https://www.example.com/login", (1, 0), (1, 0)],
-            ],
-            results,
-        )
+        assert [
+            ["https://www.example.com/", (2, 0), (2, 0)],
+            ["https://www.example.com/login", (1, 0), (1, 0)],
+        ] == results
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
@@ -137,14 +134,11 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("all", "2023-12-15").results
 
-        self.assertEqual(
-            [
-                ["https://www.example.com/", (2, 0), (2, 0)],
-                ["https://www.example.com/docs", (1, 0), (1, 0)],
-                ["https://www.example.com/login", (1, 0), (1, 0)],
-            ],
-            results,
-        )
+        assert [
+            ["https://www.example.com/", (2, 0), (2, 0)],
+            ["https://www.example.com/docs", (1, 0), (1, 0)],
+            ["https://www.example.com/login", (1, 0), (1, 0)],
+        ] == results
 
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -163,10 +157,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=True).results
 
-        self.assertEqual(
-            [],
-            results,
-        )
+        assert [] == results
 
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -185,10 +176,10 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
-        self.assertEqual(
-            [["https://www.example.com/", (1, 0), (1, 0)], ["https://www.example.com/login", (1, 0), (1, 0)]],
-            results,
-        )
+        assert [
+            ["https://www.example.com/", (1, 0), (1, 0)],
+            ["https://www.example.com/login", (1, 0), (1, 0)],
+        ] == results
 
     def test_strip_query_params(self):
         s1 = str(uuid7("2023-12-02"))
@@ -209,22 +200,16 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", filter_test_accounts=False, strip_query_params=True
         ).results
 
-        self.assertEqual(
-            [["https://www.example.com/login", (1, 0), (2, 0)]],
-            results_strip,
-        )
+        assert [["https://www.example.com/login", (1, 0), (2, 0)]] == results_strip
 
         results_no_strip = self._run_external_clicks_table_query(
             "2023-12-01", "2023-12-03", filter_test_accounts=False, strip_query_params=False
         ).results
 
-        self.assertEqual(
-            [
-                ["https://www.example.com/login#bar", (1, 0), (1, 0)],
-                ["https://www.example.com/login?test=1#foo", (1, 0), (1, 0)],
-            ],
-            results_no_strip,
-        )
+        assert [
+            ["https://www.example.com/login#bar", (1, 0), (1, 0)],
+            ["https://www.example.com/login?test=1#foo", (1, 0), (1, 0)],
+        ] == results_no_strip
 
     def test_should_exclude_subdomain_under_root(self):
         s1 = str(uuid7("2023-12-02"))
@@ -244,12 +229,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
-        self.assertEqual(
-            [
-                ["https://other.com/", (1, 0), (1, 0)],
-            ],
-            results,
-        )
+        assert [["https://other.com/", (1, 0), (1, 0)]] == results
 
     def test_should_exclude_subdomain_with_shared_root(self):
         s1 = str(uuid7("2023-12-02"))
@@ -270,12 +250,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
-        self.assertEqual(
-            [
-                ["https://other.com/", (1, 0), (1, 0)],
-            ],
-            results,
-        )
+        assert [["https://other.com/", (1, 0), (1, 0)]] == results
 
     def test_path_cleaning(self):
         self.team.path_cleaning_filters = [{"alias": "/items/:id", "regex": "/items/\\d+"}]
@@ -299,26 +274,20 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", filter_test_accounts=False, do_path_cleaning=True
         ).results
 
-        self.assertEqual(
-            cleaned,
-            [
-                ["https://www.partner.com/catalog/items/:id", (1, 0), (2, 0)],
-                ["https://www.other.com/page", (1, 0), (1, 0)],
-            ],
-        )
+        assert cleaned == [
+            ["https://www.partner.com/catalog/items/:id", (1, 0), (2, 0)],
+            ["https://www.other.com/page", (1, 0), (1, 0)],
+        ]
 
         not_cleaned = self._run_external_clicks_table_query(
             "2023-12-01", "2023-12-03", filter_test_accounts=False, do_path_cleaning=False
         ).results
 
-        self.assertEqual(
-            not_cleaned,
-            [
-                ["https://www.other.com/page", (1, 0), (1, 0)],
-                ["https://www.partner.com/catalog/items/12345", (1, 0), (1, 0)],
-                ["https://www.partner.com/catalog/items/67890", (1, 0), (1, 0)],
-            ],
-        )
+        assert not_cleaned == [
+            ["https://www.other.com/page", (1, 0), (1, 0)],
+            ["https://www.partner.com/catalog/items/12345", (1, 0), (1, 0)],
+            ["https://www.partner.com/catalog/items/67890", (1, 0), (1, 0)],
+        ]
 
     def test_custom_order_by(self):
         s1 = str(uuid7("2023-12-02"))
@@ -365,15 +334,11 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             filter_test_accounts=False,
         ).results
 
-        self.assertEqual(
-            default_results,
-            [
-                ["https://beta.com/", (2, 0), (5, 0)],
-                ["https://example.com/", (3, 0), (4, 0)],
-                ["https://alpha.com/", (1, 0), (1, 0)],
-            ],
-            "Default sorting should be by clicks DESC, then URL ASC",
-        )
+        assert default_results == [
+            ["https://beta.com/", (2, 0), (5, 0)],
+            ["https://example.com/", (3, 0), (4, 0)],
+            ["https://alpha.com/", (1, 0), (1, 0)],
+        ], "Default sorting should be by clicks DESC, then URL ASC"
 
         visitors_desc_results = self._run_external_clicks_table_query(
             "2023-12-01",
@@ -382,12 +347,8 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             order_by=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
         ).results
 
-        self.assertEqual(
-            visitors_desc_results,
-            [
-                ["https://example.com/", (3, 0), (4, 0)],
-                ["https://beta.com/", (2, 0), (5, 0)],
-                ["https://alpha.com/", (1, 0), (1, 0)],
-            ],
-            "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically",
-        )
+        assert visitors_desc_results == [
+            ["https://example.com/", (3, 0), (4, 0)],
+            ["https://beta.com/", (2, 0), (5, 0)],
+            ["https://alpha.com/", (1, 0), (1, 0)],
+        ], "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically"

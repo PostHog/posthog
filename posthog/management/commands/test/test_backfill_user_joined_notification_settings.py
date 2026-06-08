@@ -31,10 +31,10 @@ class TestBackfillUserJoinedNotificationSettingsCommand(BaseTest):
 
         self.user.refresh_from_db(fields=["partial_notification_settings"])
         pns = self.user.partial_notification_settings or {}
-        self.assertEqual(pns.get("plugin_disabled"), False)
+        assert not pns.get("plugin_disabled")
         join_map = pns.get(ORG_MEMBER_JOIN_KEY, {})
-        self.assertEqual(join_map[str(self.organization.id)], False)
-        self.assertEqual(join_map[str(org_disabled.id)], True)
+        assert not join_map[str(self.organization.id)]
+        assert join_map[str(org_disabled.id)]
 
     def test_dry_run_does_not_write(self) -> None:
         self.user.partial_notification_settings = None
@@ -43,7 +43,7 @@ class TestBackfillUserJoinedNotificationSettingsCommand(BaseTest):
         call_command("backfill_user_joined_notification_settings", "--dry-run", stdout=self.stdout)
 
         self.user.refresh_from_db(fields=["partial_notification_settings"])
-        self.assertIsNone(self.user.partial_notification_settings)
+        assert self.user.partial_notification_settings is None
 
     def test_backfill_preserves_other_top_level_notification_keys(self) -> None:
         before = {
@@ -62,9 +62,9 @@ class TestBackfillUserJoinedNotificationSettingsCommand(BaseTest):
         self.user.refresh_from_db(fields=["partial_notification_settings"])
         pns = self.user.partial_notification_settings or {}
         for key, value in before.items():
-            self.assertEqual(pns.get(key), value, msg=f"expected {key!r} unchanged")
+            assert pns.get(key) == value, f"expected {key!r} unchanged"
         join_map = pns.get(ORG_MEMBER_JOIN_KEY, {})
-        self.assertEqual(join_map[str(self.organization.id)], False)
+        assert not join_map[str(self.organization.id)]
 
     def test_backfill_skips_users_who_already_have_join_notification_key(self) -> None:
         stale_org_id = str(uuid.uuid4())
@@ -79,5 +79,5 @@ class TestBackfillUserJoinedNotificationSettingsCommand(BaseTest):
 
         self.user.refresh_from_db(fields=["partial_notification_settings"])
         join_map = (self.user.partial_notification_settings or {}).get(ORG_MEMBER_JOIN_KEY, {})
-        self.assertEqual(join_map.get(stale_org_id), True)
-        self.assertNotIn(str(self.organization.id), join_map)
+        assert join_map.get(stale_org_id)
+        assert str(self.organization.id) not in join_map

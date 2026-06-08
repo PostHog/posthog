@@ -56,20 +56,20 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
 
         result = cast(NewExperimentQueryResponse, query_runner.calculate())
 
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
         assert isinstance(test_variant, ExperimentVariantResultFrequentist)
 
-        self.assertEqual(control_variant.sum, 20)
-        self.assertEqual(test_variant.sum, 20)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.confidence_interval, None)
-        self.assertFalse(test_variant.significant)
-        self.assertEqual(test_variant.p_value, None)
-        self.assertEqual(test_variant.validation_failures, [ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES])
+        assert control_variant.sum == 20
+        assert test_variant.sum == 20
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
+        assert test_variant.confidence_interval is None
+        assert not test_variant.significant
+        assert test_variant.p_value is None
+        assert test_variant.validation_failures == [ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES]
 
     def _populate_purchases(self, feature_flag, samples_per_variant: int = 60) -> None:
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -156,4 +156,4 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
         fixed_width = fixed_variant.confidence_interval[1] - fixed_variant.confidence_interval[0]
         seq_width = seq_variant.confidence_interval[1] - seq_variant.confidence_interval[0]
 
-        self.assertGreater(seq_width, fixed_width)
+        assert seq_width > fixed_width

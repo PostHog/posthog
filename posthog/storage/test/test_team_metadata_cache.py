@@ -40,18 +40,18 @@ class TestTeamMetadataCache(BaseTest):
 
         # Update cache
         success = update_team_metadata_cache(self.team)
-        self.assertTrue(success)
+        assert success
 
         # Get from cache
         metadata = get_team_metadata(self.team)
-        self.assertIsNotNone(metadata)
+        assert metadata is not None
         assert metadata is not None  # Type narrowing for mypy
-        self.assertEqual(metadata["id"], self.team.id)
-        self.assertEqual(metadata["name"], self.team.name)
+        assert metadata["id"] == self.team.id
+        assert metadata["name"] == self.team.name
 
         # Verify all required fields are present
         for field in TEAM_METADATA_FIELDS:
-            self.assertIn(field, metadata)
+            assert field in metadata
 
     @patch("posthog.storage.team_metadata_cache.team_metadata_hypercache")
     def test_clear_cache(self, mock_hypercache):
@@ -64,12 +64,12 @@ class TestTeamMetadataCache(BaseTest):
 
         # Verify it's cached
         metadata = get_team_metadata(self.team)
-        self.assertIsNotNone(metadata)
+        assert metadata is not None
 
         # Clear and verify it still works (will reload from DB)
         clear_team_metadata_cache(self.team)
         metadata = get_team_metadata(self.team)
-        self.assertIsNotNone(metadata)
+        assert metadata is not None
 
     @patch("posthog.storage.team_metadata_cache.team_metadata_hypercache")
     def test_cache_with_different_key_types(self, mock_hypercache):
@@ -90,14 +90,14 @@ class TestTeamMetadataCache(BaseTest):
         metadata3 = get_team_metadata(self.team.api_token)
 
         # All should return the same data
-        self.assertIsNotNone(metadata1)
-        self.assertIsNotNone(metadata2)
-        self.assertIsNotNone(metadata3)
+        assert metadata1 is not None
+        assert metadata2 is not None
+        assert metadata3 is not None
         assert metadata1 is not None  # Type narrowing for mypy
         assert metadata2 is not None  # Type narrowing for mypy
         assert metadata3 is not None  # Type narrowing for mypy
-        self.assertEqual(metadata1["id"], metadata2["id"])
-        self.assertEqual(metadata2["id"], metadata3["id"])
+        assert metadata1["id"] == metadata2["id"]
+        assert metadata2["id"] == metadata3["id"]
 
 
 class TestTeamMetadataCacheTasks(BaseTest):
@@ -111,9 +111,9 @@ class TestTeamMetadataCacheTasks(BaseTest):
         update_team_metadata_cache_task(self.team.id)
 
         # Verify the cache update was called with the right team
-        self.assertEqual(mock_update.call_count, 1)
+        assert mock_update.call_count == 1
         called_team = mock_update.call_args[0][0]
-        self.assertEqual(called_team.id, self.team.id)
+        assert called_team.id == self.team.id
 
     def test_update_task_nonexistent_team(self):
         """Test task handles non-existent team gracefully."""
@@ -214,7 +214,7 @@ class TestTeamMetadataCacheSignals(BaseTest):
 
         mock_token_cache.invalidate_tokens.assert_called_once()
         invalidated_values = set(mock_token_cache.invalidate_tokens.call_args[0][0])
-        self.assertEqual(invalidated_values, {"sha256$hashed_value_1", "sha256$hashed_value_2"})
+        assert invalidated_values == {"sha256$hashed_value_1", "sha256$hashed_value_2"}
 
     @patch("posthog.storage.team_access_cache_signal_handlers.capture_exception")
     @patch("posthog.storage.team_access_cache.token_auth_cache")
@@ -232,8 +232,8 @@ class TestTeamMetadataCacheSignals(BaseTest):
 
         mock_capture.assert_called_once()
         args, _ = mock_capture.call_args
-        self.assertIsInstance(args[0], Exception)
-        self.assertEqual(str(args[0]), "Redis down")
+        assert isinstance(args[0], Exception)
+        assert str(args[0]) == "Redis down"
 
     @patch("posthog.storage.team_access_cache.token_auth_cache")
     def test_team_delete_handles_no_project_secret_api_keys(self, mock_token_cache):
@@ -281,13 +281,13 @@ class TestCacheStats(BaseTest):
         with patch("posthog.models.team.team.Team.objects.count", return_value=5):
             stats = get_cache_stats()
 
-        self.assertEqual(stats["total_cached"], 2)
-        self.assertEqual(stats["total_teams"], 5)
-        self.assertEqual(stats["expiry_tracked"], 2)
-        self.assertEqual(stats["ttl_distribution"]["expires_1h"], 1)
-        self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
-        self.assertEqual(stats["size_statistics"]["sample_count"], 2)
-        self.assertEqual(stats["size_statistics"]["avg_size_bytes"], 1536)  # (1024 + 2048) / 2
+        assert stats["total_cached"] == 2
+        assert stats["total_teams"] == 5
+        assert stats["expiry_tracked"] == 2
+        assert stats["ttl_distribution"]["expires_1h"] == 1
+        assert stats["ttl_distribution"]["expires_24h"] == 1
+        assert stats["size_statistics"]["sample_count"] == 2
+        assert stats["size_statistics"]["avg_size_bytes"] == 1536  # (1024 + 2048) / 2
 
 
 class TestGetTeamsWithExpiringCaches(BaseTest):
@@ -317,9 +317,9 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         # Both teams have expiring caches
-        self.assertEqual(len(result), 2)
-        self.assertIn(team1, result)
-        self.assertIn(team2, result)
+        assert len(result) == 2
+        assert team1 in result
+        assert team2 in result
 
         # Verify sorted set query was called correctly with limit
         mock_redis.zrangebyscore.assert_called_once_with(
@@ -343,7 +343,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         # Team has fresh cache, not returned
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_returns_empty_when_no_expiring_caches(self, mock_get_client):
@@ -355,7 +355,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
 
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
 
 class TestVerifyTeamMetadata(BaseTest):
@@ -390,7 +390,7 @@ class TestVerifyTeamMetadata(BaseTest):
         # Verify should report a match since extra fields are ignored
         result = verify_team_metadata(self.team, verbose=True)
 
-        self.assertEqual(result["status"], "match", f"Expected match but got {result}")
+        assert result["status"] == "match", f"Expected match but got {result}"
 
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
     def test_verify_detects_mismatch_in_tracked_fields(self, mock_get_metadata):
@@ -407,9 +407,9 @@ class TestVerifyTeamMetadata(BaseTest):
 
         result = verify_team_metadata(self.team)
 
-        self.assertEqual(result["status"], "mismatch")
-        self.assertEqual(result["issue"], "DATA_MISMATCH")
-        self.assertIn("name", result["diff_fields"])
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "name" in result["diff_fields"]
 
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
     def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
@@ -418,8 +418,8 @@ class TestVerifyTeamMetadata(BaseTest):
 
         result = verify_team_metadata(self.team)
 
-        self.assertEqual(result["status"], "miss")
-        self.assertEqual(result["issue"], "CACHE_MISS")
+        assert result["status"] == "miss"
+        assert result["issue"] == "CACHE_MISS"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
@@ -461,22 +461,18 @@ class TestWarmCachesExpiryTracking(BaseTest):
         call_args = mock_redis.zadd.call_args
 
         # First arg is the sorted set key
-        self.assertEqual(call_args[0][0], TEAM_CACHE_EXPIRY_SORTED_SET)
+        assert call_args[0][0] == TEAM_CACHE_EXPIRY_SORTED_SET
 
         # Second arg is a dict with identifier -> timestamp
         # The identifier should be the API token, NOT the team ID
         identifier_dict = call_args[0][1]
-        self.assertIn(
-            self.team.api_token,
-            identifier_dict,
+        assert self.team.api_token in identifier_dict, (
             f"Expected API token '{self.team.api_token}' as identifier, "
             f"but got: {list(identifier_dict.keys())}. "
-            "This indicates warm_caches is using the wrong identifier type for token-based caches.",
+            "This indicates warm_caches is using the wrong identifier type for token-based caches."
         )
-        self.assertNotIn(
-            str(self.team.id),
-            identifier_dict,
-            f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens.",
+        assert str(self.team.id) not in identifier_dict, (
+            f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens."
         )
 
 
@@ -490,7 +486,7 @@ class TestTeamMetadataGracePeriod(BaseTest):
 
         # Team was just created, so updated_at is recent
         result = _get_team_ids_with_recently_updated_teams([self.team.id])
-        self.assertIn(self.team.id, result)
+        assert self.team.id in result
 
     def test_old_team_is_not_in_skip_set(self):
         """Test that a team updated long ago is not in the skip set."""
@@ -505,7 +501,7 @@ class TestTeamMetadataGracePeriod(BaseTest):
         Team.objects.filter(id=self.team.id).update(updated_at=old_time)
 
         result = _get_team_ids_with_recently_updated_teams([self.team.id])
-        self.assertNotIn(self.team.id, result)
+        assert self.team.id not in result
 
     @override_settings(TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_grace_period_disabled_returns_empty(self):
@@ -513,20 +509,20 @@ class TestTeamMetadataGracePeriod(BaseTest):
         from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
 
         result = _get_team_ids_with_recently_updated_teams([self.team.id])
-        self.assertEqual(result, set())
+        assert result == set()
 
     def test_empty_team_ids_returns_empty(self):
         """Test that empty input returns empty set."""
         from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
 
         result = _get_team_ids_with_recently_updated_teams([])
-        self.assertEqual(result, set())
+        assert result == set()
 
     def test_config_has_skip_fix_function(self):
         """Test that the config is wired up with the skip fix function."""
         from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG
 
-        self.assertIsNotNone(TEAM_HYPERCACHE_MANAGEMENT_CONFIG.get_team_ids_to_skip_fix_fn)
+        assert TEAM_HYPERCACHE_MANAGEMENT_CONFIG.get_team_ids_to_skip_fix_fn is not None
 
 
 class TestSampleRateSerializationForRustCompatibility(BaseTest):
@@ -582,7 +578,7 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
         with self.assertRaises(ValidationError) as context:
             self.team.full_clean()
 
-        self.assertIn("session_recording_sample_rate", str(context.exception))
+        assert "session_recording_sample_rate" in str(context.exception)
 
 
 # llm-gateway policy projection lives in its own cache (see
@@ -591,5 +587,5 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
 # unaffected by llm-gateway changes.
 class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
     def test_llm_gateway_fields_excluded_from_shared_metadata(self):
-        self.assertNotIn("llm_gateway_enabled_at", TEAM_METADATA_FIELDS)
-        self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)
+        assert "llm_gateway_enabled_at" not in TEAM_METADATA_FIELDS
+        assert "llm_gateway_revoked_at" not in TEAM_METADATA_FIELDS

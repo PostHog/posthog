@@ -22,24 +22,18 @@ class TestConversationQueue(APIBaseTest):
     def test_queue_list_returns_empty_for_new_conversation(self):
         response = self.client.get(self.queue_url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "messages": [],
-                "max_queue_messages": self.queue_limit,
-            },
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"messages": [], "max_queue_messages": self.queue_limit}
 
     def test_queue_enqueue_adds_message_to_queue(self):
         response = self.client.post(self.queue_url, {"content": "hello"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         payload = response.json()
-        self.assertEqual(payload["max_queue_messages"], self.queue_limit)
-        self.assertEqual(len(payload["messages"]), 1)
-        self.assertEqual(payload["messages"][0]["content"], "hello")
-        self.assertIn("id", payload["messages"][0])
+        assert payload["max_queue_messages"] == self.queue_limit
+        assert len(payload["messages"]) == 1
+        assert payload["messages"][0]["content"] == "hello"
+        assert "id" in payload["messages"][0]
 
     def test_queue_enqueue_raises_conflict_when_full(self):
         self.client.post(self.queue_url, {"content": "one"})
@@ -47,8 +41,8 @@ class TestConversationQueue(APIBaseTest):
 
         response = self.client.post(self.queue_url, {"content": "three"})
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.json()["error"], "queue_full")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error"] == "queue_full"
 
     def test_queue_update_modifies_content(self):
         response = self.client.post(self.queue_url, {"content": "hello"})
@@ -56,14 +50,14 @@ class TestConversationQueue(APIBaseTest):
 
         response = self.client.patch(f"{self.queue_url}{queue_id}/", {"content": "updated"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         payload = response.json()
-        self.assertEqual(payload["messages"][0]["content"], "updated")
+        assert payload["messages"][0]["content"] == "updated"
 
     def test_queue_update_nonexistent_returns_404(self):
         response = self.client.patch(f"{self.queue_url}missing/", {"content": "updated"})
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_queue_delete_removes_message(self):
         response = self.client.post(self.queue_url, {"content": "hello"})
@@ -71,16 +65,16 @@ class TestConversationQueue(APIBaseTest):
 
         response = self.client.delete(f"{self.queue_url}{queue_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["messages"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["messages"] == []
 
     def test_queue_clear_empties_queue(self):
         self.client.post(self.queue_url, {"content": "hello"})
 
         response = self.client.post(f"{self.queue_url}clear/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["messages"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["messages"] == []
 
     def test_queue_access_denied_for_other_users_conversation(self):
         other_user = User.objects.create_and_join(
@@ -93,7 +87,7 @@ class TestConversationQueue(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/{other_conversation.id}/queue/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_queue_access_denied_for_other_teams_conversation(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -101,14 +95,14 @@ class TestConversationQueue(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/{other_conversation.id}/queue/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_queue_access_missing_conversation_returns_404(self):
         missing_id = uuid.uuid4()
 
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/{missing_id}/queue/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_queue_store_consistency_after_clear(self):
         store = ConversationQueueStore(str(self.conversation.id))
@@ -116,5 +110,5 @@ class TestConversationQueue(APIBaseTest):
 
         response = self.client.post(f"{self.queue_url}clear/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(store.list(), [])
+        assert response.status_code == status.HTTP_200_OK
+        assert store.list() == []

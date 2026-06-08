@@ -22,19 +22,19 @@ class TestParserRecipesApi(APIBaseTest):
 
         response = self.client.post(self._endpoint(), {"name": "Member recipe", "source": VALID_SOURCE})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_create_persists_recipe_and_sets_created_by(self):
         response = self.client.post(self._endpoint(), {"name": "My recipe", "source": VALID_SOURCE})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertEqual(data["name"], "My recipe")
-        self.assertEqual(data["source"], VALID_SOURCE)
-        self.assertEqual(data["created_by"]["id"], self.user.id)
+        assert data["name"] == "My recipe"
+        assert data["source"] == VALID_SOURCE
+        assert data["created_by"]["id"] == self.user.id
 
         recipe = ParserRecipe.objects.for_team(self.team.id).get(id=data["id"])
-        self.assertEqual(recipe.team_id, self.team.id)
+        assert recipe.team_id == self.team.id
 
     def test_list_returns_only_this_teams_recipes(self):
         ParserRecipe.objects.unscoped().create(team=self.team, name="mine", source=VALID_SOURCE)
@@ -43,9 +43,9 @@ class TestParserRecipesApi(APIBaseTest):
 
         response = self.client.get(self._endpoint())
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         names = [row["name"] for row in response.json()["results"]]
-        self.assertEqual(names, ["mine"])
+        assert names == ["mine"]
 
     def test_cannot_retrieve_another_teams_recipe(self):
         other_team = self._other_team()
@@ -53,7 +53,7 @@ class TestParserRecipesApi(APIBaseTest):
 
         response = self.client.get(f"{self._endpoint()}{other_recipe.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_patch_updates_name_and_source(self):
         recipe = ParserRecipe.objects.unscoped().create(team=self.team, name="old", source=VALID_SOURCE)
@@ -63,18 +63,18 @@ class TestParserRecipesApi(APIBaseTest):
             f"{self._endpoint()}{recipe.id}/", {"name": "new", "source": new_source}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         recipe.refresh_from_db()
-        self.assertEqual(recipe.name, "new")
-        self.assertEqual(recipe.source, new_source)
+        assert recipe.name == "new"
+        assert recipe.source == new_source
 
     def test_delete_removes_recipe(self):
         recipe = ParserRecipe.objects.unscoped().create(team=self.team, name="doomed", source=VALID_SOURCE)
 
         response = self.client.delete(f"{self._endpoint()}{recipe.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(ParserRecipe.objects.for_team(self.team.id).filter(id=recipe.id).exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not ParserRecipe.objects.for_team(self.team.id).filter(id=recipe.id).exists()
 
     def _other_team(self) -> Team:
         org = Organization.objects.create(name="other")

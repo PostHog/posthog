@@ -28,13 +28,13 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
             out_of_sync_hosts,
         ) = Command().analyze_cluster_tables()
 
-        self.assertEqual(len(host_tables), 1)
-        self.assertGreater(len(create_table_queries), 0)
+        assert len(host_tables) == 1
+        assert len(create_table_queries) > 0
         # :KLUDGE: Test setup does not create all kafka/mv tables
-        self.assertEqual(len(out_of_sync_hosts), 1)
+        assert len(out_of_sync_hosts) == 1
 
         out_of_sync_tables = next(iter(out_of_sync_hosts.values()))
-        self.assertTrue(all("kafka" in table or "_mv" in table for table in out_of_sync_tables))
+        assert all("kafka" in table or "_mv" in table for table in out_of_sync_tables)
 
     def test_analyze_empty_cluster(self):
         self.recreate_database(create_tables=False)
@@ -45,9 +45,9 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
             out_of_sync_hosts,
         ) = Command().analyze_cluster_tables()
 
-        self.assertEqual(host_tables, {})
-        self.assertEqual(create_table_queries, {})
-        self.assertEqual(out_of_sync_hosts, {})
+        assert host_tables == {}
+        assert create_table_queries == {}
+        assert out_of_sync_hosts == {}
 
     def test_create_missing_tables(self):
         try:
@@ -60,8 +60,8 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
             _, create_table_queries, _ = Command().analyze_cluster_tables()
             sync_execute("DROP TABLE sharded_events SYNC")
 
-            self.assertIn("mat_some_property", create_table_queries["sharded_events"])
+            assert "mat_some_property" in create_table_queries["sharded_events"]
             Command().create_missing_tables({"test_host": {"sharded_events"}}, create_table_queries)
 
             schema = sync_execute("SHOW CREATE TABLE sharded_events")[0][0]
-            self.assertIn("mat_some_property", schema)
+            assert "mat_some_property" in schema

@@ -10,11 +10,11 @@ class TestCustomerIOTrackClient(TestCase):
         self.track_client = CustomerIOTrackClient(site_id="site_abc", api_key="key_123", region="us")
 
     def test_us_region_url(self):
-        self.assertEqual(self.track_client.entity_url, "https://track.customer.io/api/v2/entity")
+        assert self.track_client.entity_url == "https://track.customer.io/api/v2/entity"
 
     def test_eu_region_url(self):
         client = CustomerIOTrackClient(site_id="s", api_key="k", region="eu")
-        self.assertEqual(client.entity_url, "https://track-eu.customer.io/api/v2/entity")
+        assert client.entity_url == "https://track-eu.customer.io/api/v2/entity"
 
     @patch("products.messaging.backend.services.customerio_client.requests.Session.post")
     def test_update_subscription_preferences_sends_dot_notation(self, mock_post):
@@ -28,11 +28,11 @@ class TestCustomerIOTrackClient(TestCase):
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-        self.assertEqual(payload["type"], "person")
-        self.assertEqual(payload["identifiers"], {"email": "user@example.com"})
-        self.assertEqual(payload["action"], "identify")
-        self.assertFalse(payload["attributes"]["cio_subscription_preferences.topics.topic_7"])
-        self.assertTrue(payload["attributes"]["cio_subscription_preferences.topics.topic_8"])
+        assert payload["type"] == "person"
+        assert payload["identifiers"] == {"email": "user@example.com"}
+        assert payload["action"] == "identify"
+        assert not payload["attributes"]["cio_subscription_preferences.topics.topic_7"]
+        assert payload["attributes"]["cio_subscription_preferences.topics.topic_8"]
 
     @patch("products.messaging.backend.services.customerio_client.requests.Session.post")
     def test_update_subscription_preferences_noop_when_empty(self, mock_post):
@@ -49,7 +49,7 @@ class TestCustomerIOTrackClient(TestCase):
         self.track_client.set_global_unsubscribe("user@example.com", True)
 
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
-        self.assertTrue(payload["attributes"]["unsubscribed"])
+        assert payload["attributes"]["unsubscribed"]
 
     @patch("products.messaging.backend.services.customerio_client.requests.Session.post")
     def test_set_global_unsubscribe_false(self, mock_post):
@@ -61,7 +61,7 @@ class TestCustomerIOTrackClient(TestCase):
         self.track_client.set_global_unsubscribe("user@example.com", False)
 
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
-        self.assertFalse(payload["attributes"]["unsubscribed"])
+        assert not payload["attributes"]["unsubscribed"]
 
     @patch("products.messaging.backend.services.customerio_client.requests.Session.post")
     def test_identify_raises_on_http_error(self, mock_post):
@@ -81,4 +81,4 @@ class TestCustomerIOTrackClient(TestCase):
         header = self.track_client._auth_header()
         token = header["Authorization"].removeprefix("Basic ")
         decoded = base64.b64decode(token).decode()
-        self.assertEqual(decoded, "site_abc:key_123")
+        assert decoded == "site_abc:key_123"

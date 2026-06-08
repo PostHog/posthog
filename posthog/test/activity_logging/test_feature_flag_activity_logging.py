@@ -105,7 +105,7 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
             previous=self._a_feature_flag_with(created_at="before", created_by="before"),
             current=self._a_feature_flag_with(created_at="after", created_by="after"),
         )
-        self.assertEqual(actual, [])
+        assert actual == []
 
     @staticmethod
     def _a_feature_flag_with(id: Optional[int] = None, **kwargs) -> FeatureFlag:

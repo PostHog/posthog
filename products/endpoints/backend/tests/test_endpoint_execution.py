@@ -122,9 +122,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Should count only $pageview events (10 events)
-        self.assertEqual(response.json()["results"][0][0], 10)
+        assert response.json()["results"][0][0] == 10
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(
@@ -151,9 +151,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Should count only $pageleave events (10 events)
-        self.assertEqual(response.json()["results"][0][0], 10)
+        assert response.json()["results"][0][0] == 10
 
     def test_hogql_endpoint_rejects_unknown_variable(self):
         endpoint = create_endpoint_with_version(
@@ -180,8 +180,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("nonexistent_var", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "nonexistent_var" in response.json()["detail"]
 
     def test_hogql_endpoint_rejects_query_override(self):
         endpoint = create_endpoint_with_version(
@@ -198,8 +198,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "query_override" in response.json()["detail"]
 
     def test_hogql_endpoint_rejects_filters_override(self):
         endpoint = create_endpoint_with_version(
@@ -216,8 +216,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Not allowed for HogQL endpoints. Use variables instead.", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Not allowed for HogQL endpoints. Use variables instead." in response.json()["detail"]
 
     # =========================================================================
     # NON-MATERIALIZED INSIGHT ENDPOINTS
@@ -236,8 +236,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("results", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "results" in response.json()
 
     def test_insight_endpoint_accepts_date_from_variable(self):
         endpoint = create_endpoint_with_version(
@@ -260,7 +260,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             {"refresh": "force"},
             format="json",
         )
-        self.assertEqual(response_no_filter.status_code, status.HTTP_200_OK)
+        assert response_no_filter.status_code == status.HTTP_200_OK
         baseline_data = sum(response_no_filter.json()["results"][0]["data"])
 
         # Now with date_from filter - should have fewer results (days 5-10 only, not 1-10)
@@ -270,15 +270,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Verify date range was applied in debug output
-        self.assertIn("2026-01-05", response_data.get("resolved_date_range", {}).get("date_from", ""))
+        assert "2026-01-05" in response_data.get("resolved_date_range", {}).get("date_from", "")
 
         # Verify actual filtering occurred - filtered results should be less than baseline
         filtered_data = sum(response_data["results"][0]["data"])
-        self.assertLess(filtered_data, baseline_data, "date_from filter should reduce result count")
+        assert filtered_data < baseline_data, "date_from filter should reduce result count"
 
     def test_insight_endpoint_accepts_date_to_variable(self):
         endpoint = create_endpoint_with_version(
@@ -299,15 +299,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Verify date range was applied in debug output
-        self.assertIn("2026-01-05", response_data.get("resolved_date_range", {}).get("date_to", ""))
+        assert "2026-01-05" in response_data.get("resolved_date_range", {}).get("date_to", "")
 
         # Verify results exist - events for days 1-5 should be present
         filtered_data = sum(response_data["results"][0]["data"])
-        self.assertGreater(filtered_data, 0, "Should have results for dates 1-5")
+        assert filtered_data > 0, "Should have results for dates 1-5"
 
     def test_insight_endpoint_rejects_unknown_variable(self):
         endpoint = create_endpoint_with_version(
@@ -324,8 +324,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("unknown_var", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "unknown_var" in response.json()["detail"]
 
     def test_insight_endpoint_rejects_query_override(self):
         endpoint = create_endpoint_with_version(
@@ -342,8 +342,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "query_override" in response.json()["detail"]
 
     def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
         endpoint = create_endpoint_with_version(
@@ -366,7 +366,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             {"refresh": "force"},
             format="json",
         )
-        self.assertEqual(response_baseline.status_code, status.HTTP_200_OK)
+        assert response_baseline.status_code == status.HTTP_200_OK
         baseline_total = sum(response_baseline.json()["results"][0]["data"])
 
         # Use filters_override to filter by date - should have fewer results (days 5-10)
@@ -376,9 +376,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         filtered_total = sum(response.json()["results"][0]["data"])
-        self.assertLess(filtered_total, baseline_total)
+        assert filtered_total < baseline_total
 
     def test_insight_endpoint_filters_override_returns_deprecation_header(self):
         endpoint = create_endpoint_with_version(
@@ -395,9 +395,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("X-PostHog-Warn", response.headers)
-        self.assertIn("filters_override is deprecated", response.headers["X-PostHog-Warn"])
+        assert response.status_code == status.HTTP_200_OK
+        assert "X-PostHog-Warn" in response.headers
+        assert "filters_override is deprecated" in response.headers["X-PostHog-Warn"]
 
     def test_insight_endpoint_filters_override_takes_precedence_over_variables(self):
         endpoint = create_endpoint_with_version(
@@ -422,7 +422,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response_filters.status_code, status.HTTP_200_OK)
+        assert response_filters.status_code == status.HTTP_200_OK
         filters_total = sum(response_filters.json()["results"][0]["data"])
 
         # Use only variables with same date to verify
@@ -431,11 +431,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             {"variables": {"date_from": "2026-01-08"}, "refresh": "force"},
             format="json",
         )
-        self.assertEqual(response_vars.status_code, status.HTTP_200_OK)
+        assert response_vars.status_code == status.HTTP_200_OK
         vars_total = sum(response_vars.json()["results"][0]["data"])
 
         # Both should have same result since filters_override wins with same date
-        self.assertEqual(filters_total, vars_total)
+        assert filters_total == vars_total
 
     # =========================================================================
     # MATERIALIZED HOGQL ENDPOINTS
@@ -469,13 +469,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             # Verify the query has WHERE clause filtering by event_name
             query_request_data = mock_exec.call_args[0][0]
             query_sql = query_request_data["query"]["query"].lower()
-            self.assertIn("event_name", query_sql)
-            self.assertIn("$pageleave", query_sql)
+            assert "event_name" in query_sql
+            assert "$pageleave" in query_sql
 
     def test_materialized_hogql_endpoint_selects_only_original_columns(self):
         endpoint = create_endpoint_with_version(
@@ -508,8 +508,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             query_sql = mock_exec.call_args[0][0]["query"]["query"]
             # Should select the original column (count()), not * or event_name
             select_part = query_sql.split("FROM")[0]
-            self.assertNotIn("*", select_part)
-            self.assertNotIn("event_name", select_part.lower())
+            assert "*" not in select_part
+            assert "event_name" not in select_part.lower()
 
     def test_materialized_hogql_endpoint_rejects_unknown_variable(self):
         endpoint = create_endpoint_with_version(
@@ -538,8 +538,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not_materialized", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not_materialized" in response.json()["detail"]
 
     def test_materialized_hogql_endpoint_requires_variable(self):
         endpoint = create_endpoint_with_version(
@@ -568,9 +568,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("event_name", response.json()["detail"])
-        self.assertIn("required", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "event_name" in response.json()["detail"]
+        assert "required" in response.json()["detail"].lower()
 
     def test_materialized_endpoint_requires_all_variables(self):
         var2 = InsightVariable.objects.create(
@@ -612,9 +612,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("browser", response.json()["detail"])
-        self.assertIn("required", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "browser" in response.json()["detail"]
+        assert "required" in response.json()["detail"].lower()
 
     def test_materialized_endpoint_requires_all_variables_none_provided(self):
         var2 = InsightVariable.objects.create(
@@ -656,11 +656,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("event_name", detail)
-        self.assertIn("browser2", detail)
-        self.assertIn("required", detail.lower())
+        assert "event_name" in detail
+        assert "browser2" in detail
+        assert "required" in detail.lower()
 
     def test_materialized_hogql_endpoint_direct_refresh_bypasses_materialization(self):
         endpoint = create_endpoint_with_version(
@@ -695,7 +695,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
 
@@ -739,13 +739,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
-            self.assertIn("event_name", query_sql)
-            self.assertIn("$pageleave", query_sql)
-            self.assertIn("browser", query_sql)
-            self.assertIn("safari", query_sql)
+            assert "event_name" in query_sql
+            assert "$pageleave" in query_sql
+            assert "browser" in query_sql
+            assert "safari" in query_sql
 
     def test_materialized_hogql_endpoint_filters_by_range_variables(self):
         start_var = InsightVariable.objects.create(
@@ -794,14 +794,14 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
-            self.assertIn("start_date", query_sql)
-            self.assertIn("end_date", query_sql)
+            assert "start_date" in query_sql
+            assert "end_date" in query_sql
             # HogQL prints >= as greaterorequals() and < as less()
-            self.assertIn("greaterorequals", query_sql)
-            self.assertIn("less(", query_sql)
+            assert "greaterorequals" in query_sql
+            assert "less(" in query_sql
 
     def test_materialized_count_with_range_variables_reaggregates(self):
         """When range variables exist, read-time SQL should re-aggregate with sum()."""
@@ -863,13 +863,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
             # Re-aggregation: count() column should be wrapped with sum()
-            self.assertIn("sum(", query_sql)
+            assert "sum(" in query_sql
             # Range variable values should be wrapped with toStartOfDay
-            self.assertIn("tostartofday", query_sql)
+            assert "tostartofday" in query_sql
 
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
@@ -941,13 +941,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_request_data = mock_exec.call_args[0][0]
             query_sql = query_request_data["query"]["query"].lower()
             # Must use has() for array containment, not = for string equality
-            self.assertIn("has(breakdown_value", query_sql)
-            self.assertIn("chrome", query_sql)
+            assert "has(breakdown_value" in query_sql
+            assert "chrome" in query_sql
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -974,16 +974,16 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_request_data = mock_exec.call_args[0][0]
             query_sql = query_request_data["query"]["query"].lower()
             # Multiple breakdowns use array index access on breakdown_value
-            self.assertIn("breakdown_value[1]", query_sql)
-            self.assertIn("breakdown_value[2]", query_sql)
-            self.assertNotIn("has(", query_sql)
-            self.assertIn("chrome", query_sql)
-            self.assertIn("mac", query_sql)
+            assert "breakdown_value[1]" in query_sql
+            assert "breakdown_value[2]" in query_sql
+            assert "has(" not in query_sql
+            assert "chrome" in query_sql
+            assert "mac" in query_sql
 
     def test_materialized_insight_endpoint_filters_by_three_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -1011,17 +1011,17 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_request_data = mock_exec.call_args[0][0]
             query_sql = query_request_data["query"]["query"].lower()
-            self.assertIn("breakdown_value[1]", query_sql)
-            self.assertIn("breakdown_value[2]", query_sql)
-            self.assertIn("breakdown_value[3]", query_sql)
-            self.assertNotIn("has(", query_sql)
-            self.assertIn("chrome", query_sql)
-            self.assertIn("mac", query_sql)
-            self.assertIn("desktop", query_sql)
+            assert "breakdown_value[1]" in query_sql
+            assert "breakdown_value[2]" in query_sql
+            assert "breakdown_value[3]" in query_sql
+            assert "has(" not in query_sql
+            assert "chrome" in query_sql
+            assert "mac" in query_sql
+            assert "desktop" in query_sql
 
     def test_materialized_insight_endpoint_requires_all_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -1048,8 +1048,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("required", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "required" in response.json()["detail"].lower()
 
     def test_materialized_insight_endpoint_rejects_date_variables(self):
         endpoint = create_endpoint_with_version(
@@ -1067,8 +1067,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("date_from", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "date_from" in response.json()["detail"]
 
     def test_materialized_insight_endpoint_rejects_unknown_breakdown(self):
         endpoint = create_endpoint_with_version(
@@ -1090,8 +1090,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("$os", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "$os" in response.json()["detail"]
 
     def test_materialized_insight_endpoint_requires_breakdown_variable(self):
         endpoint = create_endpoint_with_version(
@@ -1113,9 +1113,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("$browser", response.json()["detail"])
-        self.assertIn("required", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "$browser" in response.json()["detail"]
+        assert "required" in response.json()["detail"].lower()
 
     def test_materialized_insight_endpoint_accepts_filters_override_instead_of_variable(self):
         endpoint = create_endpoint_with_version(
@@ -1138,7 +1138,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
 
     def test_materialized_insight_endpoint_direct_refresh_bypasses_materialization(self):
@@ -1163,7 +1163,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
 
@@ -1203,7 +1203,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        self.assertIsNotNone(endpoint.id)
+        assert endpoint.id is not None
 
         # Enabling materialization should succeed for multiple equality variables
         response = self.client.patch(
@@ -1212,9 +1212,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # is_materialized is derived from saved_query.table_id — False until Temporal creates the table
-        self.assertFalse(response.json()["is_materialized"])
+        assert not response.json()["is_materialized"]
 
     def test_endpoint_with_multiple_breakdowns_can_be_materialized(self):
         endpoint = create_endpoint_with_version(
@@ -1233,7 +1233,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        self.assertIsNotNone(endpoint.id)
+        assert endpoint.id is not None
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -1241,8 +1241,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["is_materialized"])  # not yet materialized until Temporal runs
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["is_materialized"]  # not yet materialized until Temporal runs
 
     # =========================================================================
     # ENDPOINT EXECUTION WITHOUT VARIABLES (SIMPLE CASES)
@@ -1261,8 +1261,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"][0][0], 42)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0][0] == 42
 
     def test_insight_endpoint_without_breakdown_executes(self):
         endpoint = create_endpoint_with_version(
@@ -1277,8 +1277,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("results", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "results" in response.json()
 
     # =========================================================================
     # NON-MATERIALIZED INSIGHT ENDPOINTS WITH BREAKDOWN
@@ -1306,16 +1306,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Should succeed, not fail with "Unknown variable" error
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Verify properties filter was applied
         result = response_data["results"][0] if response_data.get("results") else {}
         if "filter" in result:
             filter_props = result["filter"].get("properties", [])
-            self.assertTrue(
-                any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props),
-                "Breakdown property filter should be applied",
+            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), (
+                "Breakdown property filter should be applied"
             )
 
     def test_non_materialized_insight_endpoint_accepts_breakdown_and_date_variables(self):
@@ -1347,20 +1346,19 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Verify date range was applied
-        self.assertIn("2026-01-05", response_data.get("resolved_date_range", {}).get("date_from", ""))
-        self.assertIn("2026-01-08", response_data.get("resolved_date_range", {}).get("date_to", ""))
+        assert "2026-01-05" in response_data.get("resolved_date_range", {}).get("date_from", "")
+        assert "2026-01-08" in response_data.get("resolved_date_range", {}).get("date_to", "")
 
         # Verify properties filter was applied
         result = response_data["results"][0] if response_data.get("results") else {}
         if "filter" in result:
             filter_props = result["filter"].get("properties", [])
-            self.assertTrue(
-                any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props),
-                "Breakdown property filter should be applied",
+            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), (
+                "Breakdown property filter should be applied"
             )
 
     def test_non_materialized_insight_endpoint_accepts_multiple_breakdown_variables(self):
@@ -1388,19 +1386,17 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         result = response_data["results"][0] if response_data.get("results") else {}
         if "filter" in result:
             filter_props = result["filter"].get("properties", [])
-            self.assertTrue(
-                any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props),
-                "Browser breakdown property filter should be applied",
+            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), (
+                "Browser breakdown property filter should be applied"
             )
-            self.assertTrue(
-                any(p.get("key") == "$os" and p.get("value") == "Mac" for p in filter_props),
-                "OS breakdown property filter should be applied",
+            assert any(p.get("key") == "$os" and p.get("value") == "Mac" for p in filter_props), (
+                "OS breakdown property filter should be applied"
             )
 
     @parameterized.expand(
@@ -1444,7 +1440,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Before the fix this returned 500 because _variables_to_filters built a
         # HogQLPropertyFilter dict with `operator` set, which fails pydantic's
         # extra="forbid" on DashboardFilter.properties.
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        assert response.status_code == status.HTTP_200_OK, response.content
 
     def test_non_materialized_insight_endpoint_rejects_unbuildable_hogql_breakdown_variable(self):
         from posthog.schema import BreakdownFilter, BreakdownType
@@ -1475,8 +1471,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
-        self.assertIn("breakdown variable", response.json().get("detail", ""))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "breakdown variable" in response.json().get("detail", "")
 
     # =========================================================================
     # OFFSET-BASED PAGINATION
@@ -1527,7 +1523,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
 
             # Verify SQL limit/offset were set correctly
@@ -1581,7 +1577,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            assert response.status_code == status.HTTP_200_OK, response.json()
             mock_exec.assert_called()
 
             # The reprinted query must still contain the placeholder
@@ -1626,7 +1622,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
 
             # Verify pagination kwarg was passed
@@ -1656,8 +1652,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_error, response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["error"]
 
     def test_offset_on_insight_endpoint_returns_400(self):
         endpoint = create_endpoint_with_version(
@@ -1677,8 +1673,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("only supported for HogQL", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only supported for HogQL" in response.json()["error"]
 
     # =========================================================================
     # CALENDAR HEATMAP ENDPOINTS
@@ -1698,13 +1694,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             {"name": "calendar-heatmap-test", "query": query},
             format="json",
         )
-        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        assert create_response.status_code == status.HTTP_201_CREATED
 
         run_response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/calendar-heatmap-test/run/",
             format="json",
         )
-        self.assertEqual(run_response.status_code, status.HTTP_200_OK)
+        assert run_response.status_code == status.HTTP_200_OK
 
     # =========================================================================
     # BREAKDOWN SENTINEL CLEANUP
@@ -1732,10 +1728,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(results[0]["breakdown_value"], ["Chrome", None])
-        self.assertIsNone(results[1]["breakdown_value"])
+        assert results[0]["breakdown_value"] == ["Chrome", None]
+        assert results[1]["breakdown_value"] is None
 
     @mock.patch("products.endpoints.backend.api.process_query_model")
     def test_inline_insight_sentinel_cleaned_from_label(self, mock_process):
@@ -1762,9 +1758,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(results[0]["label"], "Chrome::null")
+        assert results[0]["label"] == "Chrome::null"
 
     @mock.patch("products.endpoints.backend.api.process_query_model")
     def test_hogql_result_sentinel_cleaned_from_breakdown_column(self, mock_process):
@@ -1788,10 +1784,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(results[0][0], "Chrome")
-        self.assertIsNone(results[1][0])
+        assert results[0][0] == "Chrome"
+        assert results[1][0] is None
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
         from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
@@ -1829,29 +1825,25 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             results = response.json()["results"]
-            self.assertGreater(len(results), 0, "Expected non-empty results")
+            assert len(results) > 0, "Expected non-empty results"
 
             # Sentinels must be cleaned — no raw sentinel strings in the response
             for row in results:
                 bv = row.get("breakdown_value", "")
                 label = row.get("label", "")
-                self.assertNotEqual(
-                    bv, BREAKDOWN_OTHER_STRING_LABEL, f"Found raw other sentinel in breakdown_value: {bv}"
-                )
-                self.assertNotIn(
-                    BREAKDOWN_OTHER_STRING_LABEL, str(label), f"Found raw other sentinel in label: {label}"
-                )
+                assert bv != BREAKDOWN_OTHER_STRING_LABEL, f"Found raw other sentinel in breakdown_value: {bv}"
+                assert BREAKDOWN_OTHER_STRING_LABEL not in str(label), f"Found raw other sentinel in label: {label}"
 
             # The "Other" bucket should appear as a cleaned "Other" string
             breakdown_values = [row.get("breakdown_value") for row in results]
-            self.assertIn("Other", breakdown_values, "Expected cleaned 'Other' value in results")
+            assert "Other" in breakdown_values, "Expected cleaned 'Other' value in results"
 
             # capture_exception should have been called to alert about the limit being exceeded
             mock_capture.assert_called_once()
             exc = mock_capture.call_args[0][0]
-            self.assertIn("exceeded", str(exc))
+            assert "exceeded" in str(exc)
 
     # =========================================================================
     # CTE VARIABLE TESTS — API-LEVEL END-TO-END
@@ -1882,12 +1874,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         # 10 $pageview events, grouped by event
-        self.assertEqual(results[0][0], 10)
-        self.assertEqual(results[0][1], "$pageview")
+        assert results[0][0] == 10
+        assert results[0][1] == "$pageview"
 
     def test_hogql_cte_variable_materialized_execution(self):
         endpoint = create_endpoint_with_version(
@@ -1916,12 +1908,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_exec.assert_called()
             query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
             # CTE variable should appear as a WHERE filter on the materialized table
-            self.assertIn("event_name", query_sql)
-            self.assertIn("$pageview", query_sql)
+            assert "event_name" in query_sql
+            assert "$pageview" in query_sql
 
     def test_hogql_cte_variable_missing_required_variable(self):
         endpoint = create_endpoint_with_version(
@@ -1950,10 +1942,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         detail = response.json()["detail"]
-        self.assertIn("event_name", detail)
-        self.assertIn("required", detail.lower())
+        assert "event_name" in detail
+        assert "required" in detail.lower()
 
     def test_hogql_multiple_ctes_one_with_variable(self):
         endpoint = create_endpoint_with_version(
@@ -1985,11 +1977,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         # cte2 filters by event_name, so should return count for $pageleave only
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], 10)
+        assert len(results) == 1
+        assert results[0][0] == 10
 
     # =========================================================================
     # METRICS
@@ -2017,10 +2009,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
-        self.assertEqual(after - before, 1.0)
+        assert after - before == 1.0
 
     def test_validation_error_metric_unknown_variable(self):
         from prometheus_client import REGISTRY
@@ -2050,10 +2042,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             {"variables": {"nonexistent": "x"}},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         after = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
-        self.assertEqual(after - before, 1.0)
+        assert after - before == 1.0
 
     def test_hogql_result_rows_metric_observed_on_success(self):
         from prometheus_client import REGISTRY
@@ -2065,10 +2057,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         after = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
-        self.assertEqual(after - before, 1.0)
+        assert after - before == 1.0
 
     def test_hogql_result_rows_metric_not_observed_for_insight_endpoint(self):
         from prometheus_client import REGISTRY
@@ -2096,10 +2088,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         after = total_count()
-        self.assertEqual(after - before, 0.0)
+        assert after - before == 0.0
 
     def test_cache_outcome_metric_records_miss_on_first_execution(self):
         from prometheus_client import REGISTRY
@@ -2113,10 +2105,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             {"refresh": "force"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         after = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
-        self.assertEqual(after - before, 1.0)
+        assert after - before == 1.0
 
     def test_cache_outcome_only_uses_hit_or_miss_labels(self):
         from prometheus_client import REGISTRY
@@ -2126,7 +2118,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
         observed_outcomes: set[str] = set()
         for metric in REGISTRY.collect():
@@ -2137,8 +2129,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 if outcome and sample.value > 0:
                     observed_outcomes.add(outcome)
 
-        self.assertTrue(observed_outcomes.issubset({"hit", "miss"}), f"Unexpected outcomes: {observed_outcomes}")
-        self.assertNotIn("stale_served", observed_outcomes)
+        assert observed_outcomes.issubset({"hit", "miss"}), f"Unexpected outcomes: {observed_outcomes}"
+        assert "stale_served" not in observed_outcomes
 
     def test_disable_materialization_no_op_does_not_increment_counter(self):
         from prometheus_client import REGISTRY
@@ -2154,7 +2146,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         viewset._disable_materialization(endpoint, mock.MagicMock())
 
         after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
-        self.assertEqual(after - before, 0.0)
+        assert after - before == 0.0
 
     def test_inline_endpoint_failure_emits_signal(self):
         """When inline execution raises, we emit a Signal for self-driving diagnostics."""
@@ -2171,13 +2163,13 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         mock_emit.assert_called_once()
         args, kwargs = mock_emit.call_args
-        self.assertEqual(args[0].id, self.team.id)
-        self.assertEqual(args[1].name, endpoint.name)
-        self.assertIs(args[2], boom)
-        self.assertFalse(kwargs["materialized"])
+        assert args[0].id == self.team.id
+        assert args[1].name == endpoint.name
+        assert args[2] is boom
+        assert not kwargs["materialized"]
 
     def test_emit_failure_signal_swallows_errors(self):
         """Signal emission must never mask the original exception."""

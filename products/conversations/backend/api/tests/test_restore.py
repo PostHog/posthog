@@ -28,10 +28,10 @@ class TestRestoreTokenModel(BaseTest):
             recipient_email="test@example.com",
         )
 
-        self.assertIsNotNone(raw_token)
-        self.assertEqual(len(raw_token), 43)  # 32 bytes base64url encoded
-        self.assertEqual(token_record.token_hash, hash_token(raw_token))
-        self.assertEqual(token_record.recipient_email, "test@example.com")
+        assert raw_token is not None
+        assert len(raw_token) == 43  # 32 bytes base64url encoded
+        assert token_record.token_hash == hash_token(raw_token)
+        assert token_record.recipient_email == "test@example.com"
 
     def test_token_expiry(self):
         token_record, _ = ConversationRestoreToken.create_token(
@@ -40,13 +40,13 @@ class TestRestoreTokenModel(BaseTest):
             ttl_minutes=1,
         )
 
-        self.assertFalse(token_record.is_expired)
+        assert not token_record.is_expired
 
         # Manually expire the token
         token_record.expires_at = timezone.now() - timedelta(minutes=1)
         token_record.save()
 
-        self.assertTrue(token_record.is_expired)
+        assert token_record.is_expired
 
     def test_token_consumed(self):
         token_record, _ = ConversationRestoreToken.create_token(
@@ -54,12 +54,12 @@ class TestRestoreTokenModel(BaseTest):
             recipient_email="test@example.com",
         )
 
-        self.assertFalse(token_record.is_consumed)
+        assert not token_record.is_consumed
 
         token_record.consumed_at = timezone.now()
         token_record.save()
 
-        self.assertTrue(token_record.is_consumed)
+        assert token_record.is_consumed
 
 
 class TestRestoreService(BaseTest):
@@ -87,8 +87,8 @@ class TestRestoreService(BaseTest):
         )
 
         tickets = RestoreService.find_tickets_by_email(self.team, self.customer_email)
-        self.assertEqual(len(tickets), 1)
-        self.assertEqual(tickets[0].anonymous_traits["email"], self.customer_email)
+        assert len(tickets) == 1
+        assert tickets[0].anonymous_traits["email"] == self.customer_email
 
     def test_find_tickets_by_email_case_insensitive(self):
         Ticket.objects.create_with_number(
@@ -99,7 +99,7 @@ class TestRestoreService(BaseTest):
         )
 
         tickets = RestoreService.find_tickets_by_email(self.team, "customer@example.com")
-        self.assertEqual(len(tickets), 1)
+        assert len(tickets) == 1
 
     @patch.object(RestoreService, "_find_distinct_ids_by_person_email", return_value=["identified-user-1"])
     def test_find_tickets_by_person_email(self, _mock):
@@ -111,8 +111,8 @@ class TestRestoreService(BaseTest):
         )
 
         tickets = RestoreService.find_tickets_by_email(self.team, self.customer_email)
-        self.assertEqual(len(tickets), 1)
-        self.assertEqual(tickets[0].distinct_id, "identified-user-1")
+        assert len(tickets) == 1
+        assert tickets[0].distinct_id == "identified-user-1"
 
     @patch.object(RestoreService, "_find_distinct_ids_by_person_email", return_value=["identified-user"])
     def test_find_tickets_by_email_finds_both_anonymous_and_identified(self, _mock):
@@ -130,7 +130,7 @@ class TestRestoreService(BaseTest):
         )
 
         tickets = RestoreService.find_tickets_by_email(self.team, self.customer_email)
-        self.assertEqual(len(tickets), 2)
+        assert len(tickets) == 2
 
     @patch.object(RestoreService, "_find_distinct_ids_by_person_email", side_effect=Exception("ClickHouse error"))
     def test_find_tickets_by_email_falls_back_on_person_lookup_failure(self, _mock):
@@ -148,15 +148,15 @@ class TestRestoreService(BaseTest):
         )
 
         tickets = RestoreService.find_tickets_by_email(self.team, self.customer_email)
-        self.assertEqual(len(tickets), 1)
-        self.assertEqual(tickets[0].anonymous_traits["email"], self.customer_email)
+        assert len(tickets) == 1
+        assert tickets[0].anonymous_traits["email"] == self.customer_email
 
     def test_request_restore_link_no_tickets(self):
         result = RestoreService.request_restore_link(
             team=self.team,
             email="nonexistent@example.com",
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_request_restore_link_with_tickets(self):
         Ticket.objects.create_with_number(
@@ -172,7 +172,7 @@ class TestRestoreService(BaseTest):
         )
 
         assert raw_token is not None
-        self.assertEqual(len(raw_token), 43)  # 32 bytes base64url encoded
+        assert len(raw_token) == 43  # 32 bytes base64url encoded
 
     def test_request_restore_link_does_not_invalidate_existing_tokens(self):
         """Requesting a new link should NOT invalidate existing tokens."""
@@ -201,8 +201,8 @@ class TestRestoreService(BaseTest):
 
         # Both tokens should be valid
         first_token.refresh_from_db()
-        self.assertIsNone(first_token.consumed_at)
-        self.assertIsNone(second_token.consumed_at)
+        assert first_token.consumed_at is None
+        assert second_token.consumed_at is None
 
     def test_redeem_token_invalidates_other_tokens(self):
         """Redeeming a token should invalidate other unused tokens for the same email."""
@@ -240,13 +240,13 @@ class TestRestoreService(BaseTest):
 
         # First token should be consumed (redeemed)
         first_token.refresh_from_db()
-        self.assertIsNotNone(first_token.consumed_at)
-        self.assertEqual(first_token.consumed_by_widget_session_id, new_session_id)
+        assert first_token.consumed_at is not None
+        assert first_token.consumed_by_widget_session_id == new_session_id
 
         # Second token should also be consumed (invalidated, no widget_session_id)
         second_token.refresh_from_db()
-        self.assertIsNotNone(second_token.consumed_at)
-        self.assertIsNone(second_token.consumed_by_widget_session_id)
+        assert second_token.consumed_at is not None
+        assert second_token.consumed_by_widget_session_id is None
 
     def test_redeem_token_success(self):
         old_session_id = str(uuid.uuid4())
@@ -270,14 +270,14 @@ class TestRestoreService(BaseTest):
             widget_session_id=new_session_id,
         )
 
-        self.assertEqual(result.status, "success")
-        self.assertEqual(result.widget_session_id, new_session_id)
+        assert result.status == "success"
+        assert result.widget_session_id == new_session_id
         assert result.migrated_ticket_ids is not None
-        self.assertEqual(len(result.migrated_ticket_ids), 1)
+        assert len(result.migrated_ticket_ids) == 1
 
         # Verify ticket ownership transferred
         ticket.refresh_from_db()
-        self.assertEqual(ticket.widget_session_id, new_session_id)
+        assert ticket.widget_session_id == new_session_id
 
     def test_redeem_token_invalid(self):
         result = RestoreService.redeem_token(
@@ -286,8 +286,8 @@ class TestRestoreService(BaseTest):
             widget_session_id=str(uuid.uuid4()),
         )
 
-        self.assertEqual(result.status, "invalid")
-        self.assertEqual(result.code, "token_invalid")
+        assert result.status == "invalid"
+        assert result.code == "token_invalid"
 
     def test_redeem_token_expired(self):
         token_record, raw_token = ConversationRestoreToken.create_token(
@@ -305,8 +305,8 @@ class TestRestoreService(BaseTest):
             widget_session_id=str(uuid.uuid4()),
         )
 
-        self.assertEqual(result.status, "expired")
-        self.assertEqual(result.code, "token_expired")
+        assert result.status == "expired"
+        assert result.code == "token_expired"
 
     def test_redeem_token_already_used(self):
         token_record, raw_token = ConversationRestoreToken.create_token(
@@ -324,8 +324,8 @@ class TestRestoreService(BaseTest):
             widget_session_id=str(uuid.uuid4()),
         )
 
-        self.assertEqual(result.status, "used")
-        self.assertEqual(result.code, "token_already_used")
+        assert result.status == "used"
+        assert result.code == "token_already_used"
 
     def test_redeem_token_wrong_team(self):
         from posthog.models import Organization, Team
@@ -344,8 +344,8 @@ class TestRestoreService(BaseTest):
             widget_session_id=str(uuid.uuid4()),
         )
 
-        self.assertEqual(result.status, "invalid")
-        self.assertEqual(result.code, "token_invalid")
+        assert result.status == "invalid"
+        assert result.code == "token_invalid"
 
 
 class TestRestoreAPI(BaseTest):
@@ -384,7 +384,7 @@ class TestRestoreAPI(BaseTest):
                 "request_url": "https://example.com/support",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
     def test_restore_request_success_with_tickets(self, mock_send_email):
@@ -405,12 +405,12 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"ok": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"ok": True}
         mock_send_email.delay.assert_called_once()
         call_kwargs = mock_send_email.delay.call_args[1]
-        self.assertIn("ph_conv_restore=", call_kwargs["restore_url"])
-        self.assertTrue(call_kwargs["restore_url"].startswith("https://example.com/support"))
+        assert "ph_conv_restore=" in call_kwargs["restore_url"]
+        assert call_kwargs["restore_url"].startswith("https://example.com/support")
 
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
     def test_restore_request_no_tickets_still_returns_ok(self, mock_send_email):
@@ -424,8 +424,8 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"ok": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"ok": True}
         mock_send_email.delay.assert_not_called()
 
     def test_restore_request_invalid_email(self):
@@ -439,7 +439,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_restore_request_missing_request_url(self):
         response = self.client.post(
@@ -448,7 +448,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [
@@ -498,7 +498,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(origin=origin),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_send_email.delay.assert_not_called()
 
     @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
@@ -520,7 +520,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(origin="https://evil.com"),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
     @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
@@ -549,8 +549,88 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(origin="https://allowed.com"),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_send_email.delay.assert_called_once()
+
+    def test_restore_redeem_success(self):
+        old_session_id = str(uuid.uuid4())
+        new_session_id = str(uuid.uuid4())
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=old_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+
+        _, raw_token = ConversationRestoreToken.create_token(
+            team=self.team,
+            recipient_email=self.customer_email,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {"restore_token": raw_token, "widget_session_id": new_session_id},
+            **self._get_headers(),
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["widget_session_id"] == new_session_id
+        assert len(data["migrated_ticket_ids"]) == 1
+
+    def test_restore_redeem_invalid_token(self):
+        # Token must be 40-50 chars to pass validation, then fails lookup
+        fake_token = "a" * 43
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {"restore_token": fake_token, "widget_session_id": self.widget_session_id},
+            **self._get_headers(),
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "invalid"
+        assert data["code"] == "token_invalid"
+
+    def test_restore_redeem_expired_token(self):
+        token_record, raw_token = ConversationRestoreToken.create_token(
+            team=self.team,
+            recipient_email=self.customer_email,
+        )
+        token_record.expires_at = timezone.now() - timedelta(minutes=1)
+        token_record.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {"restore_token": raw_token, "widget_session_id": self.widget_session_id},
+            **self._get_headers(),
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "expired"
+        assert data["code"] == "token_expired"
+
+    def test_restore_redeem_used_token(self):
+        token_record, raw_token = ConversationRestoreToken.create_token(
+            team=self.team,
+            recipient_email=self.customer_email,
+        )
+        token_record.consumed_at = timezone.now()
+        token_record.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {"restore_token": raw_token, "widget_session_id": self.widget_session_id},
+            **self._get_headers(),
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "used"
+        assert data["code"] == "token_already_used"
 
     @parameterized.expand(
         [
@@ -590,95 +670,15 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(origin="https://allowed.com"),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_send_email.delay.assert_not_called()
-
-    def test_restore_redeem_success(self):
-        old_session_id = str(uuid.uuid4())
-        new_session_id = str(uuid.uuid4())
-
-        Ticket.objects.create_with_number(
-            team=self.team,
-            widget_session_id=old_session_id,
-            distinct_id="user-1",
-            anonymous_traits={"email": self.customer_email},
-        )
-
-        _, raw_token = ConversationRestoreToken.create_token(
-            team=self.team,
-            recipient_email=self.customer_email,
-        )
-
-        response = self.client.post(
-            "/api/conversations/v1/widget/restore",
-            {"restore_token": raw_token, "widget_session_id": new_session_id},
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["status"], "success")
-        self.assertEqual(data["widget_session_id"], new_session_id)
-        self.assertEqual(len(data["migrated_ticket_ids"]), 1)
-
-    def test_restore_redeem_invalid_token(self):
-        # Token must be 40-50 chars to pass validation, then fails lookup
-        fake_token = "a" * 43
-        response = self.client.post(
-            "/api/conversations/v1/widget/restore",
-            {"restore_token": fake_token, "widget_session_id": self.widget_session_id},
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["status"], "invalid")
-        self.assertEqual(data["code"], "token_invalid")
-
-    def test_restore_redeem_expired_token(self):
-        token_record, raw_token = ConversationRestoreToken.create_token(
-            team=self.team,
-            recipient_email=self.customer_email,
-        )
-        token_record.expires_at = timezone.now() - timedelta(minutes=1)
-        token_record.save()
-
-        response = self.client.post(
-            "/api/conversations/v1/widget/restore",
-            {"restore_token": raw_token, "widget_session_id": self.widget_session_id},
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["status"], "expired")
-        self.assertEqual(data["code"], "token_expired")
-
-    def test_restore_redeem_used_token(self):
-        token_record, raw_token = ConversationRestoreToken.create_token(
-            team=self.team,
-            recipient_email=self.customer_email,
-        )
-        token_record.consumed_at = timezone.now()
-        token_record.save()
-
-        response = self.client.post(
-            "/api/conversations/v1/widget/restore",
-            {"restore_token": raw_token, "widget_session_id": self.widget_session_id},
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["status"], "used")
-        self.assertEqual(data["code"], "token_already_used")
 
     def test_restore_redeem_authentication_required(self):
         response = self.client.post(
             "/api/conversations/v1/widget/restore",
             {"restore_token": "a" * 43, "widget_session_id": self.widget_session_id},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_restore_redeem_empty_widget_session_id_rejected(self):
         """Empty widget_session_id should be rejected at validation."""
@@ -688,7 +688,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_restore_redeem_non_uuid_widget_session_id_rejected(self):
         response = self.client.post(
@@ -697,7 +697,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_restore_redeem_token_too_short_rejected(self):
         """Token shorter than 40 chars should be rejected at validation."""
@@ -707,7 +707,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_restore_redeem_token_too_long_rejected(self):
         """Token longer than 50 chars should be rejected at validation."""
@@ -717,7 +717,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestBuildRestoreUrl(BaseTest):
@@ -727,26 +727,26 @@ class TestBuildRestoreUrl(BaseTest):
         from products.conversations.backend.api.restore import _build_restore_url
 
         result = _build_restore_url("https://example.com/support", "test_token_123")
-        self.assertEqual(result, "https://example.com/support?ph_conv_restore=test_token_123")
+        assert result == "https://example.com/support?ph_conv_restore=test_token_123"
 
     def test_build_restore_url_preserves_existing_query_params(self):
         from products.conversations.backend.api.restore import _build_restore_url
 
         result = _build_restore_url("https://example.com/support?foo=bar&baz=qux", "test_token")
-        self.assertIn("foo=bar", result)
-        self.assertIn("baz=qux", result)
-        self.assertIn("ph_conv_restore=test_token", result)
+        assert "foo=bar" in result
+        assert "baz=qux" in result
+        assert "ph_conv_restore=test_token" in result
 
     def test_build_restore_url_preserves_path(self):
         from products.conversations.backend.api.restore import _build_restore_url
 
         result = _build_restore_url("https://example.com/app/support/page", "token")
-        self.assertTrue(result.startswith("https://example.com/app/support/page?"))
+        assert result.startswith("https://example.com/app/support/page?")
 
     def test_build_restore_url_drops_fragment(self):
         """Fragments are intentionally dropped (not sent to server anyway)."""
         from products.conversations.backend.api.restore import _build_restore_url
 
         result = _build_restore_url("https://example.com/support#section", "token")
-        self.assertNotIn("#section", result)
-        self.assertIn("ph_conv_restore=token", result)
+        assert "#section" not in result
+        assert "ph_conv_restore=token" in result

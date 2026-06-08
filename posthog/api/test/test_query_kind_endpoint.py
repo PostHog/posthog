@@ -17,7 +17,7 @@ class TestQueryKindEndpoint(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     @parameterized.expand(
         [
@@ -32,8 +32,8 @@ class TestQueryKindEndpoint(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Query kind mismatch", response.json().get("detail", ""))
+        assert response.status_code == 400
+        assert "Query kind mismatch" in response.json().get("detail", "")
 
     @parameterized.expand(
         [
@@ -48,4 +48,4 @@ class TestQueryKindEndpoint(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200

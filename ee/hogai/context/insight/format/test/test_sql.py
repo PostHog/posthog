@@ -18,7 +18,7 @@ class TestSQLResultsFormatter(BaseTest):
 
         formatter = SQLResultsFormatter(query, results, columns)
         expected = "column1|column2\nvalue1|value2\nvalue3|value4"
-        self.assertEqual(formatter.format(), expected)
+        assert formatter.format() == expected
 
     def test_format_empty_results(self):
         query = AssistantHogQLQuery(query="SELECT 1")
@@ -27,7 +27,7 @@ class TestSQLResultsFormatter(BaseTest):
 
         formatter = SQLResultsFormatter(query, results, columns)
         expected = "column1|column2"
-        self.assertEqual(formatter.format(), expected)
+        assert formatter.format() == expected
 
     def test_format_single_column(self):
         query = AssistantHogQLQuery(query="SELECT count()")
@@ -36,7 +36,7 @@ class TestSQLResultsFormatter(BaseTest):
 
         formatter = SQLResultsFormatter(query, results, columns)
         expected = "count\n42\n100"
-        self.assertEqual(formatter.format(), expected)
+        assert formatter.format() == expected
 
     def test_format_with_none_values(self):
         query = AssistantHogQLQuery(query="SELECT id, name")
@@ -48,7 +48,7 @@ class TestSQLResultsFormatter(BaseTest):
 
         formatter = SQLResultsFormatter(query, results, columns)
         expected = "id|name\n1|test\n2|None"
-        self.assertEqual(formatter.format(), expected)
+        assert formatter.format() == expected
 
     def test_format_with_numeric_values(self):
         query = AssistantHogQLQuery(query="SELECT count, avg")
@@ -60,7 +60,7 @@ class TestSQLResultsFormatter(BaseTest):
 
         formatter = SQLResultsFormatter(query, results, columns)
         expected = "count|avg\n100|15.5\n200|25.75"
-        self.assertEqual(formatter.format(), expected)
+        assert formatter.format() == expected
 
     def test_format_truncates_large_dict(self):
         query = AssistantHogQLQuery(query="SELECT properties")
@@ -71,11 +71,11 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertIn(TRUNCATED_MARKER, output)
-        self.assertTrue(formatter.has_truncated_values)
+        assert TRUNCATED_MARKER in output
+        assert formatter.has_truncated_values
         # The cell content should be truncated
         cell_content = output.split("\n")[1]
-        self.assertLess(len(cell_content), len(str(large_dict)))
+        assert len(cell_content) < len(str(large_dict))
 
     def test_format_truncates_large_list(self):
         query = AssistantHogQLQuery(query="SELECT items")
@@ -86,8 +86,8 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertIn(TRUNCATED_MARKER, output)
-        self.assertTrue(formatter.has_truncated_values)
+        assert TRUNCATED_MARKER in output
+        assert formatter.has_truncated_values
 
     def test_format_does_not_truncate_small_dict(self):
         query = AssistantHogQLQuery(query="SELECT properties")
@@ -98,9 +98,9 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertNotIn(TRUNCATED_MARKER, output)
-        self.assertFalse(formatter.has_truncated_values)
-        self.assertIn(str(small_dict), output)
+        assert TRUNCATED_MARKER not in output
+        assert not formatter.has_truncated_values
+        assert str(small_dict) in output
 
     def test_format_does_not_truncate_small_list(self):
         query = AssistantHogQLQuery(query="SELECT items")
@@ -111,9 +111,9 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertNotIn(TRUNCATED_MARKER, output)
-        self.assertFalse(formatter.has_truncated_values)
-        self.assertIn(str(small_list), output)
+        assert TRUNCATED_MARKER not in output
+        assert not formatter.has_truncated_values
+        assert str(small_list) in output
 
     def test_format_truncation_at_boundary(self):
         query = AssistantHogQLQuery(query="SELECT data")
@@ -127,11 +127,11 @@ class TestSQLResultsFormatter(BaseTest):
 
         # Should be truncated since str(boundary_dict) > MAX_CELL_LENGTH
         if len(str(boundary_dict)) > SQLResultsFormatter.MAX_CELL_LENGTH:
-            self.assertIn(TRUNCATED_MARKER, output)
-            self.assertTrue(formatter.has_truncated_values)
+            assert TRUNCATED_MARKER in output
+            assert formatter.has_truncated_values
         else:
-            self.assertNotIn(TRUNCATED_MARKER, output)
-            self.assertFalse(formatter.has_truncated_values)
+            assert TRUNCATED_MARKER not in output
+            assert not formatter.has_truncated_values
 
     def test_format_truncates_stringified_json_dict(self):
         query = AssistantHogQLQuery(query="SELECT json_data")
@@ -143,8 +143,8 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertIn(TRUNCATED_MARKER, output)
-        self.assertTrue(formatter.has_truncated_values)
+        assert TRUNCATED_MARKER in output
+        assert formatter.has_truncated_values
 
     def test_format_truncates_stringified_json_array(self):
         query = AssistantHogQLQuery(query="SELECT json_data")
@@ -156,8 +156,8 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertIn(TRUNCATED_MARKER, output)
-        self.assertTrue(formatter.has_truncated_values)
+        assert TRUNCATED_MARKER in output
+        assert formatter.has_truncated_values
 
     def test_format_does_not_truncate_small_stringified_json(self):
         query = AssistantHogQLQuery(query="SELECT json_data")
@@ -168,9 +168,9 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns)
         output = formatter.format()
 
-        self.assertNotIn(TRUNCATED_MARKER, output)
-        self.assertFalse(formatter.has_truncated_values)
-        self.assertIn(small_json_str, output)
+        assert TRUNCATED_MARKER not in output
+        assert not formatter.has_truncated_values
+        assert small_json_str in output
 
     def test_format_does_not_truncate_long_regular_string(self):
         query = AssistantHogQLQuery(query="SELECT description")
@@ -183,9 +183,9 @@ class TestSQLResultsFormatter(BaseTest):
         output = formatter.format()
 
         # Regular strings should NOT be truncated
-        self.assertNotIn(TRUNCATED_MARKER, output)
-        self.assertFalse(formatter.has_truncated_values)
-        self.assertIn(long_string, output)
+        assert TRUNCATED_MARKER not in output
+        assert not formatter.has_truncated_values
+        assert long_string in output
 
     def test_no_truncation_when_max_cell_length_is_none(self):
         query = AssistantHogQLQuery(query="SELECT properties")
@@ -196,9 +196,9 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns, max_cell_length=None)
         output = formatter.format()
 
-        self.assertNotIn(TRUNCATED_MARKER, output)
-        self.assertFalse(formatter.has_truncated_values)
-        self.assertIn(str(large_dict), output)
+        assert TRUNCATED_MARKER not in output
+        assert not formatter.has_truncated_values
+        assert str(large_dict) in output
 
     def test_custom_max_cell_length(self):
         query = AssistantHogQLQuery(query="SELECT data")
@@ -208,5 +208,5 @@ class TestSQLResultsFormatter(BaseTest):
         formatter = SQLResultsFormatter(query, results, columns, max_cell_length=50)
         output = formatter.format()
 
-        self.assertIn(TRUNCATED_MARKER, output)
-        self.assertTrue(formatter.has_truncated_values)
+        assert TRUNCATED_MARKER in output
+        assert formatter.has_truncated_values

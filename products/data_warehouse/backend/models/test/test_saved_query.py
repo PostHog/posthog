@@ -62,15 +62,15 @@ class TestRevertMaterialization(BaseTest):
         """A rollback must leave every piece of state (saved_query, table, model paths)
         exactly as it was before revert_materialization was called."""
         self.saved_query.refresh_from_db()
-        self.assertTrue(self.saved_query.is_materialized)
-        self.assertEqual(self.saved_query.sync_frequency_interval, timedelta(hours=1))
-        self.assertEqual(self.saved_query.status, DataWarehouseSavedQuery.Status.COMPLETED)
-        self.assertIsNotNone(self.saved_query.table_id)
+        assert self.saved_query.is_materialized
+        assert self.saved_query.sync_frequency_interval == timedelta(hours=1)
+        assert self.saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
+        assert self.saved_query.table_id is not None
 
         self.table.refresh_from_db()
-        self.assertFalse(self.table.deleted)
+        assert not self.table.deleted
 
-        self.assertTrue(DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self.saved_query).exists())
+        assert DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self.saved_query).exists()
 
     @patch(DELETE_SAVED_QUERY_SCHEDULE)
     def test_delete_schedule_called_when_all_operations_succeed(self, mock_delete_schedule):
@@ -81,15 +81,15 @@ class TestRevertMaterialization(BaseTest):
         mock_delete_schedule.assert_called_once_with(self.saved_query)
 
         self.saved_query.refresh_from_db()
-        self.assertFalse(self.saved_query.is_materialized)
-        self.assertIsNone(self.saved_query.sync_frequency_interval)
-        self.assertIsNone(self.saved_query.status)
-        self.assertIsNone(self.saved_query.table_id)
+        assert not self.saved_query.is_materialized
+        assert self.saved_query.sync_frequency_interval is None
+        assert self.saved_query.status is None
+        assert self.saved_query.table_id is None
 
         self.table.refresh_from_db()
-        self.assertTrue(self.table.deleted)
+        assert self.table.deleted
 
-        self.assertFalse(DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self.saved_query).exists())
+        assert not DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self.saved_query).exists()
 
     @patch(DELETE_SAVED_QUERY_SCHEDULE)
     def test_delete_schedule_not_called_when_table_soft_delete_raises(self, mock_delete_schedule):

@@ -24,9 +24,9 @@ class TestStickinessResultsFormatter(BaseTest):
             }
         ]
 
-        self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format(),
-            "Interval|$pageview\n1 day|200\n2 days|150\n3 days|100\n4 days|50",
+        assert (
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format()
+            == "Interval|$pageview\n1 day|200\n2 days|150\n3 days|100\n4 days|50"
         )
 
     def test_stickiness_multiple_series(self):
@@ -61,9 +61,9 @@ class TestStickinessResultsFormatter(BaseTest):
             },
         ]
 
-        self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format(),
-            "Interval|$pageview|signup\n1 day|200|100\n2 days|150|120\n3 days|100|80",
+        assert (
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format()
+            == "Interval|$pageview|signup\n1 day|200|100\n2 days|150|120\n3 days|100|80"
         )
 
     def test_stickiness_comparison(self):
@@ -102,15 +102,15 @@ class TestStickinessResultsFormatter(BaseTest):
             },
         ]
 
-        self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format(),
-            "Previous period:\nInterval|$pageview\n1 day|200\n2 days|150\n3 days|50\n\nCurrent period:\nInterval|$pageview\n1 day|250\n2 days|150\n3 days|100",
+        assert (
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format()
+            == "Previous period:\nInterval|$pageview\n1 day|200\n2 days|150\n3 days|50\n\nCurrent period:\nInterval|$pageview\n1 day|250\n2 days|150\n3 days|100"
         )
 
     def test_stickiness_empty_results(self):
-        self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), []).format(),
-            "No data recorded for this time period.",
+        assert (
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), []).format()
+            == "No data recorded for this time period."
         )
 
     def test_stickiness_custom_name(self):
@@ -131,9 +131,9 @@ class TestStickinessResultsFormatter(BaseTest):
             }
         ]
 
-        self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format(),
-            "Interval|Page Views\n1 day|100\n2 days|120\n3 days|80",
+        assert (
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format()
+            == "Interval|Page Views\n1 day|100\n2 days|120\n3 days|80"
         )
 
     def test_stickiness_cumulative_labels(self):
@@ -154,7 +154,7 @@ class TestStickinessResultsFormatter(BaseTest):
             }
         ]
 
-        self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format(),
-            "Interval|$pageview\n1 day or more|500\n2 days or more|300\n3 days or more|150",
+        assert (
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format()
+            == "Interval|$pageview\n1 day or more|500\n2 days or more|300\n3 days or more|150"
         )

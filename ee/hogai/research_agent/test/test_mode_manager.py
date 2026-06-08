@@ -44,19 +44,19 @@ class TestResearchAgentModeManager(BaseTest):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=None)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager._supermode, AgentMode.PLAN)
+        assert mode_manager._supermode == AgentMode.PLAN
 
     def test_init_with_explicit_plan_supermode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager._supermode, AgentMode.PLAN)
+        assert mode_manager._supermode == AgentMode.PLAN
 
     def test_init_with_explicit_supermode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager._supermode, AgentMode.RESEARCH)
+        assert mode_manager._supermode == AgentMode.RESEARCH
 
     def test_init_raises_on_invalid_supermode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.SQL)
@@ -64,20 +64,20 @@ class TestResearchAgentModeManager(BaseTest):
         with self.assertRaises(ValueError) as context:
             _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertIn("Invalid supermode", str(context.exception))
+        assert "Invalid supermode" in str(context.exception)
 
     def test_init_defaults_agent_mode_to_product_analytics_in_plan_supermode(self):
         """Default mode is PRODUCT_ANALYTICS in PLAN supermode (which is the default supermode)"""
         state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=None)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager._mode, AgentMode.PRODUCT_ANALYTICS)
+        assert mode_manager._mode == AgentMode.PRODUCT_ANALYTICS
 
     def test_init_preserves_explicit_agent_mode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=AgentMode.SQL)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager._mode, AgentMode.SQL)
+        assert mode_manager._mode == AgentMode.SQL
 
     def test_supermode_registries_plan_mode_includes_research(self):
         """PLAN supermode registry includes RESEARCH but not PRODUCT_ANALYTICS"""
@@ -85,74 +85,74 @@ class TestResearchAgentModeManager(BaseTest):
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
         plan_registry = mode_manager.supermode_registries[AgentMode.PLAN]
-        self.assertIn(AgentMode.RESEARCH, plan_registry)
-        self.assertIn(AgentMode.PRODUCT_ANALYTICS, plan_registry)  # Now in PLAN mode
-        self.assertIn(AgentMode.SQL, plan_registry)
-        self.assertIn(AgentMode.SESSION_REPLAY, plan_registry)
+        assert AgentMode.RESEARCH in plan_registry
+        assert AgentMode.PRODUCT_ANALYTICS in plan_registry  # Now in PLAN mode
+        assert AgentMode.SQL in plan_registry
+        assert AgentMode.SESSION_REPLAY in plan_registry
 
     def test_supermode_registries_supermode_excludes_research(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
         research_registry = mode_manager.supermode_registries[AgentMode.RESEARCH]
-        self.assertNotIn(AgentMode.RESEARCH, research_registry)
-        self.assertIn(AgentMode.PRODUCT_ANALYTICS, research_registry)
-        self.assertIn(AgentMode.SQL, research_registry)
-        self.assertIn(AgentMode.SESSION_REPLAY, research_registry)
+        assert AgentMode.RESEARCH not in research_registry
+        assert AgentMode.PRODUCT_ANALYTICS in research_registry
+        assert AgentMode.SQL in research_registry
+        assert AgentMode.SESSION_REPLAY in research_registry
 
     def test_mode_registry_returns_correct_registry_for_plan(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertIn(AgentMode.RESEARCH, mode_manager.mode_registry)
+        assert AgentMode.RESEARCH in mode_manager.mode_registry
 
     def test_mode_registry_returns_correct_registry_for_research(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertNotIn(AgentMode.RESEARCH, mode_manager.mode_registry)
+        assert AgentMode.RESEARCH not in mode_manager.mode_registry
 
     def test_prompt_builder_class_returns_plan_builder_for_plan_mode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager.prompt_builder_class, PlanAgentPromptBuilder)
+        assert mode_manager.prompt_builder_class == PlanAgentPromptBuilder
 
     def test_prompt_builder_class_returns_research_builder_for_supermode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager.prompt_builder_class, ResearchAgentPromptBuilder)
+        assert mode_manager.prompt_builder_class == ResearchAgentPromptBuilder
 
     def test_toolkit_class_returns_plan_toolkit_for_plan_mode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager.toolkit_class, PlanAgentToolkit)
+        assert mode_manager.toolkit_class == PlanAgentToolkit
 
     def test_toolkit_class_returns_research_toolkit_for_supermode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager.toolkit_class, ResearchAgentToolkit)
+        assert mode_manager.toolkit_class == ResearchAgentToolkit
 
     def test_toolkit_manager_class_returns_research_toolkit_manager(self):
         state = AssistantState(messages=[HumanMessage(content="Test")])
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager.toolkit_manager_class, ResearchAgentToolkitManager)
+        assert mode_manager.toolkit_manager_class == ResearchAgentToolkitManager
 
     def test_node_returns_research_agent_executable(self):
         state = AssistantState(messages=[HumanMessage(content="Test")])
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertIsInstance(mode_manager.node, ResearchAgentExecutable)
+        assert isinstance(mode_manager.node, ResearchAgentExecutable)
 
     def test_tools_node_returns_research_agent_tools_executable(self):
         state = AssistantState(messages=[HumanMessage(content="Test")])
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertIsInstance(mode_manager.tools_node, ResearchAgentToolsExecutable)
+        assert isinstance(mode_manager.tools_node, ResearchAgentToolsExecutable)
 
 
 class TestPlanAgentToolkit(BaseTest):
@@ -161,7 +161,7 @@ class TestPlanAgentToolkit(BaseTest):
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
         toolkit = PlanAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
 
-        self.assertIn(CreateFormTool, toolkit.tools)
+        assert CreateFormTool in toolkit.tools
 
     def test_tools_includes_all_default_tools(self):
         config = RunnableConfig(configurable={})
@@ -169,7 +169,7 @@ class TestPlanAgentToolkit(BaseTest):
         toolkit = PlanAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
 
         for default_tool in DEFAULT_TOOLS:
-            self.assertIn(default_tool, toolkit.tools)
+            assert default_tool in toolkit.tools
 
 
 class TestResearchAgentToolkit(BaseTest):
@@ -178,7 +178,7 @@ class TestResearchAgentToolkit(BaseTest):
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
         toolkit = ResearchAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
 
-        self.assertNotIn(CreateFormTool, toolkit.tools)
+        assert CreateFormTool not in toolkit.tools
 
     def test_tools_includes_default_tools(self):
         config = RunnableConfig(configurable={})
@@ -186,7 +186,7 @@ class TestResearchAgentToolkit(BaseTest):
         toolkit = ResearchAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
 
         for default_tool in DEFAULT_TOOLS:
-            self.assertIn(default_tool, toolkit.tools)
+            assert default_tool in toolkit.tools
 
 
 class TestResearchAgentToolkitManager(ClickhouseTestMixin, BaseTest):
@@ -225,8 +225,8 @@ class TestResearchAgentToolkitManager(ClickhouseTestMixin, BaseTest):
 
             mock_create.assert_called_once()
             call_kwargs = mock_create.call_args.kwargs
-            self.assertTrue(call_kwargs["can_read_artifacts"])
-            self.assertIn(mock_tool, tools)
+            assert call_kwargs["can_read_artifacts"]
+            assert mock_tool in tools
 
 
 class TestPromptBuilders(ClickhouseTestMixin, BaseTest):
@@ -244,8 +244,8 @@ class TestPromptBuilders(ClickhouseTestMixin, BaseTest):
         ):
             prompts = await prompt_builder.get_prompts(state, config)
 
-            self.assertIsInstance(prompts, list)
-            self.assertGreater(len(prompts), 0)
+            assert isinstance(prompts, list)
+            assert len(prompts) > 0
 
     async def test_research_agent_prompt_builder_get_prompts_returns_messages(self):
         config = RunnableConfig(configurable={})
@@ -261,8 +261,8 @@ class TestPromptBuilders(ClickhouseTestMixin, BaseTest):
         ):
             prompts = await prompt_builder.get_prompts(state, config)
 
-            self.assertIsInstance(prompts, list)
-            self.assertGreater(len(prompts), 0)
+            assert isinstance(prompts, list)
+            assert len(prompts) > 0
 
     async def test_plan_agent_prompt_builder_system_prompt_contains_plan_keywords(self):
         config = RunnableConfig(configurable={})
@@ -271,8 +271,8 @@ class TestPromptBuilders(ClickhouseTestMixin, BaseTest):
         prompt_builder = PlanAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
         system_prompt = prompt_builder._get_system_prompt()
 
-        self.assertIn("plan", system_prompt.lower())
-        self.assertIn("research", system_prompt.lower())
+        assert "plan" in system_prompt.lower()
+        assert "research" in system_prompt.lower()
 
     async def test_research_agent_prompt_builder_system_prompt_contains_research_keywords(self):
         config = RunnableConfig(configurable={})
@@ -281,7 +281,7 @@ class TestPromptBuilders(ClickhouseTestMixin, BaseTest):
         prompt_builder = ResearchAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
         system_prompt = prompt_builder._get_system_prompt()
 
-        self.assertIn("research", system_prompt.lower())
+        assert "research" in system_prompt.lower()
 
     async def test_prompt_builder_includes_groups_when_available(self):
         config = RunnableConfig(configurable={})
@@ -298,5 +298,5 @@ class TestPromptBuilders(ClickhouseTestMixin, BaseTest):
             prompts = await prompt_builder.get_prompts(state, config)
 
             # Prompts should be generated successfully with groups
-            self.assertIsInstance(prompts, list)
-            self.assertGreater(len(prompts), 0)
+            assert isinstance(prompts, list)
+            assert len(prompts) > 0

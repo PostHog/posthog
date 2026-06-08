@@ -53,26 +53,23 @@ class TestSingleSessionSummary(BaseTest):
             extra_summary_context=self.extra_context,
         )
 
-        self.assertIsNotNone(summary)
         assert summary is not None
-        self.assertEqual(summary.session_id, self.session_id)
-        self.assertIn("segments", summary.summary)
-        self.assertIn("key_actions", summary.summary)
-        self.assertIn("segment_outcomes", summary.summary)
-        self.assertIn("session_outcome", summary.summary)
-        self.assertEqual(summary.exception_event_ids, self.exception_event_ids)
-        self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
-        self.assertEqual(
-            summary.run_metadata,
-            {
-                "model_used": "gpt-4",
-                "visual_confirmation": False,
-                "visual_confirmation_results": None,
-                "failed_sessions": [],
-            },
-        )
-        self.assertEqual(summary.created_by, self.user)
-        self.assertEqual(summary.team_id, self.team.id)
+        assert summary is not None
+        assert summary.session_id == self.session_id
+        assert "segments" in summary.summary
+        assert "key_actions" in summary.summary
+        assert "segment_outcomes" in summary.summary
+        assert "session_outcome" in summary.summary
+        assert summary.exception_event_ids == self.exception_event_ids
+        assert summary.extra_summary_context == {"focus_area": "authentication"}
+        assert summary.run_metadata == {
+            "model_used": "gpt-4",
+            "visual_confirmation": False,
+            "visual_confirmation_results": None,
+            "failed_sessions": [],
+        }
+        assert summary.created_by == self.user
+        assert summary.team_id == self.team.id
 
     def test_get_summary_with_context(self) -> None:
         summary_serializer = SessionSummarySerializer(data=self.summary_data)
@@ -98,20 +95,20 @@ class TestSingleSessionSummary(BaseTest):
             team_id=self.team.id, session_id=self.session_id, extra_summary_context=self.extra_context
         )
         assert retrieved is not None
-        self.assertEqual(retrieved.extra_summary_context, {"focus_area": "authentication"})
+        assert retrieved.extra_summary_context == {"focus_area": "authentication"}
 
         # Get the latest one (which has no context)
         retrieved_any: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
             team_id=self.team.id, session_id=self.session_id
         )
         assert retrieved_any is not None
-        self.assertIsNone(retrieved_any.extra_summary_context)
+        assert retrieved_any.extra_summary_context is None
 
     def test_get_summary_nonexistent(self) -> None:
         result: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
             team_id=self.team.id, session_id="non-existent-session"
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_summary_matches_legacy_row_without_new_optional_fields(self) -> None:
         SingleSessionSummary.objects.create(
@@ -126,7 +123,7 @@ class TestSingleSessionSummary(BaseTest):
             extra_summary_context=ExtraSummaryContext(focus_area="authentication"),
         )
         assert result is not None
-        self.assertEqual(result.extra_summary_context, {"focus_area": "authentication"})
+        assert result.extra_summary_context == {"focus_area": "authentication"}
 
     def test_exception_event_ids_limit(self) -> None:
         long_exception_list: list[str] = [f"evt-{i:03d}" for i in range(150)]
@@ -147,9 +144,9 @@ class TestSingleSessionSummary(BaseTest):
             session_id=self.session_id,
         )
         assert summary is not None
-        self.assertEqual(len(summary.exception_event_ids), 100)
-        self.assertEqual(summary.exception_event_ids[0], "evt-000")
-        self.assertEqual(summary.exception_event_ids[99], "evt-099")
+        assert len(summary.exception_event_ids) == 100
+        assert summary.exception_event_ids[0] == "evt-000"
+        assert summary.exception_event_ids[99] == "evt-099"
 
     def test_team_isolation(self) -> None:
         other_team: Team = Organization.objects.bootstrap(None)[2]
@@ -167,7 +164,7 @@ class TestSingleSessionSummary(BaseTest):
         result: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
             team_id=other_team.id, session_id=self.session_id
         )
-        self.assertIsNone(result)
+        assert result is None
 
     def test_multiple_summaries_ordering(self) -> None:
         summary_data_1 = get_mock_enriched_llm_json_response(self.session_id)
@@ -199,7 +196,7 @@ class TestSingleSessionSummary(BaseTest):
         )
         assert retrieved is not None
         # Should get the latest one (Version 2)
-        self.assertEqual(retrieved.summary["session_outcome"]["description"], "Version 2")
+        assert retrieved.summary["session_outcome"]["description"] == "Version 2"
 
 
 class TestSingleSessionSummaryBulk(BaseTest):
@@ -294,14 +291,14 @@ class TestSingleSessionSummaryBulk(BaseTest):
             extra_summary_context=None,
         )
 
-        self.assertEqual(len(result.results), 5)
+        assert len(result.results) == 5
 
         result_session_ids: set[str] = {s.session_id for s in result.results}
         expected_session_ids: set[str] = {self.session_ids[i] for i in [0, 1, 2, 3, 4]}
-        self.assertEqual(result_session_ids, expected_session_ids)
+        assert result_session_ids == expected_session_ids
 
         for summary in result.results:
-            self.assertIsNone(summary.extra_summary_context)
+            assert summary.extra_summary_context is None
 
     def test_get_bulk_summaries_with_context(self) -> None:
         result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
@@ -310,14 +307,14 @@ class TestSingleSessionSummaryBulk(BaseTest):
             extra_summary_context=self.extra_context,
         )
 
-        self.assertEqual(len(result.results), 4)
+        assert len(result.results) == 4
 
         result_session_ids: set[str] = {s.session_id for s in result.results}
         expected_session_ids: set[str] = {self.session_ids[i] for i in [3, 4, 5, 6]}
-        self.assertEqual(result_session_ids, expected_session_ids)
+        assert result_session_ids == expected_session_ids
 
         for summary in result.results:
-            self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
+            assert summary.extra_summary_context == {"focus_area": "authentication"}
 
     def test_get_bulk_summaries_pagination(self) -> None:
         result_offset_0: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
@@ -328,8 +325,8 @@ class TestSingleSessionSummaryBulk(BaseTest):
             offset=0,
         )
 
-        self.assertEqual(len(result_offset_0.results), 2)
-        self.assertTrue(result_offset_0.has_next)
+        assert len(result_offset_0.results) == 2
+        assert result_offset_0.has_next
 
         result_offset_2: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
             team_id=self.team.id,
@@ -339,8 +336,8 @@ class TestSingleSessionSummaryBulk(BaseTest):
             offset=2,
         )
 
-        self.assertEqual(len(result_offset_2.results), 2)
-        self.assertTrue(result_offset_2.has_next)
+        assert len(result_offset_2.results) == 2
+        assert result_offset_2.has_next
 
         result_offset_4: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
             team_id=self.team.id,
@@ -350,15 +347,15 @@ class TestSingleSessionSummaryBulk(BaseTest):
             offset=4,
         )
 
-        self.assertEqual(len(result_offset_4.results), 1)
-        self.assertFalse(result_offset_4.has_next)
+        assert len(result_offset_4.results) == 1
+        assert not result_offset_4.has_next
 
         offset_0_ids: set[str] = {s.session_id for s in result_offset_0.results}
         offset_2_ids: set[str] = {s.session_id for s in result_offset_2.results}
         offset_4_ids: set[str] = {s.session_id for s in result_offset_4.results}
-        self.assertEqual(len(offset_0_ids & offset_2_ids), 0)
-        self.assertEqual(len(offset_2_ids & offset_4_ids), 0)
-        self.assertEqual(len(offset_0_ids & offset_4_ids), 0)
+        assert len(offset_0_ids & offset_2_ids) == 0
+        assert len(offset_2_ids & offset_4_ids) == 0
+        assert len(offset_0_ids & offset_4_ids) == 0
 
     def test_get_bulk_summaries_latest_per_session(self) -> None:
         session_id: str = "session-latest-test"
@@ -391,9 +388,9 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[session_id],
             extra_summary_context=None,
         )
-        self.assertEqual(len(result.results), 1)
+        assert len(result.results) == 1
         # Should get the latest one (version 2)
-        self.assertEqual(result.results[0].summary["session_outcome"]["description"], "Newer summary - version 2")
+        assert result.results[0].summary["session_outcome"]["description"] == "Newer summary - version 2"
 
     def test_get_bulk_summaries_mixed_sessions(self) -> None:
         mixed_ids: list[str] = [self.session_ids[0], "nonexistent", self.session_ids[1]]
@@ -404,9 +401,9 @@ class TestSingleSessionSummaryBulk(BaseTest):
             extra_summary_context=None,
         )
 
-        self.assertEqual(len(result.results), 2)
+        assert len(result.results) == 2
         result_session_ids: set[str] = {s.session_id for s in result.results}
-        self.assertEqual(result_session_ids, {self.session_ids[0], self.session_ids[1]})
+        assert result_session_ids == {self.session_ids[0], self.session_ids[1]}
 
     def test_summaries_exist_multiple_without_context(self) -> None:
         # Use existing test data - sessions 0-4 have summaries without context
@@ -415,15 +412,12 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[0], self.session_ids[1], self.session_ids[8], "non-existent"],
             extra_summary_context=None,
         )
-        self.assertEqual(
-            result,
-            {
-                self.session_ids[0]: True,
-                self.session_ids[1]: True,
-                self.session_ids[8]: False,  # Has no summary
-                "non-existent": False,
-            },
-        )
+        assert result == {
+            self.session_ids[0]: True,
+            self.session_ids[1]: True,
+            self.session_ids[8]: False,  # Has no summary
+            "non-existent": False,
+        }
 
     def test_summaries_exist_with_context(self) -> None:
         # Use existing test data - sessions 3-6 have summaries with auth context
@@ -432,15 +426,12 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[3], self.session_ids[5], self.session_ids[0], self.session_ids[9]],
             extra_summary_context=self.extra_context,
         )
-        self.assertEqual(
-            result,
-            {
-                self.session_ids[3]: True,  # Has auth context
-                self.session_ids[5]: True,  # Has auth context
-                self.session_ids[0]: False,  # Has no context
-                self.session_ids[9]: False,  # Has no summary
-            },
-        )
+        assert result == {
+            self.session_ids[3]: True,  # Has auth context
+            self.session_ids[5]: True,  # Has auth context
+            self.session_ids[0]: False,  # Has no context
+            self.session_ids[9]: False,  # Has no summary
+        }
 
     def test_summaries_exist_context_mismatch(self) -> None:
         different_context: ExtraSummaryContext = ExtraSummaryContext(focus_area="checkout")
@@ -450,14 +441,14 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[7]],
             extra_summary_context=different_context,
         )
-        self.assertEqual(result, {self.session_ids[7]: True})
+        assert result == {self.session_ids[7]: True}
         # But not auth context
         result = SingleSessionSummary.objects.summaries_exist(
             team_id=self.team.id,
             session_ids=[self.session_ids[7]],
             extra_summary_context=self.extra_context,
         )
-        self.assertEqual(result, {self.session_ids[7]: False})
+        assert result == {self.session_ids[7]: False}
 
     def test_summaries_exist_team_isolation(self) -> None:
         other_team: Team = Organization.objects.bootstrap(None)[2]
@@ -478,14 +469,14 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=["cross-team-session"],
             extra_summary_context=None,
         )
-        self.assertEqual(result, {"cross-team-session": False})
+        assert result == {"cross-team-session": False}
         # Should be visible from the other team
         result = SingleSessionSummary.objects.summaries_exist(
             team_id=other_team.id,
             session_ids=["cross-team-session"],
             extra_summary_context=None,
         )
-        self.assertEqual(result, {"cross-team-session": True})
+        assert result == {"cross-team-session": True}
 
     def test_summaries_exist_latest_only(self) -> None:
         # Sessions 3-4 have both old (no context) and new (auth context) summaries
@@ -495,13 +486,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[3], self.session_ids[4]],
             extra_summary_context=self.extra_context,
         )
-        self.assertEqual(
-            result,
-            {
-                self.session_ids[3]: True,
-                self.session_ids[4]: True,
-            },
-        )
+        assert result == {self.session_ids[3]: True, self.session_ids[4]: True}
         # Test without context - the method returns the latest summary matching the filter
         # Since there are old summaries without context, it will return True
         result = SingleSessionSummary.objects.summaries_exist(
@@ -509,13 +494,10 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[3], self.session_ids[4]],
             extra_summary_context=None,
         )
-        self.assertEqual(
-            result,
-            {
-                self.session_ids[3]: True,  # Has old summaries without context
-                self.session_ids[4]: True,  # Has old summaries without context
-            },
-        )
+        assert result == {
+            self.session_ids[3]: True,  # Has old summaries without context
+            self.session_ids[4]: True,  # Has old summaries without context
+        }
 
     def test_get_outcomes_bulk_without_context(self) -> None:
         outcomes = SingleSessionSummary.objects.get_outcomes_bulk(team_id=self.team.id, session_ids=self.session_ids)
@@ -583,14 +565,14 @@ class TestSessionGroupSummary(BaseTest):
             run_metadata=asdict(self.run_metadata),
             created_by=self.user,
         )
-        self.assertIsNotNone(summary.id)
-        self.assertEqual(summary.team_id, self.team.id)
-        self.assertEqual(summary.title, "Checkout flow analysis")
-        self.assertEqual(summary.session_ids, self.session_ids)
-        self.assertEqual(summary.summary, self.summary_data)
-        self.assertEqual(summary.extra_summary_context, asdict(self.extra_context))
-        self.assertEqual(summary.run_metadata, asdict(self.run_metadata))
-        self.assertEqual(summary.created_by, self.user)
+        assert summary.id is not None
+        assert summary.team_id == self.team.id
+        assert summary.title == "Checkout flow analysis"
+        assert summary.session_ids == self.session_ids
+        assert summary.summary == self.summary_data
+        assert summary.extra_summary_context == asdict(self.extra_context)
+        assert summary.run_metadata == asdict(self.run_metadata)
+        assert summary.created_by == self.user
 
     def test_team_isolation(self) -> None:
         other_team: Team = Organization.objects.bootstrap(None)[2]
@@ -627,10 +609,10 @@ class TestSessionGroupSummary(BaseTest):
         )
         # Get recent summaries ordered by creation date
         recent_summaries = list(SessionGroupSummary.objects.filter(team_id=self.team.id).order_by("-created_at"))
-        self.assertEqual(len(recent_summaries), 3)
-        self.assertEqual(recent_summaries[0].id, summary_3.id)  # Most recent
-        self.assertEqual(recent_summaries[1].id, summary_2.id)
-        self.assertEqual(recent_summaries[2].id, summary_1.id)  # Oldest
+        assert len(recent_summaries) == 3
+        assert recent_summaries[0].id == summary_3.id  # Most recent
+        assert recent_summaries[1].id == summary_2.id
+        assert recent_summaries[2].id == summary_1.id  # Oldest
 
     def test_update_summary(self) -> None:
         summary = SessionGroupSummary.objects.create(
@@ -662,7 +644,7 @@ class TestSessionGroupSummary(BaseTest):
         summary.save()
         # Verify the update
         retrieved = SessionGroupSummary.objects.get(id=summary.id)
-        self.assertEqual(retrieved.summary, updated_data)
+        assert retrieved.summary == updated_data
 
     def test_str_representation(self) -> None:
         summary = SessionGroupSummary.objects.create(
@@ -672,6 +654,6 @@ class TestSessionGroupSummary(BaseTest):
             summary=self.summary_data,
         )
         str_repr = str(summary)
-        self.assertIn("String repr test", str_repr)
-        self.assertIn("3 sessions", str_repr)
-        self.assertIn(str(self.team.id), str_repr)
+        assert "String repr test" in str_repr
+        assert "3 sessions" in str_repr
+        assert str(self.team.id) in str_repr

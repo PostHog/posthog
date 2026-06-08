@@ -284,7 +284,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_with_project_secret_authenticator_disallowed_endpoint(self):
         """Should return False for disallowed endpoints"""
@@ -297,7 +297,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertFalse(result)
+        assert not result
 
     @parameterized.expand(
         [
@@ -322,7 +322,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_unknown_endpoint(self):
         """Should reject unknown endpoints"""
@@ -335,7 +335,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertFalse(result)
+        assert not result
 
     def test_has_permission_matching_teams(self):
         """Should return True when authenticated team matches resolved team"""
@@ -349,7 +349,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_mismatched_teams(self):
         """Should return False when authenticated team doesn't match resolved team"""
@@ -364,7 +364,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertFalse(result)
+        assert not result
 
     def test_has_permission_view_team_resolution_fails_with_team_does_not_exist(self):
         """Should return True when view.team raises Team.DoesNotExist"""
@@ -384,7 +384,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
         view = MockView()
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_view_missing_team_attribute(self):
         """Should return True when view.team raises AttributeError"""
@@ -404,7 +404,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
         view = MockView()
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_no_view_name(self):
         """Should handle missing view_name gracefully"""
@@ -416,7 +416,7 @@ class TestProjectSecretAPITokenPermission(BaseTest):
         result = self.permission.has_permission(request, view)
 
         # None is not in the allowed endpoints tuple, so this should return False
-        self.assertFalse(result)
+        assert not result
 
 
 class TestTeamMemberAccessPermission(BaseTest):
@@ -483,7 +483,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_with_non_project_secret_authenticator_and_valid_membership(self):
         """Should return True when not using project secret auth and user has valid membership"""
@@ -500,7 +500,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_with_non_project_secret_authenticator_and_no_membership(self):
         """Should return False when not using project secret auth and user has no membership"""
@@ -514,7 +514,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertFalse(result)
+        assert not result
 
     def test_has_permission_with_team_does_not_exist_exception(self):
         """Should return True when view.team raises Team.DoesNotExist"""
@@ -525,7 +525,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
     def test_has_permission_with_admin_membership(self):
         """Should return True when user has admin membership level"""
@@ -542,7 +542,7 @@ class TestTeamMemberAccessPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
 
 
 @override_settings(
@@ -596,24 +596,24 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.scope = ""
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "OAuth token has no scopes and cannot access this resource")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "OAuth token has no scopes and cannot access this resource"
 
     def test_forbids_scoped_access_for_unsupported_endpoint(self):
         """Even * scope isn't allowed for unsupported endpoints"""
         self.access_token.scope = "*"
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_forbids_wildcard_scope_for_internal_viewset(self):
         """`*` does not satisfy INTERNAL viewsets — explicit scope required."""
         self.access_token.scope = "*"
         self.access_token.save()
         response = self._do_request("/api/query_performance_proxy/execute-test/", method="POST")
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("clickhouse_test_cluster_perf:read", response.json()["detail"])
+        assert response.status_code == 403
+        assert "clickhouse_test_cluster_perf:read" in response.json()["detail"]
 
     def test_allows_explicit_scope_for_internal_viewset(self):
         self.access_token.scope = "clickhouse_test_cluster_perf:read"
@@ -621,7 +621,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         response = self._do_request(
             "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_forbids_wildcard_scope_for_internal_required_scope_on_public_viewset(self):
         """Regression: when a viewset's `scope_object` is public (e.g. `signal_scout`) but a
@@ -637,8 +637,8 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
             method="POST",
             data={"key": "noop"},
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("signal_scout_internal:write", response.json()["detail"])
+        assert response.status_code == 403
+        assert "signal_scout_internal:write" in response.json()["detail"]
 
     def test_allows_explicit_internal_write_scope_on_public_viewset(self):
         """Sibling to the above: a token with explicit `signal_scout_internal:write` reaches
@@ -650,8 +650,8 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
             method="POST",
             data={"key": "noop"},
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"deleted": False})
+        assert response.status_code == 200
+        assert response.json() == {"deleted": False}
 
     def test_session_auth_cannot_satisfy_internal_write_scope(self):
         """Session auth must NOT bypass an internal-scope requirement. A logged-in team member
@@ -665,24 +665,24 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
             data={"key": "noop"},
             format="json",
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("internal scope", response.json()["detail"])
+        assert response.status_code == 403
+        assert "internal scope" in response.json()["detail"]
 
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_denies_derived_scope_for_write(self):
         """OAuth token with feature_flag:read cannot write feature flags"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/", method="POST")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "API key missing required scope 'feature_flag:write'")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
 
     def test_allows_action_with_required_scopes(self):
         """OAuth token can access endpoints that match its scopes"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_allows_custom_error_tracking_write_action(self):
         """OAuth token can access custom error tracking write actions via scope_object_write_actions"""
@@ -698,35 +698,35 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
             headers={"authorization": f"Bearer {self.access_token.token}"},
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == 200
+        assert response.json() == {"success": True}
 
     def test_forbids_action_with_other_scope(self):
         """OAuth token cannot access endpoints requiring different scopes"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "API key missing required scope 'activity_log:read'")
+        assert response.status_code == 403
+        assert response.json()["detail"] == "API key missing required scope 'activity_log:read'"
 
     def test_allows_action_with_multiple_scopes(self):
         """OAuth token with multiple scopes can access all matching endpoints"""
         self.access_token.scope = "feature_flag:write activity_log:read"
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_write_scope_allows_read_operations(self):
         """OAuth token with write scope should also allow read operations"""
         self.access_token.scope = "feature_flag:write"
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_wildcard_scope_allows_all_supported_endpoints(self):
         """OAuth token with * scope can access all supported endpoints"""
         self.access_token.scope = "*"
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
 
 @override_settings(
@@ -770,12 +770,12 @@ class TestOAuthAccessTokenWithOrganizationScoping(BaseTest):
     def test_allows_access_to_scoped_org(self):
         """OAuth token scoped to an org can access that org"""
         response = self._do_request(f"/api/organizations/{self.organization.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_allows_access_to_scoped_org_teams(self):
         """OAuth token scoped to an org can access teams in that org"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_denies_access_to_non_scoped_org_and_team(self):
         """OAuth token scoped to one org cannot access other orgs"""
@@ -785,7 +785,7 @@ class TestOAuthAccessTokenWithOrganizationScoping(BaseTest):
 
         response = self._do_request(f"/api/organizations/{other_org.id}/")
 
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
 
 @override_settings(
@@ -829,7 +829,7 @@ class TestOAuthAccessTokenWithTeamScoping(BaseTest):
     def test_allows_access_to_scoped_team(self):
         """OAuth token scoped to a team can access that team"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_denies_access_to_non_scoped_team(self):
         """OAuth token scoped to one team cannot access other teams"""
@@ -838,8 +838,8 @@ class TestOAuthAccessTokenWithTeamScoping(BaseTest):
         _, _, other_team = Organization.objects.bootstrap(user=other_user)
 
         response = self._do_request(f"/api/projects/{other_team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("does not have access to the requested project", response.json()["detail"])
+        assert response.status_code == 403
+        assert "does not have access to the requested project" in response.json()["detail"]
 
 
 @override_settings(
@@ -891,25 +891,25 @@ class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
     def test_allows_access_to_scoped_team(self):
         """OAuth token with both org and team scopes allows access to the scoped team"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_denies_access_to_other_team_in_scoped_org(self):
         """OAuth token with both org and team scopes denies access to other teams in the same org"""
         response = self._do_request(f"/api/projects/{self.team2.id}/feature_flags/")
         # Returns 403 because the token is scoped to a different team
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_denies_access_to_team_in_non_scoped_org(self):
         """OAuth token with both org and team scopes denies access to teams in other orgs"""
         response = self._do_request(f"/api/projects/{self.other_org_team.id}/feature_flags/")
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_denies_access_to_org_endpoint_when_teams_scoped(self):
         """OAuth token with scoped_teams cannot access org endpoints (current limitation)"""
         response = self._do_request(f"/api/organizations/{self.organization.id}/")
         # When scoped_teams is set, org endpoints are denied because the logic requires team-based endpoints
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("only supported on project-based endpoints", response.json()["detail"])
+        assert response.status_code == 403
+        assert "only supported on project-based endpoints" in response.json()["detail"]
 
 
 @override_settings(
@@ -954,7 +954,7 @@ class TestOAuthAccessTokenExpiration(BaseTest):
     def test_valid_token_allows_access(self):
         """A valid non-expired OAuth token allows access"""
         response = self._do_request()
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_expired_token_denies_access(self):
         """An expired OAuth token denies access"""
@@ -963,13 +963,13 @@ class TestOAuthAccessTokenExpiration(BaseTest):
         self.access_token.save()
 
         response = self._do_request()
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
     def test_token_works_then_expires_then_fails(self):
         """OAuth token works when valid, then fails after expiration"""
         # First verify it works
         response = self._do_request()
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Expire the token
         self.access_token.expires = timezone.now() - timedelta(hours=1)
@@ -977,7 +977,7 @@ class TestOAuthAccessTokenExpiration(BaseTest):
 
         # Verify it no longer works
         response = self._do_request()
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
 
 @override_settings(
@@ -1022,7 +1022,7 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
     def test_token_works_with_membership(self):
         """OAuth token works when user has org membership"""
         response = self._do_request()
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_token_fails_after_user_leaves_organization(self):
         """OAuth token stops working when user leaves the organization"""
@@ -1030,14 +1030,14 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
 
         # First verify token works
         response = self._do_request()
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Remove user from organization
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
 
         # Verify token no longer works (membership check fails)
         response = self._do_request()
-        self.assertEqual(response.status_code, 403)  # Forbidden - user no longer has org membership
+        assert response.status_code == 403  # Forbidden - user no longer has org membership
 
     def test_team_scoped_token_fails_when_user_not_in_team_org(self):
         """OAuth token scoped to a team requires user to be in that team's organization"""
@@ -1062,7 +1062,7 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
             f"/api/projects/{other_team.id}/feature_flags/",
             headers={"authorization": f"Bearer {other_team_token.token}"},
         )
-        self.assertEqual(response.status_code, 403)  # Forbidden - user not in org
+        assert response.status_code == 403  # Forbidden - user not in org
 
 
 class TestPostHogFeatureFlagPermission(BaseTest):
@@ -1093,21 +1093,15 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
         mock_ff.assert_called_once()
-        self.assertEqual(mock_ff.call_args[0][0], "my-flag")
+        assert mock_ff.call_args[0][0] == "my-flag"
         kwargs = mock_ff.call_args[1]
-        self.assertEqual(
-            kwargs["groups"],
-            {"organization": str(self.organization.id), "project": str(self.team.id)},
-        )
-        self.assertEqual(
-            kwargs["group_properties"],
-            {
-                "organization": {"id": str(self.organization.id)},
-                "project": {"id": str(self.team.id)},
-            },
-        )
+        assert kwargs["groups"] == {"organization": str(self.organization.id), "project": str(self.team.id)}
+        assert kwargs["group_properties"] == {
+            "organization": {"id": str(self.organization.id)},
+            "project": {"id": str(self.team.id)},
+        }
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_feature_flag_evaluation_passes_organization_only_when_view_has_no_team(self, mock_ff):
@@ -1120,10 +1114,10 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         request = self._create_mock_request()
         view = OrgOnlyView()
 
-        self.assertTrue(self.permission.has_permission(request, view))
+        assert self.permission.has_permission(request, view)
         kwargs = mock_ff.call_args[1]
-        self.assertEqual(kwargs["groups"], {"organization": str(self.organization.id)})
-        self.assertEqual(kwargs["group_properties"], {"organization": {"id": str(self.organization.id)}})
+        assert kwargs["groups"] == {"organization": str(self.organization.id)}
+        assert kwargs["group_properties"] == {"organization": {"id": str(self.organization.id)}}
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_denies_when_flag_disabled(self, mock_ff):
@@ -1132,7 +1126,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertFalse(result)
+        assert not result
 
     @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"my-flag"}))
     @patch("posthoganalytics.feature_enabled")
@@ -1142,7 +1136,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
         mock_ff.assert_not_called()
 
     @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"flag-a", "flag-b", "flag-c"}))
@@ -1153,7 +1147,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertTrue(result)
+        assert result
         mock_ff.assert_not_called()
 
     @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"other-flag"}))
@@ -1164,5 +1158,5 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         result = self.permission.has_permission(request, view)
 
-        self.assertFalse(result)
+        assert not result
         mock_ff.assert_called_once()

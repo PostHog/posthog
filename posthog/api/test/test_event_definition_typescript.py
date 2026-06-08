@@ -108,7 +108,7 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
     def _generate_typescript(self) -> str:
         """Generate TypeScript definitions by calling the actual API endpoint"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         return response.json()["content"]
 
     def _strip_dynamic_timestamp(self, content: str) -> str:
@@ -308,6 +308,6 @@ class TestTypeScriptGeneratorOptionalInTypes(BaseTest):
         schema_map = {"1": [required_prop, optional_in_types_prop]}
         code = generator.generate([event], schema_map)  # type: ignore[arg-type]
 
-        self.assertIn('"always_required": string', code)
-        self.assertNotIn('"always_required"?: string', code)
-        self.assertIn('"super_prop"?: string', code)
+        assert '"always_required": string' in code
+        assert '"always_required"?: string' not in code
+        assert '"super_prop"?: string' in code

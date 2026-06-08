@@ -52,7 +52,7 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Should map product_id from events properties
-        self.assertIn("properties.product_id AS product_id", query_sql)
+        assert "properties.product_id AS product_id" in query_sql
 
     def test_with_custom_product_property(self):
         """Test product query with custom productProperty name."""
@@ -74,7 +74,7 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Should use the custom property name
-        self.assertIn("properties.item_id AS product_id", query_sql)
+        assert "properties.item_id AS product_id" in query_sql
 
     def test_multiple_events_with_different_product_properties(self):
         """Test building product queries for multiple events with different productProperty names."""
@@ -102,9 +102,9 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
         handle = SourceHandle(type="events", team=self.team, event=event_config1)
         query = build(handle)
         purchase_sql = query.query.to_hogql()
-        self.assertIn("properties.item_id AS product_id", purchase_sql)
+        assert "properties.item_id AS product_id" in purchase_sql
 
         handle = SourceHandle(type="events", team=self.team, event=event_config2)
         query = build(handle)
         subscription_sql = query.query.to_hogql()
-        self.assertIn("properties.service_id AS product_id", subscription_sql)
+        assert "properties.service_id AS product_id" in subscription_sql

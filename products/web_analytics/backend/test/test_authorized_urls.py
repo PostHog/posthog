@@ -20,35 +20,35 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
             kind=AuthorizedUrlsCheck.kind,
             status=HealthIssue.Status.ACTIVE,
         )
-        self.assertEqual(issues.count(), 1)
-        self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
+        assert issues.count() == 1
+        assert issues.get().severity == HealthIssue.Severity.WARNING
 
     def test_resolves_active_issue_when_team_has_app_urls(self):
         self.team.app_urls = []
         self.team.save()
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
-        self.assertEqual(
+        assert (
             HealthIssue.objects.filter(
                 team_id=self.team.id, kind=AuthorizedUrlsCheck.kind, status=HealthIssue.Status.ACTIVE
-            ).count(),
-            1,
+            ).count()
+            == 1
         )
 
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
-        self.assertEqual(
+        assert (
             HealthIssue.objects.filter(
                 team_id=self.team.id, kind=AuthorizedUrlsCheck.kind, status=HealthIssue.Status.ACTIVE
-            ).count(),
-            0,
+            ).count()
+            == 0
         )
-        self.assertEqual(
+        assert (
             HealthIssue.objects.filter(
                 team_id=self.team.id, kind=AuthorizedUrlsCheck.kind, status=HealthIssue.Status.RESOLVED
-            ).count(),
-            1,
+            ).count()
+            == 1
         )
 
     def test_idempotent_for_healthy_team(self):
@@ -58,10 +58,7 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
-        self.assertEqual(
-            HealthIssue.objects.filter(team_id=self.team.id, kind=AuthorizedUrlsCheck.kind).count(),
-            0,
-        )
+        assert HealthIssue.objects.filter(team_id=self.team.id, kind=AuthorizedUrlsCheck.kind).count() == 0
 
 
 class TestAuthorizedUrlsSignal(BaseTest):

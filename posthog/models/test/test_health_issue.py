@@ -14,16 +14,16 @@ class TestHealthIssue(BaseTest):
             payload={"sdk_version": "1.0.0", "latest_version": "2.0.0"},
             unique_hash="test_hash",
         )
-        self.assertIsNotNone(issue.id)
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
-        self.assertIsNotNone(issue.created_at)
+        assert issue.id is not None
+        assert issue.status == HealthIssue.Status.ACTIVE
+        assert issue.created_at is not None
 
     def test_compute_unique_hash_deterministic(self):
         payload = {"key": "value", "number": 42}
         hash1 = HealthIssue.compute_unique_hash("test_kind", payload)
         hash2 = HealthIssue.compute_unique_hash("test_kind", payload)
-        self.assertEqual(hash1, hash2)
-        self.assertEqual(len(hash1), 64)
+        assert hash1 == hash2
+        assert len(hash1) == 64
 
     def test_compute_unique_hash_with_hash_keys(self):
         payload = {"important": "value", "transient": "ignored"}
@@ -31,13 +31,13 @@ class TestHealthIssue(BaseTest):
         hash2 = HealthIssue.compute_unique_hash(
             "test", {"important": "value", "transient": "different"}, hash_keys=["important"]
         )
-        self.assertEqual(hash1, hash2)
+        assert hash1 == hash2
 
     def test_compute_unique_hash_with_hash_keys_order_independent(self):
         payload = {"a": "1", "b": "2", "c": "3"}
         hash1 = HealthIssue.compute_unique_hash("test", payload, hash_keys=["b", "a"])
         hash2 = HealthIssue.compute_unique_hash("test", payload, hash_keys=["a", "b"])
-        self.assertEqual(hash1, hash2)
+        assert hash1 == hash2
 
     def test_upsert_creates_new_issue(self):
         issue, created = HealthIssue.upsert_issue(
@@ -46,9 +46,9 @@ class TestHealthIssue(BaseTest):
             severity="warning",
             payload={"detail": "test"},
         )
-        self.assertTrue(created)
-        self.assertEqual(issue.kind, "test_issue")
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
+        assert created
+        assert issue.kind == "test_issue"
+        assert issue.status == HealthIssue.Status.ACTIVE
 
     def test_upsert_updates_existing_active_issue(self):
         issue1, created1 = HealthIssue.upsert_issue(
@@ -63,11 +63,11 @@ class TestHealthIssue(BaseTest):
             severity="critical",
             payload={"detail": "test"},
         )
-        self.assertTrue(created1)
-        self.assertFalse(created2)
-        self.assertEqual(issue1.id, issue2.id)
+        assert created1
+        assert not created2
+        assert issue1.id == issue2.id
         issue2.refresh_from_db()
-        self.assertEqual(issue2.severity, "critical")
+        assert issue2.severity == "critical"
 
     def test_partial_unique_constraint_allows_resolved_duplicates(self):
         issue1 = HealthIssue.objects.create(
@@ -86,7 +86,7 @@ class TestHealthIssue(BaseTest):
             unique_hash="same_hash",
             status=HealthIssue.Status.ACTIVE,
         )
-        self.assertNotEqual(issue1.id, issue2.id)
+        assert issue1.id != issue2.id
 
     def test_partial_unique_constraint_blocks_active_duplicates(self):
         HealthIssue.objects.create(
@@ -117,7 +117,7 @@ class TestHealthIssue(BaseTest):
         )
         issue.resolve()
         issue.refresh_from_db()
-        self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+        assert issue.status == HealthIssue.Status.RESOLVED
 
     def test_resolve_already_resolved_raises(self):
         issue = HealthIssue.objects.create(
@@ -141,7 +141,7 @@ class TestHealthIssue(BaseTest):
         )
         issue.resolve()
         issue.refresh_from_db()
-        self.assertIsNotNone(issue.resolved_at)
+        assert issue.resolved_at is not None
 
     def _bulk_payload(self, unique_hash: str, severity: str = "warning") -> dict:
         return {
@@ -153,52 +153,52 @@ class TestHealthIssue(BaseTest):
 
     def test_bulk_upsert_returns_newly_created_issues(self):
         created = HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a"), self._bulk_payload("b")])
-        self.assertEqual({i.unique_hash for i in created}, {"a", "b"})
-        self.assertTrue(all(i.status == HealthIssue.Status.ACTIVE for i in created))
+        assert {i.unique_hash for i in created} == {"a", "b"}
+        assert all(i.status == HealthIssue.Status.ACTIVE for i in created)
 
     def test_bulk_upsert_does_not_return_already_active_issues(self):
         HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a", severity="warning")])
         second_pass = HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a", severity="critical")])
-        self.assertEqual(second_pass, [])
+        assert second_pass == []
 
         existing = HealthIssue.objects.get(team=self.team, kind="test_kind", unique_hash="a")
-        self.assertEqual(existing.severity, "critical")
+        assert existing.severity == "critical"
 
     def test_bulk_upsert_returns_reactivated_issue(self):
         first = HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a")])
-        self.assertEqual(len(first), 1)
+        assert len(first) == 1
         first[0].resolve()
 
         reactivated = HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a")])
-        self.assertEqual(len(reactivated), 1)
-        self.assertEqual(reactivated[0].unique_hash, "a")
-        self.assertEqual(reactivated[0].status, HealthIssue.Status.ACTIVE)
-        self.assertNotEqual(reactivated[0].id, first[0].id)
+        assert len(reactivated) == 1
+        assert reactivated[0].unique_hash == "a"
+        assert reactivated[0].status == HealthIssue.Status.ACTIVE
+        assert reactivated[0].id != first[0].id
 
     def test_bulk_upsert_empty_input_returns_empty_list(self):
-        self.assertEqual(HealthIssue.bulk_upsert("test_kind", []), [])
+        assert HealthIssue.bulk_upsert("test_kind", []) == []
 
     def test_bulk_resolve_returns_transitioned_rows(self):
         created = HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a"), self._bulk_payload("b")])
-        self.assertEqual(len(created), 2)
+        assert len(created) == 2
 
         resolved = HealthIssue.bulk_resolve("test_kind", {self.team.id})
-        self.assertEqual({i.unique_hash for i in resolved}, {"a", "b"})
-        self.assertTrue(all(i.status == HealthIssue.Status.RESOLVED for i in resolved))
-        self.assertTrue(all(i.resolved_at is not None for i in resolved))
+        assert {i.unique_hash for i in resolved} == {"a", "b"}
+        assert all(i.status == HealthIssue.Status.RESOLVED for i in resolved)
+        assert all(i.resolved_at is not None for i in resolved)
 
     def test_bulk_resolve_with_keep_hashes_skips_active(self):
         HealthIssue.bulk_upsert("test_kind", [self._bulk_payload("a"), self._bulk_payload("b")])
         resolved = HealthIssue.bulk_resolve("test_kind", {self.team.id}, keep_hashes={self.team.id: {"a"}})
-        self.assertEqual({i.unique_hash for i in resolved}, {"b"})
-        self.assertTrue(HealthIssue.objects.filter(unique_hash="a", status=HealthIssue.Status.ACTIVE).exists())
+        assert {i.unique_hash for i in resolved} == {"b"}
+        assert HealthIssue.objects.filter(unique_hash="a", status=HealthIssue.Status.ACTIVE).exists()
 
     def test_bulk_resolve_empty_team_ids_returns_empty_list(self):
-        self.assertEqual(HealthIssue.bulk_resolve("test_kind", set()), [])
+        assert HealthIssue.bulk_resolve("test_kind", set()) == []
 
     def test_bulk_resolve_no_active_issues_returns_empty_list(self):
         resolved = HealthIssue.bulk_resolve("test_kind", {self.team.id})
-        self.assertEqual(resolved, [])
+        assert resolved == []
 
     def test_bulk_upsert_skips_deleted_team_and_persists_remaining(self):
         # Reproduces the FK violation that previously rolled back the entire
@@ -217,9 +217,9 @@ class TestHealthIssue(BaseTest):
                 },
             ],
         )
-        self.assertEqual({i.unique_hash for i in result}, {"good"})
-        self.assertTrue(HealthIssue.objects.filter(team=self.team, kind="test_kind", unique_hash="good").exists())
-        self.assertFalse(HealthIssue.objects.filter(unique_hash="orphan").exists())
+        assert {i.unique_hash for i in result} == {"good"}
+        assert HealthIssue.objects.filter(team=self.team, kind="test_kind", unique_hash="good").exists()
+        assert not HealthIssue.objects.filter(unique_hash="orphan").exists()
 
     def test_bulk_upsert_all_teams_missing_returns_empty(self):
         missing_team_id = self.team.id + 999_999
@@ -234,5 +234,5 @@ class TestHealthIssue(BaseTest):
                 }
             ],
         )
-        self.assertEqual(result, [])
-        self.assertFalse(HealthIssue.objects.filter(unique_hash="orphan").exists())
+        assert result == []
+        assert not HealthIssue.objects.filter(unique_hash="orphan").exists()

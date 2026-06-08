@@ -1,6 +1,7 @@
 import json
 import uuid
 import dataclasses
+from collections import Counter
 from datetime import datetime
 from typing import Any, Optional, Union, cast
 from zoneinfo import ZoneInfo
@@ -366,11 +367,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["label"], "sign up")
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 3.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 1.0)
+        assert response[0]["label"] == "sign up"
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 3.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 1.0
 
     # just make sure this doesn't error
     def test_no_props_string(self):
@@ -532,8 +533,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"][1], 1.0)
-        self.assertEqual(response[0]["labels"][1], "2-Jan-2020")
+        assert response[0]["data"][1] == 1.0
+        assert response[0]["labels"][1] == "2-Jan-2020"
 
     @snapshot_clickhouse_queries
     def test_trends_per_day_cumulative(self):
@@ -551,11 +552,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up")
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 3.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 4.0)
+        assert response[0]["label"] == "sign up"
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 3.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 4.0
 
     @snapshot_clickhouse_queries
     def test_trends_per_day_dau_cumulative(self):
@@ -586,13 +587,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up")
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 1.0)
-        self.assertEqual(response[0]["labels"][6], "3-Jan-2020")
-        self.assertEqual(response[0]["data"][6], 2.0)
+        assert response[0]["label"] == "sign up"
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 1.0
+        assert response[0]["labels"][6] == "3-Jan-2020"
+        assert response[0]["data"][6] == 2.0
 
     @snapshot_clickhouse_queries
     def test_trends_groups_per_day(self):
@@ -622,9 +623,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "viewed video")
-        self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 0, 0, 1, 2, 0])
+        assert response[0]["label"] == "viewed video"
+        assert response[0]["labels"][-1] == "6-Jan-2020"
+        assert response[0]["data"] == [0.0, 0.0, 1.0, 0, 0, 1, 2, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_groups_per_day_cumulative(self):
@@ -654,9 +655,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "viewed video")
-        self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
+        assert response[0]["label"] == "viewed video"
+        assert response[0]["labels"][-1] == "6-Jan-2020"
+        assert response[0]["data"] == [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -676,17 +677,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "value")
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+        assert response[0]["label"] == "value"
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
 
-        self.assertEqual(response[1]["label"], "other_value")
-        self.assertEqual(response[1]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+        assert response[1]["label"] == "other_value"
+        assert response[1]["labels"][4] == "1-Jan-2020"
+        assert response[1]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
 
-        self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
-        self.assertEqual(response[2]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+        assert response[2]["label"] == "$$_posthog_breakdown_null_$$"
+        assert response[2]["labels"][4] == "1-Jan-2020"
+        assert response[2]["data"] == [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
 
     @snapshot_clickhouse_queries
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
@@ -740,11 +741,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(daily_response[0]["aggregated_value"], 1)
-        self.assertEqual(
-            daily_response[0]["aggregated_value"],
-            weekly_response[0]["aggregated_value"],
-        )
+        assert daily_response[0]["aggregated_value"] == 1
+        assert daily_response[0]["aggregated_value"] == weekly_response[0]["aggregated_value"]
 
     @also_test_with_materialized_columns(["$math_prop"])
     def test_trends_single_aggregate_math(self):
@@ -837,11 +835,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
-        self.assertEqual(
-            daily_response[0]["aggregated_value"],
-            weekly_response[0]["aggregated_value"],
-        )
+        assert daily_response[0]["aggregated_value"] == 2.0
+        assert daily_response[0]["aggregated_value"] == weekly_response[0]["aggregated_value"]
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_single_aggregate_math(self):
@@ -961,11 +956,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(daily_response[0]["aggregated_value"], 7.5)
-        self.assertEqual(
-            daily_response[0]["aggregated_value"],
-            weekly_response[0]["aggregated_value"],
-        )
+        assert daily_response[0]["aggregated_value"] == 7.5
+        assert daily_response[0]["aggregated_value"] == weekly_response[0]["aggregated_value"]
 
     def test_unique_session_with_session_breakdown(self):
         s1 = str(uuid7("2020-01-01", 1))
@@ -1065,10 +1057,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-            self.assertEqual(
-                [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-                [("[10,15.01]", 2.0, [1, 1, 0, 0]), ("[0,5]", 1.0, [1, 0, 0, 0]), ("[5,10]", 1.0, [1, 0, 0, 0])],
-            )
+            assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+                ("[10,15.01]", 2.0, [1, 1, 0, 0]),
+                ("[0,5]", 1.0, [1, 0, 0, 0]),
+                ("[5,10]", 1.0, [1, 0, 0, 0]),
+            ]
 
     @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
@@ -1152,13 +1145,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         for result in event_response:
             if result["label"] == "sign up - cohort1":
-                self.assertEqual(result["aggregated_value"], 2)
+                assert result["aggregated_value"] == 2
             elif result["label"] == "sign up - cohort2":
-                self.assertEqual(result["aggregated_value"], 2)
+                assert result["aggregated_value"] == 2
             elif result["label"] == "sign up - cohort3":
-                self.assertEqual(result["aggregated_value"], 3)
+                assert result["aggregated_value"] == 3
             else:
-                self.assertEqual(result["aggregated_value"], 7)
+                assert result["aggregated_value"] == 7
 
     def test_trends_breakdown_single_aggregate(self):
         self._create_person(
@@ -1227,9 +1220,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         for result in daily_response:
             if result["breakdown_value"] == "Chrome":
-                self.assertEqual(result["aggregated_value"], 2)
+                assert result["aggregated_value"] == 2
             else:
-                self.assertEqual(result["aggregated_value"], 5)
+                assert result["aggregated_value"] == 5
 
     def test_trends_multiple_breakdowns_single_aggregate(self):
         self._create_person(
@@ -1300,16 +1293,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         for result in response:
-            self.assertIsInstance(result["breakdown_value"], list)
+            assert isinstance(result["breakdown_value"], list)
 
-        self.assertEqual(response[0]["breakdown_value"], ["Safari", "2"])
-        self.assertEqual(response[1]["breakdown_value"], ["Safari", "1"])
-        self.assertEqual(response[2]["breakdown_value"], ["Chrome", "1"])
-        self.assertEqual(response[3]["breakdown_value"], ["Chrome", "2"])
-        self.assertEqual(response[0]["aggregated_value"], 3)
-        self.assertEqual(response[1]["aggregated_value"], 2)
-        self.assertEqual(response[2]["aggregated_value"], 1)
-        self.assertEqual(response[3]["aggregated_value"], 1)
+        assert response[0]["breakdown_value"] == ["Safari", "2"]
+        assert response[1]["breakdown_value"] == ["Safari", "1"]
+        assert response[2]["breakdown_value"] == ["Chrome", "1"]
+        assert response[3]["breakdown_value"] == ["Chrome", "2"]
+        assert response[0]["aggregated_value"] == 3
+        assert response[1]["aggregated_value"] == 2
+        assert response[2]["aggregated_value"] == 1
+        assert response[3]["aggregated_value"] == 1
 
     def test_trends_breakdown_single_aggregate_with_zero_person_ids(self):
         # only a person-on-event test
@@ -1417,9 +1410,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         for result in daily_response:
             if result["breakdown_value"] == "Chrome":
-                self.assertEqual(result["aggregated_value"], 2)
+                assert result["aggregated_value"] == 2
             else:
-                self.assertEqual(result["aggregated_value"], 5)
+                assert result["aggregated_value"] == 5
 
         # multiple
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -1437,9 +1430,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         for result in daily_response:
             if result["breakdown_value"] == "Chrome":
-                self.assertEqual(result["aggregated_value"], 2)
+                assert result["aggregated_value"] == 2
             else:
-                self.assertEqual(result["aggregated_value"], 5)
+                assert result["aggregated_value"] == 5
 
     def test_trends_breakdown_single_aggregate_math(self):
         self._create_person(
@@ -1538,11 +1531,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
-            self.assertEqual(
-                daily_response[0]["aggregated_value"],
-                weekly_response[0]["aggregated_value"],
-            )
+            assert daily_response[0]["aggregated_value"] == 2.0
+            assert daily_response[0]["aggregated_value"] == weekly_response[0]["aggregated_value"]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
@@ -1662,11 +1652,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # value1 has: 5 seconds, 10 seconds, 15 seconds
         # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
         # empty has: 1 seconds
-        self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response],
-            ["value2", "value1", "$$_posthog_breakdown_null_$$"],
-        )
-        self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
+        assert [resp["breakdown_value"] for resp in daily_response] == [
+            "value2",
+            "value1",
+            "$$_posthog_breakdown_null_$$",
+        ]
+        assert [resp["aggregated_value"] for resp in daily_response] == [12.5, 10, 1]
 
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = self._run(
@@ -1688,14 +1679,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response],
-            [resp["breakdown_value"] for resp in weekly_response],
-        )
-        self.assertEqual(
-            [resp["aggregated_value"] for resp in daily_response],
-            [resp["aggregated_value"] for resp in weekly_response],
-        )
+        assert [resp["breakdown_value"] for resp in daily_response] == [
+            resp["breakdown_value"] for resp in weekly_response
+        ]
+        assert [resp["aggregated_value"] for resp in daily_response] == [
+            resp["aggregated_value"] for resp in weekly_response
+        ]
 
         # multiple breakdowns
         with freeze_time("2020-01-04T13:00:33Z"):
@@ -1721,11 +1710,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # value1 has: 5 seconds, 10 seconds, 15 seconds
         # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
         # empty has: 1 seconds
-        self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response],
-            [["value2"], ["value1"], ["$$_posthog_breakdown_null_$$"]],
-        )
-        self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
+        assert [resp["breakdown_value"] for resp in daily_response] == [
+            ["value2"],
+            ["value1"],
+            ["$$_posthog_breakdown_null_$$"],
+        ]
+        assert [resp["aggregated_value"] for resp in daily_response] == [12.5, 10, 1]
 
         with freeze_time("2020-01-04T13:00:01Z"):
             weekly_response = self._run(
@@ -1747,14 +1737,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(
-            [resp["breakdown_value"] for resp in daily_response],
-            [resp["breakdown_value"] for resp in weekly_response],
-        )
-        self.assertEqual(
-            [resp["aggregated_value"] for resp in daily_response],
-            [resp["aggregated_value"] for resp in weekly_response],
-        )
+        assert [resp["breakdown_value"] for resp in daily_response] == [
+            resp["breakdown_value"] for resp in weekly_response
+        ]
+        assert [resp["aggregated_value"] for resp in daily_response] == [
+            resp["aggregated_value"] for resp in weekly_response
+        ]
 
     @snapshot_clickhouse_queries
     def test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
@@ -1873,11 +1861,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # another_val has: 10 seconds
         # some_val has: 1, 5 seconds, 15 seconds
-        self.assertEqual(
-            sorted([resp["breakdown_value"] for resp in daily_response]),
-            ["another_val", "some_val"],
-        )
-        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
+        assert sorted([resp["breakdown_value"] for resp in daily_response]) == ["another_val", "some_val"]
+        assert sorted([resp["aggregated_value"] for resp in daily_response]) == [5.0, 10.0]
 
         with freeze_time("2020-01-04T13:00:01Z"):
             daily_response = self._run(
@@ -1901,11 +1886,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         # another_val has: 10 seconds
         # some_val has: 1, 5 seconds, 15 seconds
-        self.assertEqual(
-            sorted([resp["breakdown_value"] for resp in daily_response]),
-            [["another_val"], ["some_val"]],
-        )
-        self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
+        assert sorted([resp["breakdown_value"] for resp in daily_response]) == [["another_val"], ["some_val"]]
+        assert sorted([resp["aggregated_value"] for resp in daily_response]) == [5.0, 10.0]
 
     @snapshot_clickhouse_queries
     def test_trends_any_event_total_count(self):
@@ -1933,8 +1915,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response1[0]["count"], 5)
-        self.assertEqual(response2[0]["count"], 4)
+        assert response1[0]["count"] == 5
+        assert response2[0]["count"] == 4
 
     @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
@@ -1984,7 +1966,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         breakdown_vals = [val["breakdown_value"] for val in daily_response]
-        self.assertTrue("value_21" in breakdown_vals)
+        assert "value_21" in breakdown_vals
 
         # multiple breakdown
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -2008,7 +1990,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         breakdown_vals = [val["breakdown_value"] for val in daily_response]
-        self.assertTrue(["value_21"] in breakdown_vals)
+        assert ["value_21"] in breakdown_vals
 
     @snapshot_clickhouse_queries
     def test_trends_compare_day_interval_relative_range(self):
@@ -2026,43 +2008,37 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up")
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 3.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 1.0)
-        self.assertEqual(
-            response[0]["days"],
-            [
-                "2019-12-28",  # -7d, current period
-                "2019-12-29",  # -6d, current period
-                "2019-12-30",  # -5d, current period
-                "2019-12-31",  # -4d, current period
-                "2020-01-01",  # -3d, current period
-                "2020-01-02",  # -2d, current period
-                "2020-01-03",  # -1d, current period
-                "2020-01-04",  # -0d, current period (this one's ongoing!)
-            ],
-        )
+        assert response[0]["label"] == "sign up"
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 3.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 1.0
+        assert response[0]["days"] == [
+            "2019-12-28",  # -7d, current period
+            "2019-12-29",  # -6d, current period
+            "2019-12-30",  # -5d, current period
+            "2019-12-31",  # -4d, current period
+            "2020-01-01",  # -3d, current period
+            "2020-01-02",  # -2d, current period
+            "2020-01-03",  # -1d, current period
+            "2020-01-04",  # -0d, current period (this one's ongoing!)
+        ]
 
-        self.assertEqual(
-            response[1]["days"],
-            [
-                "2019-12-21",  # -7d, previous period
-                "2019-12-22",  # -6d, previous period
-                "2019-12-23",  # -5d, previous period
-                "2019-12-24",  # -4d, previous period
-                "2019-12-25",  # -3d, previous period
-                "2019-12-26",  # -2d, previous period
-                "2019-12-27",  # -1d, previous period
-                "2019-12-28",  # duplicated to make weekdays align between current and previous
-            ],
-        )
-        self.assertEqual(response[1]["label"], "sign up")
-        self.assertEqual(response[1]["labels"][3], "24-Dec-2019")
-        self.assertEqual(response[1]["data"][3], 1.0)
-        self.assertEqual(response[1]["labels"][4], "25-Dec-2019")
-        self.assertEqual(response[1]["data"][4], 0.0)
+        assert response[1]["days"] == [
+            "2019-12-21",  # -7d, previous period
+            "2019-12-22",  # -6d, previous period
+            "2019-12-23",  # -5d, previous period
+            "2019-12-24",  # -4d, previous period
+            "2019-12-25",  # -3d, previous period
+            "2019-12-26",  # -2d, previous period
+            "2019-12-27",  # -1d, previous period
+            "2019-12-28",  # duplicated to make weekdays align between current and previous
+        ]
+        assert response[1]["label"] == "sign up"
+        assert response[1]["labels"][3] == "24-Dec-2019"
+        assert response[1]["data"][3] == 1.0
+        assert response[1]["labels"][4] == "25-Dec-2019"
+        assert response[1]["data"][4] == 0.0
 
         with freeze_time("2020-01-04T13:00:01Z"):
             no_compare_response = self._run(
@@ -2073,11 +2049,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(no_compare_response[0]["label"], "sign up")
-        self.assertEqual(no_compare_response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(no_compare_response[0]["data"][4], 3.0)
-        self.assertEqual(no_compare_response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(no_compare_response[0]["data"][5], 1.0)
+        assert no_compare_response[0]["label"] == "sign up"
+        assert no_compare_response[0]["labels"][4] == "1-Jan-2020"
+        assert no_compare_response[0]["data"][4] == 3.0
+        assert no_compare_response[0]["labels"][5] == "2-Jan-2020"
+        assert no_compare_response[0]["data"][5] == 1.0
 
     def test_trends_compare_day_interval_fixed_range_single(self):
         self._create_events(use_time=True)
@@ -2096,28 +2072,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(
-            response[0]["days"],
-            [
-                "2020-01-02",  # Current day
-            ],
-        )
-        self.assertEqual(
-            response[0]["data"],
-            [1],
-        )
-        self.assertEqual(
-            response[1]["days"],
-            [
-                "2020-01-01",  # Previous day
-            ],
-        )
-        self.assertEqual(
-            response[1]["data"],
-            [
-                3,
-            ],
-        )
+        assert response[0]["days"] == [
+            "2020-01-02",  # Current day
+        ]
+        assert response[0]["data"] == [1]
+        assert response[1]["days"] == [
+            "2020-01-01",  # Previous day
+        ]
+        assert response[1]["data"] == [3]
 
     def test_trends_compare_hour_interval_relative_range(self):
         self._create_events(use_time=True)
@@ -2135,110 +2097,98 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(
-            response[0]["days"],
-            [
-                "2020-01-02 00:00:00",
-                "2020-01-02 01:00:00",
-                "2020-01-02 02:00:00",
-                "2020-01-02 03:00:00",
-                "2020-01-02 04:00:00",
-                "2020-01-02 05:00:00",
-                "2020-01-02 06:00:00",
-                "2020-01-02 07:00:00",
-                "2020-01-02 08:00:00",
-                "2020-01-02 09:00:00",
-                "2020-01-02 10:00:00",
-                "2020-01-02 11:00:00",
-                "2020-01-02 12:00:00",
-                "2020-01-02 13:00:00",
-                "2020-01-02 14:00:00",
-                "2020-01-02 15:00:00",
-                "2020-01-02 16:00:00",
-                "2020-01-02 17:00:00",
-                "2020-01-02 18:00:00",
-                "2020-01-02 19:00:00",
-                "2020-01-02 20:00:00",
-            ],
-        )
-        self.assertEqual(
-            response[0]["data"],
-            [
-                0,  # 00:00
-                0,  # 01:00
-                0,  # 02:00
-                0,  # 03:00
-                0,  # 04:00
-                0,  # 05:00
-                0,  # 06:00
-                0,  # 07:00
-                0,  # 08:00
-                0,  # 09:00
-                0,  # 10:00
-                0,  # 11:00
-                0,  # 12:00
-                0,  # 13:00
-                0,  # 14:00
-                0,  # 15:00
-                1,  # 16:00
-                0,  # 17:00
-                0,  # 18:00
-                0,  # 19:00
-                0,  # 20:00
-            ],
-        )
-        self.assertEqual(
-            response[1]["days"],
-            [
-                "2020-01-01 00:00:00",
-                "2020-01-01 01:00:00",
-                "2020-01-01 02:00:00",
-                "2020-01-01 03:00:00",
-                "2020-01-01 04:00:00",
-                "2020-01-01 05:00:00",
-                "2020-01-01 06:00:00",
-                "2020-01-01 07:00:00",
-                "2020-01-01 08:00:00",
-                "2020-01-01 09:00:00",
-                "2020-01-01 10:00:00",
-                "2020-01-01 11:00:00",
-                "2020-01-01 12:00:00",
-                "2020-01-01 13:00:00",
-                "2020-01-01 14:00:00",
-                "2020-01-01 15:00:00",
-                "2020-01-01 16:00:00",
-                "2020-01-01 17:00:00",
-                "2020-01-01 18:00:00",
-                "2020-01-01 19:00:00",
-                "2020-01-01 20:00:00",
-            ],
-        )
-        self.assertEqual(
-            response[1]["data"],
-            [
-                3,  # 00:00
-                0,  # 01:00
-                0,  # 02:00
-                0,  # 03:00
-                0,  # 04:00
-                0,  # 05:00
-                0,  # 06:00
-                0,  # 07:00
-                0,  # 08:00
-                0,  # 09:00
-                0,  # 10:00
-                0,  # 11:00
-                0,  # 12:00
-                0,  # 13:00
-                0,  # 14:00
-                0,  # 15:00
-                0,  # 16:00
-                0,  # 17:00
-                0,  # 18:00
-                0,  # 19:00
-                0,  # 20:00
-            ],
-        )
+        assert response[0]["days"] == [
+            "2020-01-02 00:00:00",
+            "2020-01-02 01:00:00",
+            "2020-01-02 02:00:00",
+            "2020-01-02 03:00:00",
+            "2020-01-02 04:00:00",
+            "2020-01-02 05:00:00",
+            "2020-01-02 06:00:00",
+            "2020-01-02 07:00:00",
+            "2020-01-02 08:00:00",
+            "2020-01-02 09:00:00",
+            "2020-01-02 10:00:00",
+            "2020-01-02 11:00:00",
+            "2020-01-02 12:00:00",
+            "2020-01-02 13:00:00",
+            "2020-01-02 14:00:00",
+            "2020-01-02 15:00:00",
+            "2020-01-02 16:00:00",
+            "2020-01-02 17:00:00",
+            "2020-01-02 18:00:00",
+            "2020-01-02 19:00:00",
+            "2020-01-02 20:00:00",
+        ]
+        assert response[0]["data"] == [
+            0,  # 00:00
+            0,  # 01:00
+            0,  # 02:00
+            0,  # 03:00
+            0,  # 04:00
+            0,  # 05:00
+            0,  # 06:00
+            0,  # 07:00
+            0,  # 08:00
+            0,  # 09:00
+            0,  # 10:00
+            0,  # 11:00
+            0,  # 12:00
+            0,  # 13:00
+            0,  # 14:00
+            0,  # 15:00
+            1,  # 16:00
+            0,  # 17:00
+            0,  # 18:00
+            0,  # 19:00
+            0,  # 20:00
+        ]
+        assert response[1]["days"] == [
+            "2020-01-01 00:00:00",
+            "2020-01-01 01:00:00",
+            "2020-01-01 02:00:00",
+            "2020-01-01 03:00:00",
+            "2020-01-01 04:00:00",
+            "2020-01-01 05:00:00",
+            "2020-01-01 06:00:00",
+            "2020-01-01 07:00:00",
+            "2020-01-01 08:00:00",
+            "2020-01-01 09:00:00",
+            "2020-01-01 10:00:00",
+            "2020-01-01 11:00:00",
+            "2020-01-01 12:00:00",
+            "2020-01-01 13:00:00",
+            "2020-01-01 14:00:00",
+            "2020-01-01 15:00:00",
+            "2020-01-01 16:00:00",
+            "2020-01-01 17:00:00",
+            "2020-01-01 18:00:00",
+            "2020-01-01 19:00:00",
+            "2020-01-01 20:00:00",
+        ]
+        assert response[1]["data"] == [
+            3,  # 00:00
+            0,  # 01:00
+            0,  # 02:00
+            0,  # 03:00
+            0,  # 04:00
+            0,  # 05:00
+            0,  # 06:00
+            0,  # 07:00
+            0,  # 08:00
+            0,  # 09:00
+            0,  # 10:00
+            0,  # 11:00
+            0,  # 12:00
+            0,  # 13:00
+            0,  # 14:00
+            0,  # 15:00
+            0,  # 16:00
+            0,  # 17:00
+            0,  # 18:00
+            0,  # 19:00
+            0,  # 20:00
+        ]
 
     def _test_events_with_dates(self, dates: list[str], result, query_time=None, **filter_params):
         self._create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
@@ -2269,10 +2219,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(result[0]["count"], response[0]["count"])
-        self.assertEqual(result[0]["labels"], response[0]["labels"])
-        self.assertEqual(result[0]["data"], response[0]["data"])
-        self.assertEqual(result[0]["days"], response[0]["days"])
+        assert result[0]["count"] == response[0]["count"]
+        assert result[0]["labels"] == response[0]["labels"]
+        assert result[0]["data"] == response[0]["data"]
+        assert result[0]["days"] == response[0]["days"]
 
         return response
 
@@ -2975,10 +2925,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 0)
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 0
 
     @snapshot_clickhouse_queries
     def test_trends_with_hogql_math(self):
@@ -3021,8 +2971,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertCountEqual(response[0]["labels"], ["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"])
-        self.assertCountEqual(response[0]["data"], [0, 1003])
+        assert Counter(response[0]["labels"]) == Counter(["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"])
+        assert Counter(response[0]["data"]) == Counter([0, 1003])
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_total_volume_math(self):
@@ -3157,11 +3107,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertCountEqual(weekly_response[0]["labels"], ["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"])
-        self.assertCountEqual(weekly_response[0]["data"], [0, 5])
+        assert Counter(weekly_response[0]["labels"]) == Counter(["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"])
+        assert Counter(weekly_response[0]["data"]) == Counter([0, 5])
 
-        self.assertCountEqual(
-            daily_response[0]["labels"],
+        assert Counter(daily_response[0]["labels"]) == Counter(
             [
                 "28-Dec-2019",
                 "29-Dec-2019",
@@ -3171,9 +3120,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2-Jan-2020",
                 "3-Jan-2020",
                 "4-Jan-2020",
-            ],
+            ]
         )
-        self.assertCountEqual(daily_response[0]["data"], [0, 0, 0, 0, 5, 10, 0, 0])
+        assert Counter(daily_response[0]["data"]) == Counter([0, 0, 0, 0, 5, 10, 0, 0])
 
     @snapshot_clickhouse_queries
     def test_trends_with_session_property_total_volume_math_with_breakdowns(self):
@@ -3320,31 +3269,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             # value1 has 0,5,10 seconds (in second interval)
             # value2 has 5,10,15 seconds (in second interval)
             if breakdown_type == "multiple":
-                self.assertEqual(
-                    [resp["breakdown_value"] for resp in weekly_response], [["value2"], ["value1"]], breakdown_type
-                )
+                assert [resp["breakdown_value"] for resp in weekly_response] == [["value2"], ["value1"]], breakdown_type
             else:
-                self.assertEqual(
-                    [resp["breakdown_value"] for resp in weekly_response], ["value2", "value1"], breakdown_type
-                )
+                assert [resp["breakdown_value"] for resp in weekly_response] == ["value2", "value1"], breakdown_type
 
-            self.assertCountEqual(
-                weekly_response[0]["labels"], ["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"], breakdown_type
+            assert Counter(weekly_response[0]["labels"]) == Counter(["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"]), (
+                breakdown_type
             )
-            self.assertCountEqual(weekly_response[0]["data"], [0, 10], breakdown_type)
-            self.assertCountEqual(weekly_response[1]["data"], [0, 5], breakdown_type)
+            assert Counter(weekly_response[0]["data"]) == Counter([0, 10]), breakdown_type
+            assert Counter(weekly_response[1]["data"]) == Counter([0, 5]), breakdown_type
 
             if breakdown_type == "multiple":
-                self.assertEqual(
-                    [resp["breakdown_value"] for resp in daily_response], [["value2"], ["value1"]], breakdown_type
-                )
+                assert [resp["breakdown_value"] for resp in daily_response] == [["value2"], ["value1"]], breakdown_type
             else:
-                self.assertEqual(
-                    [resp["breakdown_value"] for resp in daily_response], ["value2", "value1"], breakdown_type
-                )
+                assert [resp["breakdown_value"] for resp in daily_response] == ["value2", "value1"], breakdown_type
 
-            self.assertCountEqual(
-                daily_response[0]["labels"],
+            assert Counter(daily_response[0]["labels"]) == Counter(
                 [
                     "28-Dec-2019",
                     "29-Dec-2019",
@@ -3354,11 +3294,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "2-Jan-2020",
                     "3-Jan-2020",
                     "4-Jan-2020",
-                ],
-                breakdown_type,
-            )
-            self.assertCountEqual(daily_response[0]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0], breakdown_type)
-            self.assertCountEqual(daily_response[1]["data"], [0, 0, 0, 0, 5, 5, 0, 0], breakdown_type)
+                ]
+            ), breakdown_type
+            assert Counter(daily_response[0]["data"]) == Counter([0, 0, 0, 0, 7.5, 15, 0, 0]), breakdown_type
+            assert Counter(daily_response[1]["data"]) == Counter([0, 0, 0, 0, 5, 5, 0, 0]), breakdown_type
 
     def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
         s1 = str(uuid7("2020-01-01", 1))
@@ -3430,8 +3369,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertCountEqual(
-            weekly_response[0]["labels"],
+        assert Counter(weekly_response[0]["labels"]) == Counter(
             [
                 "30-Dec-2019",
                 "31-Dec-2019",
@@ -3441,14 +3379,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "4-Jan-2020",
                 "5-Jan-2020",
                 "6-Jan-2020",
-            ],
+            ]
         )
 
         ONE_DAY_IN_SECONDS = 24 * 60 * 60
         # math property is counted only in the intervals in which the session was active
         # and the event in question happened (i.e. sign up event)
-        self.assertCountEqual(
-            weekly_response[0]["data"],
+        assert Counter(weekly_response[0]["data"]) == Counter(
             [
                 0,
                 0,
@@ -3458,7 +3395,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,
                 4 * ONE_DAY_IN_SECONDS,
                 0,
-            ],
+            ]
         )
 
     @also_test_with_person_on_events_v2
@@ -3503,8 +3440,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["data"][-1], 2)
+        assert response[0]["count"] == 2
+        assert response[0]["data"][-1] == 2
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -3559,8 +3496,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(response[0]["count"], 2)
-            self.assertEqual(response[0]["data"][-1], 2)
+            assert response[0]["count"] == 2
+            assert response[0]["data"][-1] == 2
 
     def test_interval_filtering_hour(self):
         self._create_events(use_time=True)
@@ -3576,10 +3513,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][3], "24-Dec 03:00")
-        self.assertEqual(response[0]["data"][3], 1.0)
+        assert response[0]["labels"][3] == "24-Dec 03:00"
+        assert response[0]["data"][3] == 1.0
         # 217 - 24 - 1
-        self.assertEqual(response[0]["data"][192], 3.0)
+        assert response[0]["data"][192] == 3.0
 
     def test_interval_filtering_week(self):
         self._create_events(use_time=True)
@@ -3597,11 +3534,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(
-            response[0]["labels"][:5],
-            ["24–30 Nov", "1–7 Dec", "8–14 Dec", "15–21 Dec", "22–28 Dec"],
-        )
-        self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
+        assert response[0]["labels"][:5] == ["24–30 Nov", "1–7 Dec", "8–14 Dec", "15–21 Dec", "22–28 Dec"]
+        assert response[0]["data"][:5] == [0.0, 0.0, 0.0, 0.0, 1.0]
 
     def test_interval_filtering_month(self):
         self._create_events(use_time=True)
@@ -3618,12 +3552,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][0], "Sep 2019")
-        self.assertEqual(response[0]["data"][0], 0)
-        self.assertEqual(response[0]["labels"][3], "Dec 2019")
-        self.assertEqual(response[0]["data"][3], 1.0)
-        self.assertEqual(response[0]["labels"][4], "Jan 2020")
-        self.assertEqual(response[0]["data"][4], 4.0)
+        assert response[0]["labels"][0] == "Sep 2019"
+        assert response[0]["data"][0] == 0
+        assert response[0]["labels"][3] == "Dec 2019"
+        assert response[0]["data"][3] == 1.0
+        assert response[0]["labels"][4] == "Jan 2020"
+        assert response[0]["data"][4] == 4.0
 
     def test_interval_filtering_today_hourly(self):
         self._create_events(use_time=True)
@@ -3643,35 +3577,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][23], "2-Jan 23:00")
-        self.assertEqual(response[0]["data"][23], 1.0)
+        assert response[0]["labels"][23] == "2-Jan 23:00"
+        assert response[0]["data"][23] == 1.0
 
     def test_breakdown_label(self):
         entity = Entity({"id": "$pageview", "name": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
         num_label = breakdown_label(entity, 1)
-        self.assertEqual(num_label, {"label": "$pageview - 1", "breakdown_value": 1})
+        assert num_label == {"label": "$pageview - 1", "breakdown_value": 1}
 
         string_label = breakdown_label(entity, "Chrome")
-        self.assertEqual(string_label, {"label": "$pageview - Chrome", "breakdown_value": "Chrome"})
+        assert string_label == {"label": "$pageview - Chrome", "breakdown_value": "Chrome"}
 
         nan_label = breakdown_label(entity, "nan")
-        self.assertEqual(nan_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
+        assert nan_label == {"label": "$pageview - Other", "breakdown_value": "Other"}
 
         none_label = breakdown_label(entity, "None")
-        self.assertEqual(none_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
+        assert none_label == {"label": "$pageview - Other", "breakdown_value": "Other"}
 
         cohort_all_label = breakdown_label(entity, "cohort_all")
-        self.assertEqual(
-            cohort_all_label,
-            {"label": "$pageview - all users", "breakdown_value": "all"},
-        )
+        assert cohort_all_label == {"label": "$pageview - all users", "breakdown_value": "all"}
 
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
         cohort_label = breakdown_label(entity, f"cohort_{cohort.pk}")
-        self.assertEqual(
-            cohort_label,
-            {"label": f"$pageview - {cohort.name}", "breakdown_value": cohort.pk},
-        )
+        assert cohort_label == {"label": f"$pageview - {cohort.name}", "breakdown_value": cohort.pk}
 
     @also_test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
@@ -3716,8 +3644,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["breakdown_value"], "val")
+        assert len(response) == 1
+        assert response[0]["breakdown_value"] == "val"
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
@@ -3726,7 +3654,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         event_response = self._run(Filter(team=self.team, data={"events": [{"id": "sign up"}]}), self.team)
-        self.assertEqual(len(action_response), 1)
+        assert len(action_response) == 1
 
         self.assertEntityResponseEqual(action_response, event_response)
 
@@ -3741,7 +3669,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         event_response = self._run(Filter(team=self.team, data={"events": [{"id": "sign up"}]}), self.team)
-        self.assertEqual(len(action_response), 1)
+        assert len(action_response) == 1
 
         self.assertEntityResponseEqual(action_response, event_response)
 
@@ -3781,9 +3709,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         sign_up_action = _create_action(
-            team=self.team,
-            name="sign up",
-            properties=[{"key": "id", "type": "cohort", "value": cohort.id}],
+            team=self.team, name="sign up", properties=[{"key": "id", "type": "cohort", "value": cohort.id}]
         )
 
         cohort.calculate_people_ch(pending_version=2)
@@ -3801,34 +3727,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(len(action_response), 1)
-            self.assertEqual(action_response[0]["data"], [0, 1, 1, 0, 0, 0, 0])
+            assert len(action_response) == 1
+            assert action_response[0]["data"] == [0, 1, 1, 0, 0, 0, 0]
 
     def test_trends_for_non_existing_action(self):
         with freeze_time("2020-01-04"):
             response = self._run(Filter(data={"actions": [{"id": 50000000}]}), self.team)
-        self.assertEqual(len(response), 0)
+        assert len(response) == 0
 
         with freeze_time("2020-01-04"):
             response = self._run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
-        self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        assert response[0]["data"] == [0, 0, 0, 0, 0, 0, 0, 0]
 
     @also_test_with_materialized_columns(person_properties=["email", "bar"])
     def test_trends_regression_filtering_by_action_with_person_properties(self):
         self._create_person(
-            team_id=self.team.pk,
-            properties={"email": "foo@example.com", "bar": "aa"},
-            distinct_ids=["d1"],
+            team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"]
         )
         self._create_person(
-            team_id=self.team.pk,
-            properties={"email": "bar@example.com", "bar": "bb"},
-            distinct_ids=["d2"],
+            team_id=self.team.pk, properties={"email": "bar@example.com", "bar": "bb"}, distinct_ids=["d2"]
         )
         self._create_person(
-            team_id=self.team.pk,
-            properties={"email": "efg@example.com", "bar": "ab"},
-            distinct_ids=["d3"],
+            team_id=self.team.pk, properties={"email": "efg@example.com", "bar": "ab"}, distinct_ids=["d3"]
         )
         self._create_person(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
 
@@ -3857,8 +3777,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["count"], 3)
+        assert len(response) == 1
+        assert response[0]["count"] == 3
 
         with freeze_time("2020-01-04T13:01:01Z"):
             response_with_email_filter = self._run(
@@ -3878,8 +3798,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(len(response_with_email_filter), 1)
-        self.assertEqual(response_with_email_filter[0]["count"], 2)
+        assert len(response_with_email_filter) == 1
+        assert response_with_email_filter[0]["count"] == 2
 
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
@@ -3898,8 +3818,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             response = self._run(Filter(data={"events": [{"id": "sign up", "math": "dau"}]}), self.team)
 
-        self.assertEqual(response[0]["data"][4], 1)
-        self.assertEqual(response[0]["data"][5], 2)
+        assert response[0]["data"][4] == 1
+        assert response[0]["data"][5] == 2
         self.assertEntityResponseEqual(action_response, response)
 
     def _create_maths_events(self, values):
@@ -3953,7 +3873,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         # :TRICKY: Work around clickhouse functions not being 100%
-        self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
+        assert action_response[0]["data"][-1] == pytest.approx(expected_value, abs=0.5)
         self.assertEntityResponseEqual(action_response, event_response)
 
     @also_test_with_materialized_columns(["some_number"])
@@ -4038,7 +3958,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             Filter(data={"events": [{"id": "sign up", "math": "avg", "math_property": "some_number"}]}),
             self.team,
         )
-        self.assertEqual(action_response[0]["data"][-1], 5)
+        assert action_response[0]["data"][-1] == 5
         self.assertEntityResponseEqual(action_response, event_response)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -4065,12 +3985,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1)
-        self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[1]["data"][5], 1)
-        self.assertEqual(response[1]["count"], 1)
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1
+        assert response[0]["count"] == 1
+        assert response[1]["labels"][5] == "2-Jan-2020"
+        assert response[1]["data"][5] == 1
+        assert response[1]["count"] == 1
 
     def _create_multiple_people(self):
         person1 = self._create_person(
@@ -4175,10 +4095,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 0)
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 0
 
     @also_test_with_materialized_columns(["name"], person_properties=["name"])
     @snapshot_clickhouse_queries
@@ -4198,10 +4118,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 0)
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 0
 
         with freeze_time("2020-01-04"):
             response = self._run(
@@ -4215,10 +4135,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 0)
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 0
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_entity_person_property_filtering(self):
@@ -4244,10 +4164,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
-        self.assertEqual(response[0]["data"][4], 1.0)
-        self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
-        self.assertEqual(response[0]["data"][5], 0)
+        assert response[0]["labels"][4] == "1-Jan-2020"
+        assert response[0]["data"][4] == 1.0
+        assert response[0]["labels"][5] == "2-Jan-2020"
+        assert response[0]["data"][5] == 0
 
     def test_breakdown_by_empty_cohort(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -4272,8 +4192,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(event_response[0]["label"], "all users")
-        self.assertEqual(sum(event_response[0]["data"]), 1)
+        assert event_response[0]["label"] == "all users"
+        assert sum(event_response[0]["data"]) == 1
 
     @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
@@ -4338,15 +4258,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             counts[res["label"]] = sum(res["data"])
             break_val[res["label"]] = res["breakdown_value"]
 
-        self.assertEqual(counts["watched movie - cohort1"], 1)
-        self.assertEqual(counts["watched movie - cohort2"], 3)
-        self.assertEqual(counts["watched movie - cohort3"], 4)
-        self.assertEqual(counts["watched movie - all users"], 7)
+        assert counts["watched movie - cohort1"] == 1
+        assert counts["watched movie - cohort2"] == 3
+        assert counts["watched movie - cohort3"] == 4
+        assert counts["watched movie - all users"] == 7
 
-        self.assertEqual(break_val["watched movie - cohort1"], cohort.pk)
-        self.assertEqual(break_val["watched movie - cohort2"], cohort2.pk)
-        self.assertEqual(break_val["watched movie - cohort3"], cohort3.pk)
-        self.assertEqual(break_val["watched movie - all users"], "all")
+        assert break_val["watched movie - cohort1"] == cohort.pk
+        assert break_val["watched movie - cohort2"] == cohort2.pk
+        assert break_val["watched movie - cohort3"] == cohort3.pk
+        assert break_val["watched movie - all users"] == "all"
 
         self.assertEntityResponseEqual(event_response, action_response)
 
@@ -4385,10 +4305,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "p1")
-        self.assertEqual(response[1]["label"], "p2")
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[1]["count"], 1)
+        assert response[0]["label"] == "p1"
+        assert response[1]["label"] == "p2"
+        assert response[0]["count"] == 2
+        assert response[1]["count"] == 1
 
     @also_test_with_materialized_columns(verify_no_jsonextract=False)
     def test_interval_filtering_breakdown(self):
@@ -4414,10 +4334,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][3], "24-Dec 03:00")
-        self.assertEqual(response[0]["data"][3], 1.0)
+        assert response[0]["labels"][3] == "24-Dec 03:00"
+        assert response[0]["data"][3] == 1.0
         # 217 - 24 - 1
-        self.assertEqual(response[0]["data"][192], 3.0)
+        assert response[0]["data"][192] == 3.0
 
         # test week
         with freeze_time("2020-01-02"):
@@ -4436,11 +4356,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(
-            response[0]["labels"][:5],
-            ["24–30 Nov", "1–7 Dec", "8–14 Dec", "15–21 Dec", "22–28 Dec"],
-        )
-        self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
+        assert response[0]["labels"][:5] == ["24–30 Nov", "1–7 Dec", "8–14 Dec", "15–21 Dec", "22–28 Dec"]
+        assert response[0]["data"][:5] == [0.0, 0.0, 0.0, 0.0, 1.0]
 
         # test month
         with freeze_time("2020-01-02"):
@@ -4457,10 +4374,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][3], "Dec 2019")
-        self.assertEqual(response[0]["data"][3], 1.0)
-        self.assertEqual(response[0]["labels"][4], "Jan 2020")
-        self.assertEqual(response[0]["data"][4], 4.0)
+        assert response[0]["labels"][3] == "Dec 2019"
+        assert response[0]["data"][3] == 1.0
+        assert response[0]["labels"][4] == "Jan 2020"
+        assert response[0]["data"][4] == 4.0
 
         with freeze_time("2020-01-02 23:30"):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
@@ -4480,8 +4397,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][23], "2-Jan 23:00")
-        self.assertEqual(response[0]["data"][23], 1.0)
+        assert response[0]["labels"][23] == "2-Jan 23:00"
+        assert response[0]["data"][23] == 1.0
 
     def test_breakdown_by_person_property(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -4536,30 +4453,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
 
             if breakdown_type == "multiple":
-                self.assertListEqual(
-                    sorted(res["breakdown_value"] for res in event_response),
-                    [["person1"], ["person2"], ["person3"]],
-                )
+                assert sorted(res["breakdown_value"] for res in event_response) == [
+                    ["person1"],
+                    ["person2"],
+                    ["person3"],
+                ]
             else:
-                self.assertListEqual(
-                    sorted(res["breakdown_value"] for res in event_response),
-                    ["person1", "person2", "person3"],
-                )
+                assert sorted(res["breakdown_value"] for res in event_response) == ["person1", "person2", "person3"]
 
             for response in event_response:
                 if breakdown_type == "multiple":
                     if response["breakdown_value"] == ("person1"):
-                        self.assertEqual(response["count"], 1)
-                        self.assertEqual(response["label"], ["person1"])
+                        assert response["count"] == 1
+                        assert response["label"] == ["person1"]
                 else:
                     if response["breakdown_value"] == "person1":
-                        self.assertEqual(response["count"], 1)
-                        self.assertEqual(response["label"], "person1")
+                        assert response["count"] == 1
+                        assert response["label"] == "person1"
 
                 if response["breakdown_value"] == "person2":
-                    self.assertEqual(response["count"], 3)
+                    assert response["count"] == 3
                 if response["breakdown_value"] == "person3":
-                    self.assertEqual(response["count"], 3)
+                    assert response["count"] == 3
 
             self.assertEntityResponseEqual(event_response, action_response)
 
@@ -4647,19 +4562,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertListEqual(
-            sorted(res["breakdown_value"] for res in event_response),
-            ["person1", "person2", "person3"],
-        )
+        assert sorted(res["breakdown_value"] for res in event_response) == ["person1", "person2", "person3"]
 
         for response in event_response:
             if response["breakdown_value"] == "person1":
-                self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "person1")
+                assert response["count"] == 1
+                assert response["label"] == "person1"
             if response["breakdown_value"] == "person2":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
             if response["breakdown_value"] == "person3":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
 
         # multiple breakdowns
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -4687,19 +4599,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertListEqual(
-            sorted(res["breakdown_value"] for res in event_response),
-            [["person1"], ["person2"], ["person3"]],
-        )
+        assert sorted(res["breakdown_value"] for res in event_response) == [["person1"], ["person2"], ["person3"]]
 
         for response in event_response:
             if response["breakdown_value"] == ["person1"]:
-                self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "person1")
+                assert response["count"] == 1
+                assert response["label"] == "person1"
             if response["breakdown_value"] == "person2":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
             if response["breakdown_value"] == "person3":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
 
     def test_breakdown_by_person_property_for_person_on_events_with_zero_person_ids(self):
         # only a person-on-event test
@@ -4754,19 +4663,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertListEqual(
-            sorted(res["breakdown_value"] for res in event_response),
-            ["person1", "person2", "person3"],
-        )
+        assert sorted(res["breakdown_value"] for res in event_response) == ["person1", "person2", "person3"]
 
         for response in event_response:
             if response["breakdown_value"] == "person1":
-                self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], "person1")
+                assert response["count"] == 1
+                assert response["label"] == "person1"
             if response["breakdown_value"] == "person2":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
             if response["breakdown_value"] == "person3":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
 
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
@@ -4793,19 +4699,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertListEqual(
-            sorted(res["breakdown_value"] for res in event_response),
-            [["person1"], ["person2"], ["person3"]],
-        )
+        assert sorted(res["breakdown_value"] for res in event_response) == [["person1"], ["person2"], ["person3"]]
 
         for response in event_response:
             if response["breakdown_value"] == ["person1"]:
-                self.assertEqual(response["count"], 1)
-                self.assertEqual(response["label"], ["person1"])
+                assert response["count"] == 1
+                assert response["label"] == ["person1"]
             if response["breakdown_value"] == "person2":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
             if response["breakdown_value"] == "person3":
-                self.assertEqual(response["count"], 3)
+                assert response["count"] == 3
 
     def test_breakdown_by_property_pie(self):
         with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
@@ -4883,16 +4786,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 filters=filters, team=self.team, series=0, breakdown="value_1", includeRecordings=True
             )
             # Persons with higher value come first
-            self.assertEqual(people_value_1[0][0]["distinct_ids"][0], "person2")
-            self.assertEqual(people_value_1[0][2], 2)  # 2 events with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[1][2], 1)  # 1 event with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[2][2], 1)  # 1 event with fake_prop="value_1" in the time range
+            assert people_value_1[0][0]["distinct_ids"][0] == "person2"
+            assert people_value_1[0][2] == 2  # 2 events with fake_prop="value_1" in the time range
+            assert people_value_1[1][2] == 1  # 1 event with fake_prop="value_1" in the time range
+            assert people_value_1[2][2] == 1  # 1 event with fake_prop="value_1" in the time range
 
             people_value_2 = self._get_actors(
                 filters=filters, team=self.team, series=0, breakdown="value_2", includeRecordings=True
             )
-            self.assertEqual(people_value_2[0][0]["distinct_ids"][0], "person2")
-            self.assertEqual(people_value_2[0][2], 1)  # 1 event with fake_prop="value_2" in the time range
+            assert people_value_2[0][0]["distinct_ids"][0] == "person2"
+            assert people_value_2[0][2] == 1  # 1 event with fake_prop="value_2" in the time range
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie(self):
@@ -4921,15 +4824,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertLessEqual(
-                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
-            )
-            self.assertLessEqual(
-                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
-            )
-            self.assertLessEqual(
-                {"breakdown_value": "person3", "aggregated_value": 1}.items(), event_response[2].items()
-            )
+            assert {"breakdown_value": "person1", "aggregated_value": 1}.items() <= event_response[0].items()
+            assert {"breakdown_value": "person2", "aggregated_value": 1}.items() <= event_response[1].items()
+            assert {"breakdown_value": "person3", "aggregated_value": 1}.items() <= event_response[2].items()
 
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
@@ -4953,15 +4850,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertLessEqual(
-                {"breakdown_value": ["person1"], "aggregated_value": 1}.items(), event_response[0].items()
-            )
-            self.assertLessEqual(
-                {"breakdown_value": ["person2"], "aggregated_value": 1}.items(), event_response[1].items()
-            )
-            self.assertLessEqual(
-                {"breakdown_value": ["person3"], "aggregated_value": 1}.items(), event_response[2].items()
-            )
+            assert {"breakdown_value": ["person1"], "aggregated_value": 1}.items() <= event_response[0].items()
+            assert {"breakdown_value": ["person2"], "aggregated_value": 1}.items() <= event_response[1].items()
+            assert {"breakdown_value": ["person3"], "aggregated_value": 1}.items() <= event_response[2].items()
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
@@ -5002,13 +4893,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertEqual(len(event_response), 2)
-            self.assertLessEqual(
-                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
-            )
-            self.assertLessEqual(
-                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
-            )
+            assert len(event_response) == 2
+            assert {"breakdown_value": "person1", "aggregated_value": 1}.items() <= event_response[0].items()
+            assert {"breakdown_value": "person2", "aggregated_value": 1}.items() <= event_response[1].items()
 
         # multiple breakdowns
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -5027,13 +4914,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertEqual(len(event_response), 2)
-            self.assertLessEqual(
-                {"breakdown_value": ["person1"], "aggregated_value": 1}.items(), event_response[0].items()
-            )
-            self.assertLessEqual(
-                {"breakdown_value": ["person2"], "aggregated_value": 1}.items(), event_response[1].items()
-            )
+            assert len(event_response) == 2
+            assert {"breakdown_value": ["person1"], "aggregated_value": 1}.items() <= event_response[0].items()
+            assert {"breakdown_value": ["person2"], "aggregated_value": 1}.items() <= event_response[1].items()
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
@@ -5060,8 +4943,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["data"][-1], 2)
+        assert response[0]["count"] == 2
+        assert response[0]["data"][-1] == 2
 
     def test_filter_by_precalculated_cohort(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
@@ -5089,8 +4972,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["data"][-1], 2)
+        assert response[0]["count"] == 2
+        assert response[0]["data"][-1] == 2
 
     @also_test_with_person_on_events_v2
     def test_breakdown_filter_by_precalculated_cohort(self):
@@ -5123,9 +5006,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["breakdown_value"], "Jane")
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["data"][-1], 2)
+        assert response[0]["breakdown_value"] == "Jane"
+        assert response[0]["count"] == 2
+        assert response[0]["data"][-1] == 2
 
         # multiple breakdowns
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
@@ -5146,9 +5029,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["breakdown_value"], ["Jane"])
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["data"][-1], 2)
+        assert response[0]["breakdown_value"] == ["Jane"]
+        assert response[0]["count"] == 2
+        assert response[0]["data"][-1] == 2
 
     def test_bar_chart_by_value(self):
         self._create_events()
@@ -5166,8 +5049,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["aggregated_value"], 4)
-        self.assertEqual(response[1]["aggregated_value"], 1)
+        assert response[0]["aggregated_value"] == 4
+        assert response[1]["aggregated_value"] == 1
 
     @snapshot_clickhouse_queries
     def test_trends_aggregate_by_distinct_id(self):
@@ -5201,7 +5084,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(daily_response[0]["data"][0], 3)
+            assert daily_response[0]["data"][0] == 3
 
             with freeze_time("2019-12-31T13:00:01Z"):
                 daily_response = self._run(
@@ -5221,7 +5104,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     self.team,
                 )
-            self.assertEqual(daily_response[0]["data"][0], 2)
+            assert daily_response[0]["data"][0] == 2
 
             # single breakdown person props
             with freeze_time("2019-12-31T13:00:01Z"):
@@ -5237,10 +5120,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     self.team,
                 )
-            self.assertEqual(daily_response[0]["data"][0], 2)
-            self.assertEqual(daily_response[0]["label"], "some_val")
-            self.assertEqual(daily_response[1]["data"][0], 1)
-            self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
+            assert daily_response[0]["data"][0] == 2
+            assert daily_response[0]["label"] == "some_val"
+            assert daily_response[1]["data"][0] == 1
+            assert daily_response[1]["label"] == "$$_posthog_breakdown_null_$$"
 
             # multiple breakdown person props
             with freeze_time("2019-12-31T13:00:01Z"):
@@ -5255,10 +5138,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     self.team,
                 )
-            self.assertEqual(daily_response[0]["data"][0], 2)
-            self.assertEqual(daily_response[0]["label"], "some_val")
-            self.assertEqual(daily_response[1]["data"][0], 1)
-            self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
+            assert daily_response[0]["data"][0] == 2
+            assert daily_response[0]["label"] == "some_val"
+            assert daily_response[1]["data"][0] == 1
+            assert daily_response[1]["label"] == "$$_posthog_breakdown_null_$$"
 
             # MAU
             with freeze_time("2019-12-31T13:00:03Z"):
@@ -5272,7 +5155,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     self.team,
                 )
-            self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+            assert monthly_response[0]["data"][0] == 3  # this would be 2 without the aggregate hack
 
             with freeze_time("2019-12-31T13:00:01Z"):
                 weekly_response = self._run(
@@ -5285,7 +5168,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     self.team,
                 )
-            self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+            assert weekly_response[0]["data"][0] == 3  # this would be 2 without the aggregate hack
 
             # Make sure breakdown doesn't cause us to join on pdi
             PropertyDefinition.objects.create(
@@ -5329,7 +5212,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(len(response), 25)
+            assert len(response) == 25
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5348,7 +5231,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(len(response), 25)
+            assert len(response) == 25
 
     @also_test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):
@@ -5402,8 +5285,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertLessEqual({"count": 2, "breakdown_value": "2"}.items(), event_response[0].items())
-        self.assertLessEqual({"count": 1, "breakdown_value": "1"}.items(), event_response[1].items())
+        assert {"count": 2, "breakdown_value": "2"}.items() <= event_response[0].items()
+        assert {"count": 1, "breakdown_value": "1"}.items() <= event_response[1].items()
         self.assertEntityResponseEqual(event_response, action_response)
 
         # multiple
@@ -5429,8 +5312,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertLessEqual({"count": 2, "breakdown_value": ["2"]}.items(), event_response[0].items())
-        self.assertLessEqual({"count": 1, "breakdown_value": ["1"]}.items(), event_response[1].items())
+        assert {"count": 2, "breakdown_value": ["2"]}.items() <= event_response[0].items()
+        assert {"count": 1, "breakdown_value": ["1"]}.items() <= event_response[1].items()
         self.assertEntityResponseEqual(event_response, action_response)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -5462,15 +5345,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up - value")
-        self.assertEqual(response[1]["label"], "sign up - other_value")
-        self.assertEqual(response[2]["label"], "sign up - $$_posthog_breakdown_null_$$")
-        self.assertEqual(response[3]["label"], "no events - $$_posthog_breakdown_null_$$")
+        assert response[0]["label"] == "sign up - value"
+        assert response[1]["label"] == "sign up - other_value"
+        assert response[2]["label"] == "sign up - $$_posthog_breakdown_null_$$"
+        assert response[3]["label"] == "no events - $$_posthog_breakdown_null_$$"
 
-        self.assertEqual(sum(response[0]["data"]), 2)
-        self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(sum(response[2]["data"]), 2)
-        self.assertEqual(sum(response[3]["data"]), 1)
+        assert sum(response[0]["data"]) == 2
+        assert sum(response[1]["data"]) == 1
+        assert sum(response[2]["data"]) == 2
+        assert sum(response[3]["data"]) == 1
 
         # test breakdown filtering
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -5485,15 +5368,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["label"], "sign up - value")
-        self.assertEqual(response[1]["label"], "sign up - other_value")
-        self.assertEqual(response[2]["label"], "sign up - $$_posthog_breakdown_null_$$")
-        self.assertEqual(response[3]["label"], "no events - $$_posthog_breakdown_null_$$")
+        assert response[0]["label"] == "sign up - value"
+        assert response[1]["label"] == "sign up - other_value"
+        assert response[2]["label"] == "sign up - $$_posthog_breakdown_null_$$"
+        assert response[3]["label"] == "no events - $$_posthog_breakdown_null_$$"
 
-        self.assertEqual(sum(response[0]["data"]), 2)
-        self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(sum(response[2]["data"]), 2)
-        self.assertEqual(sum(response[3]["data"]), 1)
+        assert sum(response[0]["data"]) == 2
+        assert sum(response[1]["data"]) == 1
+        assert sum(response[2]["data"]) == 2
+        assert sum(response[3]["data"]) == 1
 
     def test_multiple_breakdowns_label_formatting(self):
         self._create_person(
@@ -5584,13 +5467,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(len(response), 6)
-        self.assertEqual(response[0]["label"], "sign up - Safari::2")
-        self.assertEqual(response[1]["label"], "sign up - Safari::1")
-        self.assertEqual(response[2]["label"], "sign up - Chrome::1")
-        self.assertEqual(response[3]["label"], "sign up - Chrome::2")
-        self.assertEqual(response[4]["label"], "sign up - Chrome::$$_posthog_breakdown_null_$$")
-        self.assertEqual(response[5]["label"], "sign up - Safari::$$_posthog_breakdown_null_$$")
+        assert len(response) == 6
+        assert response[0]["label"] == "sign up - Safari::2"
+        assert response[1]["label"] == "sign up - Safari::1"
+        assert response[2]["label"] == "sign up - Chrome::1"
+        assert response[3]["label"] == "sign up - Chrome::2"
+        assert response[4]["label"] == "sign up - Chrome::$$_posthog_breakdown_null_$$"
+        assert response[5]["label"] == "sign up - Safari::$$_posthog_breakdown_null_$$"
 
         # should group to "other" breakdowns
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -5605,9 +5488,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]["label"], "sign up - Safari::2")
-        self.assertEqual(response[1]["label"], "sign up - $$_posthog_breakdown_other_$$::$$_posthog_breakdown_other_$$")
+        assert len(response) == 2
+        assert response[0]["label"] == "sign up - Safari::2"
+        assert response[1]["label"] == "sign up - $$_posthog_breakdown_other_$$::$$_posthog_breakdown_other_$$"
 
     @also_test_with_materialized_columns(person_properties=["email"])
     def test_breakdown_filtering_persons(self):
@@ -5665,13 +5548,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(response[0]["label"], "test@gmail.com")
-            self.assertEqual(response[1]["label"], "test@posthog.com")
-            self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
+            assert response[0]["label"] == "test@gmail.com"
+            assert response[1]["label"] == "test@posthog.com"
+            assert response[2]["label"] == "$$_posthog_breakdown_null_$$"
 
-            self.assertEqual(response[0]["count"], 1)
-            self.assertEqual(response[1]["count"], 1)
-            self.assertEqual(response[2]["count"], 1)
+            assert response[0]["count"] == 1
+            assert response[1]["count"] == 1
+            assert response[2]["count"] == 1
 
     # ensure that column names are properly handled when subqueries and person subquery share properties column
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
@@ -5728,13 +5611,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(response[0]["label"], "test@gmail.com")
-            self.assertEqual(response[1]["label"], "test@posthog.com")
-            self.assertEqual(response[2]["label"], "$$_posthog_breakdown_null_$$")
+            assert response[0]["label"] == "test@gmail.com"
+            assert response[1]["label"] == "test@posthog.com"
+            assert response[2]["label"] == "$$_posthog_breakdown_null_$$"
 
-            self.assertEqual(response[0]["count"], 1)
-            self.assertEqual(response[1]["count"], 1)
-            self.assertEqual(response[2]["count"], 1)
+            assert response[0]["count"] == 1
+            assert response[1]["count"] == 1
+            assert response[2]["count"] == 1
 
     @also_test_with_materialized_columns(["$current_url", "$os", "$browser"])
     def test_breakdown_filtering_with_properties(self):
@@ -5806,20 +5689,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
 
             response = sorted(response, key=lambda x: x["label"])
-            self.assertEqual(response[0]["label"], "first url")
-            self.assertEqual(response[1]["label"], "second url")
+            assert response[0]["label"] == "first url"
+            assert response[1]["label"] == "second url"
 
-            self.assertEqual(sum(response[0]["data"]), 1)
+            assert sum(response[0]["data"]) == 1
             if "breakdown" in breakdown_filter:
-                self.assertEqual(response[0]["breakdown_value"], "first url")
+                assert response[0]["breakdown_value"] == "first url"
             else:
-                self.assertEqual(response[0]["breakdown_value"], ["first url"])
+                assert response[0]["breakdown_value"] == ["first url"]
 
-            self.assertEqual(sum(response[1]["data"]), 1)
+            assert sum(response[1]["data"]) == 1
             if "breakdown" in breakdown_filter:
-                self.assertEqual(response[1]["breakdown_value"], "second url")
+                assert response[1]["breakdown_value"] == "second url"
             else:
-                self.assertEqual(response[1]["breakdown_value"], ["second url"])
+                assert response[1]["breakdown_value"] == ["second url"]
 
     @snapshot_clickhouse_queries
     def test_breakdown_filtering_with_properties_in_new_format(self):
@@ -5900,13 +5783,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
 
             response = sorted(response, key=lambda x: x["label"])
-            self.assertEqual(response[0]["label"], "second url")
+            assert response[0]["label"] == "second url"
 
-            self.assertEqual(sum(response[0]["data"]), 1)
+            assert sum(response[0]["data"]) == 1
             if "breakdown" in breakdown_filter:
-                self.assertEqual(response[0]["breakdown_value"], "second url")
+                assert response[0]["breakdown_value"] == "second url"
             else:
-                self.assertEqual(response[0]["breakdown_value"], ["second url"])
+                assert response[0]["breakdown_value"] == ["second url"]
 
             # AND filter properties with disjoint set means results should be empty
             with freeze_time("2020-01-05T13:01:01Z"):
@@ -5938,7 +5821,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
 
             response = sorted(response, key=lambda x: x["label"])
-            self.assertEqual(len(response), 0)
+            assert len(response) == 0
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -5992,14 +5875,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(event_response[0]["label"], "some_val")
-            self.assertEqual(event_response[1]["label"], "some_val2")
+            assert event_response[0]["label"] == "some_val"
+            assert event_response[1]["label"] == "some_val2"
 
-            self.assertEqual(sum(event_response[0]["data"]), 3)
-            self.assertEqual(event_response[0]["data"][5], 1)
+            assert sum(event_response[0]["data"]) == 3
+            assert event_response[0]["data"][5] == 1
 
-            self.assertEqual(sum(event_response[1]["data"]), 3)
-            self.assertEqual(event_response[1]["data"][5], 1)
+            assert sum(event_response[1]["data"]) == 3
+            assert event_response[1]["data"][5] == 1
 
     @also_test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
@@ -6039,15 +5922,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(event_response[0]["label"], "other_value", breakdown_filter)
-            self.assertEqual(event_response[1]["label"], "value", breakdown_filter)
-            self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$", breakdown_filter)
+            assert event_response[0]["label"] == "other_value", breakdown_filter
+            assert event_response[1]["label"] == "value", breakdown_filter
+            assert event_response[2]["label"] == "$$_posthog_breakdown_null_$$", breakdown_filter
 
-            self.assertEqual(sum(event_response[0]["data"]), 1, breakdown_filter)
-            self.assertEqual(event_response[0]["data"][5], 1, breakdown_filter)
+            assert sum(event_response[0]["data"]) == 1, breakdown_filter
+            assert event_response[0]["data"][5] == 1, breakdown_filter
 
-            self.assertEqual(sum(event_response[1]["data"]), 1, breakdown_filter)
-            self.assertEqual(event_response[1]["data"][4], 1, breakdown_filter)  # property not defined
+            assert sum(event_response[1]["data"]) == 1, breakdown_filter
+            assert event_response[1]["data"][4] == 1, breakdown_filter  # property not defined
 
             self.assertEntityResponseEqual(action_response, event_response, breakdown_filter)
 
@@ -6091,15 +5974,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(event_response[0]["label"], "other_value")
-            self.assertEqual(event_response[1]["label"], "value")
-            self.assertEqual(event_response[2]["label"], "$$_posthog_breakdown_null_$$")
+            assert event_response[0]["label"] == "other_value"
+            assert event_response[1]["label"] == "value"
+            assert event_response[2]["label"] == "$$_posthog_breakdown_null_$$"
 
-            self.assertEqual(sum(event_response[0]["data"]), 1)
-            self.assertEqual(event_response[0]["data"][5], 1)
+            assert sum(event_response[0]["data"]) == 1
+            assert event_response[0]["data"][5] == 1
 
-            self.assertEqual(sum(event_response[1]["data"]), 1)
-            self.assertEqual(event_response[1]["data"][4], 1)  # property not defined
+            assert sum(event_response[1]["data"]) == 1
+            assert event_response[1]["data"][4] == 1  # property not defined
 
             self.assertEntityResponseEqual(action_response, event_response)
 
@@ -6143,10 +6026,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(event_response[0]["label"], "other_value")
+            assert event_response[0]["label"] == "other_value"
 
-            self.assertEqual(sum(event_response[0]["data"]), 1)
-            self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
+            assert sum(event_response[0]["data"]) == 1
+            assert event_response[0]["data"][5] == 1  # property not defined
 
             self.assertEntityResponseEqual(action_response, event_response)
 
@@ -6200,7 +6083,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            self.assertEqual(response[0]["count"], 1)
+            assert response[0]["count"] == 1
 
     # this ensures that the properties don't conflict when formatting params
     @also_test_with_materialized_columns(["$current_url"])
@@ -6249,16 +6132,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         # if the params were shared it would be 1 because action would take precedence
-        self.assertEqual(action_response[0]["count"], 0)
+        assert action_response[0]["count"] == 0
 
     @also_test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
     def test_combine_all_cohort_and_icontains(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
         cohort = Cohort.objects.create(
-            team=self.team,
-            name="a",
-            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            team=self.team, name="a", groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}]
         )
         action_response = self._run(
             Filter(
@@ -6272,7 +6153,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(len(action_response), 0)
+        assert len(action_response) == 0
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -6305,8 +6186,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(action_response[0]["breakdown_value"], "other_value")
-        self.assertEqual(action_response[0]["count"], 1)
+        assert action_response[0]["breakdown_value"] == "other_value"
+        assert action_response[0]["count"] == 1
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_user_props_with_filter(self):
@@ -6371,8 +6252,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+        assert len(response) == 1
+        assert response[0]["breakdown_value"] == "test@gmail.com"
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email", "$os", "$browser"])
@@ -6549,13 +6430,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         response = sorted(response, key=lambda item: item["breakdown_value"])
-        self.assertEqual(len(response), 5)
+        assert len(response) == 5
         # person1 shouldn't be selected because it doesn't match the filter
-        self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
-        self.assertEqual(response[1]["breakdown_value"], "test3@posthog.com")
-        self.assertEqual(response[2]["breakdown_value"], "test4@posthog.com")
-        self.assertEqual(response[3]["breakdown_value"], "test5@posthog.com")
-        self.assertEqual(response[4]["breakdown_value"], "test@gmail.com")
+        assert response[0]["breakdown_value"] == "test2@posthog.com"
+        assert response[1]["breakdown_value"] == "test3@posthog.com"
+        assert response[2]["breakdown_value"] == "test4@posthog.com"
+        assert response[3]["breakdown_value"] == "test5@posthog.com"
+        assert response[4]["breakdown_value"] == "test@gmail.com"
 
         # now have more strict filters with entity props
         response = self._run(
@@ -6612,8 +6493,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
+        assert len(response) == 1
+        assert response[0]["breakdown_value"] == "test2@posthog.com"
 
     def _create_active_users_events(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
@@ -6702,7 +6583,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         # Only p0 was active on 2020-01-18 or in the preceding 6 days
-        self.assertEqual(result[0]["aggregated_value"], 1)
+        assert result[0]["aggregated_value"] == 1
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_aggregated_range_wider_than_week_with_sampling(self):
@@ -6726,7 +6607,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         # Only p0 was active on 2020-01-18 or in the preceding 6 days
-        self.assertEqual(result[0]["aggregated_value"], 1)
+        assert result[0]["aggregated_value"] == 1
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_aggregated_range_narrower_than_week(self):
@@ -6749,7 +6630,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
-        self.assertEqual(result[0]["aggregated_value"], 3)
+        assert result[0]["aggregated_value"] == 3
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -6771,40 +6652,34 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["days"],
-            [
-                "2020-01-08",
-                "2020-01-09",
-                "2020-01-10",
-                "2020-01-11",
-                "2020-01-12",
-                "2020-01-13",
-                "2020-01-14",
-                "2020-01-15",
-                "2020-01-16",
-                "2020-01-17",
-                "2020-01-18",
-                "2020-01-19",
-            ],
-        )
-        self.assertEqual(
-            result[0]["data"],
-            [
-                1.0,  # 2020-01-08 - p0 only
-                3.0,  # 2020-01-09 - p0, p1, and p2
-                2.0,  # 2020-01-10 - p1, and p2
-                2.0,  # 2020-01-11 - p1 and p2
-                3.0,  # 2020-01-12 - p0, p1, and p2
-                3.0,  # 2020-01-13 - p0, p1, and p2
-                3.0,  # 2020-01-14 - p0, p1, and p2
-                3.0,  # 2020-01-15 - p0, p1, and p2
-                3.0,  # 2020-01-16 - p0, p1, and p2
-                3.0,  # 2020-01-17 - p0, p1, and p2
-                1.0,  # 2020-01-18 - p0 only
-                0.0,  # 2020-01-19 - nobody
-            ],
-        )
+        assert result[0]["days"] == [
+            "2020-01-08",
+            "2020-01-09",
+            "2020-01-10",
+            "2020-01-11",
+            "2020-01-12",
+            "2020-01-13",
+            "2020-01-14",
+            "2020-01-15",
+            "2020-01-16",
+            "2020-01-17",
+            "2020-01-18",
+            "2020-01-19",
+        ]
+        assert result[0]["data"] == [
+            1.0,  # 2020-01-08 - p0 only
+            3.0,  # 2020-01-09 - p0, p1, and p2
+            2.0,  # 2020-01-10 - p1, and p2
+            2.0,  # 2020-01-11 - p1 and p2
+            3.0,  # 2020-01-12 - p0, p1, and p2
+            3.0,  # 2020-01-13 - p0, p1, and p2
+            3.0,  # 2020-01-14 - p0, p1, and p2
+            3.0,  # 2020-01-15 - p0, p1, and p2
+            3.0,  # 2020-01-16 - p0, p1, and p2
+            3.0,  # 2020-01-17 - p0, p1, and p2
+            1.0,  # 2020-01-18 - p0 only
+            0.0,  # 2020-01-19 - nobody
+        ]
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -6840,40 +6715,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["days"],
-            [
-                "2020-01-08",
-                "2020-01-09",
-                "2020-01-10",
-                "2020-01-11",
-                "2020-01-12",
-                "2020-01-13",
-                "2020-01-14",
-                "2020-01-15",
-                "2020-01-16",
-                "2020-01-17",
-                "2020-01-18",
-                "2020-01-19",
-            ],
-        )
-        self.assertEqual(
-            result[0]["data"],
-            [
-                2,
-                2,
-                2,
-                2,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                1,
-            ],
-        )
+        assert result[0]["days"] == [
+            "2020-01-08",
+            "2020-01-09",
+            "2020-01-10",
+            "2020-01-11",
+            "2020-01-12",
+            "2020-01-13",
+            "2020-01-14",
+            "2020-01-15",
+            "2020-01-16",
+            "2020-01-17",
+            "2020-01-18",
+            "2020-01-19",
+        ]
+        assert result[0]["data"] == [2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 1]
 
     @also_test_with_different_timezones
     def test_weekly_active_users_daily_based_on_action(self):
@@ -6895,28 +6751,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["days"],
-            [
-                "2020-01-08",
-                "2020-01-09",
-                "2020-01-10",
-                "2020-01-11",
-                "2020-01-12",
-                "2020-01-13",
-                "2020-01-14",
-                "2020-01-15",
-                "2020-01-16",
-                "2020-01-17",
-                "2020-01-18",
-                "2020-01-19",
-            ],
-        )
+        assert result[0]["days"] == [
+            "2020-01-08",
+            "2020-01-09",
+            "2020-01-10",
+            "2020-01-11",
+            "2020-01-12",
+            "2020-01-13",
+            "2020-01-14",
+            "2020-01-15",
+            "2020-01-16",
+            "2020-01-17",
+            "2020-01-18",
+            "2020-01-19",
+        ]
         # Same as test_weekly_active_users_daily
-        self.assertEqual(
-            result[0]["data"],
-            [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0],
-        )
+        assert result[0]["data"] == [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0]
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -6945,8 +6795,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
-        self.assertEqual(result[0]["data"], [1, 2, 1])
+        assert result[0]["days"] == ["2019-12-29", "2020-01-05", "2020-01-12"]
+        assert result[0]["data"] == [1, 2, 1]
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_hourly(self):
@@ -6968,28 +6818,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["days"],
-            [
-                "2020-01-09 06:00:00",
-                "2020-01-09 07:00:00",
-                "2020-01-09 08:00:00",
-                "2020-01-09 09:00:00",
-                "2020-01-09 10:00:00",
-                "2020-01-09 11:00:00",
-                "2020-01-09 12:00:00",
-                "2020-01-09 13:00:00",
-                "2020-01-09 14:00:00",
-                "2020-01-09 15:00:00",
-                "2020-01-09 16:00:00",
-                "2020-01-09 17:00:00",
-            ],
-        )
+        assert result[0]["days"] == [
+            "2020-01-09 06:00:00",
+            "2020-01-09 07:00:00",
+            "2020-01-09 08:00:00",
+            "2020-01-09 09:00:00",
+            "2020-01-09 10:00:00",
+            "2020-01-09 11:00:00",
+            "2020-01-09 12:00:00",
+            "2020-01-09 13:00:00",
+            "2020-01-09 14:00:00",
+            "2020-01-09 15:00:00",
+            "2020-01-09 16:00:00",
+            "2020-01-09 17:00:00",
+        ]
 
-        self.assertEqual(
-            result[0]["data"],
-            [1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3],
-        )
+        assert result[0]["data"] == [1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3]
 
     def test_weekly_active_users_hourly_full_week(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["p0"])
@@ -7033,13 +6877,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(24 * 7 * 3, sum(result[0]["data"]))
-        self.assertEqual("2020-01-03 10:00:00", result[0]["days"][10])
-        self.assertEqual(1, result[0]["data"][10])
-        self.assertEqual("2020-01-03 11:00:00", result[0]["days"][11])
-        self.assertTrue(all(x == 3 for x in result[0]["data"][11:178]))
-        self.assertEqual(2, result[0]["data"][178])
-        self.assertEqual("2020-01-10 10:00:00", result[0]["days"][178])
+        assert 24 * 7 * 3 == sum(result[0]["data"])
+        assert "2020-01-03 10:00:00" == result[0]["days"][10]
+        assert 1 == result[0]["data"][10]
+        assert "2020-01-03 11:00:00" == result[0]["days"][11]
+        assert all(x == 3 for x in result[0]["data"][11:178])
+        assert 2 == result[0]["data"][178]
+        assert "2020-01-10 10:00:00" == result[0]["days"][178]
 
     def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
         # only a person-on-event test
@@ -7082,10 +6926,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         # Zero person IDs shouldn't be counted
-        self.assertEqual(
-            result[0]["data"],
-            [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0],
-        )
+        assert result[0]["data"] == [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0]
 
     @also_test_with_materialized_columns(["key"])
     def test_breakdown_weekly_active_users_daily(self):
@@ -7144,10 +6985,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["data"],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0],
-        )
+        assert result[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0]
 
     @also_test_with_materialized_columns(person_properties=["name"])
     @snapshot_clickhouse_queries
@@ -7200,10 +7038,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["data"],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0],
-        )
+        assert result[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0]
 
     @snapshot_clickhouse_queries
     def test_breakdown_weekly_active_users_daily_based_on_action(self):
@@ -7310,10 +7145,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        self.assertEqual(
-            result[0]["data"],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0],
-        )
+        assert result[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0]
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -7338,11 +7170,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         # All were active on 2020-01-12 or in the preceding 6 days
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["breakdown_value"], "bor")
-        self.assertEqual(result[0]["aggregated_value"], 2)
-        self.assertEqual(result[1]["breakdown_value"], "val")
-        self.assertEqual(result[1]["aggregated_value"], 2)
+        assert len(result) == 2
+        assert result[0]["breakdown_value"] == "bor"
+        assert result[0]["aggregated_value"] == 2
+        assert result[1]["breakdown_value"] == "val"
+        assert result[1]["aggregated_value"] == 2
 
     # TODO: test_account_filters conversion
     # @also_test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
@@ -7416,10 +7248,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 1)
-        self.assertEqual(response[1]["aggregated_value"], 1)
-        self.assertEqual(response[2]["aggregated_value"], 2)  # the events without breakdown value
-        self.assertEqual(response[0]["days"], [])
+        assert response[0]["aggregated_value"] == 1
+        assert response[1]["aggregated_value"] == 1
+        assert response[2]["aggregated_value"] == 2  # the events without breakdown value
+        assert response[0]["days"] == []
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_multiple_cohorts(self):
@@ -7481,8 +7313,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-        self.assertEqual(res[0]["count"], 2)
-        self.assertEqual(res[1]["count"], 1)
+        assert res[0]["count"] == 2
+        assert res[1]["count"] == 1
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_single_cohort(self):
@@ -7537,7 +7369,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-        self.assertEqual(res[0]["count"], 1)
+        assert res[0]["count"] == 1
 
     @also_test_with_materialized_columns(["key", "$current_url"])
     def test_filtering_with_action_props(self):
@@ -7582,7 +7414,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(response[0]["count"], 2)
+        assert response[0]["count"] == 2
 
     @pytest.mark.skip(reason="We dont currently error out for this, but fallback instead. Good enough for now")
     def test_trends_math_without_math_property(self):
@@ -7664,23 +7496,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(
-                response[0]["labels"],
-                [
-                    "5-Jan 00:00",
-                    "5-Jan 01:00",
-                    "5-Jan 02:00",
-                    "5-Jan 03:00",
-                    "5-Jan 04:00",
-                    "5-Jan 05:00",
-                    "5-Jan 06:00",
-                    "5-Jan 07:00",
-                    "5-Jan 08:00",
-                    "5-Jan 09:00",
-                    "5-Jan 10:00",
-                ],
-            )
-            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+            assert response[0]["labels"] == [
+                "5-Jan 00:00",
+                "5-Jan 01:00",
+                "5-Jan 02:00",
+                "5-Jan 03:00",
+                "5-Jan 04:00",
+                "5-Jan 05:00",
+                "5-Jan 06:00",
+                "5-Jan 07:00",
+                "5-Jan 08:00",
+                "5-Jan 09:00",
+                "5-Jan 10:00",
+            ]
+            assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0]
 
             response = self._run(
                 Filter(
@@ -7694,23 +7523,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-            self.assertEqual(
-                response[0]["labels"],
-                [
-                    "5-Jan 00:00",
-                    "5-Jan 01:00",
-                    "5-Jan 02:00",
-                    "5-Jan 03:00",
-                    "5-Jan 04:00",
-                    "5-Jan 05:00",
-                    "5-Jan 06:00",
-                    "5-Jan 07:00",
-                    "5-Jan 08:00",
-                    "5-Jan 09:00",
-                    "5-Jan 10:00",
-                ],
-            )
-            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+            assert response[0]["labels"] == [
+                "5-Jan 00:00",
+                "5-Jan 01:00",
+                "5-Jan 02:00",
+                "5-Jan 03:00",
+                "5-Jan 04:00",
+                "5-Jan 05:00",
+                "5-Jan 06:00",
+                "5-Jan 07:00",
+                "5-Jan 08:00",
+                "5-Jan 09:00",
+                "5-Jan 10:00",
+            ]
+            assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0]
 
     @also_test_with_different_timezones
     def test_timezones_hourly_absolute_from(self):
@@ -7763,37 +7589,34 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(
-            response[0]["days"],
-            [
-                "2020-01-03 00:00:00",
-                "2020-01-03 01:00:00",
-                "2020-01-03 02:00:00",
-                "2020-01-03 03:00:00",
-                "2020-01-03 04:00:00",
-                "2020-01-03 05:00:00",
-                "2020-01-03 06:00:00",
-                "2020-01-03 07:00:00",
-                "2020-01-03 08:00:00",
-                "2020-01-03 09:00:00",
-                "2020-01-03 10:00:00",
-                "2020-01-03 11:00:00",
-                "2020-01-03 12:00:00",
-                "2020-01-03 13:00:00",
-                "2020-01-03 14:00:00",
-                "2020-01-03 15:00:00",
-                "2020-01-03 16:00:00",
-                "2020-01-03 17:00:00",
-                "2020-01-03 18:00:00",
-                "2020-01-03 19:00:00",
-                "2020-01-03 20:00:00",
-                "2020-01-03 21:00:00",
-                "2020-01-03 22:00:00",
-                "2020-01-03 23:00:00",
-            ],
-        )
-        self.assertEqual(response[0]["data"][17], 1)
-        self.assertEqual(len(response[0]["data"]), 24)
+        assert response[0]["days"] == [
+            "2020-01-03 00:00:00",
+            "2020-01-03 01:00:00",
+            "2020-01-03 02:00:00",
+            "2020-01-03 03:00:00",
+            "2020-01-03 04:00:00",
+            "2020-01-03 05:00:00",
+            "2020-01-03 06:00:00",
+            "2020-01-03 07:00:00",
+            "2020-01-03 08:00:00",
+            "2020-01-03 09:00:00",
+            "2020-01-03 10:00:00",
+            "2020-01-03 11:00:00",
+            "2020-01-03 12:00:00",
+            "2020-01-03 13:00:00",
+            "2020-01-03 14:00:00",
+            "2020-01-03 15:00:00",
+            "2020-01-03 16:00:00",
+            "2020-01-03 17:00:00",
+            "2020-01-03 18:00:00",
+            "2020-01-03 19:00:00",
+            "2020-01-03 20:00:00",
+            "2020-01-03 21:00:00",
+            "2020-01-03 22:00:00",
+            "2020-01-03 23:00:00",
+        ]
+        assert response[0]["data"][17] == 1
+        assert len(response[0]["data"]) == 24
 
         # Custom date range, single day, dayly interval
         response = self._run(
@@ -7807,7 +7630,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [1.0])
+        assert response[0]["data"] == [1.0]
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -7859,20 +7682,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
-        self.assertEqual(
-            response[0]["labels"],
-            [
-                "29-Dec-2019",
-                "30-Dec-2019",
-                "31-Dec-2019",
-                "1-Jan-2020",
-                "2-Jan-2020",
-                "3-Jan-2020",
-                "4-Jan-2020",
-                "5-Jan-2020",
-            ],
-        )
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        assert response[0]["labels"] == [
+            "29-Dec-2019",
+            "30-Dec-2019",
+            "31-Dec-2019",
+            "1-Jan-2020",
+            "2-Jan-2020",
+            "3-Jan-2020",
+            "4-Jan-2020",
+            "5-Jan-2020",
+        ]
 
         # DAU
         with freeze_time("2020-01-05T13:01:01Z"):
@@ -7886,30 +7706,24 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(
-            response[0]["data"],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
-        )
-        self.assertEqual(
-            response[0]["labels"],
-            [
-                "22-Dec-2019",
-                "23-Dec-2019",
-                "24-Dec-2019",
-                "25-Dec-2019",
-                "26-Dec-2019",
-                "27-Dec-2019",
-                "28-Dec-2019",
-                "29-Dec-2019",
-                "30-Dec-2019",
-                "31-Dec-2019",
-                "1-Jan-2020",
-                "2-Jan-2020",
-                "3-Jan-2020",
-                "4-Jan-2020",
-                "5-Jan-2020",
-            ],
-        )
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        assert response[0]["labels"] == [
+            "22-Dec-2019",
+            "23-Dec-2019",
+            "24-Dec-2019",
+            "25-Dec-2019",
+            "26-Dec-2019",
+            "27-Dec-2019",
+            "28-Dec-2019",
+            "29-Dec-2019",
+            "30-Dec-2019",
+            "31-Dec-2019",
+            "1-Jan-2020",
+            "2-Jan-2020",
+            "3-Jan-2020",
+            "4-Jan-2020",
+            "5-Jan-2020",
+        ]
 
         with freeze_time("2020-01-05T13:01:01Z"):
             response = self._run(
@@ -7929,20 +7743,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
-        self.assertEqual(
-            response[0]["labels"],
-            [
-                "29-Dec-2019",
-                "30-Dec-2019",
-                "31-Dec-2019",
-                "1-Jan-2020",
-                "2-Jan-2020",
-                "3-Jan-2020",
-                "4-Jan-2020",
-                "5-Jan-2020",
-            ],
-        )
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
+        assert response[0]["labels"] == [
+            "29-Dec-2019",
+            "30-Dec-2019",
+            "31-Dec-2019",
+            "1-Jan-2020",
+            "2-Jan-2020",
+            "3-Jan-2020",
+            "4-Jan-2020",
+            "5-Jan-2020",
+        ]
 
         with freeze_time("2020-01-05T13:01:01Z"):
             response = self._run(
@@ -7956,20 +7767,17 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
-        self.assertEqual(
-            response[0]["labels"],
-            [
-                "29-Dec-2019",
-                "30-Dec-2019",
-                "31-Dec-2019",
-                "1-Jan-2020",
-                "2-Jan-2020",
-                "3-Jan-2020",
-                "4-Jan-2020",
-                "5-Jan-2020",
-            ],
-        )
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
+        assert response[0]["labels"] == [
+            "29-Dec-2019",
+            "30-Dec-2019",
+            "31-Dec-2019",
+            "1-Jan-2020",
+            "2-Jan-2020",
+            "3-Jan-2020",
+            "4-Jan-2020",
+            "5-Jan-2020",
+        ]
 
         #  breakdown + DAU
         with freeze_time("2020-01-05T13:01:01Z"):
@@ -7984,7 +7792,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-            self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+            assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0]
 
     # Regression test to ensure we handle non-deterministic timezones correctly
     # US/Pacific for example changes from PST to PDT due to Daylight Savings Time
@@ -8071,7 +7879,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         # The key is to not get any 0s here
-        self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0])
+        assert response[0]["data"] == [1.0, 1.0, 1.0, 1.0, 1.0]
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -8129,8 +7937,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response_sunday[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
-        self.assertEqual(response_sunday[0]["data"], [1.0, 1.0, 0.0])
+        assert response_sunday[0]["days"] == ["2020-01-12", "2020-01-19", "2020-01-26"]
+        assert response_sunday[0]["data"] == [1.0, 1.0, 0.0]
 
         self.team.week_start_day = 1  # DB value for WeekStartDay.MONDAY
         self.team.save()
@@ -8150,8 +7958,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response_monday[0]["days"], ["2020-01-06", "2020-01-13", "2020-01-20"])
-        self.assertEqual(response_monday[0]["data"], [1.0, 0.0, 1.0])  # only includes events after 2020-01-12
+        assert response_monday[0]["days"] == ["2020-01-06", "2020-01-13", "2020-01-20"]
+        assert response_monday[0]["data"] == [1.0, 0.0, 1.0]  # only includes events after 2020-01-12
 
     def test_same_day(self):
         self._create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
@@ -8177,7 +7985,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [1.0])
+        assert response[0]["data"] == [1.0]
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -8227,7 +8035,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [2.0])
+        assert response[0]["data"] == [2.0]
 
         response = self._run(
             Filter(
@@ -8240,7 +8048,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [1.0])
+        assert response[0]["data"] == [1.0]
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -8310,7 +8118,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [2.0])
+        assert response[0]["data"] == [2.0]
 
         create_person_id_override_by_distinct_id("distinctid1", "distinctid3", self.team.pk, 1)
 
@@ -8325,7 +8133,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [1.0])
+        assert response[0]["data"] == [1.0]
 
         create_person_id_override_by_distinct_id("distinctid1", "distinctid2", self.team.pk, 2)
 
@@ -8340,7 +8148,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        self.assertEqual(response[0]["data"], [2.0])
+        assert response[0]["data"] == [2.0]
 
     @also_test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
     def test_ilike_regression_with_current_clickhouse_version(self):
@@ -8818,11 +8626,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]["breakdown_value"], "oh")
-        self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["breakdown_value"], "uh")
-        self.assertEqual(response[1]["count"], 1)
+        assert len(response) == 2
+        assert response[0]["breakdown_value"] == "oh"
+        assert response[0]["count"] == 1
+        assert response[1]["breakdown_value"] == "uh"
+        assert response[1]["count"] == 1
 
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups_person_on_events(self):
@@ -8878,11 +8686,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]["breakdown_value"], "oh")
-        self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["breakdown_value"], "uh")
-        self.assertEqual(response[1]["count"], 1)
+        assert len(response) == 2
+        assert response[0]["breakdown_value"] == "oh"
+        assert response[0]["count"] == 1
+        assert response[1]["breakdown_value"] == "uh"
+        assert response[1]["count"] == 1
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     @snapshot_clickhouse_queries
@@ -8954,11 +8762,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]["breakdown_value"], "oh")
-        self.assertEqual(response[0]["count"], 1)
-        self.assertEqual(response[1]["breakdown_value"], "uh")
-        self.assertEqual(response[1]["count"], 1)
+        assert len(response) == 2
+        assert response[0]["breakdown_value"] == "oh"
+        assert response[0]["count"] == 1
+        assert response[1]["breakdown_value"] == "uh"
+        assert response[1]["count"] == 1
 
     # TODO: Delete this test when moved to person-on-events
     def test_breakdown_by_group_props(self):
@@ -9003,11 +8811,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         response = self._run(filter, self.team)
 
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[0]["breakdown_value"], "finance")
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[1]["breakdown_value"], "technology")
-        self.assertEqual(response[1]["count"], 1)
+        assert len(response) == 2
+        assert response[0]["breakdown_value"] == "finance"
+        assert response[0]["count"] == 2
+        assert response[1]["breakdown_value"] == "technology"
+        assert response[1]["count"] == 1
 
         res = self._get_actors(
             filters=filter.to_dict(),
@@ -9018,7 +8826,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             includeRecordings=True,
         )
 
-        self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
+        assert res[0][0]["distinct_ids"] == ["person1"]
 
     @freeze_time("2020-01-01")
     @snapshot_clickhouse_queries
@@ -9066,11 +8874,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = self._run(filter, self.team)
 
-            self.assertEqual(len(response), 2)
-            self.assertEqual(response[0]["breakdown_value"], "finance")
-            self.assertEqual(response[0]["count"], 2)
-            self.assertEqual(response[1]["breakdown_value"], "technology")
-            self.assertEqual(response[1]["count"], 1)
+            assert len(response) == 2
+            assert response[0]["breakdown_value"] == "finance"
+            assert response[0]["count"] == 2
+            assert response[1]["breakdown_value"] == "technology"
+            assert response[1]["count"] == 1
 
             res = self._get_actors(
                 filters=filter.to_dict(),
@@ -9081,7 +8889,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 includeRecordings=True,
             )
 
-            self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
+            assert res[0][0]["distinct_ids"] == ["person1"]
 
     # TODO: Delete this test when moved to person-on-events
     def test_breakdown_by_group_props_with_person_filter(self):
@@ -9123,9 +8931,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run(filter, self.team)
 
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["breakdown_value"], "finance")
-        self.assertEqual(response[0]["count"], 1)
+        assert len(response) == 1
+        assert response[0]["breakdown_value"] == "finance"
+        assert response[0]["count"] == 1
 
     # TODO: Delete this test when moved to person-on-events
     def test_filtering_with_group_props(self):
@@ -9179,7 +8987,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run(filter, self.team)
-        self.assertEqual(response[0]["count"], 1)
+        assert response[0]["count"] == 1
 
     def test_filtering_with_group_props_event_with_no_group_data(self):
         self._create_groups()
@@ -9234,7 +9042,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # we include all 4 events even though they do not have an associated group since the filter is a negative
         # i.e. "industry is not textiles" includes both events associated with a group that has the property "industry"
         # set to a value other than textiles AND events with no group at all
-        self.assertEqual(response[0]["count"], 4)
+        assert response[0]["count"] == 4
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
@@ -9277,9 +9085,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = self._run(filter, self.team)
 
-            self.assertEqual(len(response), 1)
-            self.assertEqual(response[0]["breakdown_value"], "finance")
-            self.assertEqual(response[0]["count"], 1)
+            assert len(response) == 1
+            assert response[0]["breakdown_value"] == "finance"
+            assert response[0]["count"] == 1
 
     @snapshot_clickhouse_queries
     def test_filtering_with_group_props_person_on_events(self):
@@ -9334,7 +9142,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = self._run(filter, self.team)
-            self.assertEqual(response[0]["count"], 1)
+            assert response[0]["count"] == 1
 
     @freeze_time("2020-01-01")
     @snapshot_clickhouse_queries
@@ -9424,18 +9232,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = self._run(filter, self.team)
 
-            self.assertEqual(len(response), 1)
-            self.assertEqual(response[0]["count"], 1)
-            self.assertEqual(
-                response[0]["data"],
-                [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            )
+            assert len(response) == 1
+            assert response[0]["count"] == 1
+            assert response[0]["data"] == [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
             res = self._get_actors(
                 filters=filter.to_dict(), team=self.team, series=0, day="2020-01-02", includeRecordings=True
             )
 
-            self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
+            assert res[0][0]["distinct_ids"] == ["person1"]
 
     def test_yesterday_with_hourly_interval(self):
         journey = {
@@ -9462,8 +9267,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-03 13:06:02"):
             response = self._run(filter, self.team)
 
-        self.assertEqual(len(response), 1)
-        self.assertEqual(
-            response[0]["data"],
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
-        )
+        assert len(response) == 1
+        assert response[0]["data"] == [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+        ]

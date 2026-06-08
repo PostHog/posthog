@@ -43,14 +43,14 @@ class TestEmailNormalizer(TestCase):
         for input_email, expected in test_cases:
             with self.subTest(input_email=input_email):
                 result = EmailNormalizer.normalize(input_email)
-                self.assertEqual(result, expected)
+                assert result == expected
 
 
 class TestEmailLookupHandler(TestCase):
     def test_get_user_by_email_no_user(self):
         """Test getting user by email when none exists."""
         result = EmailLookupHandler.get_user_by_email("nonexistent@example.com")
-        self.assertIsNone(result)
+        assert result is None
 
     def test_get_user_by_email_case_insensitive(self):
         """Test getting user by email with case variations."""
@@ -64,9 +64,9 @@ class TestEmailLookupHandler(TestCase):
             for email_variation in test_variations:
                 with self.subTest(email=email_variation):
                     found_user = EmailLookupHandler.get_user_by_email(email_variation)
-                    self.assertIsNotNone(found_user)
+                    assert found_user is not None
                     if found_user is not None:
-                        self.assertEqual(found_user.id, user.id)
+                        assert found_user.id == user.id
         finally:
             user.delete()
 
@@ -75,7 +75,7 @@ class TestEmailValidationHelper(TestCase):
     def test_user_exists_no_user(self):
         """Test checking if user exists when none exists."""
         result = EmailValidationHelper.user_exists("nonexistent@example.com")
-        self.assertFalse(result)
+        assert not result
 
     def test_user_exists_with_user(self):
         """Test checking if user exists when user exists."""
@@ -92,7 +92,7 @@ class TestEmailValidationHelper(TestCase):
             for email_variation in test_variations:
                 with self.subTest(email=email_variation):
                     result = EmailValidationHelper.user_exists(email_variation)
-                    self.assertTrue(result)
+                    assert result
         finally:
             user.delete()
 
@@ -101,8 +101,8 @@ class TestESPSuppressionCheck(SimpleTestCase):
     def test_returns_not_suppressed_for_empty_email(self):
         result = check_esp_suppression("")
 
-        self.assertFalse(result.is_suppressed)
-        self.assertEqual(result.reason, ESPSuppressionReason.EMPTY_EMAIL)
+        assert not result.is_suppressed
+        assert result.reason == ESPSuppressionReason.EMPTY_EMAIL
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -113,8 +113,8 @@ class TestESPSuppressionCheck(SimpleTestCase):
             result = check_esp_suppression("test@example.com")
 
             mock_get.assert_not_called()
-            self.assertTrue(result.is_suppressed)
-            self.assertTrue(result.from_cache)
+            assert result.is_suppressed
+            assert result.from_cache
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -134,8 +134,8 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
         mock_get.assert_called_once()
         mock_cache.set.assert_called_once()
-        self.assertTrue(result.is_suppressed)
-        self.assertFalse(result.from_cache)
+        assert result.is_suppressed
+        assert not result.from_cache
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -150,7 +150,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         check_esp_suppression("test@example.com")
 
         call_args = mock_cache.set.call_args
-        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS)
+        assert call_args[0][2] == ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS
 
     @parameterized.expand(
         [
@@ -178,9 +178,9 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
         result = check_esp_suppression("test@example.com")
 
-        self.assertEqual(result.is_suppressed, expected_suppressed)
-        self.assertFalse(result.from_cache)
-        self.assertEqual(result.reason, expected_reason)
+        assert result.is_suppressed == expected_suppressed
+        assert not result.from_cache
+        assert result.reason == expected_reason
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     def test_email_hash_is_case_insensitive_and_anonymized(self):
@@ -188,10 +188,10 @@ class TestESPSuppressionCheck(SimpleTestCase):
         key_upper = _get_esp_suppression_cache_key("TEST@EXAMPLE.COM")
         key_other = _get_esp_suppression_cache_key("other@example.com")
 
-        self.assertTrue(key_lower.startswith("email_mfa_suppressed:"))
-        self.assertEqual(key_lower, key_upper)
-        self.assertNotEqual(key_lower, key_other)
-        self.assertNotIn("@", key_lower)
+        assert key_lower.startswith("email_mfa_suppressed:")
+        assert key_lower == key_upper
+        assert key_lower != key_other
+        assert "@" not in key_lower
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -205,8 +205,8 @@ class TestESPSuppressionCheck(SimpleTestCase):
         # Verify error was cached with short TTL
         set_calls = list(mock_cache.set.call_args_list)
         error_cache_call = [c for c in set_calls if "error" in c[0][0]]
-        self.assertEqual(len(error_cache_call), 1)
-        self.assertEqual(error_cache_call[0][0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
+        assert len(error_cache_call) == 1
+        assert error_cache_call[0][0][2] == ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -221,7 +221,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
 
         # Verify result was cached with short TTL (not the default 1 day)
         call_args = mock_cache.set.call_args
-        self.assertEqual(call_args[0][2], ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
+        assert call_args[0][2] == ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS
 
     @override_settings(CUSTOMER_IO_API_KEY="test-app-api-key")
     @patch("posthog.helpers.email_utils.cache")
@@ -238,9 +238,9 @@ class TestESPSuppressionCheck(SimpleTestCase):
             result = check_esp_suppression("test@example.com")
 
             mock_get.assert_not_called()
-            self.assertTrue(result.is_suppressed)
-            self.assertTrue(result.from_cache)
-            self.assertEqual(result.reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
+            assert result.is_suppressed
+            assert result.from_cache
+            assert result.reason == ESPSuppressionReason.API_FAILURE_FALLBACK
 
 
 class TestESPSuppressionAnalytics(SimpleTestCase):
@@ -301,14 +301,14 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
 
         mock_capture.assert_called()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "esp_suppression_check")
-        self.assertEqual(call_kwargs["properties"]["outcome"], expected_outcome)
-        self.assertEqual(call_kwargs["properties"]["cache_type"], expected_cache_type)
-        self.assertEqual(call_kwargs["properties"]["api_called"], expected_api_called)
+        assert call_kwargs["event"] == "esp_suppression_check"
+        assert call_kwargs["properties"]["outcome"] == expected_outcome
+        assert call_kwargs["properties"]["cache_type"] == expected_cache_type
+        assert call_kwargs["properties"]["api_called"] == expected_api_called
         if expected_status_code:
-            self.assertEqual(call_kwargs["properties"]["api_status_code"], expected_status_code)
+            assert call_kwargs["properties"]["api_status_code"] == expected_status_code
         if expected_error_type:
-            self.assertEqual(call_kwargs["properties"]["error_type"], expected_error_type)
+            assert call_kwargs["properties"]["error_type"] == expected_error_type
 
 
 class TestValidateDisplayName(SimpleTestCase):
@@ -337,10 +337,10 @@ class TestValidateDisplayName(SimpleTestCase):
         ]
     )
     def test_accepts(self, _name: str, value: str, expected: str) -> None:
-        self.assertEqual(validate_display_name(value), expected)
+        assert validate_display_name(value) == expected
 
     def test_none_passes_through(self) -> None:
-        self.assertIsNone(validate_display_name(None))
+        assert validate_display_name(None) is None
 
     @parameterized.expand(
         [
@@ -374,13 +374,13 @@ class TestValidateDisplayName(SimpleTestCase):
         with self.assertRaises(serializers.ValidationError) as cm:
             validate_display_name(value)
         detail = cast(list[ErrorDetail], cm.exception.detail)
-        self.assertEqual(detail[0].code, expected_code)
+        assert detail[0].code == expected_code
 
 
 class TestValidateMessageBody(SimpleTestCase):
     def test_allows_newlines(self) -> None:
         value = "Hey!\nWelcome to the team.\nCheers."
-        self.assertEqual(validate_message_body(value), value)
+        assert validate_message_body(value) == value
 
     @parameterized.expand(
         [
@@ -390,7 +390,7 @@ class TestValidateMessageBody(SimpleTestCase):
         ]
     )
     def test_allows_bare_domains(self, _name: str, value: str) -> None:
-        self.assertEqual(validate_message_body(value), value)
+        assert validate_message_body(value) == value
 
     @parameterized.expand(
         [
@@ -412,17 +412,17 @@ class TestValidateMessageBody(SimpleTestCase):
         with self.assertRaises(serializers.ValidationError) as cm:
             validate_message_body(value)
         detail = cast(list[ErrorDetail], cm.exception.detail)
-        self.assertEqual(detail[0].code, expected_code)
+        assert detail[0].code == expected_code
 
     def test_allows_tab(self) -> None:
         value = "Indented:\n\tline"
-        self.assertEqual(validate_message_body(value), value)
+        assert validate_message_body(value) == value
 
     def test_blank_passes_through(self) -> None:
-        self.assertIsNone(validate_message_body(None))
-        self.assertEqual(validate_message_body(""), "")
-        self.assertEqual(validate_message_body("   "), "   ")
-        self.assertEqual(validate_message_body("   \n\t  "), "   \n\t  ")
+        assert validate_message_body(None) is None
+        assert validate_message_body("") == ""
+        assert validate_message_body("   ") == "   "
+        assert validate_message_body("   \n\t  ") == "   \n\t  "
 
 
 class TestSanitizeDisplayName(SimpleTestCase):
@@ -437,7 +437,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         ]
     )
     def test_returns_validated_value(self, _name: str, value: str, expected: str) -> None:
-        self.assertEqual(sanitize_display_name(value, fallback="fallback"), expected)
+        assert sanitize_display_name(value, fallback="fallback") == expected
 
     @parameterized.expand(
         [
@@ -450,10 +450,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         ]
     )
     def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
-        self.assertEqual(
-            sanitize_display_name(value, fallback="their organization"),
-            "their organization",
-        )
+        assert sanitize_display_name(value, fallback="their organization") == "their organization"
 
     @parameterized.expand(
         [
@@ -463,7 +460,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         ]
     )
     def test_returns_fallback_when_blank(self, _name: str, value: Optional[str]) -> None:
-        self.assertEqual(sanitize_display_name(value, fallback="Someone"), "Someone")
+        assert sanitize_display_name(value, fallback="Someone") == "Someone"
 
     def test_context_is_logged_but_does_not_raise(self) -> None:
         # The context kwarg is purely diagnostic — it should never affect the return value.
@@ -472,13 +469,13 @@ class TestSanitizeDisplayName(SimpleTestCase):
             fallback="their organization",
             context={"task": "unit_test", "organization_id": "abc"},
         )
-        self.assertEqual(result, "their organization")
+        assert result == "their organization"
 
 
 class TestSanitizeMessageBody(SimpleTestCase):
     def test_returns_validated_value(self) -> None:
         value = "Hey!\nWelcome aboard."
-        self.assertEqual(sanitize_message_body(value), value)
+        assert sanitize_message_body(value) == value
 
     @parameterized.expand(
         [
@@ -489,14 +486,14 @@ class TestSanitizeMessageBody(SimpleTestCase):
         ]
     )
     def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
-        self.assertEqual(sanitize_message_body(value), "")
-        self.assertEqual(sanitize_message_body(value, fallback="--"), "--")
+        assert sanitize_message_body(value) == ""
+        assert sanitize_message_body(value, fallback="--") == "--"
 
     def test_passes_through_none_and_blank_via_fallback(self) -> None:
         # None / empty pass through validate_message_body but the helper still returns the
         # fallback so callers can rely on getting a non-None string back.
-        self.assertEqual(sanitize_message_body(None), "")
-        self.assertEqual(sanitize_message_body(""), "")
+        assert sanitize_message_body(None) == ""
+        assert sanitize_message_body("") == ""
 
 
 class TestSanitizeEmailString(SimpleTestCase):
@@ -552,13 +549,13 @@ class TestSanitizeEmailString(SimpleTestCase):
         ]
     )
     def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
-        self.assertEqual(sanitize_email_string(value), expected)
+        assert sanitize_email_string(value) == expected
 
     def test_empty_string(self) -> None:
-        self.assertEqual(sanitize_email_string(""), "")
+        assert sanitize_email_string("") == ""
 
     def test_does_not_double_encode_already_escaped(self) -> None:
         # `&amp;` survives a second pass — html.escape would re-encode the `&` in
         # the entity, which is the existing trade-off of running sanitize_email_string
         # over already-sanitized data. Documented as a guardrail.
-        self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")
+        assert sanitize_email_string("&amp;") == "&amp;amp;"

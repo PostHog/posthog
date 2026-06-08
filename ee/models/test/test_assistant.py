@@ -16,31 +16,31 @@ class TestCoreMemory(BaseTest):
     async def test_status_changes(self):
         # Test pending status
         await self.core_memory.achange_status_to_pending()
-        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
-        self.assertIsNotNone(self.core_memory.scraping_started_at)
+        assert self.core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING
+        assert self.core_memory.scraping_started_at is not None
 
         # Test skipped status
         await self.core_memory.achange_status_to_skipped()
-        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.SKIPPED)
+        assert self.core_memory.scraping_status == CoreMemory.ScrapingStatus.SKIPPED
 
     async def test_scraping_status_properties(self):
         # Test pending status within time window
         await self.core_memory.achange_status_to_pending()
-        self.assertTrue(self.core_memory.is_scraping_pending)
+        assert self.core_memory.is_scraping_pending
 
         # Test pending status outside time window
         self.core_memory.scraping_started_at = timezone.now() - timedelta(minutes=11)
         await self.core_memory.asave()
-        self.assertFalse(self.core_memory.is_scraping_pending)
+        assert not self.core_memory.is_scraping_pending
 
         # Test finished status
         self.core_memory.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         await self.core_memory.asave()
-        self.assertTrue(self.core_memory.is_scraping_finished)
+        assert self.core_memory.is_scraping_finished
 
         self.core_memory.scraping_status = CoreMemory.ScrapingStatus.SKIPPED
         await self.core_memory.asave()
-        self.assertTrue(self.core_memory.is_scraping_finished)
+        assert self.core_memory.is_scraping_finished
 
     @freeze_time("2023-01-01 12:00:00")
     async def test_is_scraping_pending_timing(self):
@@ -50,35 +50,35 @@ class TestCoreMemory(BaseTest):
 
         # Test 3 minutes after (should be true)
         with freeze_time(initial_time + timedelta(minutes=3)):
-            self.assertTrue(self.core_memory.is_scraping_pending)
+            assert self.core_memory.is_scraping_pending
 
         # Test exactly 5 minutes after (should be false)
         with freeze_time(initial_time + timedelta(minutes=10)):
-            self.assertFalse(self.core_memory.is_scraping_pending)
+            assert not self.core_memory.is_scraping_pending
 
         # Test 6 minutes after (should be false)
         with freeze_time(initial_time + timedelta(minutes=11)):
-            self.assertFalse(self.core_memory.is_scraping_pending)
+            assert not self.core_memory.is_scraping_pending
 
     async def test_core_memory_operations(self):
         # Test setting core memory
         test_text = "Test memory content"
         await self.core_memory.aset_core_memory(test_text)
-        self.assertEqual(self.core_memory.text, test_text)
-        self.assertEqual(self.core_memory.initial_text, "")
-        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
+        assert self.core_memory.text == test_text
+        assert self.core_memory.initial_text == ""
+        assert self.core_memory.scraping_status == CoreMemory.ScrapingStatus.COMPLETED
 
         # Test appending core memory
         append_text = "Additional content"
         await self.core_memory.aappend_core_memory(append_text)
-        self.assertEqual(self.core_memory.text, f"{test_text}\n{append_text}")
+        assert self.core_memory.text == f"{test_text}\n{append_text}"
 
         # Test replacing core memory
         original = "content"
         new = "memory"
         await self.core_memory.areplace_core_memory(original, new)
-        self.assertIn(new, self.core_memory.text)
-        self.assertNotIn(original, self.core_memory.text)
+        assert new in self.core_memory.text
+        assert original not in self.core_memory.text
 
         # Test replacing non-existent content
         with self.assertRaises(ValueError):
@@ -88,33 +88,33 @@ class TestCoreMemory(BaseTest):
         await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS - 5))
         with self.assertRaises(ValueError) as ctx:
             await self.core_memory.aappend_core_memory("y" * 10)
-        self.assertIn("full", str(ctx.exception))
+        assert "full" in str(ctx.exception)
         # Text should be unchanged
         await self.core_memory.arefresh_from_db()
-        self.assertEqual(self.core_memory.text, "x" * (CORE_MEMORY_MAX_CHARACTERS - 5))
+        assert self.core_memory.text == "x" * (CORE_MEMORY_MAX_CHARACTERS - 5)
 
     async def test_append_at_exact_limit(self):
         await self.core_memory.aset_core_memory("x" * (CORE_MEMORY_MAX_CHARACTERS - 6))
         # 5 chars of existing + "\n" + 5 chars = CORE_MEMORY_MAX_CHARACTERS - 6 + 1 + 5 = CORE_MEMORY_MAX_CHARACTERS
         await self.core_memory.aappend_core_memory("y" * 5)
-        self.assertEqual(len(self.core_memory.text), CORE_MEMORY_MAX_CHARACTERS)
+        assert len(self.core_memory.text) == CORE_MEMORY_MAX_CHARACTERS
 
     async def test_replace_exceeds_limit(self):
         await self.core_memory.aset_core_memory("x" * CORE_MEMORY_MAX_CHARACTERS)
         with self.assertRaises(ValueError) as ctx:
             await self.core_memory.areplace_core_memory("x", "yy")
-        self.assertIn("limit", str(ctx.exception))
+        assert "limit" in str(ctx.exception)
         await self.core_memory.arefresh_from_db()
-        self.assertEqual(self.core_memory.text, "x" * CORE_MEMORY_MAX_CHARACTERS)
+        assert self.core_memory.text == "x" * CORE_MEMORY_MAX_CHARACTERS
 
     async def test_formatted_text(self):
         # Test formatted text with short content
         short_text = "Short text"
         await self.core_memory.aset_core_memory(short_text)
-        self.assertEqual(self.core_memory.formatted_text, short_text)
+        assert self.core_memory.formatted_text == short_text
 
         # Test formatted text with long content
         long_text = "x" * 6000
         await self.core_memory.aset_core_memory(long_text)
-        self.assertEqual(len(self.core_memory.formatted_text), 5001)
-        self.assertEqual(self.core_memory.formatted_text, long_text[:2500] + "…" + long_text[-2500:])
+        assert len(self.core_memory.formatted_text) == 5001
+        assert self.core_memory.formatted_text == long_text[:2500] + "…" + long_text[-2500:]

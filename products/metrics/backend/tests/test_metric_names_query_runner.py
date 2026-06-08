@@ -31,7 +31,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_returns_empty_for_no_data(self):
         runner = MetricNamesQueryRunner(team=self.team)
-        self.assertEqual(runner.run(), [])
+        assert runner.run() == []
 
     def test_returns_distinct_names_with_metric_type(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -61,11 +61,11 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.run()
 
         names = {row["name"] for row in results}
-        self.assertEqual(names, {"http.server.duration", "queue.depth"})
+        assert names == {"http.server.duration", "queue.depth"}
 
         by_name = {row["name"]: row["metric_type"] for row in results}
-        self.assertEqual(by_name["http.server.duration"], "histogram")
-        self.assertEqual(by_name["queue.depth"], "gauge")
+        assert by_name["http.server.duration"] == "histogram"
+        assert by_name["queue.depth"] == "gauge"
 
     def test_search_filters_by_substring(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -74,7 +74,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = MetricNamesQueryRunner(team=self.team, search="server")
         results = runner.run()
-        self.assertEqual([row["name"] for row in results], ["http.server.duration"])
+        assert [row["name"] for row in results] == ["http.server.duration"]
 
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -93,14 +93,14 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = MetricNamesQueryRunner(team=self.team, search="bar")
         results = runner.run()
-        self.assertEqual(results[0]["name"], "bar")
+        assert results[0]["name"] == "bar"
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         _insert_metric_row(team_id=99999, metric_name="other.team.metric", value=1.0, timestamp=anchor)
 
         runner = MetricNamesQueryRunner(team=self.team)
-        self.assertEqual(runner.run(), [])
+        assert runner.run() == []
 
     def test_lookback_excludes_old_data(self):
         old = timezone.now().replace(microsecond=0) - dt.timedelta(days=14)
@@ -110,8 +110,8 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = MetricNamesQueryRunner(team=self.team, lookback=dt.timedelta(days=7))
         names = [row["name"] for row in runner.run()]
-        self.assertIn("recent.metric", names)
-        self.assertNotIn("old.metric", names)
+        assert "recent.metric" in names
+        assert "old.metric" not in names
 
 
 class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
@@ -124,12 +124,12 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
     def test_values_requires_authentication(self):
         self.client.logout()
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_values_returns_empty_for_no_data(self):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"results": []})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": []}
 
     def test_values_returns_metric_names(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -137,10 +137,10 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         _insert_metric_row(team_id=self.team.id, metric_name="m2", value=2.0, timestamp=anchor, metric_type="gauge")
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
         names = {row["name"] for row in body["results"]}
-        self.assertEqual(names, {"m1", "m2"})
+        assert names == {"m1", "m2"}
 
     def test_values_search_param(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -148,13 +148,13 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         _insert_metric_row(team_id=self.team.id, metric_name="queue.depth", value=2.0, timestamp=anchor)
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?value=http")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         names = [row["name"] for row in response.json()["results"]]
-        self.assertEqual(names, ["http.duration"])
+        assert names == ["http.duration"]
 
     def test_values_rejects_invalid_limit(self):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=0")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

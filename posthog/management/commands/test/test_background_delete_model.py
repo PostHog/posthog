@@ -17,14 +17,14 @@ class TestBackgroundDeleteModel(BaseTest):
         with self.assertRaises(CommandError) as context:
             self.command.handle("invalid_model_name", team_id=1)
 
-        self.assertIn("Model name must be in format 'app_label.model_name'", str(context.exception))
+        assert "Model name must be in format 'app_label.model_name'" in str(context.exception)
 
     def test_model_not_found(self):
         """Test that non-existent model raises CommandError"""
         with self.assertRaises(CommandError) as context:
             self.command.handle("nonexistent.Model", team_id=1)
 
-        self.assertIn("Model not found", str(context.exception))
+        assert "Model not found" in str(context.exception)
 
     def test_model_without_team_field(self):
         """Test that model without team_id or team field raises CommandError"""
@@ -43,7 +43,7 @@ class TestBackgroundDeleteModel(BaseTest):
             with self.assertRaises(CommandError) as context:
                 self.command.handle("test.TestModel", team_id=1)
 
-            self.assertIn("does not have a team_id or team field", str(context.exception))
+            assert "does not have a team_id or team field" in str(context.exception)
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
     @patch("builtins.input", return_value="DELETE 2 RECORDS")
@@ -200,8 +200,8 @@ class TestBackgroundDeleteModel(BaseTest):
         Person.objects.create(team=team2, properties={})  # Team 2
 
         # Verify initial counts
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 2)
-        self.assertEqual(Person.objects.filter(team=team2).count(), 3)
+        assert Person.objects.filter(team=self.team).count() == 2
+        assert Person.objects.filter(team=team2).count() == 3
 
         # Run command for team 1 only
         self.command.handle("posthog.Person", team_id=self.team.id)
@@ -212,8 +212,8 @@ class TestBackgroundDeleteModel(BaseTest):
         )
 
         # Verify counts haven't changed (since we're just testing the command, not the actual deletion)
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 2)
-        self.assertEqual(Person.objects.filter(team=team2).count(), 3)
+        assert Person.objects.filter(team=self.team).count() == 2
+        assert Person.objects.filter(team=team2).count() == 3
 
     def test_max_delete_size_limit(self):
         """Test that deletion is limited to max_delete_size when total count exceeds it"""

@@ -40,6 +40,4 @@ class TestCppParserRejectNoLeak(BaseTest):
         per_parse = sum(stat.size_diff for stat in after.compare_to(before, "filename")) / runs
         if not was_tracing:
             tracemalloc.stop()
-        self.assertLess(
-            per_parse, 100, f"cpp-json reject path leaked {per_parse:.0f} B/parse (regressed; was ~1000 B/parse)"
-        )
+        assert per_parse < 100, f"cpp-json reject path leaked {per_parse:.0f} B/parse (regressed; was ~1000 B/parse)"

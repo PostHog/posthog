@@ -76,15 +76,12 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             client = redis.get_client()
 
             # redis returns encoded bytes
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192618": b"10", b"165192619": b"5"},
-            )
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{other_team_id}"),
-                {b"165192618": b"7", b"165192619": b"3"},
-            )
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192618": b"10", b"165192619": b"5"}
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {
+                b"165192618": b"7",
+                b"165192619": b"3",
+            }
+            assert client.hgetall(f"posthog:decide_requests:other") == {}
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_capture_team_decide_usage(self):
@@ -207,10 +204,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_not_called()
 
             client = redis.get_client()
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192620": b"5"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192620": b"5"}
 
             with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"):
                 capture_team_decide_usage(mock_capture, team_id, team_uuid)
@@ -393,16 +387,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
             # check that the increments made it through
             # and no extra requests were counted
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192620": b"8"},
-            )
-            self.assertEqual(
-                client.hgetall(f"posthog:local_evaluation_requests:{team_id}"),
-                {b"165192620": b"8"},
-            )
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{other_team_id}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192620": b"8"}
+            assert client.hgetall(f"posthog:local_evaluation_requests:{team_id}") == {b"165192620": b"8"}
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {}
+            assert client.hgetall(f"posthog:local_evaluation_requests:{other_team_id}") == {}
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."
@@ -561,11 +549,8 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
             # check that the increments made it through
             # and no extra requests were counted
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:{team_id}"),
-                {b"165192620": b"8"},
-            )
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
+            assert client.hgetall(f"posthog:decide_requests:{team_id}") == {b"165192620": b"8"}
+            assert client.hgetall(f"posthog:decide_requests:{other_team_id}") == {}
 
 
 class TestSdkBreakdown(BaseTest):
@@ -576,19 +561,19 @@ class TestSdkBreakdown(BaseTest):
         return super().setUp()
 
     def test_get_team_request_library_key_decide(self):
-        self.assertEqual(
-            get_team_request_library_key(123, FlagRequestType.DECIDE, "posthog-js"),
-            "posthog:decide_requests:sdk:123:posthog-js",
+        assert (
+            get_team_request_library_key(123, FlagRequestType.DECIDE, "posthog-js")
+            == "posthog:decide_requests:sdk:123:posthog-js"
         )
-        self.assertEqual(
-            get_team_request_library_key(456, FlagRequestType.DECIDE, "posthog-node"),
-            "posthog:decide_requests:sdk:456:posthog-node",
+        assert (
+            get_team_request_library_key(456, FlagRequestType.DECIDE, "posthog-node")
+            == "posthog:decide_requests:sdk:456:posthog-node"
         )
 
     def test_get_team_request_library_key_local_evaluation(self):
-        self.assertEqual(
-            get_team_request_library_key(123, FlagRequestType.LOCAL_EVALUATION, "posthog-python"),
-            "posthog:local_evaluation_requests:sdk:123:posthog-python",
+        assert (
+            get_team_request_library_key(123, FlagRequestType.LOCAL_EVALUATION, "posthog-python")
+            == "posthog:local_evaluation_requests:sdk:123:posthog-python"
         )
 
     def test_sdk_libraries_matches_rust_library_enum(self):
@@ -617,7 +602,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-flutter",
             "other",
         ]
-        self.assertEqual(SDK_LIBRARIES, expected_libraries)
+        assert SDK_LIBRARIES == expected_libraries
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_extract_sdk_breakdown_from_redis_empty(self):
@@ -626,7 +611,7 @@ class TestSdkBreakdown(BaseTest):
 
         with freeze_time("2022-05-07 12:23:07"):
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
-            self.assertEqual(result, {})
+            assert result == {}
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_extract_sdk_breakdown_from_redis_with_data(self):
@@ -650,17 +635,11 @@ class TestSdkBreakdown(BaseTest):
 
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
             # Only bucket 1 should be extracted (bucket 2 is skipped as it's most recent)
-            self.assertEqual(result, {"posthog-js": 100, "posthog-node": 50})
+            assert result == {"posthog-js": 100, "posthog-node": 50}
 
             # Bucket 1 should be consumed, bucket 2 should still exist
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js"),
-                {b"165192619": b"10"},
-            )
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-node"),
-                {b"165192619": b"5"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js") == {b"165192619": b"10"}
+            assert client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-node") == {b"165192619": b"5"}
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_capture_team_decide_usage_includes_sdk_breakdown(self):
@@ -830,12 +809,12 @@ class TestSdkBreakdown(BaseTest):
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
 
             # Verify all SDKs were extracted with correct counts from bucket 1
-            self.assertEqual(result, test_sdks)
+            assert result == test_sdks
 
             # Verify bucket 1 was consumed for all SDKs, bucket 2 remains
             for sdk in test_sdks:
                 remaining = client.hgetall(f"posthog:decide_requests:sdk:{team_id}:{sdk}")
-                self.assertEqual(remaining, {b"165192619": b"1"}, f"SDK {sdk} should only have bucket 2 remaining")
+                assert remaining == {b"165192619": b"1"}, f"SDK {sdk} should only have bucket 2 remaining"
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_extract_sdk_breakdown_handles_single_bucket_gracefully(self):
@@ -855,13 +834,10 @@ class TestSdkBreakdown(BaseTest):
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
 
             # Should return empty dict since there's only one bucket (still being filled)
-            self.assertEqual(result, {})
+            assert result == {}
 
             # Data should still be in Redis (not consumed)
-            self.assertEqual(
-                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js"),
-                {b"165192618": b"100"},
-            )
+            assert client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js") == {b"165192618": b"100"}
 
 
 class TestEnrichedAnalytics(BaseTest):
@@ -965,34 +941,34 @@ class TestEnrichedAnalytics(BaseTest):
         f3.refresh_from_db()
         f4.refresh_from_db()
 
-        self.assertEqual(f1.has_enriched_analytics, True)
-        self.assertEqual(f2.has_enriched_analytics, True)
-        self.assertEqual(f3.has_enriched_analytics, False)
-        self.assertEqual(f4.has_enriched_analytics, False)
+        assert f1.has_enriched_analytics
+        assert f2.has_enriched_analytics
+        assert not f3.has_enriched_analytics
+        assert not f4.has_enriched_analytics
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         assert f1.usage_dashboard is not None
-        self.assertEqual(f1.usage_dashboard.name, "Generated Dashboard: test_flag Usage")
-        self.assertEqual(f2.usage_dashboard, None)
+        assert f1.usage_dashboard.name == "Generated Dashboard: test_flag Usage"
+        assert f2.usage_dashboard is None
         assert f3.usage_dashboard is not None
-        self.assertEqual(f3.usage_dashboard.name, "Generated Dashboard: beta-feature2 Usage")
-        self.assertEqual(f4.usage_dashboard, None)
+        assert f3.usage_dashboard.name == "Generated Dashboard: beta-feature2 Usage"
+        assert f4.usage_dashboard is None
 
         # 1 should have enriched analytics, but nothing else
-        self.assertEqual(f1.usage_dashboard_has_enriched_insights, True)
-        self.assertEqual(f2.usage_dashboard_has_enriched_insights, False)
-        self.assertEqual(f3.usage_dashboard_has_enriched_insights, False)
-        self.assertEqual(f4.usage_dashboard_has_enriched_insights, False)
+        assert f1.usage_dashboard_has_enriched_insights
+        assert not f2.usage_dashboard_has_enriched_insights
+        assert not f3.usage_dashboard_has_enriched_insights
+        assert not f4.usage_dashboard_has_enriched_insights
 
-        self.assertEqual(f1.usage_dashboard.tiles.count(), 4)
-        self.assertEqual(f3.usage_dashboard.tiles.count(), 2)
+        assert f1.usage_dashboard.tiles.count() == 4
+        assert f3.usage_dashboard.tiles.count() == 2
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         f1.usage_dashboard.delete()
 
         f1.refresh_from_db()
-        self.assertEqual(f1.has_enriched_analytics, True)
-        self.assertEqual(f1.usage_dashboard, None)
+        assert f1.has_enriched_analytics
+        assert f1.usage_dashboard is None
 
 
 class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):

@@ -67,16 +67,19 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
         flow3.refresh_from_db()
 
         # Check results - only billable action types
-        self.assertEqual(sorted(flow1.billable_action_types or []), ["function", "function_email"])
-        self.assertEqual(
-            sorted(flow2.billable_action_types or []), ["function", "function_email", "function_push", "function_sms"]
-        )
-        self.assertEqual(flow3.billable_action_types, [])
+        assert sorted(flow1.billable_action_types or []) == ["function", "function_email"]
+        assert sorted(flow2.billable_action_types or []) == [
+            "function",
+            "function_email",
+            "function_push",
+            "function_sms",
+        ]
+        assert flow3.billable_action_types == []
 
         # Check output
         output = out.getvalue()
         # Should have processed flows and updated at least the 3 we created
-        self.assertIn("Backfill completed", output)
+        assert "Backfill completed" in output
 
     def test_dry_run_mode(self):
         """Test that dry-run mode doesn't make changes"""
@@ -93,11 +96,11 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
         call_command("backfill_hogflow_billable_action_types", "--dry-run", stdout=out)
 
         flow.refresh_from_db()
-        self.assertIsNone(flow.billable_action_types)
+        assert flow.billable_action_types is None
 
         output = out.getvalue()
-        self.assertIn("DRY RUN mode", output)
-        self.assertIn("DRY RUN completed", output)
+        assert "DRY RUN mode" in output
+        assert "DRY RUN completed" in output
 
     def test_recomputation_of_wrong_values(self):
         """Test that the command fixes incorrect billable_action_types values"""
@@ -113,7 +116,7 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
         # Run the command - should fix the wrong value
         call_command("backfill_hogflow_billable_action_types")
         flow.refresh_from_db()
-        self.assertEqual(sorted(flow.billable_action_types or []), ["function"])  # Only function is billable
+        assert sorted(flow.billable_action_types or []) == ["function"]  # Only function is billable
 
     def test_handles_duplicates(self):
         """Test that duplicate action types are deduplicated"""
@@ -134,7 +137,7 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
         flow.refresh_from_db()
 
         # Should have unique types only (and only billable ones)
-        self.assertEqual(sorted(flow.billable_action_types or []), ["function"])
+        assert sorted(flow.billable_action_types or []) == ["function"]
 
     def test_batch_processing(self):
         """Test that batch processing works correctly"""
@@ -162,12 +165,12 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
 
         # Check all were processed
         flows = HogFlow.objects.filter(id__in=created_ids)
-        self.assertEqual(flows.count(), 25)
+        assert flows.count() == 25
 
         for flow in flows:
             flow.refresh_from_db()
-            self.assertEqual(flow.billable_action_types, ["function"])
+            assert flow.billable_action_types == ["function"]
 
-        self.assertIn("Backfill completed", output)
+        assert "Backfill completed" in output
         # Should have updated flows
-        self.assertIn("Updated:", output)
+        assert "Updated:" in output

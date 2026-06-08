@@ -178,4 +178,4 @@ class RemovePresortedEventsModifierMigrationTest(NonAtomicTestMigrations):
         insight = self.insights[insight_key]
         insight.refresh_from_db()
 
-        self.assertEqual(insight.query, expected_query)
+        assert insight.query == expected_query

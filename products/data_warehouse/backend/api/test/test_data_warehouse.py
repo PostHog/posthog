@@ -33,12 +33,9 @@ class TestDataWarehouseAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/data_warehouse/property_values?key=name&table_name={table.name}"
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json()["results"],
-            [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}, {"name": "true"}],
-        )
-        self.assertEqual(response["Cache-Control"], "max-age=10")
+        assert response.status_code == 200
+        assert response.json()["results"] == [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}, {"name": "true"}]
+        assert response["Cache-Control"] == "max-age=10"
 
     @patch("products.data_warehouse.backend.api.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.api.data_warehouse.get_cached_instance_license")
@@ -72,10 +69,10 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["tracked_billing_rows"], 100)
-        self.assertEqual(data["pending_billing_rows"], 50)
-        self.assertEqual(data["total_rows"], 150)
+        assert response.status_code == 200
+        assert data["tracked_billing_rows"] == 100
+        assert data["pending_billing_rows"] == 50
+        assert data["total_rows"] == 150
 
     @patch("products.data_warehouse.backend.api.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.api.data_warehouse.get_cached_instance_license")
@@ -86,8 +83,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(data["error"], "An error occurred retrieving billing information")
+        assert response.status_code == 500
+        assert data["error"] == "An error occurred retrieving billing information"
 
     def test_job_stats_default_7_days(self):
         """Test job_stats endpoint with default 7-day period"""
@@ -121,19 +118,19 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["days"], 7)
-        self.assertEqual(data["total_jobs"], 3)
-        self.assertEqual(data["successful_jobs"], 2)
-        self.assertEqual(data["failed_jobs"], 1)
-        self.assertEqual(data["external_data_jobs"]["total"], 2)
-        self.assertEqual(data["external_data_jobs"]["successful"], 1)
-        self.assertEqual(data["external_data_jobs"]["failed"], 1)
-        self.assertEqual(data["modeling_jobs"]["total"], 1)
-        self.assertEqual(data["modeling_jobs"]["successful"], 1)
-        self.assertEqual(data["modeling_jobs"]["failed"], 0)
-        self.assertIn("breakdown", data)
-        self.assertIn("cutoff_time", data)
+        assert response.status_code == 200
+        assert data["days"] == 7
+        assert data["total_jobs"] == 3
+        assert data["successful_jobs"] == 2
+        assert data["failed_jobs"] == 1
+        assert data["external_data_jobs"]["total"] == 2
+        assert data["external_data_jobs"]["successful"] == 1
+        assert data["external_data_jobs"]["failed"] == 1
+        assert data["modeling_jobs"]["total"] == 1
+        assert data["modeling_jobs"]["successful"] == 1
+        assert data["modeling_jobs"]["failed"] == 0
+        assert "breakdown" in data
+        assert "cutoff_time" in data
 
     def test_job_stats_1_day_hourly_breakdown(self):
         """Test job_stats endpoint with 1-day period returns hourly breakdown"""
@@ -157,10 +154,10 @@ class TestDataWarehouseAPI(APIBaseTest):
             response = self.client.get(f"{endpoint}?days=1")
             data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["days"], 1)
-        self.assertEqual(data["total_jobs"], 1)
-        self.assertEqual(len(data["breakdown"]), 24)
+        assert response.status_code == 200
+        assert data["days"] == 1
+        assert data["total_jobs"] == 1
+        assert len(data["breakdown"]) == 24
 
     def test_job_stats_30_days(self):
         """Test job_stats endpoint with 30-day period"""
@@ -193,24 +190,24 @@ class TestDataWarehouseAPI(APIBaseTest):
             response = self.client.get(f"{endpoint}?days=30")
             data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["days"], 30)
-        self.assertEqual(data["total_jobs"], 2)
-        self.assertEqual(data["successful_jobs"], 1)
-        self.assertEqual(data["failed_jobs"], 1)
-        self.assertEqual(len(data["breakdown"]), 30)
+        assert response.status_code == 200
+        assert data["days"] == 30
+        assert data["total_jobs"] == 2
+        assert data["successful_jobs"] == 1
+        assert data["failed_jobs"] == 1
+        assert len(data["breakdown"]) == 30
 
     def test_job_stats_invalid_days_parameter(self):
         """Test job_stats endpoint rejects invalid days parameter"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/job_stats"
 
         response = self.client.get(f"{endpoint}?days=14")
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Invalid days parameter", response.json()["error"])
+        assert response.status_code == 400
+        assert "Invalid days parameter" in response.json()["error"]
 
         response = self.client.get(f"{endpoint}?days=invalid")
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Invalid days parameter", response.json()["error"])
+        assert response.status_code == 400
+        assert "Invalid days parameter" in response.json()["error"]
 
     def test_job_stats_excludes_old_jobs(self):
         """Test job_stats endpoint only includes jobs within the specified time range"""
@@ -242,9 +239,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(f"{endpoint}?days=7")
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["total_jobs"], 1)
-        self.assertEqual(data["successful_jobs"], 1)
+        assert response.status_code == 200
+        assert data["total_jobs"] == 1
+        assert data["successful_jobs"] == 1
 
     def test_job_stats_empty_state(self):
         """Test job_stats endpoint with no jobs"""
@@ -253,13 +250,13 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["total_jobs"], 0)
-        self.assertEqual(data["successful_jobs"], 0)
-        self.assertEqual(data["failed_jobs"], 0)
-        self.assertEqual(data["external_data_jobs"]["total"], 0)
-        self.assertEqual(data["modeling_jobs"]["total"], 0)
-        self.assertIn("breakdown", data)
+        assert response.status_code == 200
+        assert data["total_jobs"] == 0
+        assert data["successful_jobs"] == 0
+        assert data["failed_jobs"] == 0
+        assert data["external_data_jobs"]["total"] == 0
+        assert data["modeling_jobs"]["total"] == 0
+        assert "breakdown" in data
 
     def test_job_stats_breakdown_aggregation(self):
         """Test job_stats breakdown correctly aggregates jobs by time period"""
@@ -299,13 +296,13 @@ class TestDataWarehouseAPI(APIBaseTest):
             response = self.client.get(f"{endpoint}?days=7")
             data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["total_jobs"], 3)
+        assert response.status_code == 200
+        assert data["total_jobs"] == 3
 
         today_key = str(today_start)
-        self.assertIn(today_key, data["breakdown"])
-        self.assertEqual(data["breakdown"][today_key]["successful"], 2)
-        self.assertEqual(data["breakdown"][today_key]["failed"], 1)
+        assert today_key in data["breakdown"]
+        assert data["breakdown"][today_key]["successful"] == 2
+        assert data["breakdown"][today_key]["failed"] == 1
 
     def test_running_activity_returns_only_running_jobs(self):
         """Test running_activity endpoint returns only running jobs"""
@@ -332,15 +329,15 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 2)
+        assert response.status_code == 200
+        assert len(data["results"]) == 2
 
         statuses = [activity["status"] for activity in data["results"]]
-        self.assertTrue(all(status == "Running" for status in statuses))
+        assert all(status == "Running" for status in statuses)
 
         types = [activity["type"] for activity in data["results"]]
-        self.assertIn("Stripe", types)
-        self.assertIn("Materialized view", types)
+        assert "Stripe" in types
+        assert "Materialized view" in types
 
     def test_completed_activity_returns_only_completed_jobs(self):
         """Test completed_activity endpoint returns only jobs with status 'Completed'"""
@@ -368,15 +365,15 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 2)
+        assert response.status_code == 200
+        assert len(data["results"]) == 2
 
         statuses = [activity["status"] for activity in data["results"]]
-        self.assertTrue(all(status == "Completed" for status in statuses))
+        assert all(status == "Completed" for status in statuses)
 
         types = [activity["type"] for activity in data["results"]]
-        self.assertEqual(types.count("Stripe"), 1)
-        self.assertEqual(types.count("Materialized view"), 1)
+        assert types.count("Stripe") == 1
+        assert types.count("Materialized view") == 1
 
     def test_running_activity_pagination(self):
         """Test running_activity endpoint pagination"""
@@ -395,15 +392,15 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(f"{endpoint}?limit=2&offset=0")
         first_page_data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(first_page_data["results"]), 2)
-        self.assertIsNotNone(first_page_data["next"])
+        assert response.status_code == 200
+        assert len(first_page_data["results"]) == 2
+        assert first_page_data["next"] is not None
 
         response = self.client.get(f"{endpoint}?limit=2&offset=2")
         second_page_data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(second_page_data["results"]), 2)
+        assert response.status_code == 200
+        assert len(second_page_data["results"]) == 2
 
     def test_completed_activity_pagination(self):
         """Test completed_activity endpoint pagination"""
@@ -424,15 +421,15 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(f"{endpoint}?limit=3&offset=0")
         first_page_data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(first_page_data["results"]), 3)
-        self.assertIsNotNone(first_page_data["next"])
+        assert response.status_code == 200
+        assert len(first_page_data["results"]) == 3
+        assert first_page_data["next"] is not None
 
         response = self.client.get(f"{endpoint}?limit=3&offset=3")
         second_page_data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(second_page_data["results"]), 3)
+        assert response.status_code == 200
+        assert len(second_page_data["results"]) == 3
 
     def test_running_activity_cutoff_days(self):
         """Test running_activity endpoint respects cutoff_days parameter"""
@@ -455,15 +452,15 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(f"{endpoint}?cutoff_days=30")
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["rows"], 100)
+        assert response.status_code == 200
+        assert len(data["results"]) == 1
+        assert data["results"][0]["rows"] == 100
 
         response = self.client.get(f"{endpoint}?cutoff_days=40")
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 2)
+        assert response.status_code == 200
+        assert len(data["results"]) == 2
 
     def test_completed_activity_cutoff_days(self):
         """Test completed_activity endpoint respects cutoff_days parameter"""
@@ -486,9 +483,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(f"{endpoint}?cutoff_days=30")
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["rows"], 100)
+        assert response.status_code == 200
+        assert len(data["results"]) == 1
+        assert data["results"][0]["rows"] == 100
 
     def test_running_activity_empty_state(self):
         """Test running_activity endpoint with no running jobs"""
@@ -506,8 +503,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 0)
+        assert response.status_code == 200
+        assert len(data["results"]) == 0
 
     def test_completed_activity_empty_state(self):
         """Test completed_activity endpoint with no completed jobs"""
@@ -525,8 +522,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 0)
+        assert response.status_code == 200
+        assert len(data["results"]) == 0
 
     def test_running_activity_ordering(self):
         """Test running_activity endpoint returns results ordered by created_at DESC"""
@@ -538,9 +535,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         created_dates = [result["created_at"] for result in data["results"]]
-        self.assertEqual(created_dates, sorted(created_dates, reverse=True))
+        assert created_dates == sorted(created_dates, reverse=True)
 
     def test_completed_activity_ordering(self):
         """Test completed_activity endpoint returns results ordered by created_at DESC"""
@@ -553,88 +550,88 @@ class TestDataWarehouseAPI(APIBaseTest):
         response = self.client.get(endpoint)
         data = response.json()
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         created_dates = [result["created_at"] for result in data["results"]]
-        self.assertEqual(created_dates, sorted(created_dates, reverse=True))
+        assert created_dates == sorted(created_dates, reverse=True)
 
     def test_running_activity_invalid_parameters(self):
         """Test running_activity endpoint rejects invalid parameters"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/running_activity"
 
         response = self.client.get(f"{endpoint}?limit=invalid")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
         response = self.client.get(f"{endpoint}?offset=invalid")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
         response = self.client.get(f"{endpoint}?cutoff_days=invalid")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
     def test_completed_activity_invalid_parameters(self):
         """Test completed_activity endpoint rejects invalid parameters"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
 
         response = self.client.get(f"{endpoint}?limit=invalid")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
         response = self.client.get(f"{endpoint}?offset=invalid")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
         response = self.client.get(f"{endpoint}?cutoff_days=invalid")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
     def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
         # Config is auto-created by the team extension signal, but starts with no dashboards
         config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertEqual(config.overview_dashboards.count(), 0)
+        assert config.overview_dashboards.count() == 0
 
         response = self.client.get(endpoint)
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
-        self.assertIn("dashboard_id", data)
-        self.assertIsNotNone(data["dashboard_id"])
+        assert "dashboard_id" in data
+        assert data["dashboard_id"] is not None
 
         dashboard = Dashboard.objects.get(id=data["dashboard_id"])
-        self.assertEqual(dashboard.team_id, self.team.pk)
-        self.assertEqual(dashboard.name, "Data ops overview")
-        self.assertEqual(dashboard.creation_mode, "template")
+        assert dashboard.team_id == self.team.pk
+        assert dashboard.name == "Data ops overview"
+        assert dashboard.creation_mode == "template"
 
         config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertEqual(config.overview_dashboards.filter(id=data["dashboard_id"]).count(), 1)
+        assert config.overview_dashboards.filter(id=data["dashboard_id"]).count() == 1
 
     def test_data_ops_dashboard_returns_existing_dashboard_on_subsequent_calls(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
         first_response = self.client.get(endpoint)
-        self.assertEqual(first_response.status_code, 200)
+        assert first_response.status_code == 200
         first_dashboard_id = first_response.json()["dashboard_id"]
 
         second_response = self.client.get(endpoint)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(second_response.json()["dashboard_id"], first_dashboard_id)
+        assert second_response.status_code == 200
+        assert second_response.json()["dashboard_id"] == first_dashboard_id
 
-        self.assertEqual(Dashboard.objects.filter(team=self.team, name="Data ops overview").count(), 1)
+        assert Dashboard.objects.filter(team=self.team, name="Data ops overview").count() == 1
 
     def test_data_ops_dashboard_seeds_starter_tile(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
         response = self.client.get(endpoint)
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         dashboard_id = response.json()["dashboard_id"]
         tiles = DashboardTile.objects.filter(dashboard_id=dashboard_id).select_related("insight")
-        self.assertEqual(tiles.count(), 1)
+        assert tiles.count() == 1
 
         tile = tiles.first()
         assert tile is not None
         assert tile.insight is not None
         source = tile.insight.query["source"]  # type: ignore[index]
-        self.assertEqual(source["kind"], "TrendsQuery")
-        self.assertEqual(source["trendsFilter"]["display"], "BoldNumber")
-        self.assertTrue(source["compareFilter"]["compare"])
+        assert source["kind"] == "TrendsQuery"
+        assert source["trendsFilter"]["display"] == "BoldNumber"
+        assert source["compareFilter"]["compare"]
 
     def test_data_ops_dashboard_recreates_after_dashboard_deleted(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
@@ -646,7 +643,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         Dashboard.objects.filter(id=first_id).delete()
 
         second_response = self.client.get(endpoint)
-        self.assertEqual(second_response.status_code, 200)
+        assert second_response.status_code == 200
         new_id = second_response.json()["dashboard_id"]
-        self.assertNotEqual(new_id, first_id)
-        self.assertIsNotNone(new_id)
+        assert new_id != first_id
+        assert new_id is not None

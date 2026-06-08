@@ -36,11 +36,11 @@ class TestVisitor(BaseTest):
 
         visitor = ConstantVisitor()
         visitor.visit(ast.Constant(value="asd"))
-        self.assertEqual(visitor.constants, ["asd"])
+        assert visitor.constants == ["asd"]
 
         visitor.visit(parse_expr("1 + 3 / 'asd2'"))
-        self.assertEqual(visitor.operations, ["+", "/"])
-        self.assertEqual(visitor.constants, ["asd", 1, 3, "asd2"])
+        assert visitor.operations == ["+", "/"]
+        assert visitor.constants == ["asd", 1, 3, "asd2"]
 
     def test_everything_visitor(self):
         node = ast.Or(
@@ -114,7 +114,7 @@ class TestVisitor(BaseTest):
                 ),
             ]
         )
-        self.assertEqual(node, CloningVisitor().visit(node))
+        assert node == CloningVisitor().visit(node)
 
     def test_unknown_visitor(self):
         class UnknownVisitor(Visitor):
@@ -124,7 +124,7 @@ class TestVisitor(BaseTest):
             def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
                 return self.visit(node.left) + node.op + self.visit(node.right)
 
-        self.assertEqual(UnknownVisitor().visit(parse_expr("1 + 3 / 'asd2'")), "!!+!!/!!")
+        assert UnknownVisitor().visit(parse_expr("1 + 3 / 'asd2'")) == "!!+!!/!!"
 
     def test_unknown_error_visitor(self):
         class UnknownNotDefinedVisitor(Visitor):
@@ -133,7 +133,7 @@ class TestVisitor(BaseTest):
 
         with self.assertRaises(InternalHogQLError) as e:
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
-        self.assertEqual(str(e.exception), "UnknownNotDefinedVisitor has no method visit_constant")
+        assert str(e.exception) == "UnknownNotDefinedVisitor has no method visit_constant"
 
     def test_hogql_exception_start_end(self):
         class EternalVisitor(TraversingVisitor):
@@ -143,9 +143,9 @@ class TestVisitor(BaseTest):
 
         with self.assertRaises(InternalHogQLError) as e:
             EternalVisitor().visit(parse_expr("1 + 616 / 'asd2'"))
-        self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish!")
-        self.assertEqual(e.exception.start, 4)
-        self.assertEqual(e.exception.end, 7)
+        assert str(e.exception) == "You tried accessing a forbidden number, perish!"
+        assert e.exception.start == 4
+        assert e.exception.end == 7
 
     def test_hogql_visitor_naming_exceptions(self):
         class NamingCheck(Visitor):
@@ -214,7 +214,7 @@ class TestVisitor(BaseTest):
 
         with self.assertRaises(HogQLNotImplementedError) as ctx:
             EmptyVisitor().visit(ast.Field(chain=["x"]))
-        self.assertIn("visit_field", str(ctx.exception))
+        assert "visit_field" in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -224,7 +224,7 @@ class TestVisitor(BaseTest):
     )
     def test_order_expr_accepts_valid_directions(self, _name: str, direction: str):
         expr = ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
-        self.assertEqual(expr.order, direction)
+        assert expr.order == direction
 
     @parameterized.expand(
         [

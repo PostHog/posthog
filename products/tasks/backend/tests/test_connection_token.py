@@ -64,14 +64,14 @@ class TestSandboxJwtRotation(SimpleTestCase):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_primary_only_signs_and_verifies_with_primary(self) -> None:
         reset_sandbox_jwt_key_cache()
-        self.assertEqual(get_primary_sandbox_jwt_kid(), KID_A)
+        assert get_primary_sandbox_jwt_kid() == KID_A
 
         token = create_sandbox_connection_token(_fake_run(), user_id=1, distinct_id="d")
         decoded = jwt.decode(
             token, _derive_public_key_pem(KEY_A), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE
         )
-        self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
-        self.assertEqual(decoded["aud"], SANDBOX_CONNECTION_AUDIENCE)
+        assert jwt.get_unverified_header(token)["kid"] == KID_A
+        assert decoded["aud"] == SANDBOX_CONNECTION_AUDIENCE
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A)
     def test_connection_token_signed_with_run_stored_kid(self) -> None:
@@ -80,7 +80,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
         run = _fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A})
         token = create_sandbox_connection_token(run, user_id=1, distinct_id="d")
 
-        self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
+        assert jwt.get_unverified_header(token)["kid"] == KID_A
         # Verifies against the old (KEY_A) public key the sandbox still holds...
         jwt.decode(token, _derive_public_key_pem(KEY_A), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE)
         # ...and is rejected by the new primary key.
@@ -91,7 +91,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
     def test_fallback_to_primary_when_no_kid_stored(self) -> None:
         reset_sandbox_jwt_key_cache()
         token = create_sandbox_connection_token(_fake_run({}), user_id=1, distinct_id="d")
-        self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
+        assert jwt.get_unverified_header(token)["kid"] == KID_A
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A)
     def test_ingest_token_always_uses_primary_ignoring_run_kid(self) -> None:
@@ -99,9 +99,9 @@ class TestSandboxJwtRotation(SimpleTestCase):
         # The ingest path is single-key: it signs/validates with the primary key only and
         # ignores the run's stored kid (unlike the connection token).
         token = create_sandbox_event_ingest_token(_fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A}))
-        self.assertNotIn("kid", jwt.get_unverified_header(token))
+        assert "kid" not in jwt.get_unverified_header(token)
         payload = validate_sandbox_event_ingest_token(token)
-        self.assertEqual(payload.team_id, 1)
+        assert payload.team_id == 1
 
     def test_ingest_token_rejected_after_primary_rotation(self) -> None:
         # Ingest is intentionally NOT rotation-safe: a token signed under the old primary
@@ -128,6 +128,6 @@ class TestSandboxJwtRotation(SimpleTestCase):
         reset_sandbox_jwt_key_cache()
         token = create_sandbox_event_ingest_token(_fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A}))
         payload = validate_sandbox_event_ingest_token(token)
-        self.assertEqual(payload.team_id, 1)
-        self.assertEqual(get_primary_sandbox_jwt_kid(), KID_A)
-        self.assertEqual(get_sandbox_jwt_public_key(), _derive_public_key_pem(KEY_A))
+        assert payload.team_id == 1
+        assert get_primary_sandbox_jwt_kid() == KID_A
+        assert get_sandbox_jwt_public_key() == _derive_public_key_pem(KEY_A)

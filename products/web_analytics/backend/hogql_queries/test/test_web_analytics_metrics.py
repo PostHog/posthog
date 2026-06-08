@@ -471,7 +471,7 @@ class TestWebAnalyticsMetrics(TestCase):
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response):
             WebAnalyticsQueryRunner.calculate(runner)
 
-        self.assertEqual(get_query_tag_value("query"), expected_payload)
+        assert get_query_tag_value("query") == expected_payload
 
     @patch(
         "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None

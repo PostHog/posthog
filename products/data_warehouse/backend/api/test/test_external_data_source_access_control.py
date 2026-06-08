@@ -97,7 +97,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_retrieve_source(self):
         """Test that a user with viewer access can retrieve a source"""
@@ -106,8 +106,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(self.source.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(self.source.id)
 
     def test_viewer_cannot_delete_source(self):
         """Test that a user with viewer access cannot delete a source"""
@@ -116,8 +116,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("editor", response.json()["detail"].lower())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "editor" in response.json()["detail"].lower()
 
     def test_viewer_cannot_update_source(self):
         """Test that a user with viewer access cannot update a source"""
@@ -129,7 +129,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             data={"description": "Updated description"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_reload_source(self):
         """Test that a user with viewer access cannot reload a source"""
@@ -138,7 +138,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/reload/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Editor Access Level Tests ---
 
@@ -149,7 +149,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_retrieve_source(self):
         """Test that a user with editor access can retrieve a source"""
@@ -158,7 +158,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_update_source(self):
         """Test that a user with editor access can update a source"""
@@ -170,9 +170,9 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             data={"description": "Updated description"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.source.refresh_from_db()
-        self.assertEqual(self.source.description, "Updated description")
+        assert self.source.description == "Updated description"
 
     def test_editor_can_delete_source(self):
         """Test that a user with editor access can delete a source"""
@@ -181,9 +181,9 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         self.source.refresh_from_db()
-        self.assertTrue(self.source.deleted)
+        assert self.source.deleted
 
     # --- None Access Level Tests ---
 
@@ -195,7 +195,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         # When user has "none" resource access AND no specific object access, they get 403
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_none_access_cannot_retrieve_source(self):
         """Test that a user with no access cannot retrieve a source"""
@@ -204,7 +204,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Project Default Access Control Tests ---
 
@@ -216,7 +216,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         # When user has "none" via project-default AND no specific object access, they get 403
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_explicit_access_overrides_project_default_none(self):
         """Test that explicit user access overrides project-default 'none'"""
@@ -226,8 +226,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
     # --- Object-Level Access Control Tests ---
 
@@ -251,11 +251,11 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         # Should be able to access the first source
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Should not be able to access the second source
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source2.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_filtered_list_with_mixed_access(self):
         """Test that list only returns sources the user has access to"""
@@ -276,10 +276,10 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Only the source with explicit access should be returned (not the other source)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(self.source.id))
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["id"] == str(self.source.id)
 
     # --- Organization Admin Tests ---
 
@@ -297,12 +297,12 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         # Should be able to list
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
         # Should be able to delete without explicit permissions
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # --- Role-Based Access Tests ---
 
@@ -322,12 +322,12 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         # Should be able to list
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
         # Should be able to delete via role access
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_role_grants_viewer_access(self):
         """Test that roles can grant viewer access"""
@@ -345,12 +345,12 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         # Should be able to list
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
         # Should NOT be able to delete
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Creator Access Tests ---
 
@@ -377,7 +377,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         # Creator should be able to delete their own source
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_viewer_cannot_delete_regardless_of_creator(self):
         """Test that viewer resource access cannot delete, regardless of being creator or not"""
@@ -392,7 +392,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         # Even though they created it, viewer resource access is not enough for DELETE action
         # (DELETE requires editor resource-level access)
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_creator_can_modify_access_controls(self):
         """Test that the creator can modify access controls for their sources"""
@@ -402,7 +402,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         uac = UserAccessControl(self.editor_user, self.team)
         can_modify = uac.check_can_modify_access_levels_for_object(source)
 
-        self.assertTrue(can_modify)
+        assert can_modify
 
     # --- user_access_level Response Field Tests ---
 
@@ -413,10 +413,10 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertIn("user_access_level", results[0])
+        assert len(results) == 1
+        assert "user_access_level" in results[0]
 
     def test_user_access_level_in_detail_response(self):
         """Test that user_access_level is included in detail response"""
@@ -425,8 +425,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("user_access_level", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "user_access_level" in response.json()
 
     # --- Manager Access Tests ---
 
@@ -439,6 +439,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/access_controls/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("access_controls", response.json())
-        self.assertIn("user_can_edit_access_levels", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "access_controls" in response.json()
+        assert "user_can_edit_access_levels" in response.json()

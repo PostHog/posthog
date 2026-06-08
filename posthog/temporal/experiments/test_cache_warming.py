@@ -94,13 +94,13 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, metric_dict["uuid"], fingerprint
             )
-        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+        assert activity_result.success, activity_result.error_message
 
         warm_response = ExperimentQueryRunner(query=frontend_query, team=self.team).run(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         )
         assert isinstance(warm_response, CachedExperimentQueryResponse)
-        self.assertTrue(warm_response.is_cached)
+        assert warm_response.is_cached
 
     @freeze_time("2020-01-10T12:00:00Z")
     def test_temporal_activity_warms_query_cache_for_saved_metric(self):
@@ -188,10 +188,10 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
                 experiment.id, metric_dict["uuid"], fingerprint
             )
-        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+        assert activity_result.success, activity_result.error_message
 
         warm_response = ExperimentQueryRunner(query=frontend_query, team=self.team).run(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         )
         assert isinstance(warm_response, CachedExperimentQueryResponse)
-        self.assertTrue(warm_response.is_cached)
+        assert warm_response.is_cached

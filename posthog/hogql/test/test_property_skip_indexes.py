@@ -407,7 +407,7 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             query="SELECT distinct_id FROM events WHERE properties.test_prop < '500' ORDER BY distinct_id",
         )
         # Lexical: ``'1000'`` (1 < 5) and ``'200'`` (2 < 5) both match; ``'900'`` (9 > 5) is excluded. Numeric would match only ``'200'``.
-        self.assertEqual(result.results, [("d_1000",), ("d_200",)])
+        assert result.results == [("d_1000",), ("d_200",)]
 
     @parameterized.expand(
         [

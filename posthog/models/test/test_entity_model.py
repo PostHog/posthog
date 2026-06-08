@@ -8,7 +8,7 @@ class TestEntity(TestCase):
     def test_can_init_without_id(self):
         entity = Entity({"type": TREND_FILTER_TYPE_EVENTS})  # This is an "All events" entity
 
-        self.assertEqual(entity.id, None)
+        assert entity.id is None
 
     def test_inclusion(self):
         entity1 = Entity(
@@ -39,8 +39,8 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity2.is_superset(entity1))
-        self.assertFalse(entity1.is_superset(entity2))
+        assert entity2.is_superset(entity1)
+        assert not entity1.is_superset(entity2)
 
     def test_inclusion_unordered(self):
         entity1 = Entity(
@@ -72,29 +72,29 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity2.is_superset(entity1))
-        self.assertFalse(entity1.is_superset(entity2))
+        assert entity2.is_superset(entity1)
+        assert not entity1.is_superset(entity2)
 
     def test_equality_with_ids(self):
         entity1 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_ACTIONS})
         entity2 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_ACTIONS})
 
-        self.assertTrue(entity1.equals(entity2))
+        assert entity1.equals(entity2)
 
         entity2 = Entity({"id": "e2", "type": TREND_FILTER_TYPE_ACTIONS})
 
-        self.assertFalse(entity1.equals(entity2))
+        assert not entity1.equals(entity2)
 
     def test_equality_with_type(self):
         entity1 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_EVENTS})
         entity2 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_EVENTS})
 
-        self.assertTrue(entity1.equals(entity2))
+        assert entity1.equals(entity2)
 
         entity1 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_EVENTS})
         entity2 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_ACTIONS})
 
-        self.assertFalse(entity1.equals(entity2))
+        assert not entity1.equals(entity2)
 
     def test_equality_with_simple_properties(self):
         entity1 = Entity(
@@ -126,7 +126,7 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity1.equals(entity2))
+        assert entity1.equals(entity2)
 
         entity2 = Entity(
             {
@@ -143,7 +143,7 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertFalse(entity1.equals(entity2))
+        assert not entity1.equals(entity2)
 
     def test_equality_with_complex_operator_properties(self):
         entity1 = Entity(
@@ -191,7 +191,7 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity1.equals(entity2))
+        assert entity1.equals(entity2)
 
         # playing with decimals
         entity2 = Entity(
@@ -217,7 +217,7 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity1.equals(entity2))
+        assert entity1.equals(entity2)
 
         entity2 = Entity(
             {
@@ -242,7 +242,7 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertFalse(entity1.equals(entity2))
+        assert not entity1.equals(entity2)
 
     def test_equality_with_old_style_and_new_style_properties(self):
         entity1 = Entity(
@@ -260,4 +260,4 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity1.equals(entity2))
+        assert entity1.equals(entity2)

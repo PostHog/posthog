@@ -13,18 +13,18 @@ class TestBatchImportModel(BaseTest):
             team=self.team, created_by_id=self.user.id, import_config={"test": "config"}, secrets={"secret": "value"}
         )
 
-        self.assertEqual(batch_import.team, self.team)
-        self.assertEqual(batch_import.created_by_id, self.user.id)
-        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
-        self.assertEqual(batch_import.import_config, {"test": "config"})
-        self.assertIsInstance(batch_import.config, BatchImportConfigBuilder)
+        assert batch_import.team == self.team
+        assert batch_import.created_by_id == self.user.id
+        assert batch_import.status == BatchImport.Status.RUNNING
+        assert batch_import.import_config == {"test": "config"}
+        assert isinstance(batch_import.config, BatchImportConfigBuilder)
 
     def test_content_type_enum(self):
-        self.assertEqual(ContentType.MIXPANEL.value, "mixpanel")
-        self.assertEqual(ContentType.CAPTURED.value, "captured")
-        self.assertEqual(ContentType.AMPLITUDE.value, "amplitude")
+        assert ContentType.MIXPANEL.value == "mixpanel"
+        assert ContentType.CAPTURED.value == "captured"
+        assert ContentType.AMPLITUDE.value == "amplitude"
 
-        self.assertEqual(ContentType.MIXPANEL.serialize(), {"type": "mixpanel"})
+        assert ContentType.MIXPANEL.serialize() == {"type": "mixpanel"}
 
 
 class TestBatchImportConfigBuilder(BaseTest):
@@ -36,8 +36,8 @@ class TestBatchImportConfigBuilder(BaseTest):
         config = self.batch_import.config.json_lines(ContentType.MIXPANEL, skip_blanks=False)
 
         expected = {"data_format": {"type": "json_lines", "skip_blanks": False, "content": {"type": "mixpanel"}}}
-        self.assertEqual(self.batch_import.import_config, expected)
-        self.assertIsInstance(config, BatchImportConfigBuilder)
+        assert self.batch_import.import_config == expected
+        assert isinstance(config, BatchImportConfigBuilder)
 
     def test_from_s3_configuration(self):
         self.batch_import.config.from_s3(
@@ -58,9 +58,9 @@ class TestBatchImportConfigBuilder(BaseTest):
                 "secret_access_key_key": "aws_secret_access_key",
             }
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
-        self.assertEqual(self.batch_import.secrets["aws_access_key_id"], "AKIATEST")
-        self.assertEqual(self.batch_import.secrets["aws_secret_access_key"], "secret123")
+        assert self.batch_import.import_config == expected_config
+        assert self.batch_import.secrets["aws_access_key_id"] == "AKIATEST"
+        assert self.batch_import.secrets["aws_secret_access_key"] == "secret123"
 
     @parameterized.expand(
         [
@@ -79,9 +79,9 @@ class TestBatchImportConfigBuilder(BaseTest):
         )
 
         source = self.batch_import.import_config["source"]
-        self.assertEqual(source["type"], _name)
-        self.assertEqual(source["endpoint_url"], endpoint_url)
-        self.assertEqual(source["region"], "auto")
+        assert source["type"] == _name
+        assert source["endpoint_url"] == endpoint_url
+        assert source["region"] == "auto"
 
     @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
     def test_from_s3_without_endpoint_url_omits_key(self, _name, method):
@@ -93,7 +93,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             secret_access_key="secret123",
         )
 
-        self.assertNotIn("endpoint_url", self.batch_import.import_config["source"])
+        assert "endpoint_url" not in self.batch_import.import_config["source"]
 
     def test_chained_configuration(self):
         urls = ["http://example.com/data.json"]
@@ -105,8 +105,8 @@ class TestBatchImportConfigBuilder(BaseTest):
             "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
             "sink": {"type": "kafka", "topic": "events_topic", "send_rate": 1000, "transaction_timeout_seconds": 60},
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
-        self.assertEqual(self.batch_import.secrets["urls"], urls)
+        assert self.batch_import.import_config == expected_config
+        assert self.batch_import.secrets["urls"] == urls
 
     def test_to_capture_configuration(self):
         urls = ["http://example.com/data.json"]
@@ -118,8 +118,8 @@ class TestBatchImportConfigBuilder(BaseTest):
             "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
             "sink": {"type": "capture", "send_rate": 1000},
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
-        self.assertEqual(self.batch_import.secrets["urls"], urls)
+        assert self.batch_import.import_config == expected_config
+        assert self.batch_import.secrets["urls"] == urls
 
     def test_with_generate_identify_events_configuration(self):
         """Test that generate_identify_events is added as a top-level config field"""
@@ -129,7 +129,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
             "generate_identify_events": True,
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
+        assert self.batch_import.import_config == expected_config
 
     def test_config_builder_does_not_include_amplitude_fields_by_default(self):
         """Test that config builder doesn't include Amplitude-specific fields unless explicitly set"""
@@ -139,10 +139,10 @@ class TestBatchImportConfigBuilder(BaseTest):
             "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "mixpanel"}},
             "source": {"type": "url_list", "urls_key": "urls", "allow_internal_ips": False, "timeout_seconds": 30},
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
-        self.assertNotIn("import_events", self.batch_import.import_config)
-        self.assertNotIn("generate_identify_events", self.batch_import.import_config)
-        self.assertNotIn("generate_group_identify_events", self.batch_import.import_config)
+        assert self.batch_import.import_config == expected_config
+        assert "import_events" not in self.batch_import.import_config
+        assert "generate_identify_events" not in self.batch_import.import_config
+        assert "generate_group_identify_events" not in self.batch_import.import_config
 
     def test_with_import_events_configuration(self):
         """Test that import_events is added as a top-level config field"""
@@ -152,7 +152,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
             "import_events": False,
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
+        assert self.batch_import.import_config == expected_config
 
     def test_with_both_amplitude_options(self):
         """Test that both import_events and generate_identify_events can be set together"""
@@ -165,7 +165,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             "import_events": True,
             "generate_identify_events": True,
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
+        assert self.batch_import.import_config == expected_config
 
     def test_with_generate_group_identify_events_configuration(self):
         """Test that generate_group_identify_events is added as a top-level config field"""
@@ -175,7 +175,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             "data_format": {"type": "json_lines", "skip_blanks": True, "content": {"type": "amplitude"}},
             "generate_group_identify_events": True,
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
+        assert self.batch_import.import_config == expected_config
 
     def test_with_all_amplitude_options(self):
         """Test that all Amplitude-specific options can be set together"""
@@ -189,7 +189,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             "generate_identify_events": False,
             "generate_group_identify_events": True,
         }
-        self.assertEqual(self.batch_import.import_config, expected_config)
+        assert self.batch_import.import_config == expected_config
 
 
 class TestBatchImportAPI(APIBaseTest):
@@ -202,13 +202,13 @@ class TestBatchImportAPI(APIBaseTest):
             status=BatchImport.Status.COMPLETED,
         )
 
-        self.assertEqual(batch_import.team, self.team)
-        self.assertEqual(batch_import.status, BatchImport.Status.COMPLETED)
+        assert batch_import.team == self.team
+        assert batch_import.status == BatchImport.Status.COMPLETED
 
         found = BatchImport.objects.filter(team=self.team).first()
-        self.assertIsNotNone(found)
         assert found is not None
-        self.assertEqual(found.id, batch_import.id)
+        assert found is not None
+        assert found.id == batch_import.id
 
     def test_cannot_create_multiple_running_imports(self):
         """Test that creating a new batch import fails when there's already a running one for the same team"""
@@ -233,9 +233,9 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Cannot create a new batch import", response.json()["error"])
-        self.assertIn(str(existing_import.id), response.json()["detail"])
+        assert response.status_code == 400
+        assert "Cannot create a new batch import" in response.json()["error"]
+        assert str(existing_import.id) in response.json()["detail"]
 
     def test_amplitude_validation_requires_at_least_one_option(self):
         """Test that Amplitude migrations require at least one of import_events or generate_identify_events"""
@@ -253,13 +253,12 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         response_data = response.json()
-        self.assertIn(
-            "At least one of 'Import events' or 'Generate identify events' must be enabled for Amplitude migrations",
-            str(response_data),
-            f"Expected validation error message not found in response: {response_data}",
-        )
+        assert (
+            "At least one of 'Import events' or 'Generate identify events' must be enabled for Amplitude migrations"
+            in str(response_data)
+        ), f"Expected validation error message not found in response: {response_data}"
 
     def test_mixpanel_migration_does_not_include_amplitude_specific_fields(self):
         """Test that Mixpanel migrations don't include Amplitude-specific fields in config"""
@@ -275,17 +274,17 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Get the created batch import and check its config
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertNotIn("import_events", batch_import.import_config)
-        self.assertNotIn("generate_identify_events", batch_import.import_config)
-        self.assertNotIn("generate_group_identify_events", batch_import.import_config)
+        assert "import_events" not in batch_import.import_config
+        assert "generate_identify_events" not in batch_import.import_config
+        assert "generate_group_identify_events" not in batch_import.import_config
 
         # Verify sink defaults to capture
-        self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
-        self.assertEqual(batch_import.import_config["sink"]["send_rate"], 1000)
+        assert batch_import.import_config["sink"]["type"] == "capture"
+        assert batch_import.import_config["sink"]["send_rate"] == 1000
 
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
@@ -303,14 +302,14 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Get the created batch import and check its config
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertIn("import_events", batch_import.import_config)
-        self.assertIn("generate_identify_events", batch_import.import_config)
-        self.assertEqual(batch_import.import_config["import_events"], True)
-        self.assertEqual(batch_import.import_config["generate_identify_events"], False)
+        assert "import_events" in batch_import.import_config
+        assert "generate_identify_events" in batch_import.import_config
+        assert batch_import.import_config["import_events"]
+        assert not batch_import.import_config["generate_identify_events"]
 
     def test_amplitude_migration_with_group_identify_events(self):
         """Test that Amplitude migrations can include generate_group_identify_events in config"""
@@ -329,16 +328,16 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Get the created batch import and check its config
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertIn("import_events", batch_import.import_config)
-        self.assertIn("generate_identify_events", batch_import.import_config)
-        self.assertIn("generate_group_identify_events", batch_import.import_config)
-        self.assertEqual(batch_import.import_config["import_events"], True)
-        self.assertEqual(batch_import.import_config["generate_identify_events"], True)
-        self.assertEqual(batch_import.import_config["generate_group_identify_events"], True)
+        assert "import_events" in batch_import.import_config
+        assert "generate_identify_events" in batch_import.import_config
+        assert "generate_group_identify_events" in batch_import.import_config
+        assert batch_import.import_config["import_events"]
+        assert batch_import.import_config["generate_identify_events"]
+        assert batch_import.import_config["generate_group_identify_events"]
 
     def test_amplitude_migration_group_identify_events_defaults_to_false(self):
         """Test that generate_group_identify_events defaults to False when not specified"""
@@ -357,12 +356,12 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Get the created batch import and check its config
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertIn("generate_group_identify_events", batch_import.import_config)
-        self.assertEqual(batch_import.import_config["generate_group_identify_events"], False)
+        assert "generate_group_identify_events" in batch_import.import_config
+        assert not batch_import.import_config["generate_group_identify_events"]
 
     def test_can_create_import_when_no_running_imports(self):
         """Test that creating a new batch import succeeds when there are no running imports"""
@@ -387,7 +386,7 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
     def test_can_create_import_when_other_team_has_running_import(self):
         """Test that creating a new batch import succeeds when another team has a running import"""
@@ -417,7 +416,7 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
     def test_date_range_validation_exceeds_one_year(self):
         """Test that creating a date range import with more than 1 year fails"""
@@ -437,8 +436,8 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Date range cannot exceed 1 year", str(response.json()))
+        assert response.status_code == 400
+        assert "Date range cannot exceed 1 year" in str(response.json())
 
     def test_date_range_validation_within_one_year_succeeds(self):
         """Test that creating a date range import within 1 year succeeds"""
@@ -458,7 +457,7 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
     def test_date_range_validation_end_before_start_fails(self):
         """Test that end date before start date fails validation"""
@@ -478,8 +477,8 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("End date must be after start date", str(response.json()))
+        assert response.status_code == 400
+        assert "End date must be after start date" in str(response.json())
 
     def test_s3_prefix_can_be_empty_string(self):
         """Test that s3_prefix field accepts empty strings"""
@@ -496,11 +495,11 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Verify the batch import was created with empty prefix
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertEqual(batch_import.import_config["source"]["prefix"], "")
+        assert batch_import.import_config["source"]["prefix"] == ""
 
     def test_s3_prefix_can_be_omitted(self):
         """Test that s3_prefix field can be omitted from the request"""
@@ -517,11 +516,11 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Verify the batch import was created
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertIsNotNone(batch_import)
+        assert batch_import is not None
 
     def test_s3_gzip_migration_creates_correct_import_config(self):
         """Test that s3_gzip source type creates import_config with type s3_gzip"""
@@ -538,14 +537,14 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertEqual(batch_import.import_config["source"]["type"], "s3_gzip")
-        self.assertEqual(batch_import.import_config["source"]["bucket"], "test-bucket")
-        self.assertEqual(batch_import.import_config["source"]["prefix"], "exports/")
-        self.assertEqual(batch_import.import_config["source"]["region"], "us-east-1")
-        self.assertIn("aws_access_key_id", batch_import.secrets)
-        self.assertIn("aws_secret_access_key", batch_import.secrets)
+        assert batch_import.import_config["source"]["type"] == "s3_gzip"
+        assert batch_import.import_config["source"]["bucket"] == "test-bucket"
+        assert batch_import.import_config["source"]["prefix"] == "exports/"
+        assert batch_import.import_config["source"]["region"] == "us-east-1"
+        assert "aws_access_key_id" in batch_import.secrets
+        assert "aws_secret_access_key" in batch_import.secrets
 
     @parameterized.expand(
         [
@@ -568,11 +567,11 @@ class TestBatchImportAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], str(batch_import.id))
-        self.assertEqual(results[0]["display_status"], expected_display_status)
+        assert len(results) == 1
+        assert results[0]["id"] == str(batch_import.id)
+        assert results[0]["display_status"] == expected_display_status
 
     def test_resume_clears_lease_and_backoff(self):
         batch_import = BatchImport.objects.create(
@@ -589,14 +588,14 @@ class TestBatchImportAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/resume")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         batch_import.refresh_from_db()
-        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
-        self.assertIsNone(batch_import.lease_id)
-        self.assertIsNone(batch_import.leased_until)
-        self.assertEqual(batch_import.backoff_attempt, 0)
-        self.assertIsNone(batch_import.backoff_until)
-        self.assertEqual(batch_import.status_message, "Resumed by user")
+        assert batch_import.status == BatchImport.Status.RUNNING
+        assert batch_import.lease_id is None
+        assert batch_import.leased_until is None
+        assert batch_import.backoff_attempt == 0
+        assert batch_import.backoff_until is None
+        assert batch_import.status_message == "Resumed by user"
 
     @parameterized.expand(
         [
@@ -633,9 +632,9 @@ class TestBatchImportAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         batch_import.refresh_from_db()
-        self.assertEqual(getattr(batch_import, attr), expected)
+        assert getattr(batch_import, attr) == expected
 
     @parameterized.expand([("s3",), ("s3_gzip",)])
     def test_s3_import_with_endpoint_url(self, source_type):
@@ -653,11 +652,11 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertEqual(batch_import.import_config["source"]["type"], source_type)
-        self.assertEqual(batch_import.import_config["source"]["endpoint_url"], "http://localhost:9000")
-        self.assertEqual(batch_import.import_config["source"]["region"], "auto")
+        assert batch_import.import_config["source"]["type"] == source_type
+        assert batch_import.import_config["source"]["endpoint_url"] == "http://localhost:9000"
+        assert batch_import.import_config["source"]["region"] == "auto"
 
     def test_s3_import_without_endpoint_url_omits_key(self):
         response = self.client.post(
@@ -673,9 +672,9 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertNotIn("endpoint_url", batch_import.import_config["source"])
+        assert "endpoint_url" not in batch_import.import_config["source"]
 
     def test_s3_import_with_empty_endpoint_url_omits_key(self):
         response = self.client.post(
@@ -692,9 +691,9 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertNotIn("endpoint_url", batch_import.import_config["source"])
+        assert "endpoint_url" not in batch_import.import_config["source"]
 
     def test_s3_import_with_invalid_endpoint_url_returns_400(self):
         response = self.client.post(
@@ -711,5 +710,5 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["attr"], "endpoint_url")
+        assert response.status_code == 400
+        assert response.json()["attr"] == "endpoint_url"

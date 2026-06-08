@@ -77,11 +77,11 @@ class TestFunnelDWValidator(BaseTest):
 
         errors = FunnelDWValidator.validate_required_fields(node, step_index=step_index)
 
-        self.assertEqual(len(errors), 1)
-        self.assertIn(f"Step {step_index}", errors[0])
-        self.assertIn(error_keyword, errors[0])
+        assert len(errors) == 1
+        assert f"Step {step_index}" in errors[0]
+        assert error_keyword in errors[0]
         if additional_check:
-            self.assertIn(additional_check, errors[0])
+            assert additional_check in errors[0]
 
     def test_validate_required_fields_multiple_missing(self):
         """Multiple missing fields produces multiple errors."""
@@ -386,8 +386,8 @@ class TestFunnelDWValidator(BaseTest):
 
         error_detail = context.exception.detail
         assert isinstance(error_detail, dict)
-        self.assertIn("datawarehouse_configuration", error_detail)
-        self.assertIn("help", error_detail)
+        assert "datawarehouse_configuration" in error_detail
+        assert "help" in error_detail
 
     def test_validate_funnel_metric_join_key_mismatch_raises(self):
         """DW funnel with inconsistent join keys raises validation error."""
@@ -413,7 +413,7 @@ class TestFunnelDWValidator(BaseTest):
 
         error_detail = context.exception.detail
         assert isinstance(error_detail, dict)
-        self.assertIn("join_key_mismatch", error_detail)
+        assert "join_key_mismatch" in error_detail
 
     def test_validate_funnel_metric_complexity_limit_raises(self):
         """DW funnel exceeding complexity limits raises validation error."""
@@ -445,7 +445,7 @@ class TestFunnelDWValidator(BaseTest):
 
         error_detail = context.exception.detail
         assert isinstance(error_detail, dict)
-        self.assertIn("complexity_limit", error_detail)
+        assert "complexity_limit" in error_detail
 
     def test_validate_funnel_metric_multiple_errors(self):
         """DW funnel with missing fields returns field error first (early return)."""
@@ -472,8 +472,8 @@ class TestFunnelDWValidator(BaseTest):
         error_detail = context.exception.detail
         assert isinstance(error_detail, dict)
         # Field errors are reported first, early return prevents consistency check
-        self.assertIn("datawarehouse_configuration", error_detail)
-        self.assertIn("help", error_detail)
+        assert "datawarehouse_configuration" in error_detail
+        assert "help" in error_detail
 
     def test_validate_funnel_metric_events_only_passes(self):
         """Events-only funnel requires no DW validation."""

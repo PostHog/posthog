@@ -39,15 +39,14 @@ class TestLifecycleResultsFormatter(BaseTest):
             ),
         ]
 
-        self.assertEqual(
+        assert (
             LifecycleResultsFormatter(
-                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]),
-                results,
-            ).format(),
-            "Date|New|Returning|Resurrecting|Dormant\n"
+                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]), results
+            ).format()
+            == "Date|New|Returning|Resurrecting|Dormant\n"
             "2025-01-01|100|50|10|-20\n"
             "2025-01-02|80|40|8|-15\n"
-            "2025-01-03|60|30|6|-10",
+            "2025-01-03|60|30|6|-10"
         )
 
     def test_format_multi_series(self):
@@ -62,17 +61,11 @@ class TestLifecycleResultsFormatter(BaseTest):
             _make_result("sign_up", "sign_up", "dormant", [-8, -6], ["2025-01-01", "2025-01-02"], order=1),
         ]
 
-        self.assertEqual(
+        assert (
             LifecycleResultsFormatter(
-                LifecycleQuery(
-                    series=[
-                        EventsNode(event="$pageview"),
-                        EventsNode(event="sign_up"),
-                    ]
-                ),
-                results,
-            ).format(),
-            "Event: $pageview\n"
+                LifecycleQuery(series=[EventsNode(event="$pageview"), EventsNode(event="sign_up")]), results
+            ).format()
+            == "Event: $pageview\n"
             "Date|New|Returning|Resurrecting|Dormant\n"
             "2025-01-01|100|50|10|-20\n"
             "2025-01-02|80|40|8|-15\n"
@@ -80,16 +73,15 @@ class TestLifecycleResultsFormatter(BaseTest):
             "Event: sign_up\n"
             "Date|New|Returning|Resurrecting|Dormant\n"
             "2025-01-01|30|15|5|-8\n"
-            "2025-01-02|25|12|3|-6",
+            "2025-01-02|25|12|3|-6"
         )
 
     def test_format_empty_results(self):
-        self.assertEqual(
+        assert (
             LifecycleResultsFormatter(
-                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]),
-                [],
-            ).format(),
-            "No data recorded for this time period.",
+                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]), []
+            ).format()
+            == "No data recorded for this time period."
         )
 
     def test_format_custom_name(self):
@@ -134,10 +126,7 @@ class TestLifecycleResultsFormatter(BaseTest):
             results,
         ).format()
 
-        self.assertEqual(
-            formatted,
-            "Date|New|Returning|Resurrecting|Dormant\n2025-10-01|6936|29541|13263|-16735",
-        )
+        assert formatted == "Date|New|Returning|Resurrecting|Dormant\n2025-10-01|6936|29541|13263|-16735"
 
     def test_format_missing_status(self):
         # Only new and dormant statuses present
@@ -146,12 +135,11 @@ class TestLifecycleResultsFormatter(BaseTest):
             _make_result("$pageview", "$pageview", "dormant", [-20, -15], ["2025-01-01", "2025-01-02"]),
         ]
 
-        self.assertEqual(
+        assert (
             LifecycleResultsFormatter(
-                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]),
-                results,
-            ).format(),
-            "Date|New|Returning|Resurrecting|Dormant\n2025-01-01|100|0|0|-20\n2025-01-02|80|0|0|-15",
+                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]), results
+            ).format()
+            == "Date|New|Returning|Resurrecting|Dormant\n2025-01-01|100|0|0|-20\n2025-01-02|80|0|0|-15"
         )
 
     def test_format_with_datetime_seconds(self):
@@ -186,10 +174,9 @@ class TestLifecycleResultsFormatter(BaseTest):
             ),
         ]
 
-        self.assertEqual(
+        assert (
             LifecycleResultsFormatter(
-                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]),
-                results,
-            ).format(),
-            "Date|New|Returning|Resurrecting|Dormant\n2025-01-01 00:00|100|50|10|-20",
+                AssistantLifecycleQuery(series=[AssistantLifecycleEventsNode(event="$pageview")]), results
+            ).format()
+            == "Date|New|Returning|Resurrecting|Dormant\n2025-01-01 00:00|100|50|10|-20"
         )

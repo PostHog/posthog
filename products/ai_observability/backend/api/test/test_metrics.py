@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -28,7 +29,7 @@ class TestAIObservabilityMetrics(SimpleTestCase):
         assert operation() == "ok"
         mock_histogram.labels.assert_called_once_with(endpoint="llma_test_endpoint")
         observer.observe.assert_called_once()
-        self.assertAlmostEqual(observer.observe.call_args.args[0], 0.2)
+        assert observer.observe.call_args.args[0] == pytest.approx(0.2, abs=10 ** (-7) * 0.5)
 
     @patch("products.ai_observability.backend.api.metrics.LLMA_REQUEST_LATENCY")
     @patch("products.ai_observability.backend.api.metrics.time.perf_counter")
@@ -45,4 +46,4 @@ class TestAIObservabilityMetrics(SimpleTestCase):
             failing_operation()
 
         observer.observe.assert_called_once()
-        self.assertAlmostEqual(observer.observe.call_args.args[0], 0.5)
+        assert observer.observe.call_args.args[0] == pytest.approx(0.5, abs=10 ** (-7) * 0.5)

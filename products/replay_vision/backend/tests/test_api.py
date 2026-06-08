@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -76,13 +77,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 201, resp.json())
+        assert resp.status_code == 201, resp.json()
         body = resp.json()
-        self.assertEqual(body["name"], "checkout-monitor")
-        self.assertTrue(body["enabled"])
-        self.assertEqual(body["sampling_rate"], 1.0)
-        self.assertEqual(body["scanner_version"], 1)
-        self.assertEqual(body["created_by"]["id"], self.user.id)
+        assert body["name"] == "checkout-monitor"
+        assert body["enabled"]
+        assert body["sampling_rate"] == 1.0
+        assert body["scanner_version"] == 1
+        assert body["created_by"]["id"] == self.user.id
 
     @parameterized.expand(["name", "scanner_type", "scanner_config", "model"])
     def test_create_validates_required_field(self, missing_field: str) -> None:
@@ -94,8 +95,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         }
         del payload[missing_field]
         resp = self.client.post(self.scanners_url, data=payload, format="json")
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json()["attr"], missing_field)
+        assert resp.status_code == 400
+        assert resp.json()["attr"] == missing_field
 
     def test_create_round_trips_provider(self) -> None:
         resp = self.client.post(
@@ -109,8 +110,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 201)
-        self.assertEqual(resp.json()["provider"], ScannerProvider.GOOGLE)
+        assert resp.status_code == 201
+        assert resp.json()["provider"] == ScannerProvider.GOOGLE
 
     @parameterized.expand([("below", -0.1), ("above", 1.5)])
     def test_create_rejects_out_of_range_sampling_rate(self, _label: str, value: float) -> None:
@@ -125,8 +126,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json()["attr"], "sampling_rate")
+        assert resp.status_code == 400
+        assert resp.json()["attr"] == "sampling_rate"
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
@@ -140,7 +141,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 400)
+        assert resp.status_code == 400
 
     def test_list_returns_only_team_scanners(self) -> None:
         self._create_scanner(name="ours")
@@ -154,15 +155,15 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             model=ScannerModel.GEMINI_3_FLASH,
         )
         resp = self.client.get(self.scanners_url)
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         names = [r["name"] for r in resp.json()["results"]]
-        self.assertEqual(names, ["ours"])
+        assert names == ["ours"]
 
     def test_retrieve(self) -> None:
         scanner = self._create_scanner()
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["id"], str(scanner.id))
+        assert resp.status_code == 200
+        assert resp.json()["id"] == str(scanner.id)
 
     def test_patch_bumps_scanner_version_on_tracked_change(self) -> None:
         scanner = self._create_scanner()
@@ -171,9 +172,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             data={"sampling_rate": 0.5},
             format="json",
         )
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["scanner_version"], 2)
-        self.assertEqual(resp.json()["sampling_rate"], 0.5)
+        assert resp.status_code == 200, resp.json()
+        assert resp.json()["scanner_version"] == 2
+        assert resp.json()["sampling_rate"] == 0.5
 
     def test_patch_does_not_bump_on_metadata_change(self) -> None:
         scanner = self._create_scanner()
@@ -182,8 +183,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             data={"description": "now described"},
             format="json",
         )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["scanner_version"], 1)
+        assert resp.status_code == 200
+        assert resp.json()["scanner_version"] == 1
 
     @parameterized.expand(
         [
@@ -207,7 +208,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 201, resp.json())
+        assert resp.status_code == 201, resp.json()
 
     @parameterized.expand(
         [
@@ -231,8 +232,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_config")
+        assert resp.status_code == 400, resp.json()
+        assert resp.json()["attr"] == "scanner_config"
 
     @parameterized.expand(
         [
@@ -305,13 +306,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 400, resp.json())
+        assert resp.status_code == 400, resp.json()
         body = resp.json()
         detail = body.get("detail", "")
-        self.assertNotIn("validation error for", detail)
-        self.assertNotIn("errors.pydantic.dev", detail)
-        self.assertNotIn("input_value=", detail)
-        self.assertEqual(detail, expected_detail)
+        assert "validation error for" not in detail
+        assert "errors.pydantic.dev" not in detail
+        assert "input_value=" not in detail
+        assert detail == expected_detail
 
     def test_patch_rejects_scanner_type_change(self) -> None:
         scanner = self._create_scanner()
@@ -320,9 +321,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             data={"scanner_type": ScannerType.CLASSIFIER, "scanner_config": {"prompt": "p", "tags": ["x"]}},
             format="json",
         )
-        self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_type")
-        self.assertIn("fixed after creation", resp.json()["detail"])
+        assert resp.status_code == 400, resp.json()
+        assert resp.json()["attr"] == "scanner_type"
+        assert "fixed after creation" in resp.json()["detail"]
 
     def test_patch_accepts_same_scanner_type(self) -> None:
         scanner = self._create_scanner()
@@ -331,7 +332,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             data={"scanner_type": scanner.scanner_type, "scanner_config": {"prompt": "still a monitor"}},
             format="json",
         )
-        self.assertEqual(resp.status_code, 200, resp.json())
+        assert resp.status_code == 200, resp.json()
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
@@ -345,8 +346,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertEqual(resp.json()["query"], {"filter_test_accounts": True})
+        assert resp.status_code == 201, resp.json()
+        assert resp.json()["query"] == {"filter_test_accounts": True}
 
     def test_create_strips_date_fields_from_query(self) -> None:
         # The schedule controls time, not the user.
@@ -361,11 +362,11 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 201, resp.json())
+        assert resp.status_code == 201, resp.json()
         body_query = resp.json()["query"]
-        self.assertNotIn("date_from", body_query)
-        self.assertNotIn("date_to", body_query)
-        self.assertEqual(body_query["filter_test_accounts"], True)
+        assert "date_from" not in body_query
+        assert "date_to" not in body_query
+        assert body_query["filter_test_accounts"]
 
     def test_create_rejects_invalid_query(self) -> None:
         resp = self.client.post(
@@ -379,14 +380,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "query")
+        assert resp.status_code == 400, resp.json()
+        assert resp.json()["attr"] == "query"
 
     def test_delete(self) -> None:
         scanner = self._create_scanner()
         resp = self.client.delete(f"{self.scanners_url}{scanner.id}/")
-        self.assertEqual(resp.status_code, 204)
-        self.assertFalse(ReplayScanner.objects.filter(id=scanner.id).exists())
+        assert resp.status_code == 204
+        assert not ReplayScanner.objects.filter(id=scanner.id).exists()
 
     @parameterized.expand(
         [
@@ -412,8 +413,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             self._create_scanner(name="silent")
             self._create_scanner(name="loud", emits_signals=True)
         resp = self.client.get(f"{self.scanners_url}?{field}={value}")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["results"]), expected_count)
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == expected_count
 
     @parameterized.expand(
         [
@@ -425,8 +426,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
     )
     def test_invalid_filter_or_order_returns_400(self, query: str, attr: str) -> None:
         resp = self.client.get(f"{self.scanners_url}?{query}")
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json().get("attr"), attr)
+        assert resp.status_code == 400
+        assert resp.json().get("attr") == attr
 
     @parameterized.expand(
         [
@@ -442,7 +443,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self._create_scanner(name="beta", description="something else", scanner_config={"prompt": "find dead ends"})
         self._create_scanner(name="gamma", description="third")
         resp = self.client.get(f"{self.scanners_url}?search={query}")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], expected_names)
+        assert [r["name"] for r in resp.json()["results"]] == expected_names
 
     def test_created_by_filter_multi_value(self) -> None:
         other_user = User.objects.create_and_join(self.team.organization, "other@example.com", "pw")
@@ -455,21 +456,21 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self._create_scanner(name="c")
         resp = self.client.get(f"{self.scanners_url}?created_by={self.user.id},{other_user.id}")
         names = sorted(r["name"] for r in resp.json()["results"])
-        self.assertEqual(names, ["a", "b"])
+        assert names == ["a", "b"]
 
     def test_order_by_descending(self) -> None:
         self._create_scanner(name="a-scanner")
         self._create_scanner(name="b-scanner")
         resp = self.client.get(f"{self.scanners_url}?order_by=-name")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
+        assert resp.status_code == 200
+        assert [r["name"] for r in resp.json()["results"]] == ["b-scanner", "a-scanner"]
 
     def test_order_by_sampling_rate(self) -> None:
         self._create_scanner(name="low", sampling_rate=0.1)
         self._create_scanner(name="mid", sampling_rate=0.5)
         self._create_scanner(name="high", sampling_rate=1.0)
         resp = self.client.get(f"{self.scanners_url}?order_by=sampling_rate")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["low", "mid", "high"])
+        assert [r["name"] for r in resp.json()["results"]] == ["low", "mid", "high"]
 
     def test_stats_endpoint_returns_team_wide_counts(self) -> None:
         self._create_scanner(name="m1", scanner_type=ScannerType.MONITOR, enabled=True)
@@ -477,14 +478,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self._create_scanner(name="c1", scanner_type=ScannerType.CLASSIFIER, enabled=True)
         self._create_scanner(name="s1", scanner_type=ScannerType.SCORER, enabled=False)
         resp = self.client.get(f"{self.scanners_url}stats/?enabled=enabled&scanner_type=monitor")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
-        self.assertEqual(body["total"], 4)
-        self.assertEqual(body["enabled"], 2)
-        self.assertEqual(body["by_type"]["monitor"], {"enabled": 1, "total": 2})
-        self.assertEqual(body["by_type"]["classifier"], {"enabled": 1, "total": 1})
-        self.assertEqual(body["by_type"]["scorer"], {"enabled": 0, "total": 1})
-        self.assertEqual(body["by_type"]["summarizer"], {"enabled": 0, "total": 0})
+        assert body["total"] == 4
+        assert body["enabled"] == 2
+        assert body["by_type"]["monitor"] == {"enabled": 1, "total": 2}
+        assert body["by_type"]["classifier"] == {"enabled": 1, "total": 1}
+        assert body["by_type"]["scorer"] == {"enabled": 0, "total": 1}
+        assert body["by_type"]["summarizer"] == {"enabled": 0, "total": 0}
 
     def test_stats_endpoint_respects_per_scanner_access_control(self) -> None:
         self._create_scanner(name="visible")
@@ -494,8 +495,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             resp = self.client.get(f"{self.scanners_url}stats/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["total"], 1)
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
 
     def test_creators_endpoint_respects_per_scanner_access_control(self) -> None:
         other = User.objects.create_and_join(self.team.organization, "hidden@example.com", "pw")
@@ -510,9 +511,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             resp = self.client.get(f"{self.scanners_url}creators/")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         ids = [u["id"] for u in resp.json()["creators"]]
-        self.assertEqual(ids, [self.user.id])
+        assert ids == [self.user.id]
 
     def test_creators_endpoint_returns_distinct_users(self) -> None:
         other = User.objects.create_and_join(self.team.organization, "other@example.com", "pw")
@@ -528,9 +529,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self._create_scanner(name="d")
 
         resp = self.client.get(f"{self.scanners_url}creators/")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         ids = sorted(u["id"] for u in resp.json()["creators"])
-        self.assertEqual(ids, sorted([self.user.id, other.id]))
+        assert ids == sorted([self.user.id, other.id])
 
     def test_order_by_created_by_falls_back_through_name_then_email(self) -> None:
         alice = User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
@@ -543,13 +544,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             s.created_by = owner
             s.save(update_fields=["created_by"])
         resp = self.client.get(f"{self.scanners_url}?order_by=created_by")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["a", "b", "c"])
+        assert [r["name"] for r in resp.json()["results"]] == ["a", "b", "c"]
 
     def test_order_by_enabled(self) -> None:
         self._create_scanner(name="on")
         self._create_scanner(name="off", enabled=False)
         resp = self.client.get(f"{self.scanners_url}?order_by=-enabled")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["on", "off"])
+        assert [r["name"] for r in resp.json()["results"]] == ["on", "off"]
 
     def _patch_deny_session_recording(self):
         return patch(
@@ -569,14 +570,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 },
                 format="json",
             )
-        self.assertEqual(resp.status_code, 403, resp.json())
-        self.assertIn("session_recording", resp.json()["detail"])
+        assert resp.status_code == 403, resp.json()
+        assert "session_recording" in resp.json()["detail"]
 
     def test_patch_rejected_without_session_recording_read(self) -> None:
         scanner = self._create_scanner()
         with self._patch_deny_session_recording():
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
-        self.assertEqual(resp.status_code, 403, resp.json())
+        assert resp.status_code == 403, resp.json()
 
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
@@ -587,17 +588,17 @@ class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_off_returns_404_on_list(self, _flag_mock) -> None:
         resp = self.client.get(self.scanners_url)
-        self.assertEqual(resp.status_code, 404)
+        assert resp.status_code == 404
 
     @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_off_returns_404_on_create(self, _flag_mock) -> None:
         resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
-        self.assertEqual(resp.status_code, 404)
+        assert resp.status_code == 404
 
     @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_off_returns_404_on_estimate(self, _flag_mock) -> None:
         resp = self.client.post(f"{self.scanners_url}estimate/", data={}, format="json")
-        self.assertEqual(resp.status_code, 404)
+        assert resp.status_code == 404
 
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
@@ -619,8 +620,8 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self._create_observation(session_id="s1")
         self._create_observation(session_id="s2")
         resp = self.client.get(self.observations_url(str(self.scanner.id)))
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["results"]), 2)
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == 2
 
     @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
     @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
@@ -633,19 +634,19 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
         resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
         # A 406 here would mean content negotiation rejected the SSE Accept header before the view ran.
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp["content-type"], "text/event-stream")
+        assert resp.status_code == 200
+        assert resp["content-type"] == "text/event-stream"
         mock_stream.assert_called_once()
 
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
-        self.assertEqual(resp.status_code, 404)
+        assert resp.status_code == 404
 
     def test_unknown_scanner_id_returns_404(self) -> None:
         import uuid as _uuid
 
         resp = self.client.get(self.observations_url(str(_uuid.uuid4())))
-        self.assertEqual(resp.status_code, 404)
+        assert resp.status_code == 404
 
     def test_other_team_scanner_id_returns_404(self) -> None:
         other_org = Organization.objects.create(name="other")
@@ -658,7 +659,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             model=ScannerModel.GEMINI_3_FLASH,
         )
         resp = self.client.get(self.observations_url(str(other_scanner.id)))
-        self.assertEqual(resp.status_code, 404)
+        assert resp.status_code == 404
 
     def test_list_excludes_observations_from_other_scanner(self) -> None:
         other_scanner = self._create_scanner(name="other-scanner")
@@ -671,14 +672,14 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         )
         resp = self.client.get(self.observations_url(str(self.scanner.id)))
         sessions = [r["session_id"] for r in resp.json()["results"]]
-        self.assertEqual(sessions, ["ours"])
+        assert sessions == ["ours"]
 
     def test_retrieve_observation(self) -> None:
         obs = self._create_observation()
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}{obs.id}/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["session_id"], obs.session_id)
-        self.assertIsNone(resp.json()["scanner_result"])  # null until succeeded
+        assert resp.status_code == 200
+        assert resp.json()["session_id"] == obs.session_id
+        assert resp.json()["scanner_result"] is None  # null until succeeded
 
     def test_retrieve_observation_exposes_scanner_result_when_succeeded(self) -> None:
         obs = self._create_observation(
@@ -695,11 +696,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             },
         )
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}{obs.id}/")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
-        self.assertEqual(body["scanner_result"]["signals_count"], 0)
-        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], "yes")
-        self.assertEqual(body["scanner_result"]["model_output"]["confidence"], 0.9)
+        assert body["scanner_result"]["signals_count"] == 0
+        assert body["scanner_result"]["model_output"]["verdict"] == "yes"
+        assert body["scanner_result"]["model_output"]["confidence"] == 0.9
 
     @parameterized.expand(
         [
@@ -724,25 +725,25 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             self._create_observation(session_id="needle")
             self._create_observation(session_id="haystack")
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{field}={value}")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["results"]), expected_count)
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == expected_count
 
     def test_order_by_created_at_descending(self) -> None:
         first = self._create_observation(session_id="first")
         second = self._create_observation(session_id="second")
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=-created_at")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         ids = [r["id"] for r in resp.json()["results"]]
-        self.assertEqual(ids, [str(second.id), str(first.id)])
+        assert ids == [str(second.id), str(first.id)]
 
     def test_pagination(self) -> None:
         for i in range(3):
             self._create_observation(session_id=f"s{i}")
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?limit=2")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
-        self.assertEqual(len(body["results"]), 2)
-        self.assertIsNotNone(body.get("next"))
+        assert len(body["results"]) == 2
+        assert body.get("next") is not None
 
     def test_stats_status_counts_and_coverage(self) -> None:
         self._create_observation(
@@ -773,20 +774,20 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         )
         self._create_observation(session_id="c")  # pending
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
-        self.assertEqual(body["status_counts"]["total"], 4)
-        self.assertEqual(body["status_counts"]["succeeded"], 1)
-        self.assertEqual(body["status_counts"]["failed"], 1)
-        self.assertEqual(body["status_counts"]["ineligible"], 1)
-        self.assertEqual(body["status_counts"]["in_flight"], 1)
-        self.assertEqual(body["status_counts"]["success_rate"], 50)
-        self.assertEqual(body["coverage"]["total_sessions"], 4)
-        self.assertEqual(body["coverage"]["recent_days"], 14)
+        assert body["status_counts"]["total"] == 4
+        assert body["status_counts"]["succeeded"] == 1
+        assert body["status_counts"]["failed"] == 1
+        assert body["status_counts"]["ineligible"] == 1
+        assert body["status_counts"]["in_flight"] == 1
+        assert body["status_counts"]["success_rate"] == 50
+        assert body["coverage"]["total_sessions"] == 4
+        assert body["coverage"]["recent_days"] == 14
         # Monitor scanner: monitor stats populated, classifier/scorer null.
-        self.assertEqual(body["monitor"], {"yes_total": 1, "no_total": 0, "inconclusive_total": 0})
-        self.assertIsNone(body["classifier"])
-        self.assertIsNone(body["scorer"])
+        assert body["monitor"] == {"yes_total": 1, "no_total": 0, "inconclusive_total": 0}
+        assert body["classifier"] is None
+        assert body["scorer"] is None
 
     def test_stats_status_counts_with_multiple_rows_per_status(self) -> None:
         for i in range(5):
@@ -823,10 +824,10 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             )
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
         body = resp.json()
-        self.assertEqual(body["status_counts"]["total"], 10)
-        self.assertEqual(body["status_counts"]["succeeded"], 5)
-        self.assertEqual(body["status_counts"]["in_flight"], 5)
-        self.assertEqual(body["monitor"], {"yes_total": 3, "no_total": 2, "inconclusive_total": 0})
+        assert body["status_counts"]["total"] == 10
+        assert body["status_counts"]["succeeded"] == 5
+        assert body["status_counts"]["in_flight"] == 5
+        assert body["monitor"] == {"yes_total": 3, "no_total": 2, "inconclusive_total": 0}
 
     def test_stats_classifier_tag_rankings(self) -> None:
         classifier = self._create_scanner(
@@ -861,17 +862,14 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 },
             )
         resp = self.client.get(f"{self.observations_url(str(classifier.id))}stats/")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
-        self.assertEqual(body["classifier"]["total_with_tags"], 3)
-        self.assertEqual(
-            body["classifier"]["fixed_ranked"],
-            [{"tag": "onboarding", "count": 2}, {"tag": "support", "count": 2}],
-        )
-        self.assertEqual(body["classifier"]["freeform_ranked"], [{"tag": "surprise", "count": 2}])
-        self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
-        self.assertIsNone(body["monitor"])
-        self.assertIsNone(body["scorer"])
+        assert body["classifier"]["total_with_tags"] == 3
+        assert body["classifier"]["fixed_ranked"] == [{"tag": "onboarding", "count": 2}, {"tag": "support", "count": 2}]
+        assert body["classifier"]["freeform_ranked"] == [{"tag": "surprise", "count": 2}]
+        assert sorted(body["available_tags"]) == ["onboarding", "support", "surprise"]
+        assert body["monitor"] is None
+        assert body["scorer"] is None
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -883,9 +881,9 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         )
         self._create_observation(session_id="pending")
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?status=succeeded,failed")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         sessions = sorted(r["session_id"] for r in resp.json()["results"])
-        self.assertEqual(sessions, ["bad", "ok"])
+        assert sessions == ["bad", "ok"]
 
     def test_filterset_verdict_multi_value(self) -> None:
         for verdict in ["yes", "no", "inconclusive"]:
@@ -904,9 +902,9 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 },
             )
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?verdict=yes,inconclusive")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         sessions = sorted(r["session_id"] for r in resp.json()["results"])
-        self.assertEqual(sessions, ["sess-inconclusive", "sess-yes"])
+        assert sessions == ["sess-inconclusive", "sess-yes"]
 
     @parameterized.expand(
         [
@@ -919,8 +917,8 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
     )
     def test_invalid_filter_or_order_returns_400(self, query: str, attr: str) -> None:
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{query}")
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json().get("attr"), attr)
+        assert resp.status_code == 400
+        assert resp.json().get("attr") == attr
 
     def test_order_by_result_score_ignores_non_numeric_payloads(self) -> None:
         scorer = self._create_scanner(
@@ -943,10 +941,10 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 },
             )
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=result_score")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         sessions = [r["session_id"] for r in resp.json()["results"]]
         # Numeric scores first (ascending), bad row last via nulls_last.
-        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+        assert sessions == ["sess-2", "sess-0", "sess-1"]
 
     def test_order_by_result_score_numeric(self) -> None:
         scorer = self._create_scanner(
@@ -970,10 +968,10 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         # Lexicographic ordering would put "10" before "2"; numeric ordering puts 1 < 2 < 10.
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=result_score")
         sessions = [r["session_id"] for r in resp.json()["results"]]
-        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+        assert sessions == ["sess-2", "sess-0", "sess-1"]
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=-result_score")
         sessions = [r["session_id"] for r in resp.json()["results"]]
-        self.assertEqual(sessions, ["sess-1", "sess-0", "sess-2"])
+        assert sessions == ["sess-1", "sess-0", "sess-2"]
 
     def test_order_by_scanner_version_numeric(self) -> None:
         snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}
@@ -988,7 +986,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             )
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=scanner_version")
         sessions = [r["session_id"] for r in resp.json()["results"]]
-        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+        assert sessions == ["sess-2", "sess-0", "sess-1"]
 
     def test_filterset_tags_match_fixed_or_freeform(self) -> None:
         classifier = self._create_scanner(
@@ -1023,9 +1021,9 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 },
             )
         resp = self.client.get(f"{self.observations_url(str(classifier.id))}?tags=onboarding,surprise")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         sessions = sorted(r["session_id"] for r in resp.json()["results"])
-        self.assertEqual(sessions, ["sess-0", "sess-2"])
+        assert sessions == ["sess-0", "sess-2"]
 
     def test_stats_scorer_summary_and_histogram(self) -> None:
         scorer = self._create_scanner(
@@ -1047,19 +1045,19 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 },
             )
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}stats/")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
         summary = body["scorer"]["summary"]
-        self.assertEqual(summary["count"], 5)
-        self.assertEqual(summary["min"], 1.0)
-        self.assertEqual(summary["max"], 5.0)
-        self.assertEqual(summary["median"], 3.0)
-        self.assertAlmostEqual(summary["mean"], 3.0)
+        assert summary["count"] == 5
+        assert summary["min"] == 1.0
+        assert summary["max"] == 5.0
+        assert summary["median"] == 3.0
+        assert summary["mean"] == pytest.approx(3.0)
         histogram = body["scorer"]["histogram"]
-        self.assertEqual(sum(histogram["counts"]), 5)
-        self.assertEqual(len(histogram["labels"]), len(histogram["counts"]))
-        self.assertIsNone(body["monitor"])
-        self.assertIsNone(body["classifier"])
+        assert sum(histogram["counts"]) == 5
+        assert len(histogram["labels"]) == len(histogram["counts"])
+        assert body["monitor"] is None
+        assert body["classifier"] is None
 
     def test_stats_respects_status_filter(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -1070,11 +1068,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             completed_at=timezone.now(),
         )
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/?status=failed")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         body = resp.json()
-        self.assertEqual(body["status_counts"]["total"], 1)
-        self.assertEqual(body["status_counts"]["failed"], 1)
-        self.assertEqual(body["status_counts"]["succeeded"], 0)
+        assert body["status_counts"]["total"] == 1
+        assert body["status_counts"]["failed"] == 1
+        assert body["status_counts"]["succeeded"] == 0
 
 
 @patch("products.replay_vision.backend.api.scanners.async_to_sync")
@@ -1096,24 +1094,24 @@ class TestObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
 
         resp = self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-42"}, format="json")
-        self.assertEqual(resp.status_code, 202, resp.json())
+        assert resp.status_code == 202, resp.json()
 
         expected_workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-42")
-        self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id})
+        assert resp.json() == {"workflow_id": expected_workflow_id}
 
-        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-42").exists())
+        assert not ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-42").exists()
 
         mock_async_to_sync.assert_called_once_with(mock_client.start_workflow)
         args, kwargs = start_workflow.call_args
-        self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
-        self.assertEqual(kwargs["id"], expected_workflow_id)
-        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        assert args[0] == APPLY_SCANNER_WORKFLOW_NAME
+        assert kwargs["id"] == expected_workflow_id
+        assert kwargs["execution_timeout"] == timedelta(hours=1)
         inputs = args[1]
-        self.assertEqual(inputs.scanner_id, self.scanner.id)
-        self.assertEqual(inputs.session_id, "sess-42")
-        self.assertEqual(inputs.team_id, self.team.id)
-        self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
-        self.assertEqual(inputs.triggered_by_user_id, self.user.id)
+        assert inputs.scanner_id == self.scanner.id
+        assert inputs.session_id == "sess-42"
+        assert inputs.team_id == self.team.id
+        assert inputs.triggered_by == ObservationTrigger.ON_DEMAND
+        assert inputs.triggered_by_user_id == self.user.id
 
     def test_observe_dedup_uses_deterministic_workflow_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1126,14 +1124,14 @@ class TestObserveAction(_VisionAPITestCase):
         second = self.client.post(
             self.observe_url(str(self.scanner.id)), data={"session_id": "sess-dup"}, format="json"
         )
-        self.assertEqual(first.json()["workflow_id"], second.json()["workflow_id"])
+        assert first.json()["workflow_id"] == second.json()["workflow_id"]
 
     def test_observe_rejects_missing_session_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         resp = self.client.post(self.observe_url(str(self.scanner.id)), data={}, format="json")
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json()["attr"], "session_id")
+        assert resp.status_code == 400
+        assert resp.json()["attr"] == "session_id"
 
     def test_observe_rejects_too_long_session_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1143,8 +1141,8 @@ class TestObserveAction(_VisionAPITestCase):
             data={"session_id": "x" * 129},
             format="json",
         )
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json()["attr"], "session_id")
+        assert resp.status_code == 400
+        assert resp.json()["attr"] == "session_id"
 
     def test_observe_workflow_id_fits_observation_column_at_max_input(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1157,11 +1155,11 @@ class TestObserveAction(_VisionAPITestCase):
         resp = self.client.post(
             self.observe_url(str(self.scanner.id)), data={"session_id": max_session_id}, format="json"
         )
-        self.assertEqual(resp.status_code, 202, resp.json())
+        assert resp.status_code == 202, resp.json()
         workflow_id = resp.json()["workflow_id"]
         max_length = ReplayObservation._meta.get_field("workflow_id").max_length
         assert max_length is not None
-        self.assertLessEqual(len(workflow_id), max_length)
+        assert len(workflow_id) <= max_length
 
     def test_observe_dispatch_failure_returns_503(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1173,8 +1171,8 @@ class TestObserveAction(_VisionAPITestCase):
         resp = self.client.post(
             self.observe_url(str(self.scanner.id)), data={"session_id": "sess-broken"}, format="json"
         )
-        self.assertEqual(resp.status_code, 503)
-        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-broken").exists())
+        assert resp.status_code == 503
+        assert not ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-broken").exists()
 
     def test_observe_workflow_already_started_is_treated_as_success(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1192,8 +1190,8 @@ class TestObserveAction(_VisionAPITestCase):
         resp = self.client.post(
             self.observe_url(str(self.scanner.id)), data={"session_id": "sess-coalesce"}, format="json"
         )
-        self.assertEqual(resp.status_code, 202, resp.json())
-        self.assertEqual(resp.json(), {"workflow_id": coalesced_workflow_id})
+        assert resp.status_code == 202, resp.json()
+        assert resp.json() == {"workflow_id": coalesced_workflow_id}
 
     def test_observe_workflow_already_started_with_mismatched_id_returns_503(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1211,7 +1209,7 @@ class TestObserveAction(_VisionAPITestCase):
         resp = self.client.post(
             self.observe_url(str(self.scanner.id)), data={"session_id": "sess-mismatch"}, format="json"
         )
-        self.assertEqual(resp.status_code, 503, resp.json())
+        assert resp.status_code == 503, resp.json()
 
 
 @patch("products.replay_vision.backend.api.scanners.async_to_sync")
@@ -1234,7 +1232,7 @@ class TestObserveActionFeatureFlag(APIBaseTest):
                 data={"session_id": "s"},
                 format="json",
             )
-            self.assertEqual(resp.status_code, 404)
+            assert resp.status_code == 404
 
 
 class TestSessionReplayObservationViewSet(_VisionAPITestCase):
@@ -1261,13 +1259,13 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self._create_observation(self.scanner_a, "sess-other")
 
         resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         results = resp.json()["results"]
-        self.assertEqual({r["scanner_id"] for r in results}, {str(self.scanner_a.id), str(self.scanner_b.id)})
+        assert {r["scanner_id"] for r in results} == {str(self.scanner_a.id), str(self.scanner_b.id)}
 
     def test_list_requires_session_id(self) -> None:
         resp = self.client.get(self.session_observations_url)
-        self.assertEqual(resp.status_code, 400)
+        assert resp.status_code == 400
 
     def test_list_excludes_other_teams(self) -> None:
         other_org = Organization.objects.create(name="other")
@@ -1288,15 +1286,15 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self._create_observation(self.scanner_a, "sess-target")
 
         resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
         results = resp.json()["results"]
-        self.assertEqual([r["scanner_id"] for r in results], [str(self.scanner_a.id)])
+        assert [r["scanner_id"] for r in results] == [str(self.scanner_a.id)]
 
     def test_retrieve(self) -> None:
         observation = self._create_observation(self.scanner_a, "sess-target")
         resp = self.client.get(f"{self.session_observations_url}{observation.id}/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["id"], str(observation.id))
+        assert resp.status_code == 200
+        assert resp.json()["id"] == str(observation.id)
 
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
@@ -1323,7 +1321,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
-        self.assertEqual(resp.status_code, 400)
+        assert resp.status_code == 400
 
     def test_estimate_counts_only_in_window_sessions(self) -> None:
         for index in range(3):
@@ -1331,12 +1329,12 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self._ingest_session(days_ago=40)
 
         resp = self.client.post(self.estimate_url, data={}, format="json")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
 
         body = resp.json()
-        self.assertEqual(body["matched_sessions_in_window"], 3)
-        self.assertEqual(body["window_days"], 30)
-        self.assertEqual(body["estimated_observations_per_month"], 3)
+        assert body["matched_sessions_in_window"] == 3
+        assert body["window_days"] == 30
+        assert body["estimated_observations_per_month"] == 3
 
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):
@@ -1345,10 +1343,10 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self._ingest_session(days_ago=40)
 
         resp = self.client.post(self.estimate_url, data={"sampling_rate": 0.5}, format="json")
-        self.assertEqual(resp.status_code, 200)
+        assert resp.status_code == 200
 
         body = resp.json()
-        self.assertEqual(body["matched_sessions_in_window"], 4)
-        self.assertEqual(body["window_days"], 30)
-        self.assertEqual(body["sampling_rate"], 0.5)
-        self.assertEqual(body["estimated_observations_per_month"], 2)
+        assert body["matched_sessions_in_window"] == 4
+        assert body["window_days"] == 30
+        assert body["sampling_rate"] == 0.5
+        assert body["estimated_observations_per_month"] == 2

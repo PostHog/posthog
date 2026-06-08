@@ -43,9 +43,9 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         kill_stale_queued_task_runs()
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.FAILED)
-        self.assertIn("stuck in QUEUED", run.error_message or "")
-        self.assertIsNotNone(run.completed_at)
+        assert run.status == TaskRun.Status.FAILED
+        assert "stuck in QUEUED" in (run.error_message or "")
+        assert run.completed_at is not None
 
     def test_leaves_recently_queued_run_alone(self) -> None:
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=23, minutes=59))
@@ -53,9 +53,9 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         kill_stale_queued_task_runs()
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
-        self.assertIsNone(run.completed_at)
-        self.assertIsNone(run.error_message)
+        assert run.status == TaskRun.Status.QUEUED
+        assert run.completed_at is None
+        assert run.error_message is None
 
     def test_leaves_re_queued_run_with_old_created_at_alone(self) -> None:
         # prepare_for_cloud_handoff re-queues an existing run without resetting
@@ -67,9 +67,9 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         kill_stale_queued_task_runs()
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
-        self.assertIsNone(run.completed_at)
-        self.assertIsNone(run.error_message)
+        assert run.status == TaskRun.Status.QUEUED
+        assert run.completed_at is None
+        assert run.error_message is None
 
     @parameterized.expand(
         [
@@ -86,7 +86,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         kill_stale_queued_task_runs()
 
         run.refresh_from_db()
-        self.assertEqual(run.status, status)
+        assert run.status == status
 
     def test_caps_work_at_batch_size(self) -> None:
         for _ in range(550):
@@ -96,8 +96,8 @@ class TestKillStaleQueuedTaskRuns(TestCase):
 
         failed_count = TaskRun.objects.filter(status=TaskRun.Status.FAILED).count()
         remaining_queued = TaskRun.objects.filter(status=TaskRun.Status.QUEUED).count()
-        self.assertEqual(failed_count, 500)
-        self.assertEqual(remaining_queued, 50)
+        assert failed_count == 500
+        assert remaining_queued == 50
 
     def test_one_failure_does_not_block_the_sweep(self) -> None:
         run_a = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
@@ -122,7 +122,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         run_a.refresh_from_db()
         run_b.refresh_from_db()
         statuses = sorted([run_a.status, run_b.status])
-        self.assertEqual(statuses, sorted([TaskRun.Status.QUEUED, TaskRun.Status.FAILED]))
+        assert statuses == sorted([TaskRun.Status.QUEUED, TaskRun.Status.FAILED])
 
     def test_skips_run_whose_status_changed_between_select_and_update(self) -> None:
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
@@ -139,5 +139,5 @@ class TestKillStaleQueuedTaskRuns(TestCase):
             kill_stale_queued_task_runs()
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
-        self.assertIsNone(run.error_message)
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        assert run.error_message is None

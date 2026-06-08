@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 from typing import Any, Optional
 
 from freezegun import freeze_time
@@ -124,7 +125,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
         )
 
-        self.assertEqual([("p1",)], response.results)
+        assert [("p1",)] == response.results
 
     def test_insight_persons_lifecycle_query_week_monday(self):
         self._create_test_events()
@@ -152,7 +153,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
         )
 
-        self.assertEqual([("p1",)], response.results)
+        assert [("p1",)] == response.results
 
     def test_insight_persons_lifecycle_query_week_sunday(self):
         self._create_test_events()
@@ -180,7 +181,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
         )
 
-        self.assertEqual([("p1",), ("p2",)], response.results)
+        assert [("p1",), ("p2",)] == response.results
 
     @snapshot_clickhouse_queries
     def test_insight_persons_stickiness_query(self):
@@ -203,7 +204,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """
         )
 
-        self.assertEqual([("p2",)], response.results)
+        assert [("p2",)] == response.results
 
     @snapshot_clickhouse_queries
     def test_insight_persons_stickiness_groups_query(self):
@@ -227,7 +228,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """
         )
 
-        self.assertEqual([("org1",)], response.results)
+        assert [("org1",)] == response.results
 
     def test_insight_persons_trends_query_with_argmaxV1_calculate_adds_event_distinct_ids(self):
         self._create_test_events()
@@ -249,7 +250,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         actor_query_response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
-        self.assertTrue("event_distinct_ids" in actor_query_response.columns)
+        assert "event_distinct_ids" in actor_query_response.columns
 
     def test_insight_persons_trends_query_with_argmaxV1_no_event_distinct(self):
         self._create_test_events()
@@ -274,9 +275,9 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
             )
 
-        self.assertEqual([("p2",)], response.results)
+        assert [("p2",)] == response.results
         assert "in(id," in queries[0]
-        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        assert 2 == queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp")
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV1(self):
@@ -302,9 +303,9 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V1},
             )
 
-        self.assertEqual([("p2", ["p2"])], response.results)
+        assert [("p2", ["p2"])] == response.results
         assert "in(id," in queries[0]
-        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        assert 2 == queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp")
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_query_with_argmaxV2(self):
@@ -330,9 +331,9 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
             )
 
-        self.assertEqual([("p2", ["p2"])], response.results)
+        assert [("p2", ["p2"])] == response.results
         assert "in(person.id" in queries[0]
-        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        assert 2 == queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp")
 
     @snapshot_clickhouse_queries
     def test_insight_events_trends_query(self):
@@ -356,7 +357,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
         )
 
-        self.assertCountEqual(["p1", "p2", "p3"], [x[0] for x in response.results])
+        assert Counter(["p1", "p2", "p3"]) == Counter([x[0] for x in response.results])
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):
@@ -380,7 +381,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """
         )
 
-        self.assertEqual([("org1",)], response.results)
+        assert [("org1",)] == response.results
 
     @snapshot_clickhouse_queries
     def test_insight_persons_funnels_query(self):
@@ -403,7 +404,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 """
         )
 
-        self.assertEqual([("p1",), ("p2",)], response.results)
+        assert [("p1",), ("p2",)] == response.results
 
     def test_insight_groups_funnels_query(self):
         self._create_test_groups()
@@ -427,12 +428,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 """
         )
 
-        self.assertEqual(
-            [
-                ("org1",),
-            ],
-            response.results,
-        )
+        assert [("org1",)] == response.results
 
     def test_insight_actors_trends_weekly_active_groups(self):
         self._create_test_groups()
@@ -455,7 +451,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """
         )
 
-        self.assertEqual([("org1",)], response.results)
+        assert [("org1",)] == response.results
 
     def test_insight_actors_trends_monthly_active_groups(self):
         self._create_test_groups()
@@ -478,7 +474,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             """
         )
 
-        self.assertEqual([("org1",)], response.results)
+        assert [("org1",)] == response.results
 
     def test_group_type_index_property_weekly_active(self):
         query = InsightActorsQuery(
@@ -494,7 +490,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         runner = InsightActorsQueryRunner(query=query, team=self.team)
-        self.assertEqual(runner.group_type_index, 1)
+        assert runner.group_type_index == 1
 
     def test_group_type_index_property_monthly_active(self):
         query = InsightActorsQuery(
@@ -510,4 +506,4 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         runner = InsightActorsQueryRunner(query=query, team=self.team)
-        self.assertEqual(runner.group_type_index, 2)
+        assert runner.group_type_index == 2

@@ -35,10 +35,8 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
         self.client.logout()
         # Verify that we're actually logged out by testing access to a protected endpoint
         response = self.client.get(f"/api/environments/{self.team.id}/insights/")
-        self.assertIn(
-            response.status_code,
-            [401, 403],
-            f"Expected 401/403 for logged out user, got {response.status_code}. User may still be logged in!",
+        assert response.status_code in [401, 403], (
+            f"Expected 401/403 for logged out user, got {response.status_code}. User may still be logged in!"
         )
 
     def test_expired_sharing_token_rejected_by_api(self):

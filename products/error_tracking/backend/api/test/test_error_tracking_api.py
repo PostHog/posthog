@@ -290,11 +290,11 @@ class TestErrorTracking(APIBaseTest):
             data={"ids": [str(ss1.id), str(ss2.id)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(response.json()["deleted"], 2)
-        self.assertFalse(ErrorTrackingSymbolSet.objects.filter(id=ss1.id).exists())
-        self.assertFalse(ErrorTrackingSymbolSet.objects.filter(id=ss2.id).exists())
-        self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=ss3.id).exists())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted"] >= 2
+        assert not ErrorTrackingSymbolSet.objects.filter(id=ss1.id).exists()
+        assert not ErrorTrackingSymbolSet.objects.filter(id=ss2.id).exists()
+        assert ErrorTrackingSymbolSet.objects.filter(id=ss3.id).exists()
 
     def test_bulk_delete_ignores_other_teams(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -306,9 +306,9 @@ class TestErrorTracking(APIBaseTest):
             data={"ids": [str(ss1.id), str(other_ss.id)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(response.json()["deleted"], 1)
-        self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted"] >= 1
+        assert ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists()
 
     def test_bulk_delete_requires_ids(self) -> None:
         response = self.client.post(
@@ -316,7 +316,7 @@ class TestErrorTracking(APIBaseTest):
             data={},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_fetching_symbol_sets(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -328,153 +328,11 @@ class TestErrorTracking(APIBaseTest):
             ref="source_2", team=other_team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
         )
 
-        self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
+        assert ErrorTrackingSymbolSet.objects.count() == 3
 
         # it only fetches symbol sets for the specified team
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets")
-        self.assertEqual(len(response.json()["results"]), 2)
-
-    def test_fetching_symbol_sets_filters_by_status_ref_and_order(self) -> None:
-        ErrorTrackingSymbolSet.objects.create(ref="source_b", team=self.team, storage_ptr="symbolsets/source_b")
-        ErrorTrackingSymbolSet.objects.create(
-            ref="source_a", team=self.team, storage_ptr=None, failure_reason="Source map not found"
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
-            data={"status": "valid", "order_by": "ref"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_b"])
-        self.assertEqual([symbol_set["has_uploaded_file"] for symbol_set in response.json()["results"]], [True])
-        self.assertNotIn("storage_ptr", response.json()["results"][0])
-        self.assertNotIn("content_hash", response.json()["results"][0])
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
-            data={"ref": "source_a"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
-
-    @parameterized.expand(
-        [
-            ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
-            ("release_version", "special", ["set_b"]),
-            ("release_project", "checkout", ["set_c"]),
-            ("release_commit_sha", "feedface", ["set_d"]),
-            ("case_insensitive", "CHECKOUT", ["set_c"]),
-            ("no_match", "zzznope", []),
-        ]
-    )
-    def test_fetching_symbol_sets_search(self, _name: str, search: str, expected_refs: list[str]) -> None:
-        release_b = ErrorTrackingRelease.objects.create(
-            team=self.team, hash_id="hash_b", version="9.9.9-special", project="proj_b", metadata=None
-        )
-        release_c = ErrorTrackingRelease.objects.create(
-            team=self.team, hash_id="hash_c", version="1.0.0", project="checkout-service", metadata=None
-        )
-        release_d = ErrorTrackingRelease.objects.create(
-            team=self.team,
-            hash_id="hash_d",
-            version="2.0.0",
-            project="proj_d",
-            metadata={"git": {"commit_id": "feedface999abc"}},
-        )
-        ErrorTrackingSymbolSet.objects.create(ref="frontend-chunk-abc123", team=self.team, storage_ptr="symbolsets/a")
-        ErrorTrackingSymbolSet.objects.create(
-            ref="set_b", team=self.team, storage_ptr="symbolsets/b", release=release_b
-        )
-        ErrorTrackingSymbolSet.objects.create(
-            ref="set_c", team=self.team, storage_ptr="symbolsets/c", release=release_c
-        )
-        ErrorTrackingSymbolSet.objects.create(
-            ref="set_d", team=self.team, storage_ptr="symbolsets/d", release=release_d
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
-            data={"search": search},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(symbol_set["ref"] for symbol_set in response.json()["results"]), sorted(expected_refs))
-
-    def test_fetching_symbol_set_by_id(self) -> None:
-        other_team = self.create_team_with_organization(organization=self.organization)
-        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
-        other_symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=other_team, storage_ptr=None)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(symbol_set.id))
-        self.assertEqual(response.json()["ref"], "source_1")
-        self.assertEqual(response.json()["has_uploaded_file"], False)
-        self.assertNotIn("storage_ptr", response.json())
-        self.assertNotIn("content_hash", response.json())
-
-        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{other_symbol_set.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_symbol_set_list_query_validation_does_not_apply_to_retrieve(self) -> None:
-        symbol_set = ErrorTrackingSymbolSet.objects.create(
-            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
-            data={"order_by": "storage_ptr"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
-            data={"order_by": "storage_ptr"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_symbol_set_storage_ptr_is_read_only(self) -> None:
-        symbol_set = ErrorTrackingSymbolSet.objects.create(
-            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
-        )
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
-            data={"storage_ptr": "symbolsets/other_team_file"},
-            format="multipart",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        symbol_set.refresh_from_db()
-        self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
-
-    @patch("products.error_tracking.backend.api.symbol_sets.object_storage.get_presigned_url")
-    def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
-        patched_get_presigned_url.return_value = "https://example.com/source.map"
-        symbol_set = ErrorTrackingSymbolSet.objects.create(
-            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"url": "https://example.com/source.map"})
-        patched_get_presigned_url.assert_called_once_with(file_key="symbolsets/source_1", expiration=3600)
-
-    def test_download_symbol_set_without_file_returns_404(self) -> None:
-        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), {"detail": "Symbol set has no uploaded file."})
+        assert len(response.json()["results"]) == 2
 
     def test_fetching_stack_frames(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -490,38 +348,38 @@ class TestErrorTracking(APIBaseTest):
             raw_id="raw_id", team=other_team, symbol_set=symbol_set, resolved=True, contents={}
         )
 
-        self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
+        assert ErrorTrackingStackFrame.objects.count() == 3
 
         # it only fetches stack traces for the specified team
         response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert len(response.json()["results"]) == 2
 
         # fetching can be filtered by raw_ids
         data = {"raw_ids": ["raw_id"]}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert len(response.json()["results"]) == 1
 
         # fetching can be filtered by symbol set
         data = {"symbol_set": symbol_set.id}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["symbol_set_ref"] == symbol_set.ref
 
     def test_assigning_issues(self):
         issue = self.create_issue()
 
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
         self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": {"id": self.user.id, "type": "user"}},
         )
         # assigns the issue
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
+        assert ErrorTrackingIssueAssignment.objects.count() == 1
+        assert ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count() == 1
 
         self._assert_logs_the_activity(
             issue.id,
@@ -556,7 +414,7 @@ class TestErrorTracking(APIBaseTest):
             data={"assignee": None},
         )
         # deletes the assignment
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
 
         other_team = self.create_team_with_organization(organization=self.organization)
         response = self.client.patch(
@@ -564,26 +422,14 @@ class TestErrorTracking(APIBaseTest):
             data={"assignee": None},
         )
         # cannot assign issues from other teams
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
-    @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")
-    def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
-        issue = self.create_issue()
-        other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
-            data={"assignee": {"id": other_user.id, "type": "user"}},
-        )
-        assert response.status_code in (200, 202), response.json()
-        mock_realtime.assert_called_once()
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_error_tracking_issue_bulk_resolve(self):
         issue_one = self.create_issue()
         issue_two = self.create_issue()
 
-        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.ACTIVE)
-        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
+        assert issue_one.status == ErrorTrackingIssue.Status.ACTIVE
+        assert issue_two.status == ErrorTrackingIssue.Status.ACTIVE
 
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
@@ -593,8 +439,8 @@ class TestErrorTracking(APIBaseTest):
         issue_one.refresh_from_db()
         issue_two.refresh_from_db()
 
-        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.RESOLVED)
-        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.RESOLVED)
+        assert issue_one.status == ErrorTrackingIssue.Status.RESOLVED
+        assert issue_two.status == ErrorTrackingIssue.Status.RESOLVED
 
     def test_error_tracking_issue_bulk_assign(self):
         issue_one = self.create_issue()
@@ -613,10 +459,8 @@ class TestErrorTracking(APIBaseTest):
             },
         )
 
-        self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
-        self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
-        )
+        assert len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)) == 0
+        assert len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)) == 2
 
     def test_can_start_bulk_symbol_set_upload(self) -> None:
         chunk_id_one = uuid7()
@@ -688,64 +532,6 @@ class TestErrorTracking(APIBaseTest):
         assert new_symbol_set.release_id == release.id
         assert new_symbol_set.last_used is None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
-
-    @parameterized.expand(
-        [
-            ("default_rejects", {}, status.HTTP_400_BAD_REQUEST, "content_hash_mismatch", "unchanged"),
-            ("skip_on_conflict", {"skip_on_conflict": True}, status.HTTP_201_CREATED, None, "unchanged"),
-            ("force", {"force": True}, status.HTTP_201_CREATED, None, "overwritten"),
-            (
-                "force_and_skip_rejected",
-                {"force": True, "skip_on_conflict": True},
-                status.HTTP_400_BAD_REQUEST,
-                "invalid_conflict_handling",
-                "unchanged",
-            ),
-        ]
-    )
-    def test_bulk_start_upload_handles_content_mismatch(
-        self,
-        _name: str,
-        request_flags: dict[str, bool],
-        expected_status: int,
-        expected_code: str | None,
-        expected_outcome: str,
-    ) -> None:
-        chunk_id = str(uuid7())
-        symbol_set = ErrorTrackingSymbolSet.objects.create(
-            team=self.team,
-            ref=chunk_id,
-            storage_ptr="existing",
-            content_hash="already_uploaded",
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
-            data={
-                "symbol_sets": [
-                    {
-                        "chunk_id": chunk_id,
-                        "content_hash": "different_hash",
-                    }
-                ],
-                **request_flags,
-            },
-            format="json",
-        )
-
-        assert response.status_code == expected_status
-        if expected_code:
-            assert response.json()["code"] == expected_code
-        if expected_outcome == "overwritten":
-            assert response.json()["id_map"][chunk_id]["symbol_set_id"] == str(symbol_set.id)
-
-        symbol_set.refresh_from_db()
-        if expected_outcome == "unchanged":
-            assert symbol_set.storage_ptr == "existing"
-            assert symbol_set.content_hash == "already_uploaded"
-        else:
-            assert symbol_set.storage_ptr != "existing"
-            assert symbol_set.content_hash is None
 
     def test_bulk_start_upload_fail_restart_with_no_content_hash(self) -> None:
         existing_chunk_id = str(uuid7())
@@ -985,6 +771,218 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
+    def test_fetching_symbol_sets_filters_by_status_ref_and_order(self) -> None:
+        ErrorTrackingSymbolSet.objects.create(ref="source_b", team=self.team, storage_ptr="symbolsets/source_b")
+        ErrorTrackingSymbolSet.objects.create(
+            ref="source_a", team=self.team, storage_ptr=None, failure_reason="Source map not found"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"status": "valid", "order_by": "ref"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [symbol_set["ref"] for symbol_set in response.json()["results"]] == ["source_b"]
+        assert [symbol_set["has_uploaded_file"] for symbol_set in response.json()["results"]] == [True]
+        assert "storage_ptr" not in response.json()["results"][0]
+        assert "content_hash" not in response.json()["results"][0]
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"ref": "source_a"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [symbol_set["ref"] for symbol_set in response.json()["results"]] == ["source_a"]
+
+    @parameterized.expand(
+        [
+            ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
+            ("release_version", "special", ["set_b"]),
+            ("release_project", "checkout", ["set_c"]),
+            ("release_commit_sha", "feedface", ["set_d"]),
+            ("case_insensitive", "CHECKOUT", ["set_c"]),
+            ("no_match", "zzznope", []),
+        ]
+    )
+    def test_fetching_symbol_sets_search(self, _name: str, search: str, expected_refs: list[str]) -> None:
+        release_b = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="hash_b", version="9.9.9-special", project="proj_b", metadata=None
+        )
+        release_c = ErrorTrackingRelease.objects.create(
+            team=self.team, hash_id="hash_c", version="1.0.0", project="checkout-service", metadata=None
+        )
+        release_d = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="hash_d",
+            version="2.0.0",
+            project="proj_d",
+            metadata={"git": {"commit_id": "feedface999abc"}},
+        )
+        ErrorTrackingSymbolSet.objects.create(ref="frontend-chunk-abc123", team=self.team, storage_ptr="symbolsets/a")
+        ErrorTrackingSymbolSet.objects.create(
+            ref="set_b", team=self.team, storage_ptr="symbolsets/b", release=release_b
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            ref="set_c", team=self.team, storage_ptr="symbolsets/c", release=release_c
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            ref="set_d", team=self.team, storage_ptr="symbolsets/d", release=release_d
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"search": search},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(symbol_set["ref"] for symbol_set in response.json()["results"]) == sorted(expected_refs)
+
+    def test_fetching_symbol_set_by_id(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+        other_symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=other_team, storage_ptr=None)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(symbol_set.id)
+        assert response.json()["ref"] == "source_1"
+        assert not response.json()["has_uploaded_file"]
+        assert "storage_ptr" not in response.json()
+        assert "content_hash" not in response.json()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{other_symbol_set.id}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_symbol_set_list_query_validation_does_not_apply_to_retrieve(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"order_by": "storage_ptr"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+            data={"order_by": "storage_ptr"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_symbol_set_storage_ptr_is_read_only(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+            data={"storage_ptr": "symbolsets/other_team_file"},
+            format="multipart",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        symbol_set.refresh_from_db()
+        assert symbol_set.storage_ptr == "symbolsets/source_1"
+
+    @patch("products.error_tracking.backend.api.symbol_sets.object_storage.get_presigned_url")
+    def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
+        patched_get_presigned_url.return_value = "https://example.com/source.map"
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            ref="source_1", team=self.team, storage_ptr="symbolsets/source_1"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"url": "https://example.com/source.map"}
+        patched_get_presigned_url.assert_called_once_with(file_key="symbolsets/source_1", expiration=3600)
+
+    def test_download_symbol_set_without_file_returns_404(self) -> None:
+        symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"detail": "Symbol set has no uploaded file."}
+
+    @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")
+    def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
+        issue = self.create_issue()
+        other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": other_user.id, "type": "user"}},
+        )
+        assert response.status_code in (200, 202), response.json()
+        mock_realtime.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("default_rejects", {}, status.HTTP_400_BAD_REQUEST, "content_hash_mismatch", "unchanged"),
+            ("skip_on_conflict", {"skip_on_conflict": True}, status.HTTP_201_CREATED, None, "unchanged"),
+            ("force", {"force": True}, status.HTTP_201_CREATED, None, "overwritten"),
+            (
+                "force_and_skip_rejected",
+                {"force": True, "skip_on_conflict": True},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_conflict_handling",
+                "unchanged",
+            ),
+        ]
+    )
+    def test_bulk_start_upload_handles_content_mismatch(
+        self,
+        _name: str,
+        request_flags: dict[str, bool],
+        expected_status: int,
+        expected_code: str | None,
+        expected_outcome: str,
+    ) -> None:
+        chunk_id = str(uuid7())
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": chunk_id,
+                        "content_hash": "different_hash",
+                    }
+                ],
+                **request_flags,
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        if expected_code:
+            assert response.json()["code"] == expected_code
+        if expected_outcome == "overwritten":
+            assert response.json()["id_map"][chunk_id]["symbol_set_id"] == str(symbol_set.id)
+
+        symbol_set.refresh_from_db()
+        if expected_outcome == "unchanged":
+            assert symbol_set.storage_ptr == "existing"
+            assert symbol_set.content_hash == "already_uploaded"
+        else:
+            assert symbol_set.storage_ptr != "existing"
+            assert symbol_set.content_hash is None
+
     @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
     def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self, patched_capture: Mock) -> None:
         response = self.client.post(
@@ -1051,14 +1049,14 @@ class TestErrorTracking(APIBaseTest):
         for item in activity:
             item.pop("id", None)
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
 
     def _get_error_tracking_issue_activity(
         self, error_tracking_issue_id: int, expected_status: int = status.HTTP_200_OK
     ) -> dict:
         url = f"/api/environments/{self.team.id}/error_tracking/issues/{error_tracking_issue_id}/activity"
         activity = self.client.get(url)
-        self.assertEqual(activity.status_code, expected_status)
+        assert activity.status_code == expected_status
         return activity.json()
 
     def test_fetch_release_by_hash_id(self) -> None:

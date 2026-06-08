@@ -34,10 +34,10 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(len(evaluation.conditions), 1)
-        self.assertIn("bytecode", evaluation.conditions[0])
-        self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
-        self.assertIsInstance(evaluation.conditions[0]["bytecode"], list)
+        assert len(evaluation.conditions) == 1
+        assert "bytecode" in evaluation.conditions[0]
+        assert evaluation.conditions[0]["bytecode"] is not None
+        assert isinstance(evaluation.conditions[0]["bytecode"], list)
 
     def test_sets_bytecode_error_when_compilation_fails(self):
         """
@@ -66,9 +66,9 @@ class TestEvaluationModel(BaseTest):
 
             evaluation.refresh_from_db()
 
-            self.assertEqual(len(evaluation.conditions), 1)
-            self.assertIn("bytecode_error", evaluation.conditions[0])
-            self.assertEqual(evaluation.conditions[0]["bytecode_error"], "Invalid property filter")
+            assert len(evaluation.conditions) == 1
+            assert "bytecode_error" in evaluation.conditions[0]
+            assert evaluation.conditions[0]["bytecode_error"] == "Invalid property filter"
 
     def test_handles_empty_properties_list(self):
         """
@@ -94,9 +94,9 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(len(evaluation.conditions), 1)
-        self.assertEqual(evaluation.conditions[0]["properties"], [])
-        self.assertIn("bytecode", evaluation.conditions[0])
+        assert len(evaluation.conditions) == 1
+        assert evaluation.conditions[0]["properties"] == []
+        assert "bytecode" in evaluation.conditions[0]
 
     def test_compiles_bytecode_for_multiple_conditions(self):
         """
@@ -129,11 +129,11 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(len(evaluation.conditions), 2)
-        self.assertIn("bytecode", evaluation.conditions[0])
-        self.assertIn("bytecode", evaluation.conditions[1])
-        self.assertIsNotNone(evaluation.conditions[0]["bytecode"])
-        self.assertIsNotNone(evaluation.conditions[1]["bytecode"])
+        assert len(evaluation.conditions) == 2
+        assert "bytecode" in evaluation.conditions[0]
+        assert "bytecode" in evaluation.conditions[1]
+        assert evaluation.conditions[0]["bytecode"] is not None
+        assert evaluation.conditions[1]["bytecode"] is not None
 
     @patch("posthog.plugins.plugin_server_api.reload_evaluations_on_workers")
     def test_sends_reload_signal_on_save(self, mock_reload):
@@ -196,9 +196,9 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertIn("bytecode", evaluation.evaluation_config)
-        self.assertIsInstance(evaluation.evaluation_config["bytecode"], list)
-        self.assertTrue(len(evaluation.evaluation_config["bytecode"]) > 0)
+        assert "bytecode" in evaluation.evaluation_config
+        assert isinstance(evaluation.evaluation_config["bytecode"], list)
+        assert len(evaluation.evaluation_config["bytecode"]) > 0
 
     def test_hog_evaluation_invalid_source_raises_validation_error(self):
         with self.assertRaises(ValidationError):
@@ -248,8 +248,8 @@ class TestEvaluationModel(BaseTest):
         evaluation.save()
         evaluation.refresh_from_db()
 
-        self.assertIn("bytecode", evaluation.evaluation_config)
-        self.assertNotEqual(evaluation.evaluation_config["bytecode"], original_bytecode)
+        assert "bytecode" in evaluation.evaluation_config
+        assert evaluation.evaluation_config["bytecode"] != original_bytecode
 
     def test_preserves_other_condition_fields(self):
         """
@@ -275,8 +275,8 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
 
-        self.assertEqual(evaluation.conditions[0]["id"], "my-custom-id")
-        self.assertEqual(evaluation.conditions[0]["rollout_percentage"], 75)
+        assert evaluation.conditions[0]["id"] == "my-custom-id"
+        assert evaluation.conditions[0]["rollout_percentage"] == 75
 
 
 class TestEvaluationStatusCoercion(BaseTest):
@@ -302,28 +302,28 @@ class TestEvaluationStatusCoercion(BaseTest):
     )
     def test_new_row_status_derived_from_enabled(self, enabled, expected_status):
         evaluation = self._create(enabled=enabled)
-        self.assertEqual(evaluation.status, expected_status)
-        self.assertIsNone(evaluation.status_reason)
+        assert evaluation.status == expected_status
+        assert evaluation.status_reason is None
 
     def test_flipping_enabled_false_on_active_row_transitions_to_paused(self):
         evaluation = self._create(enabled=True)
         evaluation.enabled = False
         evaluation.save()
-        self.assertEqual(evaluation.status, EvaluationStatus.PAUSED)
-        self.assertFalse(evaluation.enabled)
+        assert evaluation.status == EvaluationStatus.PAUSED
+        assert not evaluation.enabled
 
     def test_flipping_enabled_true_on_errored_row_transitions_to_active_and_clears_reason(self):
         evaluation = self._create(enabled=False)
         evaluation.status = EvaluationStatus.ERROR
         evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
         evaluation.save()
-        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+        assert evaluation.status == EvaluationStatus.ERROR
 
         evaluation.enabled = True
         evaluation.save()
-        self.assertEqual(evaluation.status, EvaluationStatus.ACTIVE)
-        self.assertTrue(evaluation.enabled)
-        self.assertIsNone(evaluation.status_reason)
+        assert evaluation.status == EvaluationStatus.ACTIVE
+        assert evaluation.enabled
+        assert evaluation.status_reason is None
 
     def test_setting_status_error_requires_reason(self):
         evaluation = self._create(enabled=True)
@@ -336,9 +336,9 @@ class TestEvaluationStatusCoercion(BaseTest):
         evaluation.status = EvaluationStatus.ERROR
         evaluation.status_reason = EvaluationStatusReason.MODEL_NOT_ALLOWED
         evaluation.save()
-        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
-        self.assertFalse(evaluation.enabled)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.MODEL_NOT_ALLOWED)
+        assert evaluation.status == EvaluationStatus.ERROR
+        assert not evaluation.enabled
+        assert evaluation.status_reason == EvaluationStatusReason.MODEL_NOT_ALLOWED
 
     def test_paused_status_clears_any_stale_status_reason(self):
         evaluation = self._create(enabled=True)
@@ -348,15 +348,15 @@ class TestEvaluationStatusCoercion(BaseTest):
 
         evaluation.status = EvaluationStatus.PAUSED
         evaluation.save()
-        self.assertIsNone(evaluation.status_reason)
+        assert evaluation.status_reason is None
 
     def test_set_status_helper_transitions_all_three_fields(self):
         evaluation = self._create(enabled=True)
         evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.PROVIDER_KEY_DELETED)
         evaluation.refresh_from_db()
-        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_DELETED)
-        self.assertFalse(evaluation.enabled)
+        assert evaluation.status == EvaluationStatus.ERROR
+        assert evaluation.status_reason == EvaluationStatusReason.PROVIDER_KEY_DELETED
+        assert not evaluation.enabled
 
     def test_refresh_from_db_resets_change_tracking_baseline(self):
         """After refresh_from_db, a subsequent edit must be compared against DB state — not the
@@ -372,6 +372,6 @@ class TestEvaluationStatusCoercion(BaseTest):
         # User re-enables from the now-refreshed state.
         evaluation.enabled = True
         evaluation.save()
-        self.assertEqual(evaluation.status, EvaluationStatus.ACTIVE)
-        self.assertTrue(evaluation.enabled)
-        self.assertIsNone(evaluation.status_reason)
+        assert evaluation.status == EvaluationStatus.ACTIVE
+        assert evaluation.enabled
+        assert evaluation.status_reason is None

@@ -33,10 +33,10 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
-        self.assertEqual(saved_query["folder_id"], str(folder.id))
-        self.assertEqual(saved_query["folder_name"], "Marketing")
+        assert saved_query["folder_id"] == str(folder.id)
+        assert saved_query["folder_name"] == "Marketing"
 
     def test_create_with_other_team_folder_id_matches_nonexistent_folder_error(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -68,14 +68,14 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(other_team_response.status_code, 400, other_team_response.content)
-        self.assertEqual(missing_folder_response.status_code, 400, missing_folder_response.content)
-        self.assertEqual(other_team_response.json()["attr"], "folder_id")
-        self.assertEqual(missing_folder_response.json()["attr"], "folder_id")
-        self.assertEqual(other_team_response.json()["code"], "does_not_exist")
-        self.assertEqual(missing_folder_response.json()["code"], "does_not_exist")
-        self.assertTrue(other_team_response.json()["detail"].endswith("- object does not exist."))
-        self.assertTrue(missing_folder_response.json()["detail"].endswith("- object does not exist."))
+        assert other_team_response.status_code == 400, other_team_response.content
+        assert missing_folder_response.status_code == 400, missing_folder_response.content
+        assert other_team_response.json()["attr"] == "folder_id"
+        assert missing_folder_response.json()["attr"] == "folder_id"
+        assert other_team_response.json()["code"] == "does_not_exist"
+        assert missing_folder_response.json()["code"] == "does_not_exist"
+        assert other_team_response.json()["detail"].endswith("- object does not exist.")
+        assert missing_folder_response.json()["detail"].endswith("- object does not exist.")
 
     def test_create(self):
         response = self.client.post(
@@ -88,24 +88,21 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
-        self.assertEqual(
-            saved_query["columns"],
-            [
-                {
-                    "key": "event",
-                    "name": "event",
-                    "type": "string",
-                    "schema_valid": True,
-                    "fields": None,
-                    "table": None,
-                    "chain": None,
-                }
-            ],
-        )
-        self.assertIsNotNone(saved_query["latest_history_id"])
+        assert saved_query["name"] == "event_view"
+        assert saved_query["columns"] == [
+            {
+                "key": "event",
+                "name": "event",
+                "type": "string",
+                "schema_valid": True,
+                "fields": None,
+                "table": None,
+                "chain": None,
+            }
+        ]
+        assert saved_query["latest_history_id"] is not None
 
     def test_upsert(self):
         response = self.client.post(
@@ -118,7 +115,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -131,7 +128,7 @@ class TestSavedQuery(APIBaseTest):
                 "soft_update": True,
             },
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_materialize_view(self):
         response = self.client.post(
@@ -293,7 +290,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
+        assert response.status_code == 400, response.content
 
     def test_create_with_query_as_string_returns_validation_error(self):
         response = self.client.post(
@@ -406,9 +403,9 @@ class TestSavedQuery(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         saved_query.refresh_from_db()
-        self.assertEqual(saved_query.folder_id, folder.id)
+        assert saved_query.folder_id == folder.id
 
     def test_create_folder_and_list_view_count(self):
         response = self.client.post(
@@ -416,7 +413,7 @@ class TestSavedQuery(APIBaseTest):
             {"name": "Finance"},
         )
 
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         folder_id = response.json()["id"]
 
         DataWarehouseSavedQuery.objects.create(
@@ -428,9 +425,9 @@ class TestSavedQuery(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/")
 
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()[0]["name"], "Finance")
-        self.assertEqual(response.json()[0]["view_count"], 1)
+        assert response.status_code == 200, response.content
+        assert response.json()[0]["name"] == "Finance"
+        assert response.json()[0]["view_count"] == 1
 
     def test_delete_folder_deletes_views(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Deprecated", created_by=self.user)
@@ -444,14 +441,14 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
             )
 
-        self.assertEqual(response.status_code, 204, response.content)
-        self.assertEqual(mock_delete_saved_query_schedule.call_count, 2)
-        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+        assert response.status_code == 204, response.content
+        assert mock_delete_saved_query_schedule.call_count == 2
+        assert not DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists()
 
         first_view.refresh_from_db()
         second_view.refresh_from_db()
-        self.assertTrue(first_view.deleted)
-        self.assertTrue(second_view.deleted)
+        assert first_view.deleted
+        assert second_view.deleted
 
     def test_delete_folder_deletes_endpoint_views(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)
@@ -469,12 +466,12 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/"
             )
 
-        self.assertEqual(response.status_code, 204, response.content)
+        assert response.status_code == 204, response.content
         mock_delete_saved_query_schedule.assert_called_once()
-        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+        assert not DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists()
 
         endpoint_view.refresh_from_db()
-        self.assertTrue(endpoint_view.deleted)
+        assert endpoint_view.deleted
 
     def test_rename_folder(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
@@ -485,9 +482,9 @@ class TestSavedQuery(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         folder.refresh_from_db()
-        self.assertEqual(folder.name, "Revenue")
+        assert folder.name == "Revenue"
 
     def test_rename_folder_rejects_duplicate_name(self):
         DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
@@ -499,8 +496,8 @@ class TestSavedQuery(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn("A folder with this name already exists.", str(response.json()))
+        assert response.status_code == 400, response.content
+        assert "A folder with this name already exists." in str(response.json())
 
     def test_listing_deleted_queries(self):
         DataWarehouseSavedQuery.objects.create(
@@ -580,7 +577,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query = response.json()
 
         response = self.client.patch(
@@ -588,11 +585,11 @@ class TestSavedQuery(APIBaseTest):
             {"sync_frequency": "24hour"},
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Verify the interval was set
         updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertEqual(updated_query.sync_frequency_interval, timedelta(hours=24))
+        assert updated_query.sync_frequency_interval == timedelta(hours=24)
 
     def test_update_sync_frequency_to_never(self):
         response = self.client.post(
@@ -605,7 +602,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query = response.json()
 
         with (
@@ -621,7 +618,7 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "never"},
             )
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
             saved_query_id = response.json()["id"]
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             mock_workflow_exists.assert_called_once_with(saved_query)
@@ -638,7 +635,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query = response.json()
 
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
@@ -667,7 +664,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query_id = response.json()["id"]
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
@@ -678,7 +675,7 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
             )
 
-            self.assertEqual(response.status_code, 204)
+            assert response.status_code == 204
             mock_delete_saved_query_schedule.assert_called_once_with(saved_query)
 
     def test_saved_query_doesnt_exist(self):
@@ -692,7 +689,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_query_1_response.status_code, 400, saved_query_1_response.content)
+        assert saved_query_1_response.status_code == 400, saved_query_1_response.content
 
     def test_view_updated(self):
         response = self.client.post(
@@ -705,7 +702,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query_1_response = response.json()
         saved_query_1_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/" + saved_query_1_response["id"],
@@ -718,23 +715,20 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
+        assert saved_query_1_response.status_code == 200, saved_query_1_response.content
         view_1 = saved_query_1_response.json()
-        self.assertEqual(view_1["name"], "event_view")
-        self.assertEqual(
-            view_1["columns"],
-            [
-                {
-                    "key": "distinct_id",
-                    "name": "distinct_id",
-                    "type": "string",
-                    "schema_valid": True,
-                    "fields": None,
-                    "table": None,
-                    "chain": None,
-                }
-            ],
-        )
+        assert view_1["name"] == "event_view"
+        assert view_1["columns"] == [
+            {
+                "key": "distinct_id",
+                "name": "distinct_id",
+                "type": "string",
+                "schema_valid": True,
+                "fields": None,
+                "table": None,
+                "chain": None,
+            }
+        ]
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(
@@ -747,7 +741,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_query_1_response.status_code, 201, saved_query_1_response.content)
+        assert saved_query_1_response.status_code == 201, saved_query_1_response.content
 
         saved_view_2_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -759,7 +753,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
+        assert saved_view_2_response.status_code == 201, saved_view_2_response.content
 
     def test_create_with_saved_query(self):
         response = self.client.post(
@@ -773,11 +767,11 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query_id = response.json()["id"]
         paths = list(DataWarehouseModelPath.objects.filter(saved_query_id=saved_query_id).all())
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(["events", uuid.UUID(saved_query_id).hex], paths[0].path)
+        assert len(paths) == 1
+        assert ["events", uuid.UUID(saved_query_id).hex] == paths[0].path
 
     def test_create_with_nested_saved_query(self):
         response_1 = self.client.post(
@@ -790,7 +784,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response_1.status_code, 201, response_1.content)
+        assert response_1.status_code == 201, response_1.content
 
         response_2 = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -802,16 +796,16 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response_2.status_code, 201, response_1.content)
+        assert response_2.status_code == 201, response_1.content
 
         saved_query_id_hex_1 = uuid.UUID(response_1.json()["id"]).hex
         saved_query_id_hex_2 = uuid.UUID(response_2.json()["id"]).hex
 
         paths = [model_path.path for model_path in DataWarehouseModelPath.objects.all()]
-        self.assertEqual(len(paths), 3)
-        self.assertIn(["events"], paths)
-        self.assertIn(["events", saved_query_id_hex_1], paths)
-        self.assertIn(["events", saved_query_id_hex_1, saved_query_id_hex_2], paths)
+        assert len(paths) == 3
+        assert ["events"] in paths
+        assert ["events", saved_query_id_hex_1] in paths
+        assert ["events", saved_query_id_hex_1, saved_query_id_hex_2] in paths
 
     def test_ancestors(self):
         query = """\
@@ -845,53 +839,53 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(response_parent.status_code, 201, response_parent.content)
-        self.assertEqual(response_child.status_code, 201, response_child.content)
+        assert response_parent.status_code == 201, response_parent.content
+        assert response_child.status_code == 201, response_child.content
 
         saved_query_parent_id = response_parent.json()["id"]
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/ancestors",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         parent_ancestors = response.json()["ancestors"]
         parent_ancestors.sort()
-        self.assertEqual(parent_ancestors, ["events", "persons"])
+        assert parent_ancestors == ["events", "persons"]
 
         saved_query_child_id = response_child.json()["id"]
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         child_ancestors = response.json()["ancestors"]
         child_ancestors.sort()
-        self.assertEqual(child_ancestors, sorted([saved_query_parent_id, "events", "persons"]))
+        assert child_ancestors == sorted([saved_query_parent_id, "events", "persons"])
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 1}
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         child_ancestors_level_1 = response.json()["ancestors"]
         child_ancestors_level_1.sort()
-        self.assertEqual(child_ancestors_level_1, [saved_query_parent_id])
+        assert child_ancestors_level_1 == [saved_query_parent_id]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 2}
         )
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         child_ancestors_level_2 = response.json()["ancestors"]
         child_ancestors_level_2.sort()
-        self.assertEqual(child_ancestors_level_2, sorted([saved_query_parent_id, "events", "persons"]))
+        assert child_ancestors_level_2 == sorted([saved_query_parent_id, "events", "persons"])
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/ancestors", {"level": 10}
         )
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         child_ancestors_level_10 = response.json()["ancestors"]
         child_ancestors_level_10.sort()
-        self.assertEqual(child_ancestors_level_10, sorted([saved_query_parent_id, "events", "persons"]))
+        assert child_ancestors_level_10 == sorted([saved_query_parent_id, "events", "persons"])
 
     def test_descendants(self):
         query = """\
@@ -936,9 +930,9 @@ class TestSavedQuery(APIBaseTest):
             },
         )
 
-        self.assertEqual(response_parent.status_code, 201, response_parent.content)
-        self.assertEqual(response_child.status_code, 201, response_child.content)
-        self.assertEqual(response_grand_child.status_code, 201, response_grand_child.content)
+        assert response_parent.status_code == 201, response_parent.content
+        assert response_child.status_code == 201, response_child.content
+        assert response_grand_child.status_code == 201, response_grand_child.content
 
         saved_query_parent_id = response_parent.json()["id"]
         saved_query_child_id = response_child.json()["id"]
@@ -947,52 +941,43 @@ class TestSavedQuery(APIBaseTest):
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/descendants",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         parent_descendants = response.json()["descendants"]
-        self.assertEqual(
-            sorted(parent_descendants),
-            sorted([saved_query_child_id, saved_query_grand_child_id]),
-        )
+        assert sorted(parent_descendants) == sorted([saved_query_child_id, saved_query_grand_child_id])
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/descendants",
             {"level": 1},
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         parent_descendants_level_1 = response.json()["descendants"]
-        self.assertEqual(
-            parent_descendants_level_1,
-            [saved_query_child_id],
-        )
+        assert parent_descendants_level_1 == [saved_query_child_id]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_parent_id}/descendants",
             {"level": 2},
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         parent_descendants_level_2 = response.json()["descendants"]
-        self.assertEqual(
-            sorted(parent_descendants_level_2),
-            sorted([saved_query_child_id, saved_query_grand_child_id]),
-        )
+        assert sorted(parent_descendants_level_2) == sorted([saved_query_child_id, saved_query_grand_child_id])
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_child_id}/descendants",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         child_ancestors = response.json()["descendants"]
-        self.assertEqual(child_ancestors, [saved_query_grand_child_id])
+        assert child_ancestors == [saved_query_grand_child_id]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_grand_child_id}/descendants",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         child_ancestors = response.json()["descendants"]
-        self.assertEqual(child_ancestors, [])
+        assert child_ancestors == []
 
     def test_update_without_query_change_doesnt_call_get_columns(self):
         # First create a saved query
@@ -1006,7 +991,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
 
         # Now update it without changing the query
@@ -1016,9 +1001,9 @@ class TestSavedQuery(APIBaseTest):
                 {"name": "updated_event_view"},  # Only changing the name, not the query
             )
 
-            self.assertEqual(response.status_code, 200, response.content)
+            assert response.status_code == 200, response.content
             updated_query = response.json()
-            self.assertEqual(updated_query["name"], "updated_event_view")
+            assert updated_query["name"] == "updated_event_view"
 
             # Verify get_columns was not called
             mock_get_columns.assert_not_called()
@@ -1035,7 +1020,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
 
         # Now update it with a query change
@@ -1052,7 +1037,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
 
-            self.assertEqual(response.status_code, 200, response.content)
+            assert response.status_code == 200, response.content
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
@@ -1068,11 +1053,11 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
-        self.assertEqual(saved_query["query"]["kind"], "HogQLQuery")
-        self.assertEqual(saved_query["query"]["query"], "select event as event from events LIMIT 100")
+        assert saved_query["name"] == "event_view"
+        assert saved_query["query"]["kind"] == "HogQLQuery"
+        assert saved_query["query"]["query"] == "select event as event from events LIMIT 100"
 
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
             mock_get_columns.return_value = {}
@@ -1087,40 +1072,31 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
 
-            self.assertEqual(response.status_code, 200, response.content)
+            assert response.status_code == 200, response.content
 
             activity_logs = ActivityLog.objects.filter(
                 item_id=saved_query["id"], scope="DataWarehouseSavedQuery"
             ).order_by("-created_at")
-            self.assertEqual(activity_logs.count(), 2)
-            self.assertEqual(activity_logs[0].activity, "updated")
+            assert activity_logs.count() == 2
+            assert activity_logs[0].activity == "updated"
             latest_detail = cast(dict[str, Any], activity_logs[0].detail)
             query_change = next(change for change in latest_detail["changes"] if change["field"] == "query")
-            self.assertEqual(
-                query_change["after"],
-                {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 10",
-                },
-            )
-            self.assertEqual(
-                query_change["before"],
-                {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            )
-            self.assertEqual(activity_logs[1].activity, "created")
+            assert query_change["after"] == {
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 10",
+            }
+            assert query_change["before"] == {
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            }
+            assert activity_logs[1].activity == "created"
             created_detail = cast(dict[str, Any], activity_logs[1].detail)
             query_change = next(change for change in created_detail["changes"] if change["field"] == "query")
-            self.assertEqual(
-                query_change["after"],
-                {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            )
-            self.assertEqual(query_change["before"], None)
+            assert query_change["after"] == {
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            }
+            assert query_change["before"] is None
 
             # this should fail because the activity log has changed
             response = self.client.patch(
@@ -1134,8 +1110,8 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
 
-            self.assertEqual(response.status_code, 400, response.content)
-            self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+            assert response.status_code == 400, response.content
+            assert response.json()["detail"] == "The query was modified by someone else."
 
     def test_create_with_activity_log_existing_view(self):
         response = self.client.post(
@@ -1148,11 +1124,11 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
-        self.assertEqual(saved_query["name"], "event_view")
-        self.assertEqual(saved_query["query"]["kind"], "HogQLQuery")
-        self.assertEqual(saved_query["query"]["query"], "select event as event from events LIMIT 100")
+        assert saved_query["name"] == "event_view"
+        assert saved_query["query"]["kind"] == "HogQLQuery"
+        assert saved_query["query"]["query"] == "select event as event from events LIMIT 100"
 
         ActivityLog.objects.filter(item_id=saved_query["id"], scope="DataWarehouseSavedQuery").delete()
 
@@ -1169,7 +1145,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
 
-            self.assertEqual(response.status_code, 200, response.content)
+            assert response.status_code == 200, response.content
 
     def test_revert_materialization(self):
         response = self.client.post(
@@ -1182,7 +1158,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.content
         saved_query = response.json()
         saved_query_id = saved_query["id"]
 
@@ -1210,25 +1186,25 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
             )
 
-            self.assertEqual(response.status_code, 200, response.content)
+            assert response.status_code == 200, response.content
 
             db_saved_query.refresh_from_db()
-            self.assertIsNone(db_saved_query.sync_frequency_interval)
-            self.assertIsNone(db_saved_query.last_run_at)
-            self.assertIsNone(db_saved_query.latest_error)
-            self.assertIsNone(db_saved_query.status)
-            self.assertIsNone(db_saved_query.table_id)
-            self.assertFalse(db_saved_query.is_materialized)
+            assert db_saved_query.sync_frequency_interval is None
+            assert db_saved_query.last_run_at is None
+            assert db_saved_query.latest_error is None
+            assert db_saved_query.status is None
+            assert db_saved_query.table_id is None
+            assert not db_saved_query.is_materialized
 
             # Check the table has been deleted
             mock_table.refresh_from_db()
-            self.assertTrue(mock_table.deleted)
+            assert mock_table.deleted
 
-            self.assertEqual(
+            assert (
                 DataWarehouseModelPath.objects.filter(
                     team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
-                ).count(),
-                0,
+                ).count()
+                == 0
             )
 
             mock_delete_schedule.assert_called_once_with(mock.ANY, schedule_id=str(db_saved_query.id))
@@ -1277,8 +1253,8 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
 
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json()["detail"], "Cannot update a query from a managed viewset")
+            assert response.status_code == 400
+            assert response.json()["detail"] == "Cannot update a query from a managed viewset"
 
     def test_delete_saved_query_with_managed_viewset_fails(self):
         """Test that deleting a saved query with managed viewset fails with correct error message"""
@@ -1300,10 +1276,10 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
             )
 
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(
-                response.json()["detail"],
-                "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead.",
+            assert response.status_code == 400
+            assert (
+                response.json()["detail"]
+                == "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
 
     def test_revert_materialization_saved_query_with_managed_viewset_fails(self):
@@ -1326,10 +1302,8 @@ class TestSavedQuery(APIBaseTest):
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/revert_materialization",
             )
 
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(
-                response.json()["detail"], "Cannot revert materialization of a query from a managed viewset."
-            )
+            assert response.status_code == 400
+            assert response.json()["detail"] == "Cannot revert materialization of a query from a managed viewset."
 
     def test_dependencies_no_dependencies(self):
         """Test dependencies endpoint returns zero counts for a view with no dependencies"""
@@ -1343,17 +1317,17 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query_id = response.json()["id"]
 
         # Test dependencies endpoint
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/dependencies",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["upstream_count"], 1)  # events
-        self.assertEqual(data["downstream_count"], 0)  # No downstream dependencies
+        assert data["upstream_count"] == 1  # events
+        assert data["downstream_count"] == 0  # No downstream dependencies
 
     def test_dependencies_with_upstream_and_downstream(self):
         """Test dependencies endpoint correctly counts immediate dependencies"""
@@ -1368,7 +1342,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response_parent.status_code, 201)
+        assert response_parent.status_code == 201
         parent_id = response_parent.json()["id"]
 
         # Create child view that depends on parent
@@ -1382,7 +1356,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response_child.status_code, 201)
+        assert response_child.status_code == 201
         child_id = response_child.json()["id"]
 
         # Create grandchild view that depends on child
@@ -1396,35 +1370,35 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response_grandchild.status_code, 201)
+        assert response_grandchild.status_code == 201
         grandchild_id = response_grandchild.json()["id"]
 
         # Test parent dependencies (should have downstream but no upstream saved queries)
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{parent_id}/dependencies",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["upstream_count"], 1)  # events table
-        self.assertEqual(data["downstream_count"], 1)  # child_view
+        assert data["upstream_count"] == 1  # events table
+        assert data["downstream_count"] == 1  # child_view
 
         # Test child dependencies (should have both upstream and downstream)
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{child_id}/dependencies",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["upstream_count"], 1)  # parent_view (only immediate parent)
-        self.assertEqual(data["downstream_count"], 1)  # grandchild_view
+        assert data["upstream_count"] == 1  # parent_view (only immediate parent)
+        assert data["downstream_count"] == 1  # grandchild_view
 
         # Test grandchild dependencies (should have upstream but no downstream)
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{grandchild_id}/dependencies",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["upstream_count"], 1)  # child_view (only immediate parent)
-        self.assertEqual(data["downstream_count"], 0)  # No downstream
+        assert data["upstream_count"] == 1  # child_view (only immediate parent)
+        assert data["downstream_count"] == 0  # No downstream
 
     def test_run_history_no_runs(self):
         """Test run_history endpoint returns empty array for a view with no runs"""
@@ -1438,16 +1412,16 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query_id = response.json()["id"]
 
         # Test run_history endpoint
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/run_history",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["run_history"], [])
+        assert data["run_history"] == []
 
     def test_run_history_with_runs(self):
         """Test run_history endpoint returns correct run history"""
@@ -1462,7 +1436,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query_id = response.json()["id"]
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
@@ -1487,21 +1461,21 @@ class TestSavedQuery(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/run_history",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
 
         # Should return only the 5 most recent runs
-        self.assertEqual(len(data["run_history"]), 5)
+        assert len(data["run_history"]) == 5
 
         # Verify they are ordered by most recent first
         for i in range(len(data["run_history"])):
             expected_status = DataModelingJob.Status.COMPLETED if i % 2 == 0 else DataModelingJob.Status.FAILED
-            self.assertEqual(data["run_history"][i]["status"], expected_status)
-            self.assertIsNotNone(data["run_history"][i]["timestamp"])
+            assert data["run_history"][i]["status"] == expected_status
+            assert data["run_history"][i]["timestamp"] is not None
 
         # Verify the most recent run is first
         most_recent_run = runs[0]
-        self.assertEqual(data["run_history"][0]["status"], most_recent_run.status)
+        assert data["run_history"][0]["status"] == most_recent_run.status
 
     def test_run_history_mixed_statuses(self):
         """Test run_history endpoint with various run statuses"""
@@ -1515,7 +1489,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         saved_query_id = response.json()["id"]
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
@@ -1543,17 +1517,17 @@ class TestSavedQuery(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/run_history",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
 
-        self.assertEqual(len(data["run_history"]), 4)
+        assert len(data["run_history"]) == 4
 
         # Verify all different statuses are present
         returned_statuses = [run["status"] for run in data["run_history"]]
-        self.assertIn("Completed", returned_statuses)
-        self.assertIn("Failed", returned_statuses)
-        self.assertIn("Running", returned_statuses)
-        self.assertIn("Cancelled", returned_statuses)
+        assert "Completed" in returned_statuses
+        assert "Failed" in returned_statuses
+        assert "Running" in returned_statuses
+        assert "Cancelled" in returned_statuses
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):

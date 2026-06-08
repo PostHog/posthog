@@ -18,8 +18,8 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         )
         # Current period [2021-08-23T00:00, 2021-08-25T23:59:59] is ~3 days inclusive.
         # The previous period shifts back by that full span.
-        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-20T00:00:00Z"))
-        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-22T23:59:59.999999Z"))
+        assert query_date_range.date_from() == parser.isoparse("2021-08-20T00:00:00Z")
+        assert query_date_range.date_to() == parser.isoparse("2021-08-22T23:59:59.999999Z")
 
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from
@@ -56,7 +56,7 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         )
         # The override must change the formatted output — otherwise the test wouldn't
         # catch a regression of the fix.
-        self.assertNotEqual(with_override.date_from_str, without_override.date_from_str)
+        assert with_override.date_from_str != without_override.date_from_str
 
         # Same setup with team on UTC and no override — should match the override result.
         self.team.timezone = "UTC"
@@ -67,5 +67,5 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
             interval=IntervalType.DAY,
             now=now,
         )
-        self.assertEqual(with_override.date_from_str, utc_baseline.date_from_str)
-        self.assertEqual(with_override.date_to_str, utc_baseline.date_to_str)
+        assert with_override.date_from_str == utc_baseline.date_from_str
+        assert with_override.date_to_str == utc_baseline.date_to_str

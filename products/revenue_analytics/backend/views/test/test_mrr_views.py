@@ -169,7 +169,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
 
         response = self._execute_query(query)
         results = response.results
-        self.assertEqual(results[0][0], 0)
+        assert results[0][0] == 0
 
     def test_no_data_when_no_events(self):
         self.team.revenue_analytics_config.events = [
@@ -190,7 +190,7 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
 
         response = self._execute_query(query)
         results = response.results
-        self.assertEqual(results[0][0], 0)
+        assert results[0][0] == 0
 
     def test_query_output_data_warehouse_tables(self):
         query = ast.SelectQuery(
@@ -200,18 +200,15 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
 
         response = self._execute_query(query)
 
-        self.assertEqual(len(response.results), 6)
-        self.assertEqual(
-            response.results,
-            [
-                ("stripe.posthog_test", "cus_1", "sub_1", Decimal("22.9631447238")),
-                ("stripe.posthog_test", "cus_2", "sub_2", Decimal("40.8052916666")),
-                ("stripe.posthog_test", "cus_3", "sub_3", Decimal("1546.59444")),
-                ("stripe.posthog_test", "cus_4", "sub_4", Decimal("0")),
-                ("stripe.posthog_test", "cus_5", "sub_5", Decimal("0")),
-                ("stripe.posthog_test", "cus_6", "sub_6", Decimal("0")),
-            ],
-        )
+        assert len(response.results) == 6
+        assert response.results == [
+            ("stripe.posthog_test", "cus_1", "sub_1", Decimal("22.9631447238")),
+            ("stripe.posthog_test", "cus_2", "sub_2", Decimal("40.8052916666")),
+            ("stripe.posthog_test", "cus_3", "sub_3", Decimal("1546.59444")),
+            ("stripe.posthog_test", "cus_4", "sub_4", Decimal("0")),
+            ("stripe.posthog_test", "cus_5", "sub_5", Decimal("0")),
+            ("stripe.posthog_test", "cus_6", "sub_6", Decimal("0")),
+        ]
 
     def test_query_output_events(self):
         self.team.revenue_analytics_config.events = [
@@ -256,21 +253,8 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
 
         response = self._execute_query(query)
 
-        self.assertEqual(len(response.results), 2)
-        self.assertEqual(
-            response.results,
-            [
-                (
-                    "revenue_analytics.events.purchase",
-                    ANY,
-                    "sub_1",
-                    Decimal("19.925"),
-                ),
-                (
-                    "revenue_analytics.events.purchase",
-                    ANY,
-                    "sub_2",
-                    Decimal("5.5629321819"),
-                ),
-            ],
-        )
+        assert len(response.results) == 2
+        assert response.results == [
+            ("revenue_analytics.events.purchase", ANY, "sub_1", Decimal("19.925")),
+            ("revenue_analytics.events.purchase", ANY, "sub_2", Decimal("5.5629321819")),
+        ]

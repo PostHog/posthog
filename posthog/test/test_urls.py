@@ -35,16 +35,16 @@ class TestUrls(APIBaseTest):
         self.client.logout()
 
         response = self.client.get("/signup")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # no redirect
+        assert response.status_code == status.HTTP_200_OK  # no redirect
 
         response = self.client.get(f"/signup/{uuid.uuid4()}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.get(f"/preflight")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.get(f"/login")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [
@@ -57,8 +57,8 @@ class TestUrls(APIBaseTest):
     def test_sign_up_redirects_to_signup(self, _name, request_path, expected_location):
         self.client.logout()
         response = self.client.get(request_path, follow=False)
-        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
-        self.assertEqual(response["Location"], expected_location)
+        assert response.status_code == status.HTTP_301_MOVED_PERMANENTLY
+        assert response["Location"] == expected_location
 
     @parameterized.expand(
         [
@@ -70,8 +70,8 @@ class TestUrls(APIBaseTest):
     def test_admin_without_trailing_slash_redirects(self, _name, request_path, expected_location):
         # APPEND_SLASH is disabled globally, so /admin needs an explicit redirect
         response = self.client.get(request_path, follow=False)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], expected_location)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == expected_location
 
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
@@ -81,41 +81,41 @@ class TestUrls(APIBaseTest):
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
             headers={"referer": "https://not-permitted.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         content = response.content.decode()
-        self.assertIn("Domain not authorized", content)
-        self.assertIn("not-permitted.com", content)
-        self.assertIn("/settings/project-toolbar#authorized-urls", content)
+        assert "Domain not authorized" in content
+        assert "not-permitted.com" in content
+        assert "/settings/project-toolbar#authorized-urls" in content
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same domain as the referer: not.com" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same domain as the referer: not.com" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=http://domain.com", headers={"referer": "https://domain.com"}
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same scheme as the referer: https" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same scheme as the referer: https" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com:555", headers={"referer": "https://domain.com:443"}
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same port as the referer: 443" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same port as the referer: 443" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com:555",
             headers={"referer": "https://domain.com/no-port"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to the same port as the referer: no port in URL" in str(response.content))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Can only redirect to the same port as the referer: no port in URL" in str(response.content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com/sdf", headers={"referer": "https://domain.com/asd"}
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # TODO: build frontend before backend tests, or find a way to mock the template
         # self.assertContains(
         #     response,

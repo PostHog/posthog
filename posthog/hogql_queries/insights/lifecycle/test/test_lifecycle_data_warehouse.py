@@ -235,31 +235,26 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             )
             response = LifecycleQueryRunner(team=self.team, query=query).calculate()
 
-        self.assertEqual(
-            ["new", "returning", "resurrecting", "dormant"], [result["status"] for result in response.results]
-        )
+        assert ["new", "returning", "resurrecting", "dormant"] == [result["status"] for result in response.results]
 
         results_by_status = {result["status"]: result for result in response.results}
 
-        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
-        self.assertEqual([2.0, 1.0], results_by_status["new"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["returning"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
-        self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
-        self.assertEqual(
-            {
-                "name": table_name,
-                "type": "data_warehouse",
-                "order": 0,
-                "math": "total",
-                "table_name": table_name,
-                "timestamp_field": "sent_at",
-                "aggregation_target_field": "users.person_id",
-                "created_at_field": "users.signed_up",
-                "id": "posthog_test_sent_messages",
-            },
-            results_by_status["new"]["action"],
-        )
+        assert ["2025-11-06", "2025-11-07"] == results_by_status["new"]["days"]
+        assert [2.0, 1.0] == results_by_status["new"]["data"]
+        assert [0.0, 1.0] == results_by_status["returning"]["data"]
+        assert [0.0, 1.0] == results_by_status["resurrecting"]["data"]
+        assert [0.0, -1.0] == results_by_status["dormant"]["data"]
+        assert {
+            "name": table_name,
+            "type": "data_warehouse",
+            "order": 0,
+            "math": "total",
+            "table_name": table_name,
+            "timestamp_field": "sent_at",
+            "aggregation_target_field": "users.person_id",
+            "created_at_field": "users.signed_up",
+            "id": "posthog_test_sent_messages",
+        } == results_by_status["new"]["action"]
 
         with freeze_time("2025-11-07T12:00:00Z"):
             for status, expected_name in {
@@ -282,7 +277,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         ),
                     ).calculate()
 
-                    self.assertEqual([[expected_name]], actors_response.results)
+                    assert [[expected_name]] == actors_response.results
 
     def test_lifecycle_data_warehouse_group_aggregation_target(self):
         """Data warehouse source matching a group aggregation target."""
@@ -305,17 +300,15 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             )
             response = LifecycleQueryRunner(team=self.team, query=query).calculate()
 
-        self.assertEqual(
-            ["new", "returning", "resurrecting", "dormant"], [result["status"] for result in response.results]
-        )
+        assert ["new", "returning", "resurrecting", "dormant"] == [result["status"] for result in response.results]
 
         results_by_status = {result["status"]: result for result in response.results}
 
-        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
-        self.assertEqual([2.0, 1.0], results_by_status["new"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["returning"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
-        self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
+        assert ["2025-11-06", "2025-11-07"] == results_by_status["new"]["days"]
+        assert [2.0, 1.0] == results_by_status["new"]["data"]
+        assert [0.0, 1.0] == results_by_status["returning"]["data"]
+        assert [0.0, 1.0] == results_by_status["resurrecting"]["data"]
+        assert [0.0, -1.0] == results_by_status["dormant"]["data"]
 
         with freeze_time("2025-11-07T12:00:00Z"):
             for status, expected_name in {
@@ -338,7 +331,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         ),
                     ).calculate()
 
-                    self.assertEqual([[expected_name]], actors_response.results)
+                    assert [[expected_name]] == actors_response.results
 
     def test_lifecycle_data_warehouse_series_properties(self):
         """Series-level data warehouse properties filter lifecycle results."""
@@ -363,17 +356,15 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             )
             response = LifecycleQueryRunner(team=self.team, query=query).calculate()
 
-        self.assertEqual(
-            ["new", "returning", "resurrecting", "dormant"], [result["status"] for result in response.results]
-        )
+        assert ["new", "returning", "resurrecting", "dormant"] == [result["status"] for result in response.results]
 
         results_by_status = {result["status"]: result for result in response.results}
 
-        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
-        self.assertEqual([0.0, 0.0], results_by_status["new"]["data"])
-        self.assertEqual([0.0, 0.0], results_by_status["returning"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
-        self.assertEqual([0.0, 0.0], results_by_status["dormant"]["data"])
+        assert ["2025-11-06", "2025-11-07"] == results_by_status["new"]["days"]
+        assert [0.0, 0.0] == results_by_status["new"]["data"]
+        assert [0.0, 0.0] == results_by_status["returning"]["data"]
+        assert [0.0, 1.0] == results_by_status["resurrecting"]["data"]
+        assert [0.0, 0.0] == results_by_status["dormant"]["data"]
 
         with freeze_time("2025-11-07T12:00:00Z"):
             actors_response = ActorsQueryRunner(
@@ -389,7 +380,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 ),
             ).calculate()
 
-        self.assertEqual([["user-3"]], actors_response.results)
+        assert [["user-3"]] == actors_response.results
 
     @parameterized.expand(
         [
@@ -443,7 +434,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     query=LifecycleQuery(**query_kwargs),
                 ).calculate()
 
-        self.assertIn(expected_error, str(context.exception))
+        assert expected_error in str(context.exception)
 
     def test_lifecycle_data_warehouse_invalid_aggregation_target(self):
         """Data warehouse source matching no aggregation target. Counts compute, but no actors are returned."""
@@ -465,17 +456,15 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             )
             response = LifecycleQueryRunner(team=self.team, query=query).calculate()
 
-        self.assertEqual(
-            ["new", "returning", "resurrecting", "dormant"], [result["status"] for result in response.results]
-        )
+        assert ["new", "returning", "resurrecting", "dormant"] == [result["status"] for result in response.results]
 
         results_by_status = {result["status"]: result for result in response.results}
 
-        self.assertEqual(["2025-11-06", "2025-11-07"], results_by_status["new"]["days"])
-        self.assertEqual([2.0, 1.0], results_by_status["new"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["returning"]["data"])
-        self.assertEqual([0.0, 1.0], results_by_status["resurrecting"]["data"])
-        self.assertEqual([0.0, -1.0], results_by_status["dormant"]["data"])
+        assert ["2025-11-06", "2025-11-07"] == results_by_status["new"]["days"]
+        assert [2.0, 1.0] == results_by_status["new"]["data"]
+        assert [0.0, 1.0] == results_by_status["returning"]["data"]
+        assert [0.0, 1.0] == results_by_status["resurrecting"]["data"]
+        assert [0.0, -1.0] == results_by_status["dormant"]["data"]
 
         with freeze_time("2025-11-07T12:00:00Z"):
             for status in ["new", "returning", "resurrecting", "dormant"]:
@@ -494,4 +483,4 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                     ).calculate()
 
                     # returns an empty actors response
-                    self.assertEqual([], actors_response.results)
+                    assert [] == actors_response.results

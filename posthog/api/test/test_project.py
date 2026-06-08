@@ -37,11 +37,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.get("/api/projects/", headers={"authorization": f"Bearer {personal_api_key}"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {project["id"] for project in response.json()["results"]},
-            {team_in_other_org.project.id},
-            "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
+        assert response.status_code == status.HTTP_200_OK
+        assert {project["id"] for project in response.json()["results"]} == {team_in_other_org.project.id}, (
+            "Only the project belonging to the scoped organization should be listed, the other one should be excluded"
         )
 
     def test_cannot_create_second_demo_project(self):
@@ -55,10 +53,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Try to create second demo project
         response = self.client.post("/api/projects/", {"name": "Second Demo", "is_demo": True})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"],
-            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            response.json()["detail"]
+            == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
         )
 
     def test_project_creation_without_feature(self):
@@ -70,10 +68,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post("/api/projects/", {"name": "New Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"],
-            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            response.json()["detail"]
+            == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
         )
 
     def test_project_creation_with_limited_feature(self):
@@ -91,14 +89,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Can create one more project (already have 1)
         response = self.client.post("/api/projects/", {"name": "Second Project"})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # Cannot create third project
         response = self.client.post("/api/projects/", {"name": "Third Project"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"],
-            "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            response.json()["detail"]
+            == "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
         )
 
     def test_project_creation_with_unlimited_feature(self):
@@ -117,152 +115,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Can create multiple projects
         for i in range(5):
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
-        features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
-        if with_member_create_entitlement:
-            # members_can_create_projects is gated behind the invite-settings entitlement for now
-            features.append({"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"})
-        self.organization.available_product_features = features
-        self.organization.save()
-
-    def test_member_cannot_create_project_by_default(self):
-        self._set_unlimited_projects()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.post("/api/projects/", {"name": "Member Project"})
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"], "You need to be an organization admin or above to create new projects."
-        )
-
-    def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
-        # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
-        self._set_unlimited_projects(with_member_create_entitlement=False)
-        self.organization.members_can_create_projects = True
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.post("/api/projects/", {"name": "Member Project"})
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"], "You need to be an organization admin or above to create new projects."
-        )
-
-    def test_member_can_create_project_when_org_allows(self):
-        self._set_unlimited_projects()
-        self.organization.members_can_create_projects = True
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        with patch("posthog.api.project.create_notification"):
-            response = self.client.post("/api/projects/", {"name": "Member Project"})
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def test_member_cannot_set_admin_only_fields_when_creating_project(self):
-        # A member allowed to create projects must not be able to set admin-only team fields like
-        # receive_org_level_activity_logs, which would grant org-wide activity log access.
-        self._set_unlimited_projects()
-        self.organization.members_can_create_projects = True
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        with patch("posthog.api.project.create_notification"):
-            response = self.client.post(
-                "/api/projects/", {"name": "Sneaky Project", "receive_org_level_activity_logs": True}
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("receive_org_level_activity_logs", response.json()["detail"])
-        self.assertFalse(self.organization.teams.filter(receive_org_level_activity_logs=True).exists())
-
-    def test_admin_can_set_admin_only_fields_when_creating_project(self):
-        self._set_unlimited_projects()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.post(
-            "/api/projects/", {"name": "Admin Project", "receive_org_level_activity_logs": True}
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(response.json()["receive_org_level_activity_logs"])
-
-    @parameterized.expand(
-        [
-            ("admin", OrganizationMembership.Level.ADMIN),
-            ("owner", OrganizationMembership.Level.OWNER),
-        ]
-    )
-    def test_admins_and_owners_can_always_create_project_when_members_blocked(self, _name, level):
-        self._set_unlimited_projects()
-        self.organization.members_can_create_projects = False
-        self.organization.save()
-        self.organization_membership.level = level
-        self.organization_membership.save()
-
-        with patch("posthog.api.project.create_notification") as mock_create_notification:
-            response = self.client.post("/api/projects/", {"name": f"{_name} Project"})
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # Admins/owners are the recipients, never the trigger — creating their own project must not notify
-        mock_create_notification.assert_not_called()
-
-    @patch("posthog.api.project.create_notification")
-    def test_member_project_creation_notifies_org_admins(self, mock_create_notification):
-        from posthog.models import User
-
-        from products.notifications.backend.facade.api import NotificationType, TargetType
-
-        self._set_unlimited_projects()
-        self.organization.members_can_create_projects = True
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        # Add an admin so we can confirm admins/owners are targeted individually by user_id
-        admin_user = User.objects.create_and_join(
-            self.organization, "admin2@posthog.com", None, level=OrganizationMembership.Level.ADMIN
-        )
-        expected_admin_ids = set(
-            self.organization.memberships.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
-                "user_id", flat=True
-            )
-        )
-
-        response = self.client.post("/api/projects/", {"name": "Member Project"})
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # One USER-targeted notification per admin/owner, never the member creator
-        self.assertEqual(mock_create_notification.call_count, len(expected_admin_ids))
-        targeted_user_ids = set()
-        for call in mock_create_notification.call_args_list:
-            data = call[0][0]
-            self.assertEqual(data.notification_type, NotificationType.PROJECT_CREATED)
-            self.assertEqual(data.target_type, TargetType.USER)
-            targeted_user_ids.add(int(data.target_id))
-        self.assertEqual(targeted_user_ids, expected_admin_ids)
-        self.assertIn(admin_user.id, targeted_user_ids)
-        self.assertNotIn(self.user.id, targeted_user_ids)
-
-    @patch("posthog.api.project.create_notification")
-    def test_admin_project_creation_does_not_notify(self, mock_create_notification):
-        self._set_unlimited_projects()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.post("/api/projects/", {"name": "Admin Project"})
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_create_notification.assert_not_called()
+            assert response.status_code == status.HTTP_201_CREATED
 
     @patch("posthog.models.organization.Organization.teams")
     def test_hard_limit_projects(self, mock_teams):
@@ -286,10 +139,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Should not be able to create another project
         response = self.client.post("/api/projects/", {"name": "Project 1001"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"],
-            "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects.",
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            response.json()["detail"]
+            == "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects."
         )
 
     def test_demo_projects_not_counted_toward_limit(self):
@@ -315,11 +168,11 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Can still create 2 regular projects (demo doesn't count)
         response = self.client.post("/api/projects/", {"name": "Regular Project 1"})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # Can't create third regular project (limit reached)
         response = self.client.post("/api/projects/", {"name": "Regular Project 2"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_update_project_allowed_regardless_of_limits(self):
         # Set project limit to 1 (already have 1)
@@ -336,8 +189,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Should be able to update existing project even at limit
         response = self.client.patch(f"/api/projects/{self.project.id}/", {"name": "Updated Name"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "Updated Name")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Updated Name"
 
     @patch("posthog.api.project.delete_project_data_and_notify_task")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
@@ -401,10 +254,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         with self.is_cloud(is_cloud):
             response = self.client.delete(f"/api/projects/{self.project.id}")
 
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            self.assertIn("active subscription", response.json()["detail"])
-            self.assertTrue(Project.objects.filter(id=self.project.id).exists())
+            assert "active subscription" in response.json()["detail"]
+            assert Project.objects.filter(id=self.project.id).exists()
 
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
@@ -416,7 +269,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.delete()
 
         # Person should still exist (not CASCADE deleted)
-        self.assertTrue(Person.objects.filter(id=person_id).exists())
+        assert Person.objects.filter(id=person_id).exists()
 
         # Clean up orphaned person using raw delete to bypass signals
         Person.objects.filter(id=person_id)._raw_delete(Person.objects.db)
@@ -428,8 +281,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "product_type is required")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "product_type is required"
 
     def test_complete_product_onboarding_rejects_invalid_product_type(self):
         from posthog.schema import ProductKey
@@ -444,14 +297,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_message = response.json()["error"]
-        self.assertIn("invalid product_type", error_message)
-        self.assertIn("expected one of", error_message)
+        assert "invalid product_type" in error_message
+        assert "expected one of" in error_message
 
         # Verify it lists valid ProductKey values in the error message
         valid_keys = list(ProductKey)
-        self.assertIn(valid_keys[0].value, error_message)  # Check at least one valid key is mentioned
+        assert valid_keys[0].value in error_message  # Check at least one valid key is mentioned
 
     def test_conversations_settings_merges_with_existing(self):
         self.client.patch(
@@ -462,10 +315,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             f"/api/projects/{self.project.id}/",
             {"conversations_settings": {"widget_color": "#ff0000"}},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         settings = response.json()["conversations_settings"]
-        self.assertEqual(settings["widget_greeting_text"], "Hello!")
-        self.assertEqual(settings["widget_color"], "#ff0000")
+        assert settings["widget_greeting_text"] == "Hello!"
+        assert settings["widget_color"] == "#ff0000"
 
     def test_enabling_conversations_auto_generates_token(self):
         self.team.conversations_enabled = False
@@ -473,27 +326,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.save()
 
         response = self.client.patch(f"/api/projects/{self.project.id}/", {"conversations_enabled": True})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         settings = response.json()["conversations_settings"]
-        self.assertIsNotNone(settings)
-        self.assertIsNotNone(settings.get("widget_public_token"))
-        self.assertGreater(len(settings["widget_public_token"]), 20)
+        assert settings is not None
+        assert settings.get("widget_public_token") is not None
+        assert len(settings["widget_public_token"]) > 20
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
         response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         settings = response.json()["conversations_settings"]
-        self.assertIsNotNone(settings.get("widget_public_token"))
+        assert settings.get("widget_public_token") is not None
 
     def test_generate_conversations_public_token_requires_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_project_name_search_filter(self):
         self.organization.available_product_features = [
@@ -524,22 +377,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
 
         response = self.client.get("/api/projects/?search=Analytics")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
         names = {r["name"] for r in results}
-        self.assertEqual(names, {"Analytics Dashboard", "User Analytics"})
+        assert names == {"Analytics Dashboard", "User Analytics"}
 
         response = self.client.get("/api/projects/?search=Revenue")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["name"], "Revenue Tracker")
+        assert len(results) == 1
+        assert results[0]["name"] == "Revenue Tracker"
 
         response = self.client.get("/api/projects/?search=nonexistent")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 0)
+        assert len(results) == 0
 
     def test_read_only_api_key_cannot_update_project_config_fields(self):
         """API keys with only project:read scope should not be able to modify config fields via /api/projects/."""
@@ -551,12 +404,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             headers={"authorization": f"Bearer {api_key}"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("project:write", response.json().get("detail", ""))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "project:write" in response.json().get("detail", "")
 
         # Verify no changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "UTC")
+        assert self.team.timezone == "UTC"
 
     def test_write_api_key_can_update_project_config_fields(self):
         """API keys with project:write scope should be able to modify config fields via /api/projects/."""
@@ -568,12 +421,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             headers={"authorization": f"Bearer {api_key}"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
-        self.assertEqual(self.team.session_recording_opt_in, True)
+        assert self.team.timezone == "Europe/Lisbon"
+        assert self.team.session_recording_opt_in
 
     def test_read_only_api_key_cannot_update_project_non_config_fields(self):
         """API keys with only project:read scope should not be able to modify non-config fields like name."""
@@ -585,11 +438,11 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             headers={"authorization": f"Bearer {api_key}"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         # Verify no changes were made
         self.project.refresh_from_db()
-        self.assertNotEqual(self.project.name, "New Project Name")
+        assert self.project.name != "New Project Name"
 
     def test_write_api_key_can_update_project_non_config_fields(self):
         """API keys with project:write scope should be able to modify non-config fields like name."""
@@ -601,8 +454,149 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             headers={"authorization": f"Bearer {api_key}"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify changes were made
         self.project.refresh_from_db()
-        self.assertEqual(self.project.name, "New Project Name")
+        assert self.project.name == "New Project Name"
+
+    def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
+        features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
+        if with_member_create_entitlement:
+            # members_can_create_projects is gated behind the invite-settings entitlement for now
+            features.append({"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"})
+        self.organization.available_product_features = features
+        self.organization.save()
+
+    def test_member_cannot_create_project_by_default(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You need to be an organization admin or above to create new projects."
+
+    def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
+        # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
+        self._set_unlimited_projects(with_member_create_entitlement=False)
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You need to be an organization admin or above to create new projects."
+
+    def test_member_can_create_project_when_org_allows(self):
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_member_cannot_set_admin_only_fields_when_creating_project(self):
+        # A member allowed to create projects must not be able to set admin-only team fields like
+        # receive_org_level_activity_logs, which would grant org-wide activity log access.
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post(
+                "/api/projects/", {"name": "Sneaky Project", "receive_org_level_activity_logs": True}
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "receive_org_level_activity_logs" in response.json()["detail"]
+        assert not self.organization.teams.filter(receive_org_level_activity_logs=True).exists()
+
+    def test_admin_can_set_admin_only_fields_when_creating_project(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/", {"name": "Admin Project", "receive_org_level_activity_logs": True}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["receive_org_level_activity_logs"]
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    def test_admins_and_owners_can_always_create_project_when_members_blocked(self, _name, level):
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = False
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification") as mock_create_notification:
+            response = self.client.post("/api/projects/", {"name": f"{_name} Project"})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        # Admins/owners are the recipients, never the trigger — creating their own project must not notify
+        mock_create_notification.assert_not_called()
+
+    @patch("posthog.api.project.create_notification")
+    def test_member_project_creation_notifies_org_admins(self, mock_create_notification):
+        from posthog.models import User
+
+        from products.notifications.backend.facade.api import NotificationType, TargetType
+
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Add an admin so we can confirm admins/owners are targeted individually by user_id
+        admin_user = User.objects.create_and_join(
+            self.organization, "admin2@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        expected_admin_ids = set(
+            self.organization.memberships.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
+                "user_id", flat=True
+            )
+        )
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        # One USER-targeted notification per admin/owner, never the member creator
+        assert mock_create_notification.call_count == len(expected_admin_ids)
+        targeted_user_ids = set()
+        for call in mock_create_notification.call_args_list:
+            data = call[0][0]
+            assert data.notification_type == NotificationType.PROJECT_CREATED
+            assert data.target_type == TargetType.USER
+            targeted_user_ids.add(int(data.target_id))
+        assert targeted_user_ids == expected_admin_ids
+        assert admin_user.id in targeted_user_ids
+        assert self.user.id not in targeted_user_ids
+
+    @patch("posthog.api.project.create_notification")
+    def test_admin_project_creation_does_not_notify(self, mock_create_notification):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Admin Project"})
+
+        assert response.status_code == status.HTTP_201_CREATED
+        mock_create_notification.assert_not_called()

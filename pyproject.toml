@@ -336,6 +336,8 @@ select = [
     "E",
     "F",
     "I",
+    # "PT009",  # not a hard CI gate (would break unrebased in-flight PRs). Enforced softly via the
+    # lint:python:pt009 lint-staged step, which autofixes most cases on commit and only blocks on the rest.
     "PLC0415",
     "RUF005",
     "RUF013",

@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from typing import Any
@@ -59,19 +60,19 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager.store_query_status(self.query_status)
         self.query_status.query_progress = ClickhouseQueryProgress(**ZERO_PROGRESS)
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
-        self.assertEqual(self.manager.get_query_status(True), self.query_status)
+        assert self.manager.get_query_status(True) == self.query_status
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
         self.manager._store_clickhouse_query_progress_dict(query_status)
-        self.assertEqual(self.manager._get_clickhouse_query_progress_dict(), query_status)
+        assert self.manager._get_clickhouse_query_progress_dict() == query_status
 
     def test_bad_progress(self):
         self.manager.store_query_status(self.query_status)
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": "a"}}
         self.manager._store_clickhouse_query_progress_dict(query_status)
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
-        self.assertEqual(self.manager.get_query_status(True), self.query_status)
+        assert self.manager.get_query_status(True) == self.query_status
 
     def test_update_clickhouse_query_progresses(self):
         self.manager.store_query_status(self.query_status)
@@ -100,7 +101,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.query_progress = ClickhouseQueryProgress(**{**ZERO_PROGRESS, "bytes_read": 31})
 
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
-        self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
+        assert self.manager.get_query_status(show_progress=True) == self.query_status
 
 
 class TestExecuteProcessQuery(TestCase):
@@ -131,10 +132,10 @@ class TestExecuteProcessQuery(TestCase):
         mock_process_query_dict.assert_called_once()
 
         # Assert that Redis set method was called with the correct arguments
-        self.assertEqual(mock_redis.set.call_count, 2)  # Once on pickup, once on completion
+        assert mock_redis.set.call_count == 2  # Once on pickup, once on completion
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
-        self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+        assert args_loaded["results"] == [None, None, None, 1.0, "👍"]
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
@@ -150,13 +151,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 1+1")
         query_id = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True).id
         result = client.get_query_status(self.team.id, query_id)
-        self.assertFalse(result.error, result.error_message or "<no error message>")
-        self.assertTrue(result.complete)
-        self.assertIsNotNone(result.start_time)
-        self.assertIsNotNone(result.pickup_time)
-        self.assertIsNotNone(result.end_time)
+        assert not result.error, result.error_message or "<no error message>"
+        assert result.complete
+        assert result.start_time is not None
+        assert result.pickup_time is not None
+        assert result.end_time is not None
         assert result.results is not None
-        self.assertEqual(result.results["results"], [[2]])
+        assert result.results["results"] == [[2]]
 
     def test_async_query_posthog_ai_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001))")
@@ -164,10 +165,10 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             self.team, self.user.id, query, _test_only_bypass_celery=True, is_posthog_ai=True
         ).id
         result = client.get_query_status(self.team.id, query_id)
-        self.assertFalse(result.error, result.error_message or "<no error message>")
-        self.assertTrue(result.complete)
+        assert not result.error, result.error_message or "<no error message>"
+        assert result.complete
         assert result.results is not None
-        self.assertEqual(len(result.results["results"]), DEFAULT_POSTHOG_AI_RETURNED_ROWS)
+        assert len(result.results["results"]) == DEFAULT_POSTHOG_AI_RETURNED_ROWS
 
     def test_async_query_posthog_ai_limit_with_explicit_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001)) LIMIT 300")
@@ -175,10 +176,10 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             self.team, self.user.id, query, _test_only_bypass_celery=True, is_posthog_ai=True
         ).id
         result = client.get_query_status(self.team.id, query_id)
-        self.assertFalse(result.error, result.error_message or "<no error message>")
-        self.assertTrue(result.complete)
+        assert not result.error, result.error_message or "<no error message>"
+        assert result.complete
         assert result.results is not None
-        self.assertEqual(len(result.results["results"]), 300)
+        assert len(result.results["results"]) == 300
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
@@ -191,13 +192,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             pass
 
         result = client.get_query_status(self.team.id, query_id)
-        self.assertTrue(result.error)
-        self.assertTrue(result.complete)
-        self.assertIsNotNone(result.start_time)
-        self.assertIsNotNone(result.pickup_time)
-        self.assertIsNotNone(result.end_time)
+        assert result.error
+        assert result.complete
+        assert result.start_time is not None
+        assert result.pickup_time is not None
+        assert result.end_time is not None
         assert result.error_message
-        self.assertRegex(result.error_message, "trailing tokens after expression")
+        assert re.search("trailing tokens after expression", result.error_message)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
@@ -220,20 +221,20 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 pass
 
         result = client.get_query_status(self.team.id, query_id)
-        self.assertTrue(result.error)
+        assert result.error
         assert result.error_message is None
-        self.assertIsNotNone(result.start_time)
-        self.assertIsNotNone(result.pickup_time)
-        self.assertIsNotNone(result.end_time)
+        assert result.start_time is not None
+        assert result.pickup_time is not None
+        assert result.end_time is not None
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
         query_id = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True).id
         result = client.get_query_status(self.team.id, query_id)
-        self.assertFalse(result.error, result.error_message or "<no error message>")
-        self.assertTrue(result.complete)
+        assert not result.error, result.error_message or "<no error message>"
+        assert result.complete
         assert result.results is not None
-        self.assertEqual(result.results["results"], [["00000000-0000-0000-0000-000000000000"]])
+        assert result.results["results"] == [["00000000-0000-0000-0000-000000000000"]]
 
     def test_async_query_client_does_not_leak(self):
         query = build_query("SELECT 1+1")
@@ -243,7 +244,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         try:
             client.get_query_status(wrong_team, query_id)
         except Exception as e:
-            self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
+            assert str(e) == f"Query {query_id} not found for team {wrong_team}"
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy(self, execute_process_query_mock):
@@ -285,7 +286,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         )
 
         # Assert that we called clickhouse twice
-        self.assertEqual(execute_process_query_mock.call_count, 2)
+        assert execute_process_query_mock.call_count == 2
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_manual_query_uuid(self, execute_process_query_mock):
@@ -308,7 +309,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         )
 
         # Assert that we called clickhouse twice
-        self.assertEqual(execute_process_query_mock.call_count, 2)
+        assert execute_process_query_mock.call_count == 2
 
     @patch("posthog.clickhouse.client.execute_process_query")
     @patch("posthog.api.services.query.process_query_dict")
@@ -325,8 +326,8 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             refresh_requested=True,
         )
 
-        self.assertEqual(process_query_dict_mock.call_count, 0)
-        self.assertEqual(execute_process_query_mock.call_count, 1)
+        assert process_query_dict_mock.call_count == 0
+        assert execute_process_query_mock.call_count == 1
 
     @patch("posthog.clickhouse.client.async_task_chain.execute_task_chain")
     @patch("django.db.transaction.on_commit")
@@ -349,7 +350,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         execute_task_chain_mock.assert_called_once()
 
-        self.assertEqual(len(mock_chain), 2)
+        assert len(mock_chain) == 2
 
     def test_client_strips_comments_from_request(self):
         """
@@ -373,14 +374,14 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                     SELECT 1
                 """
             )
-            self.assertEqual(len(sqls), 1)
+            assert len(sqls) == 1
             first_query = sqls[0]
-            self.assertIn(f"SELECT 1", first_query)
-            self.assertNotIn("this request returns", first_query)
+            assert f"SELECT 1" in first_query
+            assert "this request returns" not in first_query
 
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
-            self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
+            assert f"/* user_id:{self.user_id} request:1 */" in first_query
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_query_deduplication_prevents_duplicate_execution(self, execute_process_query_mock):
@@ -400,8 +401,8 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         )
 
         # All should return the same query_id (first one)
-        self.assertEqual(query_status1.id, query_status2.id, "First and second queries should have same ID")
-        self.assertEqual(query_status2.id, query_status3.id, "Second and third queries should have same ID")
+        assert query_status1.id == query_status2.id, "First and second queries should have same ID"
+        assert query_status2.id == query_status3.id, "Second and third queries should have same ID"
 
         # Only one execution should occur
         execute_process_query_mock.assert_called_once()
@@ -423,12 +424,12 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         )
 
         # All should have different query_ids
-        self.assertNotEqual(query_status1.id, query_status2.id, "Different cache_keys should have different IDs")
-        self.assertNotEqual(query_status2.id, query_status3.id, "Different cache_keys should have different IDs")
-        self.assertNotEqual(query_status1.id, query_status3.id, "Different cache_keys should have different IDs")
+        assert query_status1.id != query_status2.id, "Different cache_keys should have different IDs"
+        assert query_status2.id != query_status3.id, "Different cache_keys should have different IDs"
+        assert query_status1.id != query_status3.id, "Different cache_keys should have different IDs"
 
         # All should execute separately
-        self.assertEqual(execute_process_query_mock.call_count, 3)
+        assert execute_process_query_mock.call_count == 3
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_query_deduplication_no_cache_key_not_deduplicated(self, execute_process_query_mock):
@@ -441,12 +442,12 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query_status3 = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True)
 
         # All should have different query_ids
-        self.assertNotEqual(query_status1.id, query_status2.id, "No cache_key should have different IDs")
-        self.assertNotEqual(query_status2.id, query_status3.id, "No cache_key should have different IDs")
-        self.assertNotEqual(query_status1.id, query_status3.id, "No cache_key should have different IDs")
+        assert query_status1.id != query_status2.id, "No cache_key should have different IDs"
+        assert query_status2.id != query_status3.id, "No cache_key should have different IDs"
+        assert query_status1.id != query_status3.id, "No cache_key should have different IDs"
 
         # All should execute separately
-        self.assertEqual(execute_process_query_mock.call_count, 3)
+        assert execute_process_query_mock.call_count == 3
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_query_deduplication_force_bypasses_deduplication(self, execute_process_query_mock):
@@ -472,10 +473,10 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         )
 
         # Should have same query_id (force reuses query_id but forces execution)
-        self.assertEqual(query_status1.id, query_status2.id, "Force should reuse query_id")
+        assert query_status1.id == query_status2.id, "Force should reuse query_id"
 
         # Both should execute (force bypasses deduplication)
-        self.assertEqual(execute_process_query_mock.call_count, 2)
+        assert execute_process_query_mock.call_count == 2
 
     @parameterized.expand(
         [

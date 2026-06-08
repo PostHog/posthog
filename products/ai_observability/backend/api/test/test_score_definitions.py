@@ -34,7 +34,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint())
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -89,13 +89,13 @@ class TestScoreDefinitionsApi(APIBaseTest):
     def test_can_create_score_definitions_for_all_supported_kinds(self, _name: str, payload: dict):
         response = self.client.post(self._endpoint(), payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
         current_version = self._current_version(definition)
-        self.assertEqual(definition.created_by, self.user)
-        self.assertEqual(definition.kind, payload["kind"])
-        self.assertEqual(current_version.version, 1)
-        self.assertEqual(current_version.config, payload["config"])
+        assert definition.created_by == self.user
+        assert definition.kind == payload["kind"]
+        assert current_version.version == 1
+        assert current_version.config == payload["config"]
 
     def test_patch_updates_metadata_without_creating_a_new_version(self):
         definition = self._create_definition()
@@ -106,14 +106,14 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         definition.refresh_from_db()
         current_version = self._current_version(definition)
-        self.assertEqual(definition.name, "Updated quality")
-        self.assertEqual(definition.description, "Updated description")
-        self.assertTrue(definition.archived)
-        self.assertEqual(current_version.version, 1)
-        self.assertEqual(definition.versions.count(), 1)
+        assert definition.name == "Updated quality"
+        assert definition.description == "Updated description"
+        assert definition.archived
+        assert current_version.version == 1
+        assert definition.versions.count() == 1
 
     def test_create_starts_active(self):
         response = self.client.post(
@@ -126,9 +126,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
-        self.assertFalse(definition.archived)
+        assert not definition.archived
 
     @parameterized.expand(
         [
@@ -156,9 +156,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "config")
-        self.assertIn("Unsupported keys", response.data["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["attr"] == "config"
+        assert "Unsupported keys" in response.data["detail"]
 
     def test_response_exposes_current_version_id(self):
         response = self.client.post(
@@ -176,10 +176,10 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
-        self.assertEqual(response.data["current_version"], 1)
-        self.assertEqual(response.data["current_version_id"], str(definition.current_version_id))
+        assert response.data["current_version"] == 1
+        assert response.data["current_version_id"] == str(definition.current_version_id)
 
     def test_create_rejects_archived_scorers(self):
         response = self.client.post(
@@ -193,9 +193,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "archived")
-        self.assertEqual(response.data["detail"], "New scorers must be created as active.")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["attr"] == "archived"
+        assert response.data["detail"] == "New scorers must be created as active."
 
     @patch("products.ai_observability.backend.api.score_definitions.report_user_action")
     def test_create_reports_user_action(self, mock_report_user_action):
@@ -214,7 +214,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
 
         mock_report_user_action.assert_called_once_with(
@@ -253,25 +253,22 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         definition.refresh_from_db()
         current_version = self._current_version(definition)
-        self.assertEqual(current_version.version, 2)
-        self.assertEqual(definition.versions.count(), 2)
-        self.assertEqual(definition.versions.get(version=1).config, original_config)
-        self.assertEqual(
-            definition.versions.get(version=2).config,
-            {
-                "options": [
-                    {"key": "pass", "label": "Pass"},
-                    {"key": "needs_work", "label": "Needs work"},
-                    {"key": "fail", "label": "Fail"},
-                ],
-                "selection_mode": "multiple",
-                "min_selections": 1,
-                "max_selections": 2,
-            },
-        )
+        assert current_version.version == 2
+        assert definition.versions.count() == 2
+        assert definition.versions.get(version=1).config == original_config
+        assert definition.versions.get(version=2).config == {
+            "options": [
+                {"key": "pass", "label": "Pass"},
+                {"key": "needs_work", "label": "Needs work"},
+                {"key": "fail", "label": "Fail"},
+            ],
+            "selection_mode": "multiple",
+            "min_selections": 1,
+            "max_selections": 2,
+        }
 
     def test_new_version_with_matching_base_version_advances_to_v2(self):
         definition = self._create_definition()
@@ -290,9 +287,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         definition.refresh_from_db()
-        self.assertEqual(self._current_version(definition).version, 2)
+        assert self._current_version(definition).version == 2
 
     def test_create_new_version_raises_when_base_version_is_stale_at_lock_time(self):
         """Lower-level guarantee: the base_version check happens inside `select_for_update`.
@@ -316,9 +313,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
                 base_version=1,
             )
 
-        self.assertEqual(cm.exception.current_version, 2)
+        assert cm.exception.current_version == 2
         # No third version was created.
-        self.assertEqual(ScoreDefinitionVersion.objects.filter(definition=definition).count(), 2)
+        assert ScoreDefinitionVersion.objects.filter(definition=definition).count() == 2
 
     def test_new_version_with_stale_base_version_returns_409(self):
         definition = self._create_definition()
@@ -341,11 +338,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["current_version"], 2)
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.data["current_version"] == 2
         definition.refresh_from_db()
         # Scorer still at v2 — the stale request did not bump it.
-        self.assertEqual(self._current_version(definition).version, 2)
+        assert self._current_version(definition).version == 2
 
     @parameterized.expand(
         [
@@ -370,11 +367,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "config")
-        self.assertIn("Unsupported keys", response.data["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["attr"] == "config"
+        assert "Unsupported keys" in response.data["detail"]
         definition.refresh_from_db()
-        self.assertEqual(self._current_version(definition).version, 1)
+        assert self._current_version(definition).version == 1
 
     # The /new_version/ custom @action has to declare required_scopes explicitly;
     # without it the default scope resolver returns None for non-CRUD action names and PAK
@@ -404,7 +401,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def test_list_defaults_to_active_only_and_respects_archived_param(self):
         active = self._create_definition(name="Active scorer", kind="categorical")
@@ -412,22 +409,22 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         # Default — no archived param → active only
         response = self.client.get(self._endpoint())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [result["id"] for result in response.data["results"]]
-        self.assertIn(str(active.id), ids)
-        self.assertNotIn(str(archived.id), ids)
+        assert str(active.id) in ids
+        assert str(archived.id) not in ids
 
         # archived=false → active only (same as default)
         response = self.client.get(self._endpoint(), {"archived": "false"})
         ids = [result["id"] for result in response.data["results"]]
-        self.assertIn(str(active.id), ids)
-        self.assertNotIn(str(archived.id), ids)
+        assert str(active.id) in ids
+        assert str(archived.id) not in ids
 
         # archived=true → archived only
         response = self.client.get(self._endpoint(), {"archived": "true"})
         ids = [result["id"] for result in response.data["results"]]
-        self.assertNotIn(str(active.id), ids)
-        self.assertIn(str(archived.id), ids)
+        assert str(active.id) not in ids
+        assert str(archived.id) in ids
 
     @parameterized.expand([("empty", ""), ("whitespace", "   "), ("unparseable", "invalid")])
     def test_list_treats_non_boolean_archived_param_as_default_active_only(self, _name: str, value: str):
@@ -436,10 +433,10 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint(), {"archived": value})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [result["id"] for result in response.data["results"]]
-        self.assertIn(str(active.id), ids)
-        self.assertNotIn(str(archived.id), ids)
+        assert str(active.id) in ids
+        assert str(archived.id) not in ids
 
     def test_list_supports_search_kind_archived_and_ordering(self):
         active = self._create_definition(name="Quality", kind="categorical")
@@ -459,9 +456,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([result["id"] for result in response.data["results"]], [str(archived.id)])
-        self.assertNotIn(str(active.id), [result["id"] for result in response.data["results"]])
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["id"] for result in response.data["results"]] == [str(archived.id)]
+        assert str(active.id) not in [result["id"] for result in response.data["results"]]
 
     @patch("products.ai_observability.backend.api.score_definitions.report_user_action")
     def test_patch_reports_user_action(self, mock_report_user_action):
@@ -474,7 +471,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         definition.refresh_from_db()
 
         mock_report_user_action.assert_called_once_with(
@@ -512,7 +509,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         definition.refresh_from_db()
 
         mock_report_user_action.assert_called_once_with(
@@ -558,7 +555,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             "config": config or self._default_config_for_kind(kind),
         }
         response = self.client.post(self._endpoint(), payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
         if archived:
             definition.archived = True

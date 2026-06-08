@@ -89,7 +89,7 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             service_names=service_names,
         )
-        self.assertEqual(response.results, {"count": expected_count})
+        assert response.results == {"count": expected_count}
 
     def test_count_via_api_with_name_filter(self):
         body = {
@@ -99,6 +99,6 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
             }
         }
         res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
-        self.assertEqual(res.status_code, 200, res.content)
+        assert res.status_code == 200, res.content
         # One root span named process_query_model per trace.
-        self.assertEqual(res.json(), {"count": NUM_TRACES})
+        assert res.json() == {"count": NUM_TRACES}

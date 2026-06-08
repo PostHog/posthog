@@ -49,8 +49,8 @@ def format_value(value):
         raise ValueError(f"Unknown value type {type(value)}")
 
 
-CHANNEL_DEFINITION_DATA_SQL = (
-    lambda channel_definitions=CHANNEL_DEFINITIONS: f"""
+CHANNEL_DEFINITION_DATA_SQL = lambda channel_definitions=CHANNEL_DEFINITIONS: (
+    f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
         ''',
@@ -61,8 +61,8 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 )
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
-CHANNEL_DEFINITION_DICTIONARY_SQL = (
-    lambda on_cluster=True: f"""
+CHANNEL_DEFINITION_DICTIONARY_SQL = lambda on_cluster=True: (
+    f"""
 CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
     domain String,
     kind String,

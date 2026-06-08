@@ -38,24 +38,24 @@ class TestTwoFactorSessionUtils(TestCase):
     def test_set_two_factor_verified_true(self):
         request = self._create_request()
         set_two_factor_verified_in_session(request, verified=True)
-        self.assertTrue(request.session.get("two_factor_verified"))
+        assert request.session.get("two_factor_verified")
 
     def test_set_two_factor_verified_false(self):
         request = self._create_request()
         set_two_factor_verified_in_session(request, verified=False)
-        self.assertFalse(request.session.get("two_factor_verified"))
+        assert not request.session.get("two_factor_verified")
 
     def test_is_two_factor_verified_in_session_with_valid_session(self):
         request = self._create_request()
         request.session["two_factor_verified"] = True
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
-        self.assertTrue(is_two_factor_verified_in_session(request))
+        assert is_two_factor_verified_in_session(request)
 
     def test_is_two_factor_verified_in_session_without_flag(self):
         request = self._create_request()
         after_date = time.mktime((TWO_FACTOR_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
-        self.assertFalse(is_two_factor_verified_in_session(request))
+        assert not is_two_factor_verified_in_session(request)
 
     @patch("time.time")
     def test_is_two_factor_verified_in_session_with_expired_session(self, mock_time):
@@ -67,32 +67,32 @@ class TestTwoFactorSessionUtils(TestCase):
         mock_time.return_value = mock_current_time
 
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = session_created_time
-        self.assertFalse(is_two_factor_verified_in_session(request))
+        assert not is_two_factor_verified_in_session(request)
 
     def test_clear_two_factor_session_flags(self):
         request = self._create_request()
         request.session["two_factor_verified"] = True
         clear_two_factor_session_flags(request)
-        self.assertFalse(request.session.get("two_factor_verified", False))
+        assert not request.session.get("two_factor_verified", False)
 
     def test_clear_two_factor_session_flags_when_empty(self):
         request = self._create_request()
         clear_two_factor_session_flags(request)
-        self.assertFalse(request.session.get("two_factor_verified", False))
+        assert not request.session.get("two_factor_verified", False)
 
     def test_is_two_factor_session_expired_with_valid_session(self):
         request = self._create_request()
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
-        self.assertFalse(is_two_factor_session_expired(request))
+        assert not is_two_factor_session_expired(request)
 
     def test_is_two_factor_session_expired_with_expired_session(self):
         request = self._create_request()
         request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time() - (15 * 24 * 60 * 60)
-        self.assertTrue(is_two_factor_session_expired(request))
+        assert is_two_factor_session_expired(request)
 
     def test_is_two_factor_session_expired_without_session_created_timestamp(self):
         request = self._create_request()
-        self.assertTrue(is_two_factor_session_expired(request))
+        assert is_two_factor_session_expired(request)
 
 
 class TestSessionAuthenticationTwoFactor(TestCase):
@@ -138,7 +138,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (self.user, None))
+            assert result == (self.user, None)
 
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_allows_when_organization_not_enforce_2fa(self, mock_is_impersonated):
@@ -149,7 +149,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
         with patch.object(self.user, "organization", org_no_2fa), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (self.user, None))
+            assert result == (self.user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -166,7 +166,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
                 self.auth.authenticate(request)
-            self.assertEqual(str(cm.exception.detail), "2FA setup required")
+            assert str(cm.exception.detail) == "2FA setup required"
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -185,7 +185,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
                 self.auth.authenticate(request)
-            self.assertEqual(str(cm.exception.detail), "2FA verification required")
+            assert str(cm.exception.detail) == "2FA verification required"
 
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
@@ -200,7 +200,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (self.user, None))
+            assert result == (self.user, None)
 
     @patch("posthog.helpers.two_factor_session.is_domain_sso_enforced", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_two_factor_enforcement_in_effect", return_value=True)
@@ -208,7 +208,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         request = self._create_drf_request()
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (self.user, None))
+            assert result == (self.user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -233,7 +233,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
             with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
                 result = self.auth.authenticate(request)
-                self.assertEqual(result, (self.user, None))
+                assert result == (self.user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -258,7 +258,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
             with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
                 with self.assertRaises(PermissionDenied) as cm:
                     self.auth.authenticate(request)
-                self.assertEqual(str(cm.exception.detail), "2FA setup required")
+                assert str(cm.exception.detail) == "2FA setup required"
 
     def test_authentication_returns_none_for_inactive_user(self):
         inactive_user = Mock(spec=User)
@@ -267,7 +267,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         request = self._create_drf_request(user=inactive_user)
 
         result = self.auth.authenticate(request)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_authentication_returns_none_for_no_user(self):
         request = self.factory.get("/test/")
@@ -276,7 +276,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         request._request = http_request
 
         result = self.auth.authenticate(request)
-        self.assertIsNone(result)
+        assert result is None
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -292,7 +292,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (self.user, None))
+            assert result == (self.user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -309,7 +309,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
                 self.auth.authenticate(request)
-            self.assertEqual(str(cm.exception.detail), "2FA setup required")
+            assert str(cm.exception.detail) == "2FA setup required"
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -328,7 +328,7 @@ class TestSessionAuthenticationTwoFactor(TestCase):
 
         with patch.object(self.user, "organization", self.organization), patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (self.user, None))
+            assert result == (self.user, None)
 
 
 class TestTwoFactorImpersonationIntegration(TestCase):
@@ -367,7 +367,7 @@ class TestTwoFactorImpersonationIntegration(TestCase):
 
         with patch.object(self.auth, "enforce_csrf"):
             result = self.auth.authenticate(request)
-            self.assertEqual(result, (user, None))
+            assert result == (user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
@@ -390,7 +390,7 @@ class TestTwoFactorImpersonationIntegration(TestCase):
         with patch.object(self.auth, "enforce_csrf"):
             with self.assertRaises(PermissionDenied) as cm:
                 self.auth.authenticate(request)
-            self.assertEqual(str(cm.exception.detail), "2FA setup required")
+            assert str(cm.exception.detail) == "2FA setup required"
 
 
 class TestAPIAuthenticationTwoFactorBypass(TestCase):
@@ -436,14 +436,14 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         request = self.factory.get("/api/users/@me/")
 
         result = auth.authenticate(request)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_project_secret_api_key_authentication_bypasses_two_factor(self):
         auth = ProjectSecretAPIKeyAuthentication()
         request = self.factory.get("/api/users/@me/")
 
         result = auth.authenticate(request)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_sso_authentication_backend_bypasses_two_factor(self):
         """Integration test: SSO authentication backends should bypass 2FA enforcement"""
@@ -473,7 +473,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
             patch.object(auth, "enforce_csrf"),
         ):
             result = auth.authenticate(request)
-            self.assertEqual(result, (user, None))
+            assert result == (user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -510,7 +510,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
             patch.object(auth, "enforce_csrf"),
         ):
             result = auth.authenticate(request)
-            self.assertEqual(result, (user, None))
+            assert result == (user, None)
 
     @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
@@ -548,7 +548,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         ):
             with self.assertRaises(PermissionDenied) as cm:
                 auth.authenticate(request)
-            self.assertEqual(str(cm.exception.detail), "2FA verification required")
+            assert str(cm.exception.detail) == "2FA verification required"
 
 
 class TestUserTwoFactorSessionIntegration(TestCase):
@@ -580,16 +580,16 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(request)
 
-        self.assertFalse(is_two_factor_verified_in_session(request))
+        assert not is_two_factor_verified_in_session(request)
 
         response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "123456"})
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         test_request = factory.get("/")
         middleware.process_request(test_request)
         test_request.session = self.client.session
 
-        self.assertTrue(is_two_factor_verified_in_session(test_request))
+        assert is_two_factor_verified_in_session(test_request)
 
         mock_totp_form.assert_called_once_with("1234567890abcdef1234", self.user, data={"token": "123456"})
         mock_form_instance.save.assert_called_once()
@@ -599,7 +599,7 @@ class TestUserTwoFactorSessionIntegration(TestCase):
     def test_doesnt_break_swagger_schema(self):
         """Test that schema generation works without session middleware errors"""
         response = self.client.get("/api/schema/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_two_factor_viewset_invalid_session_returns_error(self):
         from rest_framework.test import APIClient
@@ -607,8 +607,8 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         client = APIClient()
         response = client.post("/api/login/token/", {"token": "123456"})
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data.get("code"), "invalid_2fa_session")
+        assert response.status_code == 400
+        assert response.data.get("code") == "invalid_2fa_session"
 
     def test_two_factor_viewset_user_not_found_returns_error(self):
         from rest_framework.test import APIClient
@@ -621,8 +621,8 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         response = client.post("/api/login/token/", {"token": "123456"})
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data.get("code"), "invalid_2fa_session")
+        assert response.status_code == 400
+        assert response.data.get("code") == "invalid_2fa_session"
 
     @patch("posthog.rate_limit.TwoFactorThrottle.rate", new="3/minute")
     def test_two_factor_viewset_rate_limiting(self):
@@ -640,7 +640,7 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         for i in range(3):
             response = client.post("/api/login/token/", {"token": "123456"})
-            self.assertEqual(response.status_code, 400, f"Request {i + 1} should not be throttled")
+            assert response.status_code == 400, f"Request {i + 1} should not be throttled"
 
         response = client.post("/api/login/token/", {"token": "123456"})
-        self.assertEqual(response.status_code, 429)
+        assert response.status_code == 429

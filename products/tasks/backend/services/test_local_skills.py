@@ -68,7 +68,7 @@ class TestLocalSkills(BaseTest):
         with patch(PATCH_TARGET) as mock_cls:
             result = self.cache.ensure_built()
 
-        self.assertEqual(result, self.cache.dist_dir)
+        assert result == self.cache.dist_dir
         mock_cls.assert_not_called()
 
     def test_ensure_built_build_success_writes_hash(self) -> None:
@@ -78,8 +78,8 @@ class TestLocalSkills(BaseTest):
             result = self.cache.ensure_built()
 
         mock_cls.return_value.build_all.assert_called_once()
-        self.assertEqual(result, self.cache.dist_dir)
-        self.assertEqual(self.cache.hash_file.read_text(), self.cache._compute_source_hash())
+        assert result == self.cache.dist_dir
+        assert self.cache.hash_file.read_text() == self.cache._compute_source_hash()
 
     def test_ensure_built_build_failure_with_populated_dist_pins_hash(self) -> None:
         self._seed_dist()
@@ -91,8 +91,8 @@ class TestLocalSkills(BaseTest):
         with patch(PATCH_TARGET, mock_cls):
             result = self.cache.ensure_built()
 
-        self.assertEqual(result, self.cache.dist_dir)
-        self.assertEqual(self.cache.hash_file.read_text(), expected_hash)
+        assert result == self.cache.dist_dir
+        assert self.cache.hash_file.read_text() == expected_hash
 
     def test_ensure_built_build_failure_with_empty_dist_raises(self) -> None:
         mock_cls = MagicMock()
@@ -102,7 +102,7 @@ class TestLocalSkills(BaseTest):
             with self.assertRaisesRegex(RuntimeError, "hogli build:skills"):
                 self.cache.ensure_built()
 
-        self.assertFalse(self.cache.hash_file.exists())
+        assert not self.cache.hash_file.exists()
 
     def test_ensure_built_empty_manifest_raises(self) -> None:
         mock_cls = _mock_builder(self.cache, produce_files=False)
@@ -119,15 +119,15 @@ class TestLocalSkills(BaseTest):
 
         original_skill = skill_file.read_text()
         skill_file.write_text(original_skill + "edit\n")
-        self.assertNotEqual(self.cache._compute_source_hash(), baseline)
+        assert self.cache._compute_source_hash() != baseline
         skill_file.write_text(original_skill)
-        self.assertEqual(self.cache._compute_source_hash(), baseline)
+        assert self.cache._compute_source_hash() == baseline
 
         original_builder = builder_script.read_text()
         builder_script.write_text(original_builder + "edit\n")
-        self.assertNotEqual(self.cache._compute_source_hash(), baseline)
+        assert self.cache._compute_source_hash() != baseline
         builder_script.write_text(original_builder)
-        self.assertEqual(self.cache._compute_source_hash(), baseline)
+        assert self.cache._compute_source_hash() == baseline
 
         pycache = skill_file.parent / "__pycache__"
         pycache.mkdir()
@@ -135,7 +135,7 @@ class TestLocalSkills(BaseTest):
         unrelated = self.base_dir / "products" / "alpha" / "other"
         unrelated.mkdir()
         (unrelated / "y.md").write_text("irrelevant")
-        self.assertEqual(self.cache._compute_source_hash(), baseline)
+        assert self.cache._compute_source_hash() == baseline
 
     def test_build_invokes_skill_builder_correctly(self) -> None:
         mock_cls = _mock_builder(self.cache)
@@ -163,23 +163,20 @@ class TestLocalSkills(BaseTest):
         destination = self.base_dir / "mount"
         populate_skills_directory(destination, base_dir=self.base_dir)
 
-        self.assertEqual(
-            (destination / "my-skill" / "references" / "foo.md").read_text(),
-            "ref body",
-        )
-        self.assertFalse((destination / "my-skill" / "__pycache__").exists())
+        assert (destination / "my-skill" / "references" / "foo.md").read_text() == "ref body"
+        assert not (destination / "my-skill" / "__pycache__").exists()
 
     def test_populate_skills_directory_noop_when_dist_missing(self) -> None:
         destination = self.base_dir / "mount"
         populate_skills_directory(destination, base_dir=self.base_dir)
-        self.assertTrue(not destination.exists() or not any(destination.iterdir()))
+        assert not destination.exists() or not any(destination.iterdir())
 
     def test_populate_skills_directory_noop_when_dist_empty(self) -> None:
         (self.base_dir / BUILT_SKILLS_RELATIVE_PATH).mkdir(parents=True)
         destination = self.base_dir / "mount"
         populate_skills_directory(destination, base_dir=self.base_dir)
-        self.assertTrue(not destination.exists() or not any(destination.iterdir()))
+        assert not destination.exists() or not any(destination.iterdir())
 
     def test_module_constants_are_stable(self) -> None:
-        self.assertEqual(BUILD_HASH_FILENAME, ".build-hash")
-        self.assertEqual(BUILT_SKILLS_RELATIVE_PATH, Path("products/posthog_ai/dist/skills"))
+        assert BUILD_HASH_FILENAME == ".build-hash"
+        assert BUILT_SKILLS_RELATIVE_PATH == Path("products/posthog_ai/dist/skills")

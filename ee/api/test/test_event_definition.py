@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
@@ -62,18 +63,15 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         response = self.client.get("/api/projects/@current/event_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(self.EXPECTED_EVENT_DEFINITIONS))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
 
-        self.assertEqual(
-            [(r["name"], r["verified"]) for r in response.json()["results"]],
-            [
-                ("$pageview", False),
-                ("entered_free_trial", False),
-                ("purchase", False),
-                ("watched_movie", False),
-            ],
-        )
+        assert [(r["name"], r["verified"]) for r in response.json()["results"]] == [
+            ("$pageview", False),
+            ("entered_free_trial", False),
+            ("purchase", False),
+            ("watched_movie", False),
+        ]
 
         for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
             definition = EnterpriseEventDefinition.objects.filter(
@@ -101,19 +99,17 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         tag = Tag.objects.create(name="deprecated", team_id=self.demo_team.id)
         event.tagged_items.create(tag_id=tag.id)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(response_data["name"], "enterprise event")
-        self.assertEqual(response_data["description"], "")
-        self.assertEqual(response_data["tags"], ["deprecated"])
-        self.assertEqual(response_data["owner"]["id"], self.user.id)
+        assert response_data["name"] == "enterprise event"
+        assert response_data["description"] == ""
+        assert response_data["tags"] == ["deprecated"]
+        assert response_data["owner"]["id"] == self.user.id
 
-        self.assertAlmostEqual(
-            (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds(),
-            0,
-            delta=1,
-        )
-        self.assertIn("last_seen_at", response_data)
+        assert (
+            timezone.now() - dateutil.parser.isoparse(response_data["created_at"])
+        ).total_seconds() == pytest.approx(0, abs=1)
+        assert "last_seen_at" in response_data
 
     def test_retrieve_create_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -121,12 +117,12 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EventDefinition.objects.create(team=self.demo_team, name="event")
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         enterprise_event = EnterpriseEventDefinition.objects.filter(id=event.id).first()
         event.refresh_from_db()
-        self.assertEqual(enterprise_event.eventdefinition_ptr_id, event.id)  # type: ignore
-        self.assertEqual(enterprise_event.name, event.name)  # type: ignore
-        self.assertEqual(enterprise_event.team.id, event.team.id)  # type: ignore
+        assert enterprise_event.eventdefinition_ptr_id == event.id  # type: ignore
+        assert enterprise_event.name == event.name  # type: ignore
+        assert enterprise_event.team.id == event.team.id  # type: ignore
 
     def test_search_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -143,12 +139,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         regular_event.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(
-            sorted([r["name"] for r in response_data["results"]]),
-            ["entered_free_trial", "enterprise event"],
-        )
+        assert sorted([r["name"] for r in response_data["results"]]) == ["entered_free_trial", "enterprise event"]
 
         enterprise_event = next((r for r in response_data["results"] if r["name"] == "enterprise event"), None)
         assert enterprise_event is not None
@@ -157,22 +150,23 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert enterprise_event["owner"]["id"] == self.user.id
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
+        assert len(response_data["results"]) == 1
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=e ev")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(
-            sorted([r["name"] for r in response_data["results"]]),
-            ["$pageview", "enterprise event", "regular event"],
-        )
+        assert sorted([r["name"] for r in response_data["results"]]) == [
+            "$pageview",
+            "enterprise event",
+            "regular event",
+        ]
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=bust")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 0)
+        assert len(response_data["results"]) == 0
 
     @parameterized.expand(
         [
@@ -213,24 +207,21 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             {"description": "This is a description.", "tags": ["official", "internal"]},
         )
         response_data = response.json()
-        self.assertEqual(response_data["description"], "This is a description.")
-        self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
-        self.assertEqual(set(response_data["tags"]), {"official", "internal"})
+        assert response_data["description"] == "This is a description."
+        assert response_data["updated_by"]["first_name"] == self.user.first_name
+        assert set(response_data["tags"]) == {"official", "internal"}
 
         event.refresh_from_db()
-        self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(
-            set(event.tagged_items.values_list("tag__name", flat=True)),
-            {"official", "internal"},
-        )
+        assert event.description == "This is a description."
+        assert set(event.tagged_items.values_list("tag__name", flat=True)) == {"official", "internal"}
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
         assert activity_log.detail is not None
-        self.assertEqual(activity_log.scope, "EventDefinition")
-        self.assertEqual(activity_log.activity, "changed")
-        self.assertEqual(activity_log.detail["name"], "enterprise event")
-        self.assertEqual(activity_log.user, self.user)
+        assert activity_log.scope == "EventDefinition"
+        assert activity_log.activity == "changed"
+        assert activity_log.detail["name"] == "enterprise event"
+        assert activity_log.user == self.user
         assert sorted(activity_log.detail["changes"], key=lambda x: x["field"]) == [
             {
                 "action": "changed",
@@ -254,7 +245,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
@@ -271,7 +262,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
@@ -280,7 +271,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         # Verify the event
         self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
@@ -289,7 +280,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         # Unverify the event
         self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": False})
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
@@ -301,7 +292,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert self.user.team is not None
         assert self.user.team.pk == self.demo_team.pk
@@ -311,10 +302,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] is None
 
         patch_result = self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
-        self.assertEqual(patch_result.status_code, status.HTTP_200_OK, patch_result.json())
+        assert patch_result.status_code == status.HTTP_200_OK, patch_result.json()
 
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
@@ -327,7 +318,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
                 {"verified": True},
             )
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
@@ -341,7 +332,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
@@ -356,7 +347,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
                 },  # These properties are ignored by the serializer
             )
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
@@ -376,7 +367,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             data={"tags": ["a", "b", "a"]},
         )
 
-        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+        assert sorted(response.json()["tags"]) == ["a", "b"]
 
     def test_exclude_hidden_events(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

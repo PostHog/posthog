@@ -219,4 +219,4 @@ class TestStripeCustomerMetadataResolution(ClickhouseTestMixin, APIBaseTest):
     def test_top_customers_query_works_with_nullable_metadata_columns(self):
         response = self._run_top_customers_query()
 
-        self.assertIsNotNone(response)
+        assert response is not None

@@ -85,7 +85,7 @@ class TestInvalidateTokenSync(TestCase):
 
         result = invalidate_token_sync(token_hash="sha256$abc123")
 
-        self.assertEqual(result["status"], "failure")
+        assert result["status"] == "failure"
         mock_task.apply_async.assert_called_once_with(args=["sha256$abc123"], countdown=5)
 
     @patch("posthog.tasks.team_access_cache_tasks.invalidate_token_cache_task")
@@ -96,7 +96,7 @@ class TestInvalidateTokenSync(TestCase):
 
         result = invalidate_token_sync(token_hash="sha256$abc123")
 
-        self.assertEqual(result["status"], "failure")
+        assert result["status"] == "failure"
 
 
 class TestInvalidateUserTokensSync(TestCase):
@@ -117,7 +117,7 @@ class TestInvalidateUserTokensSync(TestCase):
 
         result = invalidate_user_tokens_sync(user_id=42)
 
-        self.assertEqual(result["status"], "failure")
+        assert result["status"] == "failure"
         mock_task.apply_async.assert_called_once_with(args=[42], countdown=5)
 
     @patch("posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task")
@@ -130,7 +130,7 @@ class TestInvalidateUserTokensSync(TestCase):
 
         result = invalidate_user_tokens_sync(user_id=42)
 
-        self.assertEqual(result["status"], "failure")
+        assert result["status"] == "failure"
 
 
 class TestInvalidationFailureMetrics(TestCase):

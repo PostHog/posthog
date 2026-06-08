@@ -79,4 +79,4 @@ class FixNonListTestAccountFiltersMigrationTest(TestMigrations):
     def test_test_account_filters_normalized(self, team_key: str, expected: list) -> None:
         team = self.teams[team_key]
         team.refresh_from_db()
-        self.assertEqual(team.test_account_filters, expected)
+        assert team.test_account_filters == expected

@@ -303,13 +303,13 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
 
         error_message = str(context.exception)
         # Verify error message contains all key information
-        self.assertIn("Cannot query drop-offs before the first metric step", error_message)
-        self.assertIn("experiment funnel", error_message.lower())
-        self.assertIn("Exposure", error_message)  # Shows funnel structure
-        self.assertIn("signup", error_message)  # Shows first metric event name
-        self.assertIn("exposed but never entered the funnel", error_message)  # Explains WHY invalid
-        self.assertIn("Valid drop-off steps: -2", error_message)  # Shows valid range
-        self.assertIn("-3", error_message)  # Shows upper bound of valid range
+        assert "Cannot query drop-offs before the first metric step" in error_message
+        assert "experiment funnel" in error_message.lower()
+        assert "Exposure" in error_message  # Shows funnel structure
+        assert "signup" in error_message  # Shows first metric event name
+        assert "exposed but never entered the funnel" in error_message  # Explains WHY invalid
+        assert "Valid drop-off steps: -2" in error_message  # Shows valid range
+        assert "-3" in error_message  # Shows upper bound of valid range
 
         # Test 0: Invalid step (steps are 1-indexed)
         # Error message should explain that step 0 doesn't exist and show valid range
@@ -330,10 +330,10 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             ActorsQueryRunner(query=actors_query_zero, team=self.team).calculate()
 
         error_message = str(context.exception)
-        self.assertIn("Funnel steps are 1-indexed", error_message)
-        self.assertIn("Step 0 does not exist", error_message)
-        self.assertIn("Valid conversion steps: 1", error_message)  # Shows start of valid range
-        self.assertIn("2", error_message)  # Shows end of valid range (2 metric steps)
+        assert "Funnel steps are 1-indexed" in error_message
+        assert "Step 0 does not exist" in error_message
+        assert "Valid conversion steps: 1" in error_message  # Shows start of valid range
+        assert "2" in error_message  # Shows end of valid range (2 metric steps)
 
         # Test out-of-range drop-off (2-step funnel, so -3 is last valid, -4 is invalid)
         # Error message should show the invalid step, number of metric steps, and valid range
@@ -354,10 +354,10 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             ActorsQueryRunner(query=actors_query_out_of_range, team=self.team).calculate()
 
         error_message = str(context.exception)
-        self.assertIn("Invalid drop-off step -4", error_message)  # Shows the invalid value
-        self.assertIn("2 metric steps", error_message)  # Shows context
-        self.assertIn("Valid drop-off steps: -2", error_message)  # Shows valid range start
-        self.assertIn("-3", error_message)  # Shows valid range end
+        assert "Invalid drop-off step -4" in error_message  # Shows the invalid value
+        assert "2 metric steps" in error_message  # Shows context
+        assert "Valid drop-off steps: -2" in error_message  # Shows valid range start
+        assert "-3" in error_message  # Shows valid range end
 
         # Test out-of-range conversion (2-step funnel, so 3 is invalid)
         # Error message should show the invalid step, number of metric steps, and valid range
@@ -378,10 +378,10 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             ActorsQueryRunner(query=actors_query_high_step, team=self.team).calculate()
 
         error_message = str(context.exception)
-        self.assertIn("Invalid conversion step 3", error_message)  # Shows the invalid value
-        self.assertIn("2 metric steps", error_message)  # Shows context
-        self.assertIn("Valid conversion steps: 1", error_message)  # Shows valid range start
-        self.assertIn("(first metric step) to 2", error_message)  # Shows valid range end with explanation
+        assert "Invalid conversion step 3" in error_message  # Shows the invalid value
+        assert "2 metric steps" in error_message  # Shows context
+        assert "Valid conversion steps: 1" in error_message  # Shows valid range start
+        assert "(first metric step) to 2" in error_message  # Shows valid range end with explanation
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

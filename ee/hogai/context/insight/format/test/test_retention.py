@@ -26,7 +26,7 @@ class TestRetentionResultsFormatter(BaseTest):
             {"date": "2025-01-24T00:00:00-08:00", "label": "Day 3", "values": [{"count": 25}]},
         ]
 
-        self.assertEqual(
+        assert (
             RetentionResultsFormatter(
                 AssistantRetentionQuery(
                     retentionFilter=AssistantRetentionFilter(
@@ -35,14 +35,14 @@ class TestRetentionResultsFormatter(BaseTest):
                     )
                 ),
                 results,
-            ).format(),
-            "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
+            ).format()
+            == "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
             "Time interval: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
             "2025-01-21 00:00|100|100%|100%|50%|25%\n"
             "2025-01-22 00:00|100|100%|50%|25%\n"
             "2025-01-23 00:00|50|100%|50%\n"
-            "2025-01-24 00:00|25|100%",
+            "2025-01-24 00:00|25|100%"
         )
 
     def test_format_retention_with_zero_count(self):
@@ -65,7 +65,7 @@ class TestRetentionResultsFormatter(BaseTest):
             {"date": "2025-01-24T00:00:00-08:00", "label": "Day 3", "values": [{"count": 0}]},
         ]
 
-        self.assertEqual(
+        assert (
             RetentionResultsFormatter(
                 AssistantRetentionQuery(
                     retentionFilter=AssistantRetentionFilter(
@@ -74,12 +74,12 @@ class TestRetentionResultsFormatter(BaseTest):
                     )
                 ),
                 results,
-            ).format(),
-            "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
+            ).format()
+            == "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
             "Time interval: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
             "2025-01-21 00:00|0|100%|0%|0%|0%\n"
             "2025-01-22 00:00|0|100%|0%|0%\n"
             "2025-01-23 00:00|0|100%|0%\n"
-            "2025-01-24 00:00|0|100%",
+            "2025-01-24 00:00|0|100%"
         )

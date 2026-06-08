@@ -111,116 +111,82 @@ class ConvertPersonsNodeInsightsToActorsQueryMigrationTest(NonAtomicTestMigratio
         assert self.apps is not None
 
         self.insight_1.refresh_from_db()
-        self.assertEqual(
-            self.insight_1.query,
-            {
-                "full": True,
-                "kind": "DataTableNode",
-                "source": {
-                    "kind": "ActorsQuery",
-                    "properties": [{"key": "id", "type": "cohort", "operator": "in", "value": 4669}],
-                },
+        assert self.insight_1.query == {
+            "full": True,
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "ActorsQuery",
+                "properties": [{"key": "id", "type": "cohort", "operator": "in", "value": 4669}],
             },
-        )
+        }
 
         self.insight_2.refresh_from_db()
-        self.assertEqual(
-            self.insight_2.query,
-            {
-                "full": True,
-                "kind": "DataTableNode",
-                "source": {"kind": "ActorsQuery", "search": "@", "properties": []},
-                "propertiesViaUrl": True,
-            },
-        )
+        assert self.insight_2.query == {
+            "full": True,
+            "kind": "DataTableNode",
+            "source": {"kind": "ActorsQuery", "search": "@", "properties": []},
+            "propertiesViaUrl": True,
+        }
 
         self.insight_3.refresh_from_db()
-        self.assertEqual(
-            self.insight_3.query,
-            {
-                "full": True,
-                "kind": "DataTableNode",
-                "source": {
-                    "kind": "ActorsQuery",
-                    "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
-                },
-                "propertiesViaUrl": True,
+        assert self.insight_3.query == {
+            "full": True,
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "ActorsQuery",
+                "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
             },
-        )
+            "propertiesViaUrl": True,
+        }
 
         self.insight_4.refresh_from_db()
-        self.assertEqual(
-            self.insight_4.query,
-            {
-                "full": True,
-                "kind": "DataTableNode",
-                "source": {
-                    "kind": "ActorsQuery",
-                    "properties": [
-                        {"key": "email", "type": "person", "value": "is_set", "operator": "is_set"},
-                        {"key": "id", "type": "cohort", "operator": "in", "value": 3},
-                    ],
-                },
-                "propertiesViaUrl": True,
+        assert self.insight_4.query == {
+            "full": True,
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "ActorsQuery",
+                "properties": [
+                    {"key": "email", "type": "person", "value": "is_set", "operator": "is_set"},
+                    {"key": "id", "type": "cohort", "operator": "in", "value": 3},
+                ],
             },
-        )
+            "propertiesViaUrl": True,
+        }
 
         self.insight_5.refresh_from_db()
-        self.assertEqual(
-            self.insight_5.query,
-            {
-                "full": True,
-                "kind": "DataTableNode",
-                "source": {"kind": "ActorsQuery", "properties": []},
-                "propertiesViaUrl": True,
-            },
-        )
+        assert self.insight_5.query == {
+            "full": True,
+            "kind": "DataTableNode",
+            "source": {"kind": "ActorsQuery", "properties": []},
+            "propertiesViaUrl": True,
+        }
 
         self.insight_6.refresh_from_db()
-        self.assertEqual(
-            self.insight_6.query,
-            {
-                "full": True,
-                "kind": "DataTableNode",
-                "source": {
-                    "kind": "ActorsQuery",
-                    "fixedProperties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
-                    "properties": [
-                        {"key": "name", "type": "person", "value": "is_set", "operator": "is_set"},
-                        {"key": "surname", "type": "person", "value": "is_set", "operator": "is_set"},
-                        {"key": "id", "type": "cohort", "operator": "in", "value": 3},
-                    ],
-                    "limit": 100,
-                    "offset": 100,
-                },
-                "propertiesViaUrl": True,
+        assert self.insight_6.query == {
+            "full": True,
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "ActorsQuery",
+                "fixedProperties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                "properties": [
+                    {"key": "name", "type": "person", "value": "is_set", "operator": "is_set"},
+                    {"key": "surname", "type": "person", "value": "is_set", "operator": "is_set"},
+                    {"key": "id", "type": "cohort", "operator": "in", "value": 3},
+                ],
+                "limit": 100,
+                "offset": 100,
             },
-        )
+            "propertiesViaUrl": True,
+        }
 
         self.insight_7.refresh_from_db()
-        self.assertEqual(
-            self.insight_7.query,
-            {
-                "kind": "DataTableNode",
-                "source": {
-                    "kind": "ActorsQuery",
-                    "cohort": 3,
-                },
-            },
-        )
+        assert self.insight_7.query == {"kind": "DataTableNode", "source": {"kind": "ActorsQuery", "cohort": 3}}
 
         self.insight_8.refresh_from_db()
-        self.assertEqual(
-            self.insight_8.query,
-            {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "cohort": 3,
-                },
-            },
-        )
+        assert self.insight_8.query == {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}], "cohort": 3},
+        }
 
     def tearDown(self) -> None:
         # Ensure self.apps is not None

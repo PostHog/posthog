@@ -195,16 +195,16 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         row = results[0]
-        self.assertEqual(row["session_id"], "session-1")
-        self.assertEqual(row["traces"], 2)
-        self.assertEqual(row["spans"], 1)
-        self.assertEqual(row["generations"], 2)
-        self.assertEqual(row["embeddings"], 1)
-        self.assertEqual(row["errors"], 0)
-        self.assertEqual(row["total_cost"], 0.8)  # 0.4 + 0.3 + 0.1
-        self.assertEqual(row["total_latency"], 8.0)  # 5.0 + 3.0 (trace-level latencies)
+        assert row["session_id"] == "session-1"
+        assert row["traces"] == 2
+        assert row["spans"] == 1
+        assert row["generations"] == 2
+        assert row["embeddings"] == 1
+        assert row["errors"] == 0
+        assert row["total_cost"] == 0.8  # 0.4 + 0.3 + 0.1
+        assert row["total_latency"] == 8.0  # 5.0 + 3.0 (trace-level latencies)
 
     def test_session_aggregates_multiple_sessions(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -247,19 +247,19 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
         session_1 = self._find_session(results, "session-1")
         assert session_1 is not None
-        self.assertEqual(session_1["traces"], 1)
-        self.assertEqual(session_1["generations"], 1)
-        self.assertEqual(session_1["total_cost"], 0.5)
+        assert session_1["traces"] == 1
+        assert session_1["generations"] == 1
+        assert session_1["total_cost"] == 0.5
 
         session_2 = self._find_session(results, "session-2")
         assert session_2 is not None
-        self.assertEqual(session_2["traces"], 1)
-        self.assertEqual(session_2["generations"], 2)
-        self.assertEqual(session_2["total_cost"], 0.5)  # 0.2 + 0.3
+        assert session_2["traces"] == 1
+        assert session_2["generations"] == 2
+        assert session_2["total_cost"] == 0.5  # 0.2 + 0.3
 
     def test_traces_without_session_excluded(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -295,9 +295,9 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["session_id"], "session-1")
-        self.assertEqual(results[0]["total_cost"], 0.5)  # only the session trace's cost
+        assert len(results) == 1
+        assert results[0]["session_id"] == "session-1"
+        assert results[0]["total_cost"] == 0.5  # only the session trace's cost
 
     def test_session_counts_errors(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -325,11 +325,11 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         row = results[0]
-        self.assertEqual(row["errors"], 2)  # trace + generation both have is_error
-        self.assertEqual(row["generations"], 2)
-        self.assertEqual(row["total_cost"], 0.3)  # 0.1 + 0.2
+        assert row["errors"] == 2  # trace + generation both have is_error
+        assert row["generations"] == 2
+        assert row["total_cost"] == 0.3  # 0.1 + 0.2
 
     def test_latency_falls_back_to_children_when_trace_has_no_latency(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -356,8 +356,8 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["total_latency"], 4.0)  # 2.5 + 1.5 (fallback to children sum)
+        assert len(results) == 1
+        assert results[0]["total_latency"] == 4.0  # 2.5 + 1.5 (fallback to children sum)
 
     def test_generation_only_traces_included_in_session(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -381,13 +381,13 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         row = results[0]
-        self.assertEqual(row["session_id"], "session-gen")
-        self.assertEqual(row["traces"], 1)
-        self.assertEqual(row["generations"], 2)
-        self.assertEqual(row["total_cost"], 0.8)  # 0.5 + 0.3
-        self.assertEqual(row["total_latency"], 3.0)  # 2.0 + 1.0 (sum of children)
+        assert row["session_id"] == "session-gen"
+        assert row["traces"] == 1
+        assert row["generations"] == 2
+        assert row["total_cost"] == 0.8  # 0.5 + 0.3
+        assert row["total_latency"] == 3.0  # 2.0 + 1.0 (sum of children)
 
     def test_session_surfaces_first_trace_distinct_id(self):
         _create_person(distinct_ids=["early-user", "late-user"], team=self.team)
@@ -413,8 +413,8 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["distinct_id"], "early-user")
+        assert len(results) == 1
+        assert results[0]["distinct_id"] == "early-user"
 
     @parameterized.expand(
         [
@@ -441,8 +441,8 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(sorted(results[0]["tools"]), expected_tools)
+        assert len(results) == 1
+        assert sorted(results[0]["tools"]) == expected_tools
 
     def test_mixed_traces_with_and_without_trace_event(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
@@ -474,10 +474,10 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         row = results[0]
-        self.assertEqual(row["session_id"], "session-mix")
-        self.assertEqual(row["traces"], 2)
-        self.assertEqual(row["generations"], 2)
-        self.assertEqual(row["total_cost"], 0.6)  # 0.4 + 0.2
-        self.assertEqual(row["total_latency"], 6.5)  # 5.0 (trace-level) + 1.5 (child fallback)
+        assert row["session_id"] == "session-mix"
+        assert row["traces"] == 2
+        assert row["generations"] == 2
+        assert row["total_cost"] == 0.6  # 0.4 + 0.2
+        assert row["total_latency"] == 6.5  # 5.0 (trace-level) + 1.5 (child fallback)

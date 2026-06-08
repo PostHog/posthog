@@ -1,3 +1,4 @@
+import pytest
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -156,9 +157,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # against the string actor id). The join must now run and actually match rows.
         result, _ = self._get_events_for_query(query)
         events = {item["event"]: item for item in result}
-        self.assertIn("positively_related", events)
-        self.assertEqual(events["positively_related"]["success_count"], 5)
-        self.assertEqual(events["positively_related"]["correlation_type"], "success")
+        assert "positively_related" in events
+        assert events["positively_related"]["success_count"] == 5
+        assert events["positively_related"]["correlation_type"] == "success"
 
     def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
         # funnelAggregateByHogQL is user-controlled — a value that isn't a single
@@ -222,38 +223,29 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [11, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related",
-                    "success_count": 5,
-                    "failure_count": 0,
-                    # "odds_ratio": 11.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "negatively_related",
-                    "success_count": 0,
-                    "failure_count": 5,
-                    # "odds_ratio": 1 / 11,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 11.0,
+                "correlation_type": "success",
+            },
+            {
+                "event": "negatively_related",
+                "success_count": 0,
+                "failure_count": 5,
+                # "odds_ratio": 1 / 11,
+                "correlation_type": "failure",
+            },
+        ]
 
-        self.assertEqual(len(self._get_actors_for_event(query, "positively_related")), 5)
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "positively_related", success=False)),
-            0,
-        )
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "negatively_related", success=False)),
-            5,
-        )
-        self.assertEqual(len(self._get_actors_for_event(query, "negatively_related")), 0)
+        assert len(self._get_actors_for_event(query, "positively_related")) == 5
+        assert len(self._get_actors_for_event(query, "positively_related", success=False)) == 0
+        assert len(self._get_actors_for_event(query, "negatively_related", success=False)) == 5
+        assert len(self._get_actors_for_event(query, "negatively_related")) == 0
 
         # Now exclude positively_related
         result, _ = self._get_events_for_query(
@@ -265,31 +257,22 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         odds_ratio = result[0].pop("odds_ratio")
         expected_odds_ratio = 1 / 11
 
-        self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
+        assert odds_ratio == pytest.approx(expected_odds_ratio, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "negatively_related",
-                    "success_count": 0,
-                    "failure_count": 5,
-                    # "odds_ratio": 1 / 11,
-                    "correlation_type": "failure",
-                }
-            ],
-        )
+        assert result == [
+            {
+                "event": "negatively_related",
+                "success_count": 0,
+                "failure_count": 5,
+                # "odds_ratio": 1 / 11,
+                "correlation_type": "failure",
+            }
+        ]
         # Getting specific people isn't affected by exclude_events
-        self.assertEqual(len(self._get_actors_for_event(query, "positively_related")), 5)
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "positively_related", success=False)),
-            0,
-        )
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "negatively_related", success=False)),
-            5,
-        )
-        self.assertEqual(len(self._get_actors_for_event(query, "negatively_related")), 0)
+        assert len(self._get_actors_for_event(query, "positively_related")) == 5
+        assert len(self._get_actors_for_event(query, "positively_related", success=False)) == 0
+        assert len(self._get_actors_for_event(query, "negatively_related", success=False)) == 5
+        assert len(self._get_actors_for_event(query, "negatively_related")) == 0
 
     @snapshot_clickhouse_queries
     def test_action_events_are_excluded_from_correlations(self):
@@ -348,18 +331,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result, _ = self._get_events_for_query(query)
 
         #  missing user signed up and paid from result set, as expected
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related",
-                    "success_count": 2,
-                    "failure_count": 0,
-                    "odds_ratio": 3,
-                    "correlation_type": "success",
-                }
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related",
+                "success_count": 2,
+                "failure_count": 0,
+                "odds_ratio": 3,
+                "correlation_type": "success",
+            }
+        ]
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -471,38 +451,29 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [12 / 7, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related",
-                    "success_count": 5,
-                    "failure_count": 0,
-                    # "odds_ratio": 12/7,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "negatively_related",
-                    "success_count": 1,
-                    "failure_count": 1,
-                    # "odds_ratio": 1 / 11,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 12/7,
+                "correlation_type": "success",
+            },
+            {
+                "event": "negatively_related",
+                "success_count": 1,
+                "failure_count": 1,
+                # "odds_ratio": 1 / 11,
+                "correlation_type": "failure",
+            },
+        ]
 
-        self.assertEqual(len(self._get_actors_for_event(query, "positively_related")), 5)
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "positively_related", success=False)),
-            0,
-        )
-        self.assertEqual(len(self._get_actors_for_event(query, "negatively_related")), 1)
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "negatively_related", success=False)),
-            1,
-        )
+        assert len(self._get_actors_for_event(query, "positively_related")) == 5
+        assert len(self._get_actors_for_event(query, "positively_related", success=False)) == 0
+        assert len(self._get_actors_for_event(query, "negatively_related")) == 1
+        assert len(self._get_actors_for_event(query, "negatively_related", success=False)) == 1
 
         # Now exclude all groups in positive
         query_with_excludes = query.model_copy(
@@ -523,26 +494,20 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratio = 1
         # success total and failure totals remove other groups too
 
-        self.assertAlmostEqual(odds_ratio, expected_odds_ratio)
+        assert odds_ratio == pytest.approx(expected_odds_ratio, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "negatively_related",
-                    "success_count": 1,
-                    "failure_count": 1,
-                    # "odds_ratio": 1,
-                    "correlation_type": "failure",
-                }
-            ],
-        )
+        assert result == [
+            {
+                "event": "negatively_related",
+                "success_count": 1,
+                "failure_count": 1,
+                # "odds_ratio": 1,
+                "correlation_type": "failure",
+            }
+        ]
 
-        self.assertEqual(len(self._get_actors_for_event(query, "negatively_related")), 1)
-        self.assertEqual(
-            len(self._get_actors_for_event(query, "negatively_related", success=False)),
-            1,
-        )
+        assert len(self._get_actors_for_event(query, "negatively_related")) == 1
+        assert len(self._get_actors_for_event(query, "negatively_related", success=False)) == 1
 
     @also_test_with_materialized_columns(
         event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False
@@ -652,59 +617,56 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "$browser::Positive",
-                    "success_count": 10,
-                    "failure_count": 1,
-                    # "odds_ratio": 121/4,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$browser::Negative",
-                    "success_count": 1,
-                    "failure_count": 10,
-                    # "odds_ratio": 4/121,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "$browser::Positive",
+                "success_count": 10,
+                "failure_count": 1,
+                # "odds_ratio": 121/4,
+                "correlation_type": "success",
+            },
+            {
+                "event": "$browser::Negative",
+                "success_count": 1,
+                "failure_count": 10,
+                # "odds_ratio": 4/121,
+                "correlation_type": "failure",
+            },
+        ]
 
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("$browser", "Positive", "person", None)], funnelCorrelationNames=["$browser"]
                 )
-            ),
-            10,
+            )
+            == 10
         )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("$browser", "Positive", "person", None)], False, funnelCorrelationNames=["$browser"]
                 )
-            ),
-            1,
+            )
+            == 1
         )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("$browser", "Negative", "person", None)], funnelCorrelationNames=["$browser"]
                 )
-            ),
-            1,
+            )
+            == 1
         )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("$browser", "Negative", "person", None)], False, funnelCorrelationNames=["$browser"]
                 )
-            ),
-            10,
+            )
+            == 10
         )
 
     # TODO: Delete this test when moved to person-on-events
@@ -851,48 +813,36 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "industry::positive",
-                    "success_count": 10,
-                    "failure_count": 1,
-                    # "odds_ratio": 121/4,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "industry::negative",
-                    "success_count": 1,
-                    "failure_count": 10,
-                    # "odds_ratio": 4/121,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "industry::positive",
+                "success_count": 10,
+                "failure_count": 1,
+                # "odds_ratio": 121/4,
+                "correlation_type": "success",
+            },
+            {
+                "event": "industry::negative",
+                "success_count": 1,
+                "failure_count": 10,
+                # "odds_ratio": 4/121,
+                "correlation_type": "failure",
+            },
+        ]
 
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("industry", "positive", "group", 0)], funnelCorrelationNames=["industry"]
                 )
-            ),
-            10,
+            )
+            == 10
         )
-        self.assertEqual(
-            len(self._get_actors_for_property(query, [("industry", "positive", "group", 0)], False)),
-            1,
-        )
-        self.assertEqual(
-            len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)])),
-            1,
-        )
-        self.assertEqual(
-            len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)], False)),
-            10,
-        )
+        assert len(self._get_actors_for_property(query, [("industry", "positive", "group", 0)], False)) == 1
+        assert len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)])) == 1
+        assert len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)], False)) == 10
 
         # test with `$all` as property
         # _run property correlation with filter on all properties
@@ -903,9 +853,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         odds_ratios = [item.pop("odds_ratio") for item in new_result]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(new_result, result)
+        assert new_result == result
 
     @also_test_with_materialized_columns(
         event_properties=[],
@@ -1056,44 +1006,29 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ]
 
             for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-                self.assertAlmostEqual(odds, expected_odds)
+                assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-            self.assertEqual(
-                result,
-                [
-                    {
-                        "event": "industry::positive",
-                        "success_count": 10,
-                        "failure_count": 1,
-                        # "odds_ratio": 121/4,
-                        "correlation_type": "success",
-                    },
-                    {
-                        "event": "industry::negative",
-                        "success_count": 1,
-                        "failure_count": 10,
-                        # "odds_ratio": 4/121,
-                        "correlation_type": "failure",
-                    },
-                ],
-            )
+            assert result == [
+                {
+                    "event": "industry::positive",
+                    "success_count": 10,
+                    "failure_count": 1,
+                    # "odds_ratio": 121/4,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "industry::negative",
+                    "success_count": 1,
+                    "failure_count": 10,
+                    # "odds_ratio": 4/121,
+                    "correlation_type": "failure",
+                },
+            ]
 
-            self.assertEqual(
-                len(self._get_actors_for_property(query, [("industry", "positive", "group", 0)])),
-                10,
-            )
-            self.assertEqual(
-                len(self._get_actors_for_property(query, [("industry", "positive", "group", 0)], False)),
-                1,
-            )
-            self.assertEqual(
-                len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)])),
-                1,
-            )
-            self.assertEqual(
-                len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)], False)),
-                10,
-            )
+            assert len(self._get_actors_for_property(query, [("industry", "positive", "group", 0)])) == 10
+            assert len(self._get_actors_for_property(query, [("industry", "positive", "group", 0)], False)) == 1
+            assert len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)])) == 1
+            assert len(self._get_actors_for_property(query, [("industry", "negative", "group", 0)], False)) == 10
 
             # test with `$all` as property
             # _run property correlation with filter on all properties
@@ -1106,9 +1041,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             odds_ratios = [item.pop("odds_ratio") for item in new_result]
 
             for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-                self.assertAlmostEqual(odds, expected_odds)
+                assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-            self.assertEqual(new_result, result)
+            assert new_result == result
 
     def test_no_divide_by_zero_errors(self):
         query = FunnelsQuery(
@@ -1168,33 +1103,30 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         result, skewed_totals = self._get_events_for_query(query)
 
-        self.assertFalse(skewed_totals)
+        assert not skewed_totals
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
         expected_odds_ratios = [9, 1 / 3]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positive",
-                    "success_count": 2,
-                    "failure_count": 0,
-                    # "odds_ratio": 9.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "negatively_related",
-                    "success_count": 0,
-                    "failure_count": 1,
-                    # "odds_ratio": 1 / 3,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "positive",
+                "success_count": 2,
+                "failure_count": 0,
+                # "odds_ratio": 9.0,
+                "correlation_type": "success",
+            },
+            {
+                "event": "negatively_related",
+                "success_count": 0,
+                "failure_count": 1,
+                # "odds_ratio": 1 / 3,
+                "correlation_type": "failure",
+            },
+        ]
 
     def test_correlation_with_properties_raises_validation_error(self):
         query = FunnelsQuery(
@@ -1365,7 +1297,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # (success + 1) / (failure + 1)
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
         expected_result = [
             {
@@ -1412,7 +1344,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             },
         ]
 
-        self.assertEqual(result, expected_result)
+        assert result == expected_result
 
         # _run property correlation with filter on all properties
         new_result, _ = self._get_events_for_query(
@@ -1428,9 +1360,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # We discard $nice:: because it's an empty result set
 
         for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(new_result, new_expected_result)
+        assert new_result == new_expected_result
 
         # search for $all but exclude $browser
         new_result, _ = self._get_events_for_query(
@@ -1446,17 +1378,17 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         new_expected_result = expected_result[1:4]
 
         for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(new_result, new_expected_result)
+        assert new_result == new_expected_result
 
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("$nice", "not", "person", None)], funnelCorrelationNames=["$browser", "$nice"]
                 )
-            ),
-            10,
+            )
+            == 10
         )
         # self.assertEqual(
         #     len(
@@ -1466,13 +1398,13 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         #     ),
         #     1,
         # )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_property(
                     query, [("$nice", "very", "person", None)], funnelCorrelationNames=["$browser", "$nice"]
                 )
-            ),
-            5,
+            )
+            == 5
         )
 
     def test_discarding_insignificant_events(self):
@@ -1545,7 +1477,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         FunnelCorrelationQueryRunner.MIN_PERSON_COUNT = 25
         result, _ = self._get_events_for_query(query, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS)
 
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
     def test_events_within_conversion_window_for_correlation(self):
         query = FunnelsQuery(
@@ -1600,20 +1532,17 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [4]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related",
-                    "success_count": 1,
-                    "failure_count": 0,
-                    # "odds_ratio": 4.0,
-                    "correlation_type": "success",
-                }
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related",
+                "success_count": 1,
+                "failure_count": 0,
+                # "odds_ratio": 4.0,
+                "correlation_type": "success",
+            }
+        ]
 
     @also_test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
     def test_funnel_correlation_with_event_properties(self):
@@ -1683,56 +1612,53 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [11, 5.5, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related::blah::value_bleh",
-                    "success_count": 5,
-                    "failure_count": 0,
-                    # "odds_ratio": 11.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "positively_related::signup_source::facebook",
-                    "success_count": 3,
-                    "failure_count": 0,
-                    # "odds_ratio": 5.5,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "negatively_related::signup_source::email",
-                    "success_count": 0,
-                    "failure_count": 3,
-                    # "odds_ratio": 0.18181818181818182,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related::blah::value_bleh",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 11.0,
+                "correlation_type": "success",
+            },
+            {
+                "event": "positively_related::signup_source::facebook",
+                "success_count": 3,
+                "failure_count": 0,
+                # "odds_ratio": 5.5,
+                "correlation_type": "success",
+            },
+            {
+                "event": "negatively_related::signup_source::email",
+                "success_count": 0,
+                "failure_count": 3,
+                # "odds_ratio": 0.18181818181818182,
+                "correlation_type": "failure",
+            },
+        ]
 
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_event(
                     query,
                     "positively_related",
                     [EventPropertyFilter(operator=PropertyOperator.EXACT, key="blah", value="value_bleh")],
                 )
-            ),
-            5,
+            )
+            == 5
         )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_event(
                     query,
                     "positively_related",
                     [EventPropertyFilter(operator=PropertyOperator.EXACT, key="signup_source", value="facebook")],
                 )
-            ),
-            3,
+            )
+            == 3
         )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_event(
                     query,
@@ -1740,10 +1666,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     [EventPropertyFilter(operator=PropertyOperator.EXACT, key="signup_source", value="facebook")],
                     False,
                 )
-            ),
-            0,
+            )
+            == 0
         )
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_event(
                     query,
@@ -1751,8 +1677,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     [EventPropertyFilter(operator=PropertyOperator.EXACT, key="signup_source", value="email")],
                     False,
                 )
-            ),
-            3,
+            )
+            == 3
         )
 
     @also_test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
@@ -1849,34 +1775,31 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [11, 5.5, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            self.assertAlmostEqual(odds, expected_odds)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related::blah::value_bleh",
-                    "success_count": 5,
-                    "failure_count": 0,
-                    # "odds_ratio": 11.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "positively_related::signup_source::facebook",
-                    "success_count": 3,
-                    "failure_count": 0,
-                    # "odds_ratio": 5.5,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "negatively_related::signup_source::email",
-                    "success_count": 0,
-                    "failure_count": 3,
-                    # "odds_ratio": 0.18181818181818182,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related::blah::value_bleh",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 11.0,
+                "correlation_type": "success",
+            },
+            {
+                "event": "positively_related::signup_source::facebook",
+                "success_count": 3,
+                "failure_count": 0,
+                # "odds_ratio": 5.5,
+                "correlation_type": "success",
+            },
+            {
+                "event": "negatively_related::signup_source::email",
+                "success_count": 0,
+                "failure_count": 3,
+                # "odds_ratio": 0.18181818181818182,
+                "correlation_type": "failure",
+            },
+        ]
 
     def test_funnel_correlation_with_event_properties_exclusions(self):
         query = FunnelsQuery(
@@ -1926,41 +1849,38 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationEventExcludePropertyNames=["signup_source"],
         )
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "positively_related::blah::value_bleh",
-                    "success_count": 3,
-                    "failure_count": 0,
-                    "odds_ratio": 8,
-                    "correlation_type": "success",
-                },
-                #  missing signup_source, as expected
-            ],
-        )
+        assert result == [
+            {
+                "event": "positively_related::blah::value_bleh",
+                "success_count": 3,
+                "failure_count": 0,
+                "odds_ratio": 8,
+                "correlation_type": "success",
+            },
+            #  missing signup_source, as expected
+        ]
 
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_event(
                     query,
                     "positively_related",
                     [EventPropertyFilter(operator=PropertyOperator.EXACT, key="blah", value="value_bleh")],
                 )
-            ),
-            3,
+            )
+            == 3
         )
 
         # If you search for persons with a specific property, even if excluded earlier, you should get them
-        self.assertEqual(
+        assert (
             len(
                 self._get_actors_for_event(
                     query,
                     "positively_related",
                     [EventPropertyFilter(operator=PropertyOperator.EXACT, key="signup_source", value="facebook")],
                 )
-            ),
-            3,
+            )
+            == 3
         )
 
     # :FIXME: This should also work with materialized columns
@@ -2032,25 +1952,22 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         # $autocapture results only return elements chain
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
-                    "success_count": 6,
-                    "failure_count": 0,
-                    "odds_ratio": 14.0,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": '$autocapture::elements_chain::submit__~~__button:nth-child="0"nth-of-type="1"text="Pay $10"',
-                    "success_count": 3,
-                    "failure_count": 0,
-                    "odds_ratio": 2.0,
-                    "correlation_type": "success",
-                },
-            ],
-        )
+        assert result == [
+            {
+                "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
+                "success_count": 6,
+                "failure_count": 0,
+                "odds_ratio": 14.0,
+                "correlation_type": "success",
+            },
+            {
+                "event": '$autocapture::elements_chain::submit__~~__button:nth-child="0"nth-of-type="1"text="Pay $10"',
+                "success_count": 3,
+                "failure_count": 0,
+                "odds_ratio": 2.0,
+                "correlation_type": "success",
+            },
+        ]
 
         # self.assertEqual(
         #     len(self._get_actors_for_event(filter, "$autocapture", {"signup_source": "facebook"})),
@@ -2146,7 +2063,7 @@ class TestCorrelationFunctions(unittest.TestCase):
             for contingency_table in contingency_tables
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         # Discard one low_sig due to %
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.051
@@ -2156,7 +2073,7 @@ class TestCorrelationFunctions(unittest.TestCase):
             for contingency_table in contingency_tables
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
-        self.assertEqual(len(result), 3)
+        assert len(result) == 3
 
         # Discard both due to count
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
@@ -2166,7 +2083,7 @@ class TestCorrelationFunctions(unittest.TestCase):
             for contingency_table in contingency_tables
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
-        self.assertEqual(len(result), 2)
+        assert len(result) == 2
 
         # Discard one due to count
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
@@ -2176,7 +2093,7 @@ class TestCorrelationFunctions(unittest.TestCase):
             for contingency_table in contingency_tables
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
-        self.assertEqual(len(result), 3)
+        assert len(result) == 3
 
         # Discard everything due to %
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
@@ -2186,7 +2103,7 @@ class TestCorrelationFunctions(unittest.TestCase):
             for contingency_table in contingency_tables
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
         # Discard everything due to count
         FunnelCorrelationQueryRunner.MIN_PERSON_PERCENTAGE = 0.5
@@ -2196,7 +2113,7 @@ class TestCorrelationFunctions(unittest.TestCase):
             for contingency_table in contingency_tables
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
 
 class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
@@ -2259,8 +2176,8 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
                 # Acceptable errors: validation errors, empty results
                 # Not acceptable: SQL syntax errors indicating injection worked
                 error_msg = str(e).lower()
-                self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
-                self.assertNotIn("unexpected", error_msg, f"SQL injection may have worked with payload: {payload}")
+                assert "syntax error" not in error_msg, f"SQL injection may have worked with payload: {payload}"
+                assert "unexpected" not in error_msg, f"SQL injection may have worked with payload: {payload}"
 
     @freeze_time("2020-01-14")
     def test_sql_injection_in_exclude_event_names(self):
@@ -2277,7 +2194,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
                 result, _, _, _ = self._run_event_correlation_with_exclude(query, [payload])
             except Exception as e:
                 error_msg = str(e).lower()
-                self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
+                assert "syntax error" not in error_msg, f"SQL injection may have worked with payload: {payload}"
 
     @freeze_time("2020-01-14")
     def test_special_characters_in_property_names_are_handled(self):
@@ -2302,4 +2219,4 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
             except Exception as e:
                 error_msg = str(e).lower()
                 # Should not be a SQL syntax error
-                self.assertNotIn("syntax error", error_msg, f"Special character handling failed for: {repr(prop_name)}")
+                assert "syntax error" not in error_msg, f"Special character handling failed for: {repr(prop_name)}"

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -41,7 +42,7 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
 
     def test_no_data_returns_empty(self):
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
-        self.assertEqual(results, [])
+        assert results == []
 
     @parameterized.expand(
         [
@@ -54,9 +55,9 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         _insert_rows(rows)
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
-        self.assertEqual(len(results), 1)
-        self.assertAlmostEqual(results[0]["total"], expected_total, places=5)
-        self.assertEqual(results[0]["obs"], len(values))
+        assert len(results) == 1
+        assert results[0]["total"] == pytest.approx(expected_total, abs=10 ** (-5) * 0.5)
+        assert results[0]["obs"] == len(values)
 
     def test_avg_aggregation_weighted(self):
         _insert_rows(
@@ -67,20 +68,20 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         )
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         # weighted avg: (10*100 + 20*300) / (100+300) = 7000/400 = 17.5
-        self.assertAlmostEqual(results[0]["total"], 17.5, places=5)
-        self.assertEqual(results[0]["obs"], 400)
+        assert results[0]["total"] == pytest.approx(17.5, abs=10 ** (-5) * 0.5)
+        assert results[0]["obs"] == 400
 
     def test_top_10_ranking(self):
         rows = [(TS, "latency", "sum", {"fn": f"func_{i}"}, float(i), 1, "events", "fast") for i in range(15)]
         _insert_rows(rows)
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
-        self.assertEqual(len(results), 10)
+        assert len(results) == 10
         totals = [r["total"] for r in results]
-        self.assertEqual(totals, sorted(totals, reverse=True))
-        self.assertEqual(totals[0], 14.0)
+        assert totals == sorted(totals, reverse=True)
+        assert totals[0] == 14.0
 
     def test_pipeline_filter(self):
         _insert_rows(
@@ -91,8 +92,8 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         )
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO, pipeline="events")
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["key"], {"fn": "a"})
+        assert len(results) == 1
+        assert results[0]["key"] == {"fn": "a"}
 
     def test_lane_filter(self):
         _insert_rows(
@@ -103,8 +104,8 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         )
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO, lane="slow")
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["key"], {"fn": "b"})
+        assert len(results) == 1
+        assert results[0]["key"] == {"fn": "b"}
 
     def test_both_filters(self):
         _insert_rows(
@@ -117,8 +118,8 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         )
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO, pipeline="recordings", lane="slow")
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["key"], {"fn": "d"})
+        assert len(results) == 1
+        assert results[0]["key"] == {"fn": "d"}
 
     def test_no_filter_aggregates_across_pipelines(self):
         _insert_rows(
@@ -129,10 +130,10 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         )
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
-        self.assertEqual(len(results), 1)
-        self.assertAlmostEqual(results[0]["total"], 30.0, places=5)
-        self.assertEqual(results[0]["pipelines"], ["events", "recordings"])
-        self.assertEqual(results[0]["lanes"], ["fast", "slow"])
+        assert len(results) == 1
+        assert results[0]["total"] == pytest.approx(30.0, abs=10 ** (-5) * 0.5)
+        assert results[0]["pipelines"] == ["events", "recordings"]
+        assert results[0]["lanes"] == ["fast", "slow"]
 
     def test_filter_options(self):
         _insert_rows(
@@ -144,5 +145,5 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         )
 
         pipelines, lanes = query_tophog_filter_options(DATE_FROM, DATE_TO)
-        self.assertEqual(pipelines, ["events", "recordings"])
-        self.assertEqual(lanes, ["fast", "slow"])
+        assert pipelines == ["events", "recordings"]
+        assert lanes == ["fast", "slow"]

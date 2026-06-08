@@ -128,14 +128,14 @@ class TestSandboxedTraceCaptureParser(BaseTest):
 
         parsed = parse_log(raw, initial_prompt="hi")
 
-        self.assertEqual(len(parsed.generations), 1)
+        assert len(parsed.generations) == 1
         gen = parsed.generations[0]
-        self.assertEqual(gen.input_messages, [{"role": "user", "content": "hi"}])
-        self.assertEqual(gen.output_content, [{"type": "text", "text": "hello back"}])
-        self.assertEqual(gen.token_usage["inputTokens"], 10)
-        self.assertEqual(gen.token_usage["outputTokens"], 20)
-        self.assertEqual(gen.start_ts, "2026-04-15T10:00:00.000Z")
-        self.assertEqual(gen.end_ts, "2026-04-15T10:00:01.000Z")
+        assert gen.input_messages == [{"role": "user", "content": "hi"}]
+        assert gen.output_content == [{"type": "text", "text": "hello back"}]
+        assert gen.token_usage["inputTokens"] == 10
+        assert gen.token_usage["outputTokens"] == 20
+        assert gen.start_ts == "2026-04-15T10:00:00.000Z"
+        assert gen.end_ts == "2026-04-15T10:00:01.000Z"
 
     def test_tool_call_input_is_patched_from_followup_update(self):
         """The initial ``tool_call`` event has ``rawInput={}``; real arguments
@@ -165,10 +165,10 @@ class TestSandboxedTraceCaptureParser(BaseTest):
         parsed = parse_log(raw)
 
         tool_use_blocks = [b for gen in parsed.generations for b in gen.output_content if b.get("type") == "tool_use"]
-        self.assertEqual(len(tool_use_blocks), 1)
-        self.assertEqual(tool_use_blocks[0]["name"], "MyTool")
-        self.assertEqual(tool_use_blocks[0]["input"], {"q": "hello", "limit": 5})
-        self.assertEqual(tool_use_blocks[0]["id"], "toolu_1")
+        assert len(tool_use_blocks) == 1
+        assert tool_use_blocks[0]["name"] == "MyTool"
+        assert tool_use_blocks[0]["input"] == {"q": "hello", "limit": 5}
+        assert tool_use_blocks[0]["id"] == "toolu_1"
 
     def test_back_to_back_tool_calls_produce_separate_generations(self):
         """Regression test: the parser must flush on ``tool_call`` when
@@ -204,30 +204,30 @@ class TestSandboxedTraceCaptureParser(BaseTest):
 
         parsed = parse_log(raw, initial_prompt="hello")
 
-        self.assertEqual(len(parsed.generations), 3)
-        self.assertEqual([len(g.output_content) for g in parsed.generations], [1, 1, 1])
+        assert len(parsed.generations) == 3
+        assert [len(g.output_content) for g in parsed.generations] == [1, 1, 1]
 
         # Each generation's start_ts comes from the previous boundary:
         #   gen[0] starts at session/prompt
         #   gen[1] starts when tool_a completed
         #   gen[2] starts when tool_b completed
-        self.assertEqual(parsed.generations[0].start_ts, "2026-04-15T10:00:00.000Z")
-        self.assertEqual(parsed.generations[1].start_ts, "2026-04-15T10:00:02.000Z")
-        self.assertEqual(parsed.generations[2].start_ts, "2026-04-15T10:00:04.000Z")
+        assert parsed.generations[0].start_ts == "2026-04-15T10:00:00.000Z"
+        assert parsed.generations[1].start_ts == "2026-04-15T10:00:02.000Z"
+        assert parsed.generations[2].start_ts == "2026-04-15T10:00:04.000Z"
 
         # Each generation ends when its last output block arrived
-        self.assertEqual(parsed.generations[0].end_ts, "2026-04-15T10:00:01.000Z")
-        self.assertEqual(parsed.generations[1].end_ts, "2026-04-15T10:00:03.000Z")
-        self.assertEqual(parsed.generations[2].end_ts, "2026-04-15T10:00:05.000Z")
+        assert parsed.generations[0].end_ts == "2026-04-15T10:00:01.000Z"
+        assert parsed.generations[1].end_ts == "2026-04-15T10:00:03.000Z"
+        assert parsed.generations[2].end_ts == "2026-04-15T10:00:05.000Z"
 
         # History growth: gen[1] sees the user prompt + assistant tool_a + tool_result a
         gen1_input = parsed.generations[1].input_messages
-        self.assertEqual(gen1_input[0], {"role": "user", "content": "hello"})
-        self.assertEqual(gen1_input[1]["role"], "assistant")
-        self.assertEqual(gen1_input[1]["content"][0]["name"], "ToolA")
-        self.assertEqual(gen1_input[2]["role"], "user")
-        self.assertEqual(gen1_input[2]["content"][0]["type"], "tool_result")
-        self.assertEqual(gen1_input[2]["content"][0]["tool_use_id"], "tool_a")
+        assert gen1_input[0] == {"role": "user", "content": "hello"}
+        assert gen1_input[1]["role"] == "assistant"
+        assert gen1_input[1]["content"][0]["name"] == "ToolA"
+        assert gen1_input[2]["role"] == "user"
+        assert gen1_input[2]["content"][0]["type"] == "tool_result"
+        assert gen1_input[2]["content"][0]["tool_use_id"] == "tool_a"
 
     def test_tool_results_become_user_message_in_next_generation_input(self):
         raw = _join(
@@ -252,14 +252,14 @@ class TestSandboxedTraceCaptureParser(BaseTest):
 
         parsed = parse_log(raw, initial_prompt="hi")
 
-        self.assertEqual(len(parsed.generations), 2)
+        assert len(parsed.generations) == 2
         second_gen_input = parsed.generations[1].input_messages
-        self.assertEqual(len(second_gen_input), 3)
+        assert len(second_gen_input) == 3
         tool_result_msg = second_gen_input[2]
-        self.assertEqual(tool_result_msg["role"], "user")
-        self.assertEqual(tool_result_msg["content"][0]["type"], "tool_result")
-        self.assertEqual(tool_result_msg["content"][0]["tool_use_id"], "t1")
-        self.assertIn("payload", tool_result_msg["content"][0]["content"])
+        assert tool_result_msg["role"] == "user"
+        assert tool_result_msg["content"][0]["type"] == "tool_result"
+        assert tool_result_msg["content"][0]["tool_use_id"] == "t1"
+        assert "payload" in tool_result_msg["content"][0]["content"]
 
     def test_token_usage_attached_to_generation_that_saw_end_turn(self):
         """The agent-server emits one ``usage`` block per session at end_turn.
@@ -287,19 +287,16 @@ class TestSandboxedTraceCaptureParser(BaseTest):
 
         parsed = parse_log(raw)
 
-        self.assertEqual(len(parsed.generations), 2)
-        self.assertEqual(parsed.generations[0].token_usage, {})
-        self.assertEqual(
-            parsed.generations[1].token_usage,
-            {
-                "inputTokens": 5,
-                "outputTokens": 100,
-                "cachedReadTokens": 200,
-                "cachedWriteTokens": 50,
-                "totalTokens": 355,
-            },
-        )
-        self.assertEqual(parsed.total_token_usage["totalTokens"], 355)
+        assert len(parsed.generations) == 2
+        assert parsed.generations[0].token_usage == {}
+        assert parsed.generations[1].token_usage == {
+            "inputTokens": 5,
+            "outputTokens": 100,
+            "cachedReadTokens": 200,
+            "cachedWriteTokens": 50,
+            "totalTokens": 355,
+        }
+        assert parsed.total_token_usage["totalTokens"] == 355
 
     def test_error_span_captured(self):
         raw = _join(
@@ -323,8 +320,8 @@ class TestSandboxedTraceCaptureParser(BaseTest):
         parsed = parse_log(raw)
 
         error_spans = [s for s in parsed.spans if s.span_name == "error"]
-        self.assertEqual(len(error_spans), 1)
-        self.assertIn("something exploded", error_spans[0].content)
+        assert len(error_spans) == 1
+        assert "something exploded" in error_spans[0].content
 
     def test_messages_property_reconstructs_final_assistant_turn(self):
         raw = _join(
@@ -347,8 +344,8 @@ class TestSandboxedTraceCaptureParser(BaseTest):
         parsed = parse_log(raw, initial_prompt="hi")
         msgs = parsed.messages
 
-        self.assertEqual(msgs[0], {"role": "user", "content": "hi"})
-        self.assertEqual(msgs[-1], {"role": "assistant", "content": [{"type": "text", "text": "hi!"}]})
+        assert msgs[0] == {"role": "user", "content": "hi"}
+        assert msgs[-1] == {"role": "assistant", "content": [{"type": "text", "text": "hi!"}]}
 
     def test_unknown_json_lines_are_skipped(self):
         raw = _join(
@@ -372,10 +369,10 @@ class TestSandboxedTraceCaptureParser(BaseTest):
 
         parsed = parse_log(raw)
 
-        self.assertEqual(len(parsed.generations), 1)
-        self.assertEqual(parsed.generations[0].output_content, [{"type": "text", "text": "ok"}])
+        assert len(parsed.generations) == 1
+        assert parsed.generations[0].output_content == [{"type": "text", "text": "ok"}]
 
     def test_empty_log_returns_no_generations(self):
         parsed = parse_log("")
-        self.assertEqual(parsed.generations, [])
-        self.assertEqual(parsed.spans, [])
+        assert parsed.generations == []
+        assert parsed.spans == []

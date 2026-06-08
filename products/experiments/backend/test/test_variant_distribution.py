@@ -17,11 +17,11 @@ class TestEvenDistribution(TestCase):
         ]
     )
     def test_distribution(self, _name, variant_count, expected):
-        self.assertEqual(even_distribution(variant_count), expected)
+        assert even_distribution(variant_count) == expected
 
     def test_distribution_always_sums_to_100(self):
         for n in range(1, 20):
-            self.assertEqual(sum(even_distribution(n)), 100, f"failed for {n} variants")
+            assert sum(even_distribution(n)) == 100, f"failed for {n} variants"
 
 
 class TestIsEvenlyDistributed(TestCase):
@@ -39,4 +39,4 @@ class TestIsEvenlyDistributed(TestCase):
         ]
     )
     def test_evenly_distributed(self, _name, rollout_percentages, expected):
-        self.assertEqual(is_evenly_distributed(rollout_percentages), expected)
+        assert is_evenly_distributed(rollout_percentages) == expected

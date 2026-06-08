@@ -1,5 +1,6 @@
 import os
 import json
+from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Optional, Union
@@ -127,27 +128,24 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Make request
         response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
         # Assertions
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["Content-Type"], "application/json")
+        assert response.status_code == 200
+        assert response.headers["Content-Type"] == "application/json"
         data: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         # The response is the serialized EnrichedSessionGroupSummaryPatternsList
-        self.assertIsInstance(data, dict)
-        self.assertIn("patterns", data)
-        self.assertEqual(len(data["patterns"]), 1)
-        self.assertEqual(data["patterns"][0]["pattern_name"], "Login Flow Pattern")
-        self.assertEqual(data["patterns"][0]["severity"], "medium")
-        self.assertEqual(data["patterns"][0]["stats"]["occurences"], 2)
-        self.assertIn("failed_sessions", data)
-        self.assertEqual(len(data["failed_sessions"]), 2)
-        self.assertEqual(
-            data["failed_sessions"][0],
-            {
-                "session_id": "session-skipped-1",
-                "category": "skipped",
-                "reason": "Recording is too short or has no usable events",
-            },
-        )
-        self.assertEqual(data["failed_sessions"][1]["category"], "summarization_failed")
+        assert isinstance(data, dict)
+        assert "patterns" in data
+        assert len(data["patterns"]) == 1
+        assert data["patterns"][0]["pattern_name"] == "Login Flow Pattern"
+        assert data["patterns"][0]["severity"] == "medium"
+        assert data["patterns"][0]["stats"]["occurences"] == 2
+        assert "failed_sessions" in data
+        assert len(data["failed_sessions"]) == 2
+        assert data["failed_sessions"][0] == {
+            "session_id": "session-skipped-1",
+            "category": "skipped",
+            "reason": "Recording is too short or has no usable events",
+        }
+        assert data["failed_sessions"][1]["category"] == "summarization_failed"
         # Verify execute_summarize_session_group was called correctly
         mock_execute.assert_called_once_with(
             session_ids=["session1", "session2"],
@@ -159,22 +157,22 @@ class TestSessionSummariesAPI(APIBaseTest):
             summary_title="Group summary",
         )
         # Check extra_summary_context separately
-        self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
+        assert mock_execute.call_args[1]["extra_summary_context"].focus_area == "login process"
         # Verify tracking was called
         mock_capture_started.assert_called_once()
         started_kwargs = mock_capture_started.call_args[1]
-        self.assertEqual(started_kwargs["summary_source"], "api")
-        self.assertEqual(started_kwargs["summary_type"], "group")
-        self.assertEqual(started_kwargs["session_ids"], ["session1", "session2"])
+        assert started_kwargs["summary_source"] == "api"
+        assert started_kwargs["summary_type"] == "group"
+        assert started_kwargs["session_ids"] == ["session1", "session2"]
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
-        self.assertEqual(generated_kwargs["summary_source"], "api")
-        self.assertEqual(generated_kwargs["summary_type"], "group")
-        self.assertEqual(generated_kwargs["session_ids"], ["session1", "session2"])
-        self.assertTrue(generated_kwargs["success"])
-        self.assertIsNone(generated_kwargs.get("error_type"))
+        assert generated_kwargs["summary_source"] == "api"
+        assert generated_kwargs["summary_type"] == "group"
+        assert generated_kwargs["session_ids"] == ["session1", "session2"]
+        assert generated_kwargs["success"]
+        assert generated_kwargs.get("error_type") is None
         # Tracking IDs should match
-        self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
+        assert started_kwargs["tracking_id"] == generated_kwargs["tracking_id"]
 
     def test_create_summaries_missing_session_ids(self) -> None:
         response = self.client.post(
@@ -183,34 +181,34 @@ class TestSessionSummariesAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()
-        self.assertEqual(error["attr"], "session_ids")
+        assert error["attr"] == "session_ids"
 
     def test_create_summaries_empty_session_ids(self) -> None:
         response = self._make_api_request(session_ids=[])
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertEqual(error["attr"], "session_ids")
+        assert error["attr"] == "session_ids"
 
     def test_create_summaries_too_many_session_ids(self) -> None:
         session_ids: list[str] = [f"session{i}" for i in range(303)]  # More than max of 300
 
         response = self._make_api_request(session_ids=session_ids)
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertEqual(error["attr"], "session_ids")
+        assert error["attr"] == "session_ids"
 
     def test_create_summaries_focus_area_too_long(self) -> None:
         long_focus_area: str = "x" * 501  # More than max of 500
 
         response = self._make_api_request(session_ids=["session1"], focus_area=long_focus_area)
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertEqual(error["attr"], "focus_area")
+        assert error["attr"] == "focus_area"
 
     def test_create_summaries_unauthenticated(self) -> None:
         """Test that unauthenticated requests are rejected"""
@@ -218,7 +216,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         response = self._make_api_request(session_ids=["session1"])
 
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
     @patch("ee.api.session_summaries.is_cloud")
     def test_create_summaries_not_cloud(self, mock_is_cloud: Mock) -> None:
@@ -227,18 +225,18 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         response = self._make_api_request(session_ids=["session1"])
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
+        assert "Session summaries are only supported in PostHog Cloud" in str(error)
 
     @patch.dict(os.environ, {}, clear=True)  # Remove OPENAI_API_KEY
     def test_create_summaries_no_openai_key(self) -> None:
         """Test error when OPENAI_API_KEY is not set"""
         response = self._make_api_request(session_ids=["session1"])
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
+        assert "Session summaries are only supported in PostHog Cloud" in str(error)
 
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     def test_create_summaries_session_not_found(self, mock_find_sessions: Mock) -> None:
@@ -250,10 +248,10 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         response = self._make_api_request(session_ids=["nonexistent_session"])
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Session recordings not found", str(error))
-        self.assertIn("nonexistent_session", str(error))
+        assert "Session recordings not found" in str(error)
+        assert "nonexistent_session" in str(error)
 
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
@@ -276,20 +274,20 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         response = self._make_api_request(session_ids=["session1"])
 
-        self.assertEqual(response.status_code, 500)
+        assert response.status_code == 500
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Failed to generate session summaries", str(error))
+        assert "Failed to generate session summaries" in str(error)
 
     def test_wrong_http_method(self) -> None:
         """Test that only POST is allowed"""
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 405)  # Method Not Allowed
+        assert response.status_code == 405  # Method Not Allowed
 
         response = self.client.put(self.url, {})
-        self.assertEqual(response.status_code, 405)
+        assert response.status_code == 405
 
         response = self.client.delete(self.url)
-        self.assertEqual(response.status_code, 405)
+        assert response.status_code == 405
 
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
@@ -304,15 +302,15 @@ class TestSessionSummariesAPI(APIBaseTest):
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
         response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
         # Check the response - should return two summaries
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(set(data.keys()), {"session_1", "session_2"})
+        assert set(data.keys()) == {"session_1", "session_2"}
         for session_id in ["session_1", "session_2"]:
-            self.assertNotIn("error", data[session_id])
-            self.assertIn("segments", data[session_id])
-            self.assertIn("key_actions", data[session_id])
-            self.assertIn("segment_outcomes", data[session_id])
-            self.assertIn("session_outcome", data[session_id])
+            assert "error" not in data[session_id]
+            assert "segments" in data[session_id]
+            assert "key_actions" in data[session_id]
+            assert "segment_outcomes" in data[session_id]
+            assert "session_outcome" in data[session_id]
 
     @parameterized.expand(
         [
@@ -353,9 +351,9 @@ class TestSessionSummariesAPI(APIBaseTest):
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(mock_capture_started.call_args[1]["summary_source"], "mcp")
-        self.assertEqual(mock_capture_generated.call_args[1]["summary_source"], "mcp")
+        assert response.status_code == 200
+        assert mock_capture_started.call_args[1]["summary_source"] == "mcp"
+        assert mock_capture_generated.call_args[1]["summary_source"] == "mcp"
 
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
@@ -378,15 +376,15 @@ class TestSessionSummariesAPI(APIBaseTest):
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
         response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
         # Check the response - should return one summary plus a per-session error for the failure
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(set(data.keys()), {"session_1", "session_2"})
-        self.assertIn("segments", data["session_1"])
-        self.assertIn("key_actions", data["session_1"])
-        self.assertIn("segment_outcomes", data["session_1"])
-        self.assertIn("session_outcome", data["session_1"])
-        self.assertEqual(data["session_2"]["error"], "summary_failed")
-        self.assertIn("error_message", data["session_2"])
+        assert set(data.keys()) == {"session_1", "session_2"}
+        assert "segments" in data["session_1"]
+        assert "key_actions" in data["session_1"]
+        assert "segment_outcomes" in data["session_1"]
+        assert "session_outcome" in data["session_1"]
+        assert data["session_2"]["error"] == "summary_failed"
+        assert "error_message" in data["session_2"]
 
     @parameterized.expand(
         [
@@ -429,11 +427,11 @@ class TestSessionSummariesAPI(APIBaseTest):
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
         response = self.client.post(url, {"session_ids": ["session_x"]}, format="json")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(set(data.keys()), {"session_x"})
-        self.assertEqual(data["session_x"]["error"], expected_error_type)
-        self.assertIn(expected_message_substring, data["session_x"]["error_message"].lower())
+        assert set(data.keys()) == {"session_x"}
+        assert data["session_x"]["error"] == expected_error_type
+        assert expected_message_substring in data["session_x"]["error_message"].lower()
 
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
@@ -448,17 +446,17 @@ class TestSessionSummariesAPI(APIBaseTest):
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
         response = self.client.post(url, {"session_ids": ["session_1", "missing_session"]}, format="json")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(set(data.keys()), {"session_1", "missing_session"})
+        assert set(data.keys()) == {"session_1", "missing_session"}
         # Successful session retains the existing summary shape
-        self.assertIn("segments", data["session_1"])
+        assert "segments" in data["session_1"]
         # Missing session gets a structured error rather than aborting the request
-        self.assertEqual(data["missing_session"]["error"], "recording_not_found")
-        self.assertIn("error_message", data["missing_session"])
+        assert data["missing_session"]["error"] == "recording_not_found"
+        assert "error_message" in data["missing_session"]
         # And we should not have invoked the workflow for the missing session
         called_session_ids = {call.kwargs.get("session_id") for call in mock_execute.call_args_list}
-        self.assertEqual(called_session_ids, {"session_1"})
+        assert called_session_ids == {"session_1"}
 
 
 MOCK_SUMMARY_DATA: dict[str, Any] = {
@@ -611,26 +609,26 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         mock_execute.side_effect = side_effect
 
         response = self._make_streaming_request(session_ids=session_ids)
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         events = self._get_sse_events(response)
         event_types = {e["event"] for e in events}
-        self.assertEqual(event_types, expected_event_types)
+        assert event_types == expected_event_types
 
         done_event = next(e for e in events if e["event"] == "done")
         done_data = json.loads(done_event["data"])
-        self.assertCountEqual(done_data["completed"], expected_completed)
-        self.assertCountEqual(done_data["failed"], expected_failed)
+        assert Counter(done_data["completed"]) == Counter(expected_completed)
+        assert Counter(done_data["failed"]) == Counter(expected_failed)
 
         # Failed sessions surface as classified, sanitized error events
         if expected_failed:
             error_events = [e for e in events if e["event"] == "error"]
-            self.assertEqual(len(error_events), len(expected_failed))
+            assert len(error_events) == len(expected_failed)
             for event in error_events:
                 error_data = json.loads(event["data"])
-                self.assertIn(error_data["session_id"], expected_failed)
-                self.assertEqual(error_data["error"], "summary_failed")
-                self.assertIn("Failed to generate", error_data["error_message"])
+                assert error_data["session_id"] in expected_failed
+                assert error_data["error"] == "summary_failed"
+                assert "Failed to generate" in error_data["error_message"]
 
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_stream_individually_summary_event_includes_full_summary_shape(self, mock_execute: Mock) -> None:
@@ -642,9 +640,9 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         summary_event = next(e for e in events if e["event"] == "summary")
         summary_data = json.loads(summary_event["data"])
 
-        self.assertEqual(summary_data["session_id"], "session_1")
+        assert summary_data["session_id"] == "session_1"
         for field in ("segments", "key_actions", "segment_outcomes", "session_outcome"):
-            self.assertIn(field, summary_data["summary"])
+            assert field in summary_data["summary"]
 
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_stream_individually_response_headers(self, mock_execute: Mock) -> None:
@@ -652,10 +650,10 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         response = self._make_streaming_request(session_ids=["session_1"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get("Content-Type"), "text/event-stream")
-        self.assertEqual(response.get("Cache-Control"), "no-cache")
-        self.assertEqual(response.get("X-Accel-Buffering"), "no")
+        assert response.status_code == 200
+        assert response.get("Content-Type") == "text/event-stream"
+        assert response.get("Cache-Control") == "no-cache"
+        assert response.get("X-Accel-Buffering") == "no"
 
     @patch("ee.api.session_summaries.capture_session_summary_generated")
     @patch("ee.api.session_summaries.capture_session_summary_started")
@@ -673,17 +671,17 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         mock_capture_started.assert_called_once()
         started_kwargs = mock_capture_started.call_args[1]
-        self.assertEqual(started_kwargs["summary_type"], "single")
-        self.assertEqual(started_kwargs["summary_source"], "api")
-        self.assertEqual(started_kwargs["session_ids"], ["session_1", "session_2"])
+        assert started_kwargs["summary_type"] == "single"
+        assert started_kwargs["summary_source"] == "api"
+        assert started_kwargs["session_ids"] == ["session_1", "session_2"]
 
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
-        self.assertEqual(generated_kwargs["summary_type"], "single")
-        self.assertEqual(generated_kwargs["summary_source"], "api")
-        self.assertEqual(generated_kwargs["session_ids"], ["session_1", "session_2"])
+        assert generated_kwargs["summary_type"] == "single"
+        assert generated_kwargs["summary_source"] == "api"
+        assert generated_kwargs["session_ids"] == ["session_1", "session_2"]
 
-        self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
+        assert started_kwargs["tracking_id"] == generated_kwargs["tracking_id"]
 
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_stream_individually_error_payload_does_not_leak_exception_message(self, mock_execute: Mock) -> None:
@@ -692,17 +690,17 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         response = self._make_streaming_request(session_ids=["session_1"])
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = self._get_sse_events(response)
         error_event = next(e for e in events if e["event"] == "error")
         error_data = json.loads(error_event["data"])
 
-        self.assertEqual(error_data["error"], "summary_failed")
-        self.assertIn("Failed to generate", error_data["error_message"])
+        assert error_data["error"] == "summary_failed"
+        assert "Failed to generate" in error_data["error_message"]
         # Regression: the raw exception message must not leak through the SSE payload.
-        self.assertNotIn("sk-internal-leak", error_event["data"])
-        self.assertNotIn("/etc/secrets", error_event["data"])
-        self.assertNotIn(sensitive_message, error_event["data"])
+        assert "sk-internal-leak" not in error_event["data"]
+        assert "/etc/secrets" not in error_event["data"]
+        assert sensitive_message not in error_event["data"]
 
     @parameterized.expand(
         [
@@ -712,18 +710,18 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
     )
     def test_stream_individually_invalid_payload_returns_400(self, _name: str, payload: dict[str, Any]) -> None:
         response = self.client.post(self.url, payload, format="json")
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
     def test_stream_individually_unauthenticated_returns_401(self) -> None:
         self.client.logout()
         response = self._make_streaming_request(session_ids=["session_1"])
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
     @patch("ee.api.session_summaries.is_cloud")
     def test_stream_individually_not_cloud_returns_400(self, mock_is_cloud: Mock) -> None:
         mock_is_cloud.return_value = False
         response = self._make_streaming_request(session_ids=["session_1"])
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_stream_individually_bad_session_id_surfaces_as_per_session_error(self, mock_execute: Mock) -> None:
@@ -731,12 +729,12 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         # error events so callers can distinguish "skipped on purpose" from "tool broke".
         mock_execute.side_effect = ValueError(f"{_NO_READY_SUMMARY_ERROR_SUBSTRING} for session nonexistent")
         response = self._make_streaming_request(session_ids=["nonexistent"])
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         events = self._get_sse_events(response)
         error_event = next(e for e in events if e["event"] == "error")
         error_data = json.loads(error_event["data"])
-        self.assertEqual(error_data["session_id"], "nonexistent")
-        self.assertEqual(error_data["error"], "no_events_or_too_short")
+        assert error_data["session_id"] == "nonexistent"
+        assert error_data["error"] == "no_events_or_too_short"
 
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_stream_individually_with_focus_area_passes_extra_context(self, mock_execute: Mock) -> None:
@@ -746,8 +744,8 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
         b"".join(response.streaming_content)
 
         call_kwargs = mock_execute.call_args[1]
-        self.assertIsNotNone(call_kwargs.get("extra_summary_context"))
-        self.assertEqual(call_kwargs["extra_summary_context"].focus_area, "checkout flow")
+        assert call_kwargs.get("extra_summary_context") is not None
+        assert call_kwargs["extra_summary_context"].focus_area == "checkout flow"
 
     @patch("ee.api.session_summaries.capture_session_summary_generated")
     @patch("ee.api.session_summaries.capture_session_summary_started")
@@ -765,4 +763,4 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
-        self.assertFalse(generated_kwargs["success"])
+        assert not generated_kwargs["success"]

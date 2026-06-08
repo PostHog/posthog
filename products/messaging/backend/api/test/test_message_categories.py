@@ -25,10 +25,10 @@ class TestMessageCategoryAPI(APIBaseTest):
         MessageCategory.objects.create(team=other_team, name="Team 2 Category", key="team2_cat")
 
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["name"], "Team 1 Category")
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["name"] == "Team 1 Category"
 
     def test_get_message_category(self):
         """
@@ -36,14 +36,14 @@ class TestMessageCategoryAPI(APIBaseTest):
         """
         category = MessageCategory.objects.create(team=self.team, name="My Category", key="my_cat")
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/{category.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "My Category")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "My Category"
 
         # Test getting a category from another team
         other_team = Team.objects.create(organization=self.organization)
         other_category = MessageCategory.objects.create(team=other_team, name="Other Category", key="other_cat")
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/{other_category.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_update_message_category(self):
         """
@@ -55,27 +55,27 @@ class TestMessageCategoryAPI(APIBaseTest):
         patch_response = self.client.patch(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/", {"name": "Patched Name"}
         )
-        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        assert patch_response.status_code == status.HTTP_200_OK
         category.refresh_from_db()
-        self.assertEqual(category.name, "Patched Name")
+        assert category.name == "Patched Name"
 
         # PUT
         put_response = self.client.put(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
             {"name": "Put Name", "key": "initial_key", "category_type": "marketing"},
         )
-        self.assertEqual(put_response.status_code, status.HTTP_200_OK)
+        assert put_response.status_code == status.HTTP_200_OK
         category.refresh_from_db()
-        self.assertEqual(category.name, "Put Name")
+        assert category.name == "Put Name"
 
         # Test PATCH without key field - should work
         patch_no_key_response = self.client.patch(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/", {"name": "Patched Without Key"}
         )
-        self.assertEqual(patch_no_key_response.status_code, status.HTTP_200_OK)
+        assert patch_no_key_response.status_code == status.HTTP_200_OK
         category.refresh_from_db()
-        self.assertEqual(category.name, "Patched Without Key")
-        self.assertEqual(category.key, "initial_key")  # Key should remain unchanged
+        assert category.name == "Patched Without Key"
+        assert category.key == "initial_key"  # Key should remain unchanged
 
     def test_cannot_update_key_field(self):
         """
@@ -89,11 +89,11 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"name": "Updated Name", "key": "new_key"},
         )
         # The request should fail and the key should not change
-        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("The key field cannot be updated after creation.", str(patch_response.json()))
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "The key field cannot be updated after creation." in str(patch_response.json())
         category.refresh_from_db()
-        self.assertEqual(category.name, "Test Category")
-        self.assertEqual(category.key, "original_key")
+        assert category.name == "Test Category"
+        assert category.key == "original_key"
 
         # Attempt to change key via PUT
         put_response = self.client.put(
@@ -101,11 +101,11 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"name": "Put Updated Name", "key": "another_new_key", "category_type": "marketing"},
         )
         # The request should fail and the key should not change
-        self.assertEqual(put_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("The key field cannot be updated after creation.", str(put_response.json()))
+        assert put_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "The key field cannot be updated after creation." in str(put_response.json())
         category.refresh_from_db()
-        self.assertEqual(category.name, "Test Category")
-        self.assertEqual(category.key, "original_key")
+        assert category.name == "Test Category"
+        assert category.key == "original_key"
 
     def test_create_message_category(self):
         """
@@ -115,12 +115,12 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_categories/",
             {"name": "New Category", "key": "new_cat", "category_type": "marketing"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
         category = MessageCategory.objects.get(id=response_data["id"])
-        self.assertEqual(category.team, self.team)
-        self.assertEqual(category.created_by, self.user)
-        self.assertEqual(category.name, "New Category")
+        assert category.team == self.team
+        assert category.created_by == self.user
+        assert category.name == "New Category"
 
     def test_cant_create_category_with_duplicate_key(self):
         """
@@ -134,9 +134,9 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_categories/",
             {"name": "Category 2", "key": "duplicate-key", "category_type": "marketing"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual("key", response.json()["attr"])
-        self.assertIn("already exists", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "key" == response.json()["attr"]
+        assert "already exists" in response.json()["detail"]
 
         # Verify it's possible to create with the same key for a different team
         other_team = Team.objects.create(organization=self.organization)
@@ -144,7 +144,7 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{other_team.id}/messaging_categories/",
             {"name": "Category 3", "key": "duplicate-key", "category_type": "marketing"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_delete_is_forbidden(self):
         """
@@ -152,7 +152,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         """
         category = MessageCategory.objects.create(team=self.team, name="To Delete", key="to_delete")
         response = self.client.delete(f"/api/environments/{self.team.id}/messaging_categories/{category.id}/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_import_preferences_csv_missing_file(self):
         """Test CSV import fails when file is missing"""
@@ -162,8 +162,8 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No file provided", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No file provided" in response.json()["error"]
 
     def test_import_preferences_csv_wrong_file_type(self):
         """Test CSV import rejects non-CSV files"""
@@ -180,8 +180,8 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("File must be a CSV", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "File must be a CSV" in response.json()["error"]
 
     def test_import_preferences_csv_large_file(self):
         """Test CSV import handles large files"""
@@ -203,8 +203,8 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("File too large", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "File too large" in response.json()["error"]
 
     def test_import_preferences_csv_without_categories(self):
         """Test CSV import when no categories exist"""
@@ -228,9 +228,9 @@ class TestMessageCategoryAPI(APIBaseTest):
                 format="multipart",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["status"], "failed")
-            self.assertIn("No categories found", response.json()["details"])
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["status"] == "failed"
+            assert "No categories found" in response.json()["details"]
 
     def test_import_endpoints_require_authentication(self):
         """Test that import endpoints require authentication"""
@@ -242,7 +242,7 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"app_api_key": "test_key"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # Test CSV import endpoint
         csv_file = SimpleUploadedFile(
@@ -255,7 +255,7 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"csv_file": csv_file},
             format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 class TestOptOutSyncConfigAPI(APIBaseTest):
@@ -269,19 +269,16 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
 
     def test_optout_sync_config_returns_defaults_when_no_config_exists(self):
         response = self.client.get(self._url("optout_sync_config"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "app_integration_id": None,
-                "app_import_result": None,
-                "csv_import_result": None,
-                "webhook_enabled": False,
-                "has_webhook_secret": False,
-                "track_enabled": False,
-                "has_track_credentials": False,
-            },
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "app_integration_id": None,
+            "app_import_result": None,
+            "csv_import_result": None,
+            "webhook_enabled": False,
+            "has_webhook_secret": False,
+            "track_enabled": False,
+            "has_track_credentials": False,
+        }
 
     def test_optout_sync_config_returns_stored_state(self):
         integration = Integration.objects.create(
@@ -302,12 +299,12 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         )
 
         response = self.client.get(self._url("optout_sync_config"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["app_integration_id"], integration.id)
-        self.assertEqual(data["app_import_result"]["status"], "completed")
-        self.assertEqual(data["app_import_result"]["categories_created"], 6)
-        self.assertIsNone(data["csv_import_result"])
+        assert data["app_integration_id"] == integration.id
+        assert data["app_import_result"]["status"] == "completed"
+        assert data["app_import_result"]["categories_created"] == 6
+        assert data["csv_import_result"] is None
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
     def test_import_from_customerio_stores_integration_and_result(self, mock_service_class):
@@ -326,17 +323,17 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"app_api_key": "my_secret_key"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "completed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "completed"
 
         integration = Integration.objects.get(team=self.team, kind="customerio-app")
-        self.assertEqual(integration.sensitive_config["app_api_key"], "my_secret_key")
+        assert integration.sensitive_config["app_api_key"] == "my_secret_key"
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertEqual(config.app_integration, integration)
+        assert config.app_integration == integration
         assert config.app_import_result is not None
-        self.assertEqual(config.app_import_result["status"], "completed")
-        self.assertEqual(config.app_import_result["categories_created"], 3)
+        assert config.app_import_result["status"] == "completed"
+        assert config.app_import_result["categories_created"] == 3
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
     def test_import_from_customerio_stores_failure_result(self, mock_service_class):
@@ -352,13 +349,13 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"app_api_key": "bad_key"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "failed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "failed"
 
         config = OptOutSyncConfig.objects.get(team=self.team)
         assert config.app_import_result is not None
-        self.assertEqual(config.app_import_result["status"], "failed")
-        self.assertIn("Invalid API key", config.app_import_result["error"])
+        assert config.app_import_result["status"] == "failed"
+        assert "Invalid API key" in config.app_import_result["error"]
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
     def test_import_from_customerio_reuses_stored_key(self, mock_service_class):
@@ -378,7 +375,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_service_class.assert_called_once_with(team=self.team, api_key="stored_key", user=self.user)
 
     def test_import_from_customerio_fails_without_key(self):
@@ -387,8 +384,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No API key", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No API key" in response.json()["error"]
 
     def test_import_from_customerio_rejects_key_when_integration_exists(self):
         Integration.objects.create(
@@ -403,9 +400,9 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"app_api_key": "different_key"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        assert response.status_code == status.HTTP_409_CONFLICT
         integration = Integration.objects.get(team=self.team, kind="customerio-app")
-        self.assertEqual(integration.sensitive_config["app_api_key"], "original_key")
+        assert integration.sensitive_config["app_api_key"] == "original_key"
 
     def test_remove_app_config_clears_integration_and_result(self):
         integration = Integration.objects.create(
@@ -425,17 +422,17 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         )
 
         response = self.client.delete(self._url("remove_customerio_app_config"))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        self.assertFalse(Integration.objects.filter(team=self.team, kind="customerio-app").exists())
+        assert not Integration.objects.filter(team=self.team, kind="customerio-app").exists()
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertIsNone(config.app_integration)
-        self.assertIsNone(config.app_import_result)
+        assert config.app_integration is None
+        assert config.app_import_result is None
 
     def test_remove_app_config_succeeds_when_no_config_exists(self):
         response = self.client.delete(self._url("remove_customerio_app_config"))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_optout_sync_config_includes_webhook_fields(self):
         integration = Integration.objects.create(
@@ -451,17 +448,17 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         )
 
         response = self.client.get(self._url("optout_sync_config"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertTrue(data["webhook_enabled"])
-        self.assertTrue(data["has_webhook_secret"])
+        assert data["webhook_enabled"]
+        assert data["has_webhook_secret"]
 
     def test_optout_sync_config_webhook_fields_default_false(self):
         response = self.client.get(self._url("optout_sync_config"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertFalse(data["webhook_enabled"])
-        self.assertFalse(data["has_webhook_secret"])
+        assert not data["webhook_enabled"]
+        assert not data["has_webhook_secret"]
 
     def test_save_webhook_config_creates_integration(self):
         response = self.client.post(
@@ -469,16 +466,16 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"webhook_signing_secret": "my_secret", "webhook_enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["webhook_enabled"])
-        self.assertTrue(response.json()["has_webhook_secret"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["webhook_enabled"]
+        assert response.json()["has_webhook_secret"]
 
         integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
-        self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "my_secret")
+        assert integration.sensitive_config["webhook_signing_secret"] == "my_secret"
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertEqual(config.webhook_integration, integration)
-        self.assertTrue(config.webhook_enabled)
+        assert config.webhook_integration == integration
+        assert config.webhook_enabled
 
     def test_save_webhook_config_requires_secret_to_enable(self):
         response = self.client.post(
@@ -486,7 +483,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"webhook_enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_save_webhook_config_rejects_secret_when_integration_exists(self):
         Integration.objects.create(
@@ -501,9 +498,9 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"webhook_signing_secret": "new_secret", "webhook_enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        assert response.status_code == status.HTTP_409_CONFLICT
         integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
-        self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "original")
+        assert integration.sensitive_config["webhook_signing_secret"] == "original"
 
     def test_save_webhook_config_toggles_without_secret(self):
         Integration.objects.create(
@@ -518,13 +515,13 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"webhook_enabled": False},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["webhook_enabled"])
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["webhook_enabled"]
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertFalse(config.webhook_enabled)
+        assert not config.webhook_enabled
         integration = Integration.objects.get(team=self.team, kind="customerio-webhook")
-        self.assertEqual(integration.sensitive_config["webhook_signing_secret"], "secret")
+        assert integration.sensitive_config["webhook_signing_secret"] == "secret"
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
     def test_csv_import_stores_success_result(self, mock_service_class):
@@ -544,13 +541,13 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"csv_file": csv_file},
             format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         config = OptOutSyncConfig.objects.get(team=self.team)
         assert config.csv_import_result is not None
-        self.assertEqual(config.csv_import_result["status"], "completed")
-        self.assertEqual(config.csv_import_result["total_rows"], 100)
-        self.assertEqual(config.csv_import_result["users_with_optouts"], 60)
+        assert config.csv_import_result["status"] == "completed"
+        assert config.csv_import_result["total_rows"] == 100
+        assert config.csv_import_result["users_with_optouts"] == 60
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")
     def test_csv_import_stores_failure_result(self, mock_service_class):
@@ -567,12 +564,12 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"csv_file": csv_file},
             format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         config = OptOutSyncConfig.objects.get(team=self.team)
         assert config.csv_import_result is not None
-        self.assertEqual(config.csv_import_result["status"], "failed")
-        self.assertIn("No categories found", config.csv_import_result["error"])
+        assert config.csv_import_result["status"] == "failed"
+        assert "No categories found" in config.csv_import_result["error"]
 
     def test_save_track_config_creates_integration(self):
         response = self.client.post(
@@ -580,19 +577,19 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"site_id": "site_abc", "api_key": "key_123", "region": "us", "track_enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["track_enabled"])
-        self.assertTrue(response.json()["has_track_credentials"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["track_enabled"]
+        assert response.json()["has_track_credentials"]
 
         integration = Integration.objects.get(team=self.team, kind="customerio-track")
-        self.assertEqual(integration.sensitive_config["site_id"], "site_abc")
-        self.assertEqual(integration.sensitive_config["api_key"], "key_123")
-        self.assertEqual(integration.config["region"], "us")
-        self.assertNotIn("track_enabled", integration.config)
+        assert integration.sensitive_config["site_id"] == "site_abc"
+        assert integration.sensitive_config["api_key"] == "key_123"
+        assert integration.config["region"] == "us"
+        assert "track_enabled" not in integration.config
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertEqual(config.track_integration, integration)
-        self.assertTrue(config.track_enabled)
+        assert config.track_integration == integration
+        assert config.track_enabled
 
     def test_save_track_config_rejects_new_creds_when_integration_exists(self):
         Integration.objects.create(
@@ -608,7 +605,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"site_id": "site_xyz", "api_key": "key_999", "track_enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        assert response.status_code == status.HTTP_409_CONFLICT
 
     def test_save_track_config_requires_credentials_to_enable(self):
         response = self.client.post(
@@ -616,7 +613,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"track_enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_save_track_config_toggles_with_stored_credentials(self):
         integration = Integration.objects.create(
@@ -632,13 +629,13 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             {"track_enabled": False},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertFalse(config.track_enabled)
-        self.assertEqual(config.track_integration, integration)
+        assert not config.track_enabled
+        assert config.track_integration == integration
         integration.refresh_from_db()
-        self.assertEqual(integration.config, {"region": "us"})
+        assert integration.config == {"region": "us"}
 
     def test_remove_track_config(self):
         integration = Integration.objects.create(
@@ -655,16 +652,16 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         )
 
         response = self.client.delete(self._url("remove_track_config"))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Integration.objects.filter(team=self.team, kind="customerio-track").exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(team=self.team, kind="customerio-track").exists()
 
         config = OptOutSyncConfig.objects.get(team=self.team)
-        self.assertIsNone(config.track_integration)
-        self.assertFalse(config.track_enabled)
+        assert config.track_integration is None
+        assert not config.track_enabled
 
     def test_remove_track_config_succeeds_without_config(self):
         response = self.client.delete(self._url("remove_track_config"))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_optout_sync_config_includes_track_fields(self):
         integration = Integration.objects.create(
@@ -681,14 +678,14 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         )
 
         response = self.client.get(self._url("optout_sync_config"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertTrue(data["track_enabled"])
-        self.assertTrue(data["has_track_credentials"])
+        assert data["track_enabled"]
+        assert data["has_track_credentials"]
 
     def test_optout_sync_config_track_fields_default_false(self):
         response = self.client.get(self._url("optout_sync_config"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertFalse(data["track_enabled"])
-        self.assertFalse(data["has_track_credentials"])
+        assert not data["track_enabled"]
+        assert not data["has_track_credentials"]

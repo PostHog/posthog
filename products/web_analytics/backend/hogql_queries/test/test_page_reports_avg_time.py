@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -177,8 +178,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
-        self.assertAlmostEqual(stats["/a"]["p90_duration"], 51.0, places=2)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(51.0, abs=10 ** (-2) * 0.5)
 
     def test_multiple_sessions_p90_across_all_durations(self):
         p1_page_views = [
@@ -205,8 +206,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
-        self.assertAlmostEqual(stats["/a"]["p90_duration"], 50.0, places=2)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(50.0, abs=10 ** (-2) * 0.5)
 
     def test_only_sessions_visiting_path_affect_p90(self):
         p1_page_views = [
@@ -233,8 +234,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
-        self.assertAlmostEqual(stats["/a"]["p90_duration"], 36.4, places=2)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(36.4, abs=10 ** (-2) * 0.5)
 
     def test_multiple_paths_in_session_p90(self):
         p1_page_views = [
@@ -268,8 +269,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
-        self.assertAlmostEqual(stats["/a"]["p90_duration"], 37.0, places=2)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(37.0, abs=10 ** (-2) * 0.5)
 
     def test_no_results_for_nonexistent_pathname(self):
         page_views = [
@@ -284,7 +285,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
         result_data = response.results[0]["data"]
 
         for result in result_data:
-            self.assertEqual(result, 0.0)
+            assert result == 0.0
 
     def test_multiple_days_groups_by_period_p90(self):
         p1_day1 = [
@@ -311,8 +312,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], day1_stats["/a"]["p90_duration"], places=2)
-        self.assertAlmostEqual(result_data[1], day2_stats["/a"]["p90_duration"], places=2)
+        assert result_data[0] == pytest.approx(day1_stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert result_data[1] == pytest.approx(day2_stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
 
     @parameterized.expand([IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH])
     def test_interval_grouping_p90(self, interval: IntervalType):
@@ -329,7 +330,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], stats["/a"]["p90_duration"], places=2)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
 
     def test_null_prev_pageview_duration_excluded_from_p90(self):
         p1_page_views = [
@@ -361,4 +362,4 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        self.assertAlmostEqual(result_data[0], stats["/start"]["p90_duration"], places=2)
+        assert result_data[0] == pytest.approx(stats["/start"]["p90_duration"], abs=10 ** (-2) * 0.5)

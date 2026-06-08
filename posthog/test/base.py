@@ -694,13 +694,13 @@ class PostHogTestCase(SimpleTestCase):
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
-        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)
+        assert f"{site_url}/static/posthog-logo.png" in html_message
 
         # CSS is inlined
-        self.assertIn('style="display: none;', html_message)
+        assert 'style="display: none;' in html_message
 
         if preheader:
-            self.assertIn(preheader, html_message)
+            assert preheader in html_message
 
     @staticmethod
     def ensure_url_patterns_loaded():
@@ -821,7 +821,6 @@ class MemoryLeakTestMixin:
             self._memory_leak_run_index = 0
             method()
             return
-        test_case = cast(unittest.TestCase, self)
         self._memory_leak_run_index = 0
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
@@ -837,15 +836,11 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        test_case.assertLessEqual(
-            avg_memory_test_increase_b,
-            self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
+        assert avg_memory_test_increase_b <= self.MEMORY_INCREASE_PER_PARSE_LIMIT_B, (
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse"
         )
-        test_case.assertLessEqual(
-            avg_memory_increase_factor,
-            self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
+        assert avg_memory_increase_factor <= self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT, (
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse"
         )
 
 
@@ -993,7 +988,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
-        self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+        assert stripped_response1[0] == stripped_response2[0]
 
     @contextmanager
     def assertFasterThan(self, duration_ms: float):
@@ -1259,7 +1254,7 @@ def also_test_with_materialized_columns(
 
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract", sql)
+                    assert "JSONExtract" not in sql
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = _get_calling_frame_locals()

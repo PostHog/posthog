@@ -48,9 +48,9 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.SUPPRESSED)
+        assert not result.should_send
+        assert result.suppression_bypassed
+        assert result.suppression_reason == ESPSuppressionReason.SUPPRESSED
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -69,8 +69,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertTrue(result.should_send)
-        self.assertFalse(result.suppression_bypassed)
+        assert result.should_send
+        assert not result.suppression_bypassed
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -100,8 +100,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "email_mfa_bypassed_due_to_suppression")
-        self.assertEqual(call_kwargs["distinct_id"], str(self.mock_user.distinct_id))
+        assert call_kwargs["event"] == "email_mfa_bypassed_due_to_suppression"
+        assert call_kwargs["distinct_id"] == str(self.mock_user.distinct_id)
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -130,8 +130,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier.should_send_email_mfa_verification(self.mock_user)
 
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.SUPPRESSED)
-        self.assertTrue(call_kwargs["properties"]["cached"])
+        assert call_kwargs["properties"]["reason"] == ESPSuppressionReason.SUPPRESSED
+        assert call_kwargs["properties"]["cached"]
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -159,13 +159,13 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
+        assert not result.should_send
+        assert result.suppression_bypassed
+        assert result.suppression_reason == ESPSuppressionReason.API_FAILURE_FALLBACK
 
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.API_FAILURE_FALLBACK)
-        self.assertFalse(call_kwargs["properties"]["cached"])
+        assert call_kwargs["properties"]["reason"] == ESPSuppressionReason.API_FAILURE_FALLBACK
+        assert not call_kwargs["properties"]["cached"]
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -186,8 +186,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertIsInstance(result, EmailMFACheckResult)
-        self.assertFalse(result.should_send)
+        assert isinstance(result, EmailMFACheckResult)
+        assert not result.should_send
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -201,14 +201,14 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
+        assert not result.should_send
+        assert result.suppression_bypassed
+        assert result.suppression_reason == ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "email_mfa_bypassed_due_to_suppression")
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
+        assert call_kwargs["event"] == "email_mfa_bypassed_due_to_suppression"
+        assert call_kwargs["properties"]["reason"] == ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE
 
 
 class TestEmailMFAGlobalDisable(SimpleTestCase):
@@ -219,28 +219,28 @@ class TestEmailMFAGlobalDisable(SimpleTestCase):
         clear_email_mfa_global_disable()
 
     def test_not_disabled_by_default(self):
-        self.assertFalse(is_email_mfa_globally_disabled())
-        self.assertIsNone(get_email_mfa_global_disable())
+        assert not is_email_mfa_globally_disabled()
+        assert get_email_mfa_global_disable() is None
 
     def test_set_get_clear_round_trip(self):
         set_email_mfa_global_disable(reason="email pipeline down", ttl_seconds=3600, disabled_by="support@posthog.com")
 
-        self.assertTrue(is_email_mfa_globally_disabled())
+        assert is_email_mfa_globally_disabled()
         state = get_email_mfa_global_disable()
         assert state is not None
-        self.assertEqual(state["reason"], "email pipeline down")
-        self.assertEqual(state["disabled_by"], "support@posthog.com")
-        self.assertIn("disabled_at", state)
-        self.assertTrue(0 < state["expires_in_seconds"] <= 3600)
+        assert state["reason"] == "email pipeline down"
+        assert state["disabled_by"] == "support@posthog.com"
+        assert "disabled_at" in state
+        assert 0 < state["expires_in_seconds"] <= 3600
 
         clear_email_mfa_global_disable()
-        self.assertFalse(is_email_mfa_globally_disabled())
-        self.assertIsNone(get_email_mfa_global_disable())
+        assert not is_email_mfa_globally_disabled()
+        assert get_email_mfa_global_disable() is None
 
     def test_reason_is_stripped_and_required(self):
         with self.assertRaises(ValueError):
             set_email_mfa_global_disable(reason="   ", ttl_seconds=3600, disabled_by="support@posthog.com")
-        self.assertFalse(is_email_mfa_globally_disabled())
+        assert not is_email_mfa_globally_disabled()
 
     @parameterized.expand(
         [
@@ -252,13 +252,13 @@ class TestEmailMFAGlobalDisable(SimpleTestCase):
     def test_invalid_ttl_rejected(self, _name, ttl_seconds):
         with self.assertRaises(ValueError):
             set_email_mfa_global_disable(reason="reason", ttl_seconds=ttl_seconds, disabled_by="support@posthog.com")
-        self.assertFalse(is_email_mfa_globally_disabled())
+        assert not is_email_mfa_globally_disabled()
 
     def test_max_ttl_accepted(self):
         set_email_mfa_global_disable(
             reason="reason", ttl_seconds=MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS, disabled_by="support@posthog.com"
         )
-        self.assertTrue(is_email_mfa_globally_disabled())
+        assert is_email_mfa_globally_disabled()
 
     @pytest.mark.disable_mock_email_mfa_verifier
     def test_global_disable_skips_email_mfa(self):
@@ -268,11 +268,11 @@ class TestEmailMFAGlobalDisable(SimpleTestCase):
 
         set_email_mfa_global_disable(reason="email pipeline down", ttl_seconds=3600, disabled_by="support@posthog.com")
         result = EmailMFAVerifier().should_send_email_mfa_verification(user)
-        self.assertEqual(result, EmailMFACheckResult(should_send=False))
+        assert result == EmailMFACheckResult(should_send=False)
 
     @patch("posthog.helpers.two_factor_session.get_client")
     def test_fails_closed_when_redis_unavailable(self, mock_get_client):
         mock_get_client.side_effect = Exception("redis unreachable")
         # Reads must not raise, and must default to "not disabled" so email MFA stays enforced.
-        self.assertFalse(is_email_mfa_globally_disabled())
-        self.assertIsNone(get_email_mfa_global_disable())
+        assert not is_email_mfa_globally_disabled()
+        assert get_email_mfa_global_disable() is None

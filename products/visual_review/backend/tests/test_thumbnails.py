@@ -207,29 +207,29 @@ class TestThumbnailEndpoint(VisualReviewTeamScopedTestMixin, APIBaseTest):
         with patch("products.visual_review.backend.storage.ArtifactStorage.read", return_value=thumb_content):
             response = self.client.get(self._thumbnail_url())
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "image/webp")
-        self.assertEqual(response.content, thumb_content)
-        self.assertIn("ETag", response)
-        self.assertIn("max-age=300", response["Cache-Control"])
+        assert response.status_code == 200
+        assert response["Content-Type"] == "image/webp"
+        assert response.content == thumb_content
+        assert "ETag" in response
+        assert "max-age=300" in response["Cache-Control"]
         # Shared caches must key per-credential — see views.thumbnail.
-        self.assertIn("Authorization", response["Vary"])
-        self.assertIn("Cookie", response["Vary"])
+        assert "Authorization" in response["Vary"]
+        assert "Cookie" in response["Vary"]
 
     def test_returns_304_on_etag_match(self):
         self._seed_snapshot_with_thumbnail()
 
         response = self.client.get(self._thumbnail_url(), HTTP_IF_NONE_MATCH=f'"{self.THUMB_HASH}"')
 
-        self.assertEqual(response.status_code, 304)
-        self.assertIn("Authorization", response["Vary"])
-        self.assertIn("Cookie", response["Vary"])
+        assert response.status_code == 304
+        assert "Authorization" in response["Vary"]
+        assert "Cookie" in response["Vary"]
 
     def test_returns_404_when_no_thumbnail(self):
         response = self.client.get(self._thumbnail_url("nonexistent"))
 
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response["Cache-Control"], "no-store")
+        assert response.status_code == 404
+        assert response["Cache-Control"] == "no-store"
 
     def test_returns_404_for_unknown_repo(self):
         import uuid
@@ -238,5 +238,5 @@ class TestThumbnailEndpoint(VisualReviewTeamScopedTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/visual_review/repos/{uuid.uuid4()}/thumbnails/{self.IDENTIFIER}/"
         )
 
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response["Cache-Control"], "no-store")
+        assert response.status_code == 404
+        assert response["Cache-Control"] == "no-store"

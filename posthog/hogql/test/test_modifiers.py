@@ -230,7 +230,7 @@ class TestModifiers(BaseTest):
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
         materialize("events", "$browser")
 

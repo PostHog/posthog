@@ -1144,7 +1144,7 @@ class TestQuotaLimiting(BaseTest):
 
         tokens = get_team_attribute_by_quota_resource(self.organization)
 
-        self.assertEqual(set(tokens), {"token1", "token2"})
+        assert set(tokens) == {"token1", "token2"}
 
         team1.delete()
         team2.delete()
@@ -1153,12 +1153,12 @@ class TestQuotaLimiting(BaseTest):
 
         tokens = get_team_attribute_by_quota_resource(self.organization)
 
-        self.assertEqual(tokens, [])
+        assert tokens == []
         mock_capture.assert_called_once()
 
         call_args = mock_capture.call_args
-        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
-        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
+        assert str(call_args[0][0]) == "quota_limiting: No team tokens found for organization"
+        assert call_args[0][1] == {"organization_id": self.organization.id}
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):

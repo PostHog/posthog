@@ -156,29 +156,29 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Check main metric values (numerator - total revenue)
-        self.assertEqual(control_variant.sum, 120)  # 3×$10 + 6×$15 = $30 + $90 = $120
-        self.assertEqual(test_variant.sum, 160)  # 4×$20 + 8×$10 = $80 + $80 = $160
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 120  # 3×$10 + 6×$15 = $30 + $90 = $120
+        assert test_variant.sum == 160  # 4×$20 + 8×$10 = $80 + $80 = $160
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
         # Check ratio-specific fields (denominator - total purchase events)
-        self.assertEqual(control_variant.denominator_sum, 9)  # 3 + 6 = 9 purchase events
-        self.assertEqual(test_variant.denominator_sum, 12)  # 4 + 8 = 12 purchase events
+        assert control_variant.denominator_sum == 9  # 3 + 6 = 9 purchase events
+        assert test_variant.denominator_sum == 12  # 4 + 8 = 12 purchase events
 
         # Check denominator sum squares and main-denominator sum product exist
         # (specific values depend on how purchase events are aggregated per user)
-        self.assertIsNotNone(control_variant.denominator_sum_squares)
-        self.assertIsNotNone(test_variant.denominator_sum_squares)
+        assert control_variant.denominator_sum_squares is not None
+        assert test_variant.denominator_sum_squares is not None
 
         # Check main-denominator sum product
-        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
-        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
+        assert control_variant.numerator_denominator_sum_product is not None
+        assert test_variant.numerator_denominator_sum_product is not None
 
     @parameterized.expand(
         [
@@ -278,20 +278,20 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: avg([25, 40]) = 32.5 (numerator), 2 unique sessions (denominator)
-        self.assertEqual(control_variant.sum, 65)  # 25 + 40 = 65 (sum for avg calculation)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(control_variant.denominator_sum, 2)  # 2 unique sessions
+        assert control_variant.sum == 65  # 25 + 40 = 65 (sum for avg calculation)
+        assert control_variant.number_of_samples == 2
+        assert control_variant.denominator_sum == 2  # 2 unique sessions
 
         # Test: avg([55, 80]) = 67.5 (numerator), 2 unique sessions (denominator)
-        self.assertEqual(test_variant.sum, 135)  # 55 + 80 = 135 (sum for avg calculation)
-        self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.denominator_sum, 2)  # 2 unique sessions
+        assert test_variant.sum == 135  # 55 + 80 = 135 (sum for avg calculation)
+        assert test_variant.number_of_samples == 2
+        assert test_variant.denominator_sum == 2  # 2 unique sessions
 
     @parameterized.expand(
         [
@@ -393,20 +393,20 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: 2 purchases within window ($200), 2 pageviews within window
-        self.assertEqual(control_variant.sum, 200)
-        self.assertEqual(control_variant.number_of_samples, 3)  # All users are exposed
-        self.assertEqual(control_variant.denominator_sum, 2)  # Only 2 pageviews within window
+        assert control_variant.sum == 200
+        assert control_variant.number_of_samples == 3  # All users are exposed
+        assert control_variant.denominator_sum == 2  # Only 2 pageviews within window
 
         # Test: 3 purchases within window ($300), 3 pageviews within window
-        self.assertEqual(test_variant.sum, 300)
-        self.assertEqual(test_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.denominator_sum, 3)
+        assert test_variant.sum == 300
+        assert test_variant.number_of_samples == 3
+        assert test_variant.denominator_sum == 3
 
     @parameterized.expand(
         [
@@ -502,20 +502,20 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: purchases exist, but no denominator events
-        self.assertEqual(control_variant.sum, 100)  # 2 * $50
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(control_variant.denominator_sum, 0)  # No special_events
+        assert control_variant.sum == 100  # 2 * $50
+        assert control_variant.number_of_samples == 2
+        assert control_variant.denominator_sum == 0  # No special_events
 
         # Test: both numerator and denominator exist
-        self.assertEqual(test_variant.sum, 100)  # 2 * $50
-        self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.denominator_sum, 2)  # 2 special_events
+        assert test_variant.sum == 100  # 2 * $50
+        assert test_variant.number_of_samples == 2
+        assert test_variant.denominator_sum == 2  # 2 special_events
 
     @parameterized.expand(
         [
@@ -628,20 +628,20 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Control: total revenue = $60, total quantity = 23
-        self.assertEqual(control_variant.sum, 60)  # 10 + 20 + 30
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(control_variant.denominator_sum, 23)  # 5 + 8 + 10
+        assert control_variant.sum == 60  # 10 + 20 + 30
+        assert control_variant.number_of_samples == 2
+        assert control_variant.denominator_sum == 23  # 5 + 8 + 10
 
         # Test: total revenue = $190, total quantity = 19
-        self.assertEqual(test_variant.sum, 190)  # 50 + 60 + 80
-        self.assertEqual(test_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.denominator_sum, 19)  # 5 + 6 + 8
+        assert test_variant.sum == 190  # 50 + 60 + 80
+        assert test_variant.number_of_samples == 2
+        assert test_variant.denominator_sum == 19  # 5 + 6 + 8
 
     @parameterized.expand(
         [
@@ -755,26 +755,26 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Numerator: total purchase revenue (via Action)
-        self.assertEqual(control_variant.sum, 125)  # $50 + $0 + $75 = $125
-        self.assertEqual(test_variant.sum, 250)  # $100 + $150 + $0 = $250
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.number_of_samples, 3)
+        assert control_variant.sum == 125  # $50 + $0 + $75 = $125
+        assert test_variant.sum == 250  # $100 + $150 + $0 = $250
+        assert control_variant.number_of_samples == 3
+        assert test_variant.number_of_samples == 3
 
         # Denominator: total pageviews (via EventsNode)
-        self.assertEqual(control_variant.denominator_sum, 6)  # 2 + 3 + 1 = 6 pageviews
-        self.assertEqual(test_variant.denominator_sum, 11)  # 4 + 2 + 5 = 11 pageviews
+        assert control_variant.denominator_sum == 6  # 2 + 3 + 1 = 6 pageviews
+        assert test_variant.denominator_sum == 11  # 4 + 2 + 5 = 11 pageviews
 
         # Check that ratio-specific fields exist
-        self.assertIsNotNone(control_variant.denominator_sum_squares)
-        self.assertIsNotNone(test_variant.denominator_sum_squares)
-        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
-        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
+        assert control_variant.denominator_sum_squares is not None
+        assert test_variant.denominator_sum_squares is not None
+        assert control_variant.numerator_denominator_sum_product is not None
+        assert test_variant.numerator_denominator_sum_product is not None
 
     @parameterized.expand(
         [
@@ -854,26 +854,26 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         assert control_variant is not None
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertIsNotNone(control_variant.sum)  # Numerator: sum of usage
-        self.assertIsNotNone(test_variant.sum)
-        self.assertTrue(control_variant.number_of_samples > 0)
-        self.assertTrue(test_variant.number_of_samples > 0)
+        assert control_variant.sum is not None  # Numerator: sum of usage
+        assert test_variant.sum is not None
+        assert control_variant.number_of_samples > 0
+        assert test_variant.number_of_samples > 0
 
-        self.assertIsNotNone(control_variant.denominator_sum)  # Denominator: count of records
-        self.assertIsNotNone(test_variant.denominator_sum)
+        assert control_variant.denominator_sum is not None  # Denominator: count of records
+        assert test_variant.denominator_sum is not None
 
         # Check that ratio-specific statistical fields are populated
-        self.assertIsNotNone(control_variant.denominator_sum_squares)
-        self.assertIsNotNone(test_variant.denominator_sum_squares)
-        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
-        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
+        assert control_variant.denominator_sum_squares is not None
+        assert test_variant.denominator_sum_squares is not None
+        assert control_variant.numerator_denominator_sum_product is not None
+        assert test_variant.numerator_denominator_sum_product is not None
 
     # TODO: This is skipped as SQL expressions in ratio metrics are not supported yet
     # We need to handle aggregations differently there compared to what we do i mean metrics.
@@ -989,29 +989,29 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Check main metric values (numerator - total revenue)
-        self.assertEqual(control_variant.sum, 120)  # 3×$10 + 6×$15 = $30 + $90 = $120
-        self.assertEqual(test_variant.sum, 160)  # 4×$20 + 8×$10 = $80 + $80 = $160
-        self.assertEqual(control_variant.number_of_samples, 10)  # 10 visitors in total
-        self.assertEqual(test_variant.number_of_samples, 10)  # 10 visitors in total
+        assert control_variant.sum == 120  # 3×$10 + 6×$15 = $30 + $90 = $120
+        assert test_variant.sum == 160  # 4×$20 + 8×$10 = $80 + $80 = $160
+        assert control_variant.number_of_samples == 10  # 10 visitors in total
+        assert test_variant.number_of_samples == 10  # 10 visitors in total
 
         # Check ratio-specific fields (denominator - number of distinct user id's)
-        self.assertEqual(control_variant.denominator_sum, 6)  # 6 distinct users make a purchase
-        self.assertEqual(test_variant.denominator_sum, 8)  # 8 distinct users make a purchase
+        assert control_variant.denominator_sum == 6  # 6 distinct users make a purchase
+        assert test_variant.denominator_sum == 8  # 8 distinct users make a purchase
 
         # Check denominator sum squares and main-denominator sum product exist
         # (specific values depend on how purchase events are aggregated per user)
-        self.assertIsNotNone(control_variant.denominator_sum_squares)
-        self.assertIsNotNone(test_variant.denominator_sum_squares)
+        assert control_variant.denominator_sum_squares is not None
+        assert test_variant.denominator_sum_squares is not None
 
         # Check main-denominator sum product
-        self.assertIsNotNone(control_variant.numerator_denominator_sum_product)
-        self.assertIsNotNone(test_variant.numerator_denominator_sum_product)
+        assert control_variant.numerator_denominator_sum_product is not None
+        assert test_variant.numerator_denominator_sum_product is not None
 
     @parameterized.expand(
         [
@@ -1107,7 +1107,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         # Verify the query was executed successfully
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         # Verify the query was executed successfully and produced results
         # If the query didn't preserve the parameter, it would have failed in ClickHouse
@@ -1243,12 +1243,12 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         # Only mature users should be counted (1 control, 1 test)
         assert result.baseline is not None
         # Control: 2 purchases totaling 80, ratio = 80/2 = 40
-        self.assertEqual(result.baseline.number_of_samples, 1)
+        assert result.baseline.number_of_samples == 1
 
         assert result.variant_results is not None
         assert len(result.variant_results) == 1
         # Test: 1 purchase totaling 75, ratio = 75/1 = 75
-        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        assert result.variant_results[0].number_of_samples == 1
 
     def _seed_winsorization_journeys(self, feature_flag) -> None:
         """Seed 20 users (10 control, 10 test) for ratio winsorization tests.
@@ -1364,22 +1364,22 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
         # Numerator capped at 200: control unchanged (no outlier), test's 5000 -> 200.
         # control: 9*100 + 200 = 1100 ; test: 9*100 + 200 = 1100
-        self.assertEqual(control_variant.sum, 1100)
-        self.assertEqual(test_variant.sum, 1100)
+        assert control_variant.sum == 1100
+        assert test_variant.sum == 1100
 
         # Denominator left uncapped: control = 50 + 8*2 + 5 = 71 ; test = 10*2 = 20
-        self.assertEqual(control_variant.denominator_sum, 71)
-        self.assertEqual(test_variant.denominator_sum, 20)
+        assert control_variant.denominator_sum == 71
+        assert test_variant.denominator_sum == 20
 
     @parameterized.expand(
         [
@@ -1425,22 +1425,22 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
         # Numerator capped at 200 -> both variants 1100 (as above).
-        self.assertEqual(control_variant.sum, 1100)
-        self.assertEqual(test_variant.sum, 1100)
+        assert control_variant.sum == 1100
+        assert test_variant.sum == 1100
 
         # Denominator capped at 5: control's outlier 50 -> 5, so control = 5 + 8*2 + 5 = 26 ;
         # test has no denominator outlier so it stays 10*2 = 20.
-        self.assertEqual(control_variant.denominator_sum, 26)
-        self.assertEqual(test_variant.denominator_sum, 20)
+        assert control_variant.denominator_sum == 26
+        assert test_variant.denominator_sum == 20
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1510,9 +1510,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # The query builds and runs with per-breakdown winsorization.
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
         for breakdown_result in result.breakdown_results:
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsInstance(breakdown_result.variants, list)
+            assert breakdown_result.baseline is not None
+            assert isinstance(breakdown_result.variants, list)

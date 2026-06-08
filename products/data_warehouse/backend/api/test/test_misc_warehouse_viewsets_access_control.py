@@ -44,23 +44,23 @@ class TestDataWarehouseManagedViewSetAccessControl(WarehouseAccessControlTestMix
         self.client.force_login(user)
 
         response = self.client.put(self._detail_url(), data={"enabled": True}, content_type="application/json")
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def test_disable_as_viewer_is_blocked(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.put(self._detail_url(), data={"enabled": False}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         # No managed viewset row should have been created/destroyed.
-        self.assertFalse(DataWarehouseManagedViewSet.objects.filter(team=self.team, kind=MANAGED_VIEWSET_KIND).exists())
+        assert not DataWarehouseManagedViewSet.objects.filter(team=self.team, kind=MANAGED_VIEWSET_KIND).exists()
 
     def test_project_default_none_blocks_read(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._detail_url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.ee
@@ -77,14 +77,14 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._path("total_rows_stats/"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_total_rows_stats_blocked_for_none(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._path("total_rows_stats/"))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_data_ops_dashboard_blocked_for_viewer(self):
         # data_ops_dashboard creates a Dashboard as a side effect, so require editor
@@ -92,14 +92,14 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._path("data_ops_dashboard/"))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_data_ops_dashboard_allowed_for_editor(self):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
         response = self.client.get(self._path("data_ops_dashboard/"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_provision_blocked_for_viewer(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
@@ -108,7 +108,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.post(
             self._path("provision/"), data={"database_name": "x"}, content_type="application/json"
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.ee
@@ -125,14 +125,14 @@ class TestModelPathViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_project_default_none_blocks(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.ee
@@ -149,14 +149,14 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_project_default_none_blocks(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.ee
@@ -182,11 +182,11 @@ class TestLineageAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_project_default_none_blocks(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN

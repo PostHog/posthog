@@ -20,10 +20,10 @@ class TestPersistedFolderModel(_Base):
     def test_defaults_and_str(self) -> None:
         pf = PersistedFolder.objects.create(team=self.team, user=self.user, type=PersistedFolder.TYPE_HOME)
 
-        self.assertEqual(pf.protocol, "products://")
-        self.assertEqual(pf.path, "")
-        self.assertIn("home", str(pf))
-        self.assertTrue(pf.id)  # UUID auto-assigned
+        assert pf.protocol == "products://"
+        assert pf.path == ""
+        assert "home" in str(pf)
+        assert pf.id  # UUID auto-assigned
 
     def test_unique_constraint(self) -> None:
         PersistedFolder.objects.create(team=self.team, user=self.user, type=PersistedFolder.TYPE_HOME)
@@ -39,8 +39,8 @@ class TestPersistedFolderAPI(_Base):
             {"type": "home", "path": "Root/Home", "protocol": "products://"},
             format="json",
         )
-        self.assertEqual(rsp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(PersistedFolder.objects.count(), 1)
+        assert rsp.status_code == status.HTTP_201_CREATED
+        assert PersistedFolder.objects.count() == 1
 
         obj_id = rsp.data["id"]
 
@@ -50,10 +50,10 @@ class TestPersistedFolderAPI(_Base):
             {"type": "home", "path": "Root/Home/V2", "protocol": "products://"},
             format="json",
         )
-        self.assertEqual(rsp2.status_code, status.HTTP_201_CREATED)  # ModelViewSet still returns 201
-        self.assertEqual(PersistedFolder.objects.count(), 1)  # still just one row
-        self.assertEqual(rsp2.data["id"], obj_id)  # unchanged PK
-        self.assertEqual(rsp2.data["path"], "Root/Home/V2")  # updated field persisted
+        assert rsp2.status_code == status.HTTP_201_CREATED  # ModelViewSet still returns 201
+        assert PersistedFolder.objects.count() == 1  # still just one row
+        assert rsp2.data["id"] == obj_id  # unchanged PK
+        assert rsp2.data["path"] == "Root/Home/V2"  # updated field persisted
 
     def test_list_returns_only_current_user(self) -> None:
         # Create folders for two different users
@@ -61,9 +61,9 @@ class TestPersistedFolderAPI(_Base):
         PersistedFolder.objects.create(team=self.team, user=self.user_2, type="home", path="B", protocol="products://")
 
         rsp = self.client.get(f"/api/projects/{self.team.id}/persisted_folder/")
-        self.assertEqual(rsp.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(rsp.data["results"]), 1)
-        self.assertEqual(rsp.data["results"][0]["path"], "A")
+        assert rsp.status_code == status.HTTP_200_OK
+        assert len(rsp.data["results"]) == 1
+        assert rsp.data["results"][0]["path"] == "A"
 
 
 class TestPersistedFolderSurface(_Base):
@@ -77,22 +77,22 @@ class TestPersistedFolderSurface(_Base):
         web = self.client.post(self.web_url, {"type": "home", "path": "Web home"}, format="json")
         desktop = self.client.post(self.desktop_url, {"type": "home", "path": "Desktop home"}, format="json")
 
-        self.assertEqual(web.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(desktop.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count(), 2)
+        assert web.status_code == status.HTTP_201_CREATED
+        assert desktop.status_code == status.HTTP_201_CREATED
+        assert PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count() == 2
 
         web_paths = {r["path"] for r in self.client.get(self.web_url).data["results"]}
         desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).data["results"]}
-        self.assertEqual(web_paths, {"Web home"})
-        self.assertEqual(desktop_paths, {"Desktop home"})
+        assert web_paths == {"Web home"}
+        assert desktop_paths == {"Desktop home"}
 
     def test_web_create_stamps_web_surface(self) -> None:
         self.client.post(self.web_url, {"type": "home", "path": "Web home"}, format="json")
-        self.assertEqual(PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface, "web")
+        assert PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface == "web"
 
     def test_desktop_create_stamps_desktop_surface(self) -> None:
         self.client.post(self.desktop_url, {"type": "home", "path": "Desktop home"}, format="json")
-        self.assertEqual(PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface, "desktop")
+        assert PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface == "desktop"
 
     def test_web_upsert_matches_legacy_null_row(self) -> None:
         # A legacy row predates the surface column. A web upsert must update it in place rather
@@ -103,7 +103,7 @@ class TestPersistedFolderSurface(_Base):
 
         rsp = self.client.post(self.web_url, {"type": "home", "path": "Updated"}, format="json")
 
-        self.assertEqual(rsp.status_code, status.HTTP_201_CREATED, rsp.data)
-        self.assertEqual(PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count(), 1)
+        assert rsp.status_code == status.HTTP_201_CREATED, rsp.data
+        assert PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count() == 1
         legacy.refresh_from_db()
-        self.assertEqual(legacy.path, "Updated")
+        assert legacy.path == "Updated"

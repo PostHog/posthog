@@ -34,19 +34,19 @@ class TestRoleCrossOrgAuthorization(APILicensedTest):
     def test_cross_org_admin_cannot_create_roles_in_other_org(self):
         self._switch_active_org(self.org_a)
         res = self.client.post(f"/api/organizations/{self.org_b.id}/roles", {"name": "Hacked Role"})
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        assert res.status_code == status.HTTP_403_FORBIDDEN
 
     def test_cross_org_admin_cannot_update_roles_in_other_org(self):
         role = Role.objects.create(name="Engineering", organization=self.org_b)
         self._switch_active_org(self.org_a)
         res = self.client.patch(f"/api/organizations/{self.org_b.id}/roles/{role.id}", {"name": "Hacked"})
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        assert res.status_code == status.HTTP_403_FORBIDDEN
 
     def test_cross_org_admin_cannot_delete_roles_in_other_org(self):
         role = Role.objects.create(name="Engineering", organization=self.org_b)
         self._switch_active_org(self.org_a)
         res = self.client.delete(f"/api/organizations/{self.org_b.id}/roles/{role.id}")
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        assert res.status_code == status.HTTP_403_FORBIDDEN
 
     def test_cross_org_role_creation_uses_correct_org(self):
         """Admin in both orgs, active=A, POST to B URL → role.organization == B"""
@@ -54,9 +54,9 @@ class TestRoleCrossOrgAuthorization(APILicensedTest):
         self.org_b_membership.save()
         self._switch_active_org(self.org_a)
         res = self.client.post(f"/api/organizations/{self.org_b.id}/roles", {"name": "New Role"})
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        assert res.status_code == status.HTTP_201_CREATED
         role = Role.objects.get(id=res.json()["id"])
-        self.assertEqual(role.organization_id, self.org_b.id)
+        assert role.organization_id == self.org_b.id
 
     def test_cross_org_role_name_uniqueness_checks_correct_org(self):
         """'Engineering' exists in A. Admin in both, active=A, POST to B → 201"""
@@ -65,17 +65,17 @@ class TestRoleCrossOrgAuthorization(APILicensedTest):
         self.org_b_membership.save()
         self._switch_active_org(self.org_a)
         res = self.client.post(f"/api/organizations/{self.org_b.id}/roles", {"name": "Engineering"})
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        assert res.status_code == status.HTTP_201_CREATED
 
     def test_member_cannot_modify_roles_after_fix(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         res = self.client.post(f"/api/organizations/{self.org_a.id}/roles", {"name": "Blocked"})
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        assert res.status_code == status.HTTP_403_FORBIDDEN
 
     def test_admin_can_modify_roles_with_explicit_org_id(self):
         res = self.client.post(f"/api/organizations/{self.org_a.id}/roles", {"name": "Allowed"})
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        assert res.status_code == status.HTTP_201_CREATED
 
 
 class TestRoleAPI(APILicensedTest):
@@ -97,10 +97,10 @@ class TestRoleAPI(APILicensedTest):
                 "name": "Product 2",
             },
         )
-        self.assertEqual(admin_create_res.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Role.objects.all().count(), 1)
-        self.assertEqual(Role.objects.first().name, "Product")  # type: ignore
-        self.assertEqual(member_create_res.status_code, status.HTTP_403_FORBIDDEN)
+        assert admin_create_res.status_code == status.HTTP_201_CREATED
+        assert Role.objects.all().count() == 1
+        assert Role.objects.first().name == "Product"  # type: ignore
+        assert member_create_res.status_code == status.HTTP_403_FORBIDDEN
 
     def test_only_organization_admins_and_higher_can_update(self):
         existing_eng_role = Role.objects.create(
@@ -122,10 +122,10 @@ class TestRoleAPI(APILicensedTest):
             {"name": "member eng"},
         )
 
-        self.assertEqual(admin_update_res.status_code, status.HTTP_200_OK)
-        self.assertEqual(member_update_res.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(Role.objects.all().count(), 1)
-        self.assertEqual(Role.objects.first().name, "on call support")  # type: ignore
+        assert admin_update_res.status_code == status.HTTP_200_OK
+        assert member_update_res.status_code == status.HTTP_403_FORBIDDEN
+        assert Role.objects.all().count() == 1
+        assert Role.objects.first().name == "on call support"  # type: ignore
 
     def test_cannot_duplicate_role_name(self):
         Role.objects.create(name="Marketing", organization=self.organization)
@@ -138,21 +138,18 @@ class TestRoleAPI(APILicensedTest):
                 "name": "marketing",
             },
         )
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            res.json(),
-            {
-                "type": "validation_error",
-                "code": "unique",
-                "detail": "There is already a role with this name.",
-                "attr": "name",
-            },
-        )
-        self.assertEqual(Role.objects.count(), count)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.json() == {
+            "type": "validation_error",
+            "code": "unique",
+            "detail": "There is already a role with this name.",
+            "attr": "name",
+        }
+        assert Role.objects.count() == count
         other_org = Organization.objects.create(name="other org")
         Role.objects.create(name="Marketing", organization=other_org)
-        self.assertEqual(Role.objects.count(), 2)
-        self.assertEqual(Role.objects.filter(organization=other_org).exists(), True)
+        assert Role.objects.count() == 2
+        assert Role.objects.filter(organization=other_org).exists()
         with self.assertRaises(IntegrityError):
             Role.objects.create(name="Marketing", organization=self.organization)
 
@@ -164,9 +161,9 @@ class TestRoleAPI(APILicensedTest):
             f"/api/organizations/@current/roles/{role.id}",
             {"name": "Engineering"},
         )
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        assert res.status_code == status.HTTP_200_OK
         role.refresh_from_db()
-        self.assertEqual(role.name, "Engineering")
+        assert role.name == "Engineering"
 
     def test_cannot_rename_role_to_existing_name(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -177,8 +174,8 @@ class TestRoleAPI(APILicensedTest):
             f"/api/organizations/@current/roles/{eng_role.id}",
             {"name": "marketing"},
         )
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(res.json()["code"], "unique")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.json()["code"] == "unique"
 
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -198,8 +195,8 @@ class TestRoleAPI(APILicensedTest):
         )
         other_org = Organization.objects.create(name="other org")
         Role.objects.create(name="Product", organization=other_org)
-        self.assertEqual(Role.objects.count(), 3)
+        assert Role.objects.count() == 3
         res = self.client.get("/api/organizations/@current/roles")
         results = res.json()
-        self.assertEqual(results["count"], 2)
+        assert results["count"] == 2
         self.assertNotContains(res, str(other_org.id))

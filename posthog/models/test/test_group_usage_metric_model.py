@@ -20,10 +20,10 @@ class GroupUsageMetricTestCase(BaseTest):
             },
         )
 
-        self.assertIsNotNone(metric.bytecode)
-        self.assertIsNone(metric.bytecode_error)
+        assert metric.bytecode is not None
+        assert metric.bytecode_error is None
         assert isinstance(metric.bytecode, list)  # Using assert to help mypy with the types
-        self.assertGreater(len(metric.bytecode), 0)
+        assert len(metric.bytecode) > 0
 
     def test_data_warehouse_source_detection(self):
         events_metric = GroupUsageMetric.objects.create(

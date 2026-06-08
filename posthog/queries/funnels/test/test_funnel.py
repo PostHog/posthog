@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 from datetime import datetime
 
 from freezegun import freeze_time
@@ -156,7 +157,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self._signup_event(distinct_id="stopped_after_signup2")
 
             result = funnel.run()
-            self.assertEqual(result[0]["count"], 0)
+            assert result[0]["count"] == 0
 
         def test_funnel_with_single_step(self):
             funnel = self._single_step_funnel()
@@ -169,8 +170,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="stopped_after_signup2")
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
         def test_funnel_events(self):
             funnel = self._basic_funnel()
@@ -200,13 +201,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="wrong_order")
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 4)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 4
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 2)
-            self.assertEqual(result[2]["name"], "watched movie")
-            self.assertEqual(result[2]["count"], 1)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 2
+            assert result[2]["name"] == "watched movie"
+            assert result[2]["count"] == 1
 
         @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
         @snapshot_clickhouse_queries
@@ -271,16 +272,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             with freeze_time("2012-01-01T03:21:46.000Z"):
                 result = funnel.run()
-                self.assertEqual(result[0]["name"], "user signed up")
+                assert result[0]["name"] == "user signed up"
 
                 # key difference between this test and test_funnel_events.
                 # we merged two people and thus the count here is 3 and not 4
-                self.assertEqual(result[0]["count"], 3)
+                assert result[0]["count"] == 3
 
-                self.assertEqual(result[1]["name"], "paid")
-                self.assertEqual(result[1]["count"], 2)
-                self.assertEqual(result[2]["name"], "watched movie")
-                self.assertEqual(result[2]["count"], 1)
+                assert result[1]["name"] == "paid"
+                assert result[1]["count"] == 2
+                assert result[2]["name"] == "watched movie"
+                assert result[2]["count"] == 1
 
         def test_funnel_with_messed_up_order(self):
             action_play_movie = Action.objects.create(
@@ -326,11 +327,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 4)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 4
 
-            self.assertEqual(result[1]["name"], "watched movie")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "watched movie"
+            assert result[1]["count"] == 1
 
         def test_funnel_with_any_event(self):
             funnel = self._basic_funnel(
@@ -365,14 +366,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="wrong_order")
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], None)
-            self.assertEqual(result[0]["count"], 5)
+            assert result[0]["name"] is None
+            assert result[0]["count"] == 5
 
-            self.assertEqual(result[1]["name"], None)
-            self.assertEqual(result[1]["count"], 3)
+            assert result[1]["name"] is None
+            assert result[1]["count"] == 3
 
-            self.assertEqual(result[2]["name"], None)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[2]["name"] is None
+            assert result[2]["count"] == 1
 
         def test_funnel_with_new_entities_that_mess_up_order(self):
             action_play_movie = Action.objects.create(
@@ -422,15 +423,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 4)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 4
 
-            self.assertEqual(result[1]["name"], "watched movie")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "watched movie"
+            assert result[1]["count"] == 1
 
         def test_funnel_no_events(self):
             funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
-            self.assertEqual(funnel.run(), [])
+            assert funnel.run() == []
 
         def test_funnel_skipped_step(self):
             funnel = self._basic_funnel()
@@ -440,8 +441,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="wrong_order")
 
             result = funnel.run()
-            self.assertEqual(result[1]["count"], 0)
-            self.assertEqual(result[2]["count"], 0)
+            assert result[1]["count"] == 0
+            assert result[2]["count"] == 0
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters(self):
@@ -463,8 +464,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="half_property")
 
             result = funnel.run()
-            self.assertEqual(result[0]["count"], 2)
-            self.assertEqual(result[1]["count"], 1)
+            assert result[0]["count"] == 2
+            assert result[1]["count"] == 1
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters_per_entity(self):
@@ -547,9 +548,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(result[2]["count"], 0)
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
+            assert result[2]["count"] == 0
 
         @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_person_prop(self):
@@ -609,9 +610,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="with_property")
 
             result = funnel.run()
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
+            assert result[2]["count"] == 1
 
         @also_test_with_materialized_columns(["test_propX"])
         def test_funnel_multiple_actions(self):
@@ -662,9 +663,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ),
                 team=self.team,
             ).run()
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(result[2]["count"], 0)
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
+            assert result[2]["count"] == 0
 
         @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_filter_test_accounts(self):
@@ -688,7 +689,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ),
                 team=self.team,
             ).run()
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["count"] == 1
 
         @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_with_entity_person_property_filters(self):
@@ -730,7 +731,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ),
                 team=self.team,
             ).run()
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["count"] == 2
 
         @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
         def test_funnel_filter_by_action_with_person_properties(self):
@@ -778,7 +779,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
             ).run()
 
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["count"] == 2
 
         def test_basic_funnel_default_funnel_days(self):
             filters = {
@@ -811,11 +812,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 1
 
         def test_basic_funnel_with_repeat_steps(self):
             filters = {
@@ -853,23 +854,19 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["count"] == 1
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
         @also_test_with_materialized_columns(["key"])
         def test_basic_funnel_with_derivative_steps(self):
@@ -915,23 +912,19 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["count"] == 1
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
         def test_basic_funnel_with_repeat_step_updated_param(self):
             people = journeys_for(
@@ -959,23 +952,19 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             funnel = Funnel(filter, self.team)
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["count"] == 1
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_signup2"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [people["stopped_after_signup1"].uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([people["stopped_after_signup1"].uuid])
 
             filters = {
                 "events": [
@@ -1084,15 +1073,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             result = funnel.run()
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert len(result) == 2
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 2)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 2
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person3.uuid])
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person1.uuid, person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1.uuid, person3.uuid])
 
         def test_advanced_funnel_exclusions_between_steps(self):
             filters = {
@@ -1266,12 +1255,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[4]["count"], 2)
+            assert result[4]["count"] == 2
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person1.uuid, person2.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -1289,12 +1278,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[4]["count"], 2)
+            assert result[4]["count"] == 2
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person2.uuid, person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person2.uuid, person3.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -1312,12 +1301,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person3.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -1335,12 +1324,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 0)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 0
 
-            self.assertEqual(result[4]["count"], 0)
+            assert result[4]["count"] == 0
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([])
 
             #  bigger step window
             filter = filter.shallow_clone(
@@ -1359,12 +1348,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person3.uuid])
 
         def test_advanced_funnel_with_repeat_steps(self):
             filters = {
@@ -1415,62 +1404,55 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[4]["name"], "$pageview")
-            self.assertEqual(result[0]["count"], 5)
+            assert result[0]["name"] == "user signed up"
+            assert result[1]["name"] == "$pageview"
+            assert result[4]["name"] == "$pageview"
+            assert result[0]["count"] == 5
 
-            self.assertEqual(result[1]["count"], 4)
+            assert result[1]["count"] == 4
 
-            self.assertEqual(result[2]["count"], 3)
+            assert result[2]["count"] == 3
 
-            self.assertEqual(result[3]["count"], 2)
+            assert result[3]["count"] == 2
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
             # check ordering of people in every step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
                 [
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 3),
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
                 [
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 4),
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter(
                 [
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 5),
-                [people["stopped_after_pageview4"].uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter([people["stopped_after_pageview4"].uuid])
 
         def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
             filters = {
@@ -1578,54 +1560,49 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[4]["name"], "$pageview")
-            self.assertEqual(result[0]["count"], 5)
+            assert result[0]["name"] == "user signed up"
+            assert result[1]["name"] == "$pageview"
+            assert result[4]["name"] == "$pageview"
+            assert result[0]["count"] == 5
 
-            self.assertEqual(result[1]["count"], 4)
+            assert result[1]["count"] == 4
 
-            self.assertEqual(result[2]["count"], 1)
+            assert result[2]["count"] == 1
 
-            self.assertEqual(result[3]["count"], 1)
+            assert result[3]["count"] == 1
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
             # check ordering of people in every step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_signup.uuid,
                     person2_stopped_after_one_pageview.uuid,
                     person3_stopped_after_two_pageview.uuid,
                     person4_stopped_after_three_pageview.uuid,
                     person5_stopped_after_many_pageview.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
                 [
                     person2_stopped_after_one_pageview.uuid,
                     person3_stopped_after_two_pageview.uuid,
                     person4_stopped_after_three_pageview.uuid,
                     person5_stopped_after_many_pageview.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 3),
-                [person5_stopped_after_many_pageview.uuid],
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
+                [person5_stopped_after_many_pageview.uuid]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 4),
-                [person5_stopped_after_many_pageview.uuid],
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter(
+                [person5_stopped_after_many_pageview.uuid]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 5),
-                [person5_stopped_after_many_pageview.uuid],
+            assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter(
+                [person5_stopped_after_many_pageview.uuid]
             )
 
         @also_test_with_materialized_columns(["key"])
@@ -1681,24 +1658,20 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "sign up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "sign up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
         def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
             sign_up_action = _create_action(
@@ -1755,23 +1728,21 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
                 result = funnel.run()
 
-                self.assertEqual(result[0]["name"], "sign up")
-                self.assertEqual(result[0]["count"], 2)
+                assert result[0]["name"] == "sign up"
+                assert result[0]["count"] == 2
 
-                self.assertEqual(result[1]["count"], 1)
+                assert result[1]["count"] == 1
 
                 # check ordering of people in first step
-                self.assertCountEqual(
-                    self._get_actor_ids_at_step(filter, 1),
+                assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                     [
                         person1_stopped_after_two_signups.uuid,
                         person2_stopped_after_signup.uuid,
-                    ],
+                    ]
                 )
 
-                self.assertCountEqual(
-                    self._get_actor_ids_at_step(filter, 2),
-                    [person1_stopped_after_two_signups.uuid],
+                assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                    [person1_stopped_after_two_signups.uuid]
                 )
 
         def test_funnel_with_actions_and_props(self):
@@ -1832,24 +1803,20 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "sign up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "sign up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
         def test_funnel_with_actions_and_props_with_zero_person_ids(self):
             # only a person-on-event test
@@ -1928,24 +1895,20 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "sign up")
-            self.assertEqual(result[0]["count"], 2)
+            assert result[0]["name"] == "sign up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
 
         @also_test_with_materialized_columns(["key"])
         @skip("Flaky funnel test")
@@ -2091,46 +2054,40 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             with freeze_time("2021-05-02"):
                 result = Funnel(filter, self.team).run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 4)
-            self.assertEqual(result[1]["count"], 4)
-            self.assertEqual(result[2]["count"], 3)
-            self.assertEqual(result[3]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 4
+            assert result[1]["count"] == 4
+            assert result[2]["count"] == 3
+            assert result[3]["count"] == 1
 
             # check ordering of people in steps
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
                     person3.uuid,
                     person4.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
                     person3.uuid,
                     person4.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 3),
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
                     person3.uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 4),
-                [person1_stopped_after_two_signups.uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter([person1_stopped_after_two_signups.uuid])
 
         @also_test_with_materialized_columns(["$current_url"])
         def test_funnel_with_matching_properties(self):
@@ -2229,54 +2186,50 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[4]["name"], "$pageview")
-            self.assertEqual(result[0]["count"], 5)
-            self.assertEqual(result[1]["count"], 4)
-            self.assertEqual(result[2]["count"], 3)
-            self.assertEqual(result[3]["count"], 2)
-            self.assertEqual(result[4]["count"], 0)
+            assert result[0]["name"] == "user signed up"
+            assert result[1]["name"] == "$pageview"
+            assert result[4]["name"] == "$pageview"
+            assert result[0]["count"] == 5
+            assert result[1]["count"] == 4
+            assert result[2]["count"] == 3
+            assert result[3]["count"] == 2
+            assert result[4]["count"] == 0
             # check ordering of people in every step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     people["stopped_after_signup1"].uuid,
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
                 [
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 3),
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
                 [
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 4),
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter(
                 [
                     people["stopped_after_pageview3"].uuid,
                     people["stopped_after_pageview4"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [])
+            assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter([])
 
         def test_funnel_conversion_window(self):
             ids_to_compare = []
@@ -2327,14 +2280,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = Filter(data={**data})
             results = Funnel(filter, self.team).run()
 
-            self.assertEqual(results[0]["count"], 25)
-            self.assertEqual(results[1]["count"], 10)
-            self.assertEqual(results[2]["count"], 0)
+            assert results[0]["count"] == 25
+            assert results[1]["count"] == 10
+            assert results[2]["count"] == 0
 
-            self.assertCountEqual(
-                [str(id) for id in self._get_actor_ids_at_step(filter, 2)],
-                ids_to_compare,
-            )
+            assert Counter([str(id) for id in self._get_actor_ids_at_step(filter, 2)]) == Counter(ids_to_compare)
 
         @snapshot_clickhouse_queries
         def test_funnel_conversion_window_seconds(self):
@@ -2386,14 +2336,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = Filter(data={**data})
             results = Funnel(filter, self.team).run()
 
-            self.assertEqual(results[0]["count"], 25)
-            self.assertEqual(results[1]["count"], 10)
-            self.assertEqual(results[2]["count"], 0)
+            assert results[0]["count"] == 25
+            assert results[1]["count"] == 10
+            assert results[2]["count"] == 0
 
-            self.assertCountEqual(
-                [str(id) for id in self._get_actor_ids_at_step(filter, 2)],
-                ids_to_compare,
-            )
+            assert Counter([str(id) for id in self._get_actor_ids_at_step(filter, 2)]) == Counter(ids_to_compare)
 
         def test_funnel_exclusions_invalid_params(self):
             filters = {
@@ -2549,15 +2496,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             result = funnel.run()
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert len(result) == 2
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person4.uuid])
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person1.uuid, person4.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1.uuid])
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
@@ -2648,15 +2595,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             result = funnel.run()
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
+            assert len(result) == 2
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 2)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 2
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person3.uuid])
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person1.uuid, person3.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1.uuid, person3.uuid])
 
         @also_test_with_materialized_columns(["test_prop"])
         def test_funnel_with_denormalised_properties(self):
@@ -2697,8 +2644,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
         def test_advanced_funnel_multiple_exclusions_between_steps(self):
             filters = {
@@ -2903,41 +2850,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
-
-            filter = filter.shallow_clone(
-                {
-                    "exclusions": [
-                        {
-                            "id": "x",
-                            "type": "events",
-                            "funnel_from_step": 0,
-                            "funnel_to_step": 1,
-                        },
-                        {
-                            "id": "y",
-                            "type": "events",
-                            "funnel_from_step": 0,
-                            "funnel_to_step": 1,
-                        },
-                    ]
-                }
-            )
-            funnel = Funnel(filter, self.team)
-
-            result = funnel.run()
-
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
-
-            self.assertEqual(result[4]["count"], 1)
-
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person4.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -2961,12 +2879,41 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person4.uuid])
+
+            filter = filter.shallow_clone(
+                {
+                    "exclusions": [
+                        {
+                            "id": "x",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1,
+                        },
+                        {
+                            "id": "y",
+                            "type": "events",
+                            "funnel_from_step": 0,
+                            "funnel_to_step": 1,
+                        },
+                    ]
+                }
+            )
+            funnel = Funnel(filter, self.team)
+
+            result = funnel.run()
+
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
+
+            assert result[4]["count"] == 1
+
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person4.uuid])
 
             filter = filter.shallow_clone(
                 {
@@ -2990,12 +2937,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[4]["count"], 1)
+            assert result[4]["count"] == 1
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person4.uuid])
 
         def test_funnel_with_elements_chain(self):
             person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -3036,15 +2983,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filter = Filter(data=filters)
                 result = Funnel(filter, self.team).run()
 
-                self.assertEqual(len(result), 2)
-                self.assertEqual(result[0]["name"], "user signed up")
-                self.assertEqual(result[0]["count"], 2)
+                assert len(result) == 2
+                assert result[0]["name"] == "user signed up"
+                assert result[0]["count"] == 2
 
-                self.assertEqual(result[1]["name"], "$autocapture")
-                self.assertEqual(result[1]["count"], 1)
+                assert result[1]["name"] == "$autocapture"
+                assert result[1]["count"] == 1
 
-                self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid])
-                self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
+                assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([person1.uuid, person2.uuid])
+                assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1.uuid])
 
         def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
             filter_with_breakdown = {
@@ -3124,11 +3071,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = ClickhouseFunnel(Filter(data=filters), self.team).run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 1
 
         @snapshot_clickhouse_queries
         def test_funnel_with_precalculated_cohort_step_filter(self):
@@ -3206,11 +3153,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
                 result = ClickhouseFunnel(Filter(data=filters), self.team).run()
-                self.assertEqual(result[0]["name"], "user signed up")
-                self.assertEqual(result[0]["count"], 1)
+                assert result[0]["name"] == "user signed up"
+                assert result[0]["count"] == 1
 
-                self.assertEqual(result[1]["name"], "paid")
-                self.assertEqual(result[1]["count"], 1)
+                assert result[1]["name"] == "paid"
+                assert result[1]["count"] == 1
 
         @snapshot_clickhouse_queries
         def test_funnel_with_static_cohort_step_filter(self):
@@ -3266,11 +3213,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = ClickhouseFunnel(Filter(data=filters), self.team).run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 1
 
-            self.assertEqual(result[1]["name"], "paid")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "paid"
+            assert result[1]["count"] == 1
 
         @snapshot_clickhouse_queries
         @also_test_with_materialized_columns(["$current_url"], person_properties=["email", "age"])
@@ -3431,34 +3378,29 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[2]["name"], "$pageview")
-            self.assertEqual(result[0]["count"], 3)
-            self.assertEqual(result[1]["count"], 2)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[1]["name"] == "$pageview"
+            assert result[2]["name"] == "$pageview"
+            assert result[0]["count"] == 3
+            assert result[1]["count"] == 2
+            assert result[2]["count"] == 1
             # check ordering of people in every step
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
                 [
                     people["stopped_after_pageview1"].uuid,
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
                 [
                     people["stopped_after_pageview2"].uuid,
                     people["stopped_after_pageview3"].uuid,
-                ],
+                ]
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 3),
-                [people["stopped_after_pageview3"].uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([people["stopped_after_pageview3"].uuid])
 
         @snapshot_clickhouse_queries
         def test_timezones(self):
@@ -3489,8 +3431,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
             result = funnel.run()
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 0)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 0
 
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(
@@ -3537,11 +3479,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
 
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 4)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 4
 
-            self.assertEqual(result[1]["name"], "watched movie")
-            self.assertEqual(result[1]["count"], 1)
+            assert result[1]["name"] == "watched movie"
+            assert result[1]["count"] == 1
 
         def test_hogql_aggregation(self):
             # first person
@@ -3576,10 +3518,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # without hogql aggregation
             result = self._basic_funnel(filters=basic_filters).run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 2)
-            self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[0]["name"] == "user signed up"
+            assert result[0]["count"] == 2
+            assert result[1]["count"] == 1
+            assert result[2]["count"] == 1
 
             # properties.$session_id
             result = self._basic_funnel(
@@ -3588,21 +3530,21 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     "funnel_aggregate_by_hogql": "properties.$session_id",
                 }
             ).run()
-            self.assertEqual(result[0]["count"], 3)
-            self.assertEqual(result[1]["count"], 2)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[0]["count"] == 3
+            assert result[1]["count"] == 2
+            assert result[2]["count"] == 1
 
             # distinct_id
             result = self._basic_funnel(filters={**basic_filters, "funnel_aggregate_by_hogql": "distinct_id"}).run()
-            self.assertEqual(result[0]["count"], 2)
-            self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[0]["count"] == 2
+            assert result[1]["count"] == 1
+            assert result[2]["count"] == 1
 
             # person_id
             result = self._basic_funnel(filters={**basic_filters, "funnel_aggregate_by_hogql": "person_id"}).run()
-            self.assertEqual(result[0]["count"], 2)
-            self.assertEqual(result[1]["count"], 1)
-            self.assertEqual(result[2]["count"], 1)
+            assert result[0]["count"] == 2
+            assert result[1]["count"] == 1
+            assert result[2]["count"] == 1
 
             # # person.properties.common_prop - not supported!
             # result = self._basic_funnel(
@@ -3646,8 +3588,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
 
             result = self._basic_funnel(filters=filters).run()
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(result[1]["count"], 1)
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
 
         def test_funnel_all_events_via_action(self):
             person_factory(distinct_ids=["user"], team_id=self.team.pk)
@@ -3670,8 +3612,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
 
             result = self._basic_funnel(filters=filters).run()
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(result[1]["count"], 1)
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
 
         def test_funnel_personless_events_are_supported(self):
             personless_user = uuid.uuid4()
@@ -3699,8 +3641,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
 
             result = self._basic_funnel(filters=filters).run()
-            self.assertEqual(result[0]["count"], 1)
-            self.assertEqual(result[1]["count"], 1)
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
 
     return TestGetFunnel
 

@@ -44,7 +44,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
             node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
-        self.assertEqual(tool.name, "read_taxonomy")
+        assert tool.name == "read_taxonomy"
 
     @patch("ee.hogai.tools.read_taxonomy.tool.AssistantContextManager")
     async def test_create_tool_class_includes_groups_in_schema(self, mock_context_manager_class):
@@ -65,10 +65,10 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         schema = tool.args_schema.model_json_schema()
         entity_properties_schema = schema["$defs"]["ReadEntityProperties"]["properties"]["entity"]
 
-        self.assertIn("organization", entity_properties_schema["enum"])
-        self.assertIn("project", entity_properties_schema["enum"])
-        self.assertIn("person", entity_properties_schema["enum"])
-        self.assertIn("session", entity_properties_schema["enum"])
+        assert "organization" in entity_properties_schema["enum"]
+        assert "project" in entity_properties_schema["enum"]
+        assert "person" in entity_properties_schema["enum"]
+        assert "session" in entity_properties_schema["enum"]
 
     @parameterized.expand(
         [
@@ -108,7 +108,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team)
 
-        self.assertIn("events:", result)
+        assert "events:" in result
         mock_format_events.assert_called_once_with([], self.team, limit=500, offset=0)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
@@ -118,10 +118,10 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         result = execute_taxonomy_query(ReadEntityProperties(entity="person"), mock_toolkit, self.team)
 
-        self.assertIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
-        self.assertIn("$survey_dismissed", result)
-        self.assertIn("$feature_enrollment", result)
-        self.assertIn("$product_tour_dismissed", result)
+        assert DYNAMIC_PERSON_PROPERTIES_HINT in result
+        assert "$survey_dismissed" in result
+        assert "$feature_enrollment" in result
+        assert "$product_tour_dismissed" in result
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_non_person_entity_properties_exclude_dynamic_hint(self, mock_toolkit_class):
@@ -130,7 +130,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         result = execute_taxonomy_query(ReadEntityProperties(entity="session"), mock_toolkit, self.team)
 
-        self.assertNotIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
+        assert DYNAMIC_PERSON_PROPERTIES_HINT not in result
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_event_properties_include_dynamic_hint(self, mock_toolkit_class):
@@ -139,5 +139,5 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         result = execute_taxonomy_query(ReadEventProperties(event_name="$pageview"), mock_toolkit, self.team)
 
-        self.assertIn(DYNAMIC_EVENT_PROPERTIES_HINT, result)
-        self.assertIn("$feature/{flag_key}", result)
+        assert DYNAMIC_EVENT_PROPERTIES_HINT in result
+        assert "$feature/{flag_key}" in result

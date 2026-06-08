@@ -17,17 +17,17 @@ class TestFeedbackCommand(BaseTest):
     def test_get_feedback_content_extracts_text(self):
         state = AssistantState(messages=[HumanMessage(content="/feedback This is great!")])
         result = self.command.get_feedback_content(state)
-        self.assertEqual(result, "This is great!")
+        assert result == "This is great!"
 
     def test_get_feedback_content_returns_none_for_empty(self):
         state = AssistantState(messages=[HumanMessage(content="/feedback")])
         result = self.command.get_feedback_content(state)
-        self.assertEqual(result, "")
+        assert result == ""
 
     def test_get_feedback_content_strips_whitespace(self):
         state = AssistantState(messages=[HumanMessage(content="/feedback   Some feedback   ")])
         result = self.command.get_feedback_content(state)
-        self.assertEqual(result, "Some feedback")
+        assert result == "Some feedback"
 
     async def test_execute_returns_usage_message_when_no_text(self):
         state = AssistantState(messages=[HumanMessage(content="/feedback")])
@@ -35,12 +35,12 @@ class TestFeedbackCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("Please provide your feedback", message.content)
-        self.assertIn("/feedback <your feedback>", message.content)
+        assert "Please provide your feedback" in message.content
+        assert "/feedback <your feedback>" in message.content
 
     @patch("ee.hogai.chat_agent.slash_commands.commands.feedback.command.posthoganalytics.capture")
     async def test_execute_captures_feedback_event(self, mock_capture):
@@ -49,10 +49,10 @@ class TestFeedbackCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
-        self.assertEqual(message.content, "Thanks for making PostHog AI better!")
+        assert message.content == "Thanks for making PostHog AI better!"
 
         mock_capture.assert_called_once_with(
             distinct_id=str(self.user.distinct_id),

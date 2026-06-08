@@ -73,14 +73,14 @@ class KafkaClientTestCase(TestCase):
         producer.produce(topic=self.topic, data="any")
         producer.close()
         msg = next(consumer)
-        self.assertEqual(msg, "message 1 from test_topic topic")
+        assert msg == "message 1 from test_topic topic"
 
     @patch("posthog.kafka_client.client.ConfluentProducer")
     def test_kafka_default_security_protocol(self, mock_producer_class: MagicMock):
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertEqual(config["security.protocol"], "PLAINTEXT")
+        assert config["security.protocol"] == "PLAINTEXT"
 
     @override_settings(
         KAFKA_PROFILES=_make_profiles(
@@ -95,10 +95,10 @@ class KafkaClientTestCase(TestCase):
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertEqual(config["security.protocol"], "SASL_PLAINTEXT")
-        self.assertEqual(config["sasl.mechanism"], "<mechanism>")
-        self.assertEqual(config["sasl.username"], "<user>")
-        self.assertEqual(config["sasl.password"], "<password>")
+        assert config["security.protocol"] == "SASL_PLAINTEXT"
+        assert config["sasl.mechanism"] == "<mechanism>"
+        assert config["sasl.username"] == "<user>"
+        assert config["sasl.password"] == "<password>"
 
     @override_settings(
         KAFKA_PROFILES=_make_profiles(
@@ -113,11 +113,11 @@ class KafkaClientTestCase(TestCase):
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertEqual(config["security.protocol"], "SSL")
+        assert config["security.protocol"] == "SSL"
         # SASL params should not be present when using SSL without SASL
-        self.assertNotIn("sasl.mechanism", config)
-        self.assertNotIn("sasl.username", config)
-        self.assertNotIn("sasl.password", config)
+        assert "sasl.mechanism" not in config
+        assert "sasl.username" not in config
+        assert "sasl.password" not in config
 
     @override_settings(
         KAFKA_PROFILES=_make_profiles(
@@ -144,25 +144,25 @@ class KafkaClientTestCase(TestCase):
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertEqual(config["client.id"], "my-client")
-        self.assertEqual(config["batch.size"], 16000000)
-        self.assertEqual(config["linger.ms"], 100)
-        self.assertEqual(config["message.max.bytes"], 6000000)
-        self.assertEqual(config["max.in.flight.requests.per.connection"], 1000000)
+        assert config["client.id"] == "my-client"
+        assert config["batch.size"] == 16000000
+        assert config["linger.ms"] == 100
+        assert config["message.max.bytes"] == 6000000
+        assert config["max.in.flight.requests.per.connection"] == 1000000
         # buffer_memory is in bytes but confluent expects kbytes.
-        self.assertEqual(config["queue.buffering.max.kbytes"], 1048576)
-        self.assertEqual(config["queue.buffering.max.ms"], 1000)
-        self.assertEqual(config["metadata.max.age.ms"], 15000)
+        assert config["queue.buffering.max.kbytes"] == 1048576
+        assert config["queue.buffering.max.ms"] == 1000
+        assert config["metadata.max.age.ms"] == 15000
         # Warpstream-friendly tuning knobs wired from the same-named env vars
         # that the Node.js and rust services already use in Helm charts.
-        self.assertEqual(config["topic.metadata.refresh.interval.ms"], 60000)
-        self.assertEqual(config["queue.buffering.max.messages"], 1000000)
-        self.assertEqual(config["sticky.partitioning.linger.ms"], 25)
-        self.assertEqual(config["enable.idempotence"], True)
-        self.assertEqual(config["compression.type"], "gzip")
+        assert config["topic.metadata.refresh.interval.ms"] == 60000
+        assert config["queue.buffering.max.messages"] == 1000000
+        assert config["sticky.partitioning.linger.ms"] == 25
+        assert config["enable.idempotence"]
+        assert config["compression.type"] == "gzip"
         # Snake-case originals must not leak through to librdkafka.
-        self.assertNotIn("enable_idempotence", config)
-        self.assertNotIn("compression_type", config)
+        assert "enable_idempotence" not in config
+        assert "compression_type" not in config
 
     @override_settings(KAFKA_PROFILES=_make_profiles(producer_settings={"partitioner": "murmur2_random"}))
     @patch("posthog.kafka_client.client.ConfluentProducer")
@@ -171,8 +171,8 @@ class KafkaClientTestCase(TestCase):
         mock_producer_class.return_value = MagicMock()
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
-        self.assertNotIn("partitioner", config)
-        self.assertNotIn("partitioner", config.values())
+        assert "partitioner" not in config
+        assert "partitioner" not in config.values()
 
     @override_settings(
         KAFKA_BASE64_KEYS=True,
@@ -202,18 +202,18 @@ class KafkaClientTestCase(TestCase):
         _KafkaProducer(test=False)
         config = mock_producer_class.call_args[0][0]
 
-        self.assertEqual(config["security.protocol"], "SSL")
-        self.assertEqual(config["ssl.certificate.location"], "/tmp/cert.crt")
-        self.assertEqual(config["ssl.key.location"], "/tmp/key.key")
-        self.assertEqual(config["ssl.ca.location"], "/tmp/ca.crt")
-        self.assertEqual(config["ssl.endpoint.identification.algorithm"], "none")
+        assert config["security.protocol"] == "SSL"
+        assert config["ssl.certificate.location"] == "/tmp/cert.crt"
+        assert config["ssl.key.location"] == "/tmp/key.key"
+        assert config["ssl.ca.location"] == "/tmp/ca.crt"
+        assert config["ssl.endpoint.identification.algorithm"] == "none"
 
         # SASL config from the profile must not leak through when SSL certs are active.
-        self.assertNotIn("sasl.mechanism", config)
+        assert "sasl.mechanism" not in config
 
         # Producer settings still flow through — this is what the old helper dropped.
-        self.assertEqual(config["linger.ms"], 250)
-        self.assertEqual(config["batch.size"], 1_000_000)
+        assert config["linger.ms"] == 250
+        assert config["batch.size"] == 1000000
 
 
 # Real-broker round-trip tests. Disabled by default because they require a reachable
@@ -259,11 +259,11 @@ class KafkaClientRoundtripTestCase(TestCase):
         try:
             consumer.subscribe([topic])
             msg = consumer.poll(timeout=10.0)
-            self.assertIsNotNone(msg, "No message received within 10s")
+            assert msg is not None, "No message received within 10s"
             assert msg is not None  # for type narrowing
-            self.assertIsNone(msg.error())
+            assert msg.error() is None
             value = msg.value()
             assert value is not None
-            self.assertEqual(json.loads(value), payload)
+            assert json.loads(value) == payload
         finally:
             consumer.close()

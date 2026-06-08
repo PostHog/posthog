@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -77,7 +78,7 @@ def execute(filter: Filter, team: Team, max_retries: int = 5):
         q, params = cohort_query.get_query()
         res = sync_execute(q, {**params, **filter.hogql_context.values})
         try:
-            unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
+            assert Counter(res) == Counter(cohort_query.hogql_result.results)
             assert ["id"] == cohort_query.hogql_result.columns
             return res, q, params
         except AssertionError as e:

@@ -73,9 +73,9 @@ class TestAsyncMigrations(BaseTest):
 
         sm.refresh_from_db()
 
-        self.assertEqual(sm.status, MigrationStatus.CompletedSuccessfully)
-        self.assertEqual(sm.current_operation_index, 7)
-        self.assertEqual(sm.progress, 100)
+        assert sm.status == MigrationStatus.CompletedSuccessfully
+        assert sm.current_operation_index == 7
+        assert sm.progress == 100
 
     @pytest.mark.ee
     @patch.object(AsyncResult, "state", states.STARTED)
@@ -105,4 +105,4 @@ class TestAsyncMigrations(BaseTest):
 
         sm.refresh_from_db()
 
-        self.assertEqual(sm.status, MigrationStatus.RolledBack)
+        assert sm.status == MigrationStatus.RolledBack

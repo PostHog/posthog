@@ -88,7 +88,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
 
-        self.assertEqual(35, len(results))
+        assert 35 == len(results)
 
     def test_second_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -108,7 +108,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=2)
 
-        self.assertEqual(10, len(results))
+        assert 10 == len(results)
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
@@ -128,7 +128,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=-2)
 
-        self.assertEqual(25, len(results))
+        assert 25 == len(results)
 
     def test_third_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -149,7 +149,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         results = get_actors_legacy_filters(filters, self.team, funnel_step=3)
 
-        self.assertEqual(0, len(results))
+        assert 0 == len(results)
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -215,12 +215,8 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors_legacy_filters(filters, self.team, funnel_step=1, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [],
-        )
+        assert results[0][0] == p1.uuid
+        assert list(results[0][2]) == []
 
         # Second event, with recording
         filters = {
@@ -240,23 +236,19 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors_legacy_filters(filters, self.team, funnel_step=2, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0][0] == p1.uuid
+        assert list(results[0][2]) == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]
 
         # Third event dropoff, with recording
         filters = {
@@ -276,20 +268,16 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors_legacy_filters(filters, self.team, funnel_step=-3, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
-        self.assertEqual(results[0][0], p1.uuid)
-        self.assertEqual(
-            # results[0]["matched_recordings"],
-            list(results[0][2]),
-            [
-                {
-                    "session_id": "s2",
-                    "events": [
-                        {
-                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": timezone.now() + timedelta(days=1),
-                            "window_id": "w2",
-                        }
-                    ],
-                }
-            ],
-        )
+        assert results[0][0] == p1.uuid
+        assert list(results[0][2]) == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]

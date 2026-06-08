@@ -99,14 +99,14 @@ class TestFormatQueryResultsForLlm(TestCase):
         team = MagicMock()
         result = format_query_results_for_llm(query, response, team)
         assert result is not None
-        self.assertIn(expected_substr, result)
+        assert expected_substr in result
 
     def test_boxplot_empty_list_still_uses_boxplot_formatter(self):
         team = MagicMock()
         query = TrendsQuery(series=[], trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT))
         response: dict[str, Any] = {"results": []}
         result = format_query_results_for_llm(query, response, team)
-        self.assertEqual(result, "No data recorded for this time period.")
+        assert result == "No data recorded for this time period."
 
     @parameterized.expand(
         [
@@ -134,4 +134,4 @@ class TestFormatQueryResultsForLlm(TestCase):
         team = MagicMock()
         result = format_query_results_for_llm(query, response, team)
         assert result is not None, f"Expected a formatted result, got None for {_name}"
-        self.assertIn(expected_substr, result)
+        assert expected_substr in result

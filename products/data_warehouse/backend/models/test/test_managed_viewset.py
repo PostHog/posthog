@@ -76,15 +76,15 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # Should have views for each event (purchase, subscription_charge) and each view type
         # Each event should generate 6 view types: customer, charge, subscription, revenue_item, product, mrr
         expected_view_count = 2 * 6  # 2 events * 6 types
-        self.assertGreaterEqual(views.count(), expected_view_count)
+        assert views.count() >= expected_view_count
 
         # Check that views have the expected structure
         for view in views:
-            self.assertTrue(view.is_materialized)
-            self.assertIsNotNone(view.query)
-            self.assertIsNotNone(view.columns)
-            self.assertIsNotNone(view.external_tables)
-            self.assertIn("HogQLQuery", view.query.get("kind", ""))  # type: ignore
+            assert view.is_materialized
+            assert view.query is not None
+            assert view.columns is not None
+            assert view.external_tables is not None
+            assert "HogQLQuery" in view.query.get("kind", "")  # type: ignore
 
         expected_view_names = sorted(
             [
@@ -103,7 +103,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             ]
         )
 
-        self.assertEqual(sorted([view.name for view in views]), expected_view_names)
+        assert sorted([view.name for view in views]) == expected_view_names
 
     def test_sync_views_updates_existing_views(self):
         """Test that sync_views updates query and columns for existing views"""
@@ -131,10 +131,10 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         # Check that the view was updated
         saved_query.refresh_from_db()
-        self.assertNotEqual(saved_query.query, old_query)
-        self.assertNotEqual(saved_query.columns, old_columns)
-        self.assertIsNotNone(saved_query.external_tables)  # Was unset, guarantee we've set it
-        self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
+        assert saved_query.query != old_query
+        assert saved_query.columns != old_columns
+        assert saved_query.external_tables is not None  # Was unset, guarantee we've set it
+        assert "HogQLQuery" in saved_query.query.get("kind", "")  # type: ignore
 
     def test_delete_with_views(self):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""
@@ -163,15 +163,15 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         managed_viewset.delete_with_views()
 
         # Check that the managed viewset is deleted
-        self.assertFalse(DataWarehouseManagedViewSet.objects.filter(id=managed_viewset.id).exists())
+        assert not DataWarehouseManagedViewSet.objects.filter(id=managed_viewset.id).exists()
 
         # Check that views are marked as deleted
         view1.refresh_from_db()
         view2.refresh_from_db()
-        self.assertTrue(view1.deleted)
-        self.assertTrue(view2.deleted)
-        self.assertIsNotNone(view1.deleted_at)
-        self.assertIsNotNone(view2.deleted_at)
+        assert view1.deleted
+        assert view2.deleted
+        assert view1.deleted_at is not None
+        assert view2.deleted_at is not None
 
     def test_managed_viewset_creation(self):
         """Test basic managed viewset creation"""
@@ -180,10 +180,10 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
-        self.assertEqual(managed_viewset.team, self.team)
-        self.assertEqual(managed_viewset.kind, DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
-        self.assertIsNotNone(managed_viewset.id)
-        self.assertIsNotNone(managed_viewset.created_at)
+        assert managed_viewset.team == self.team
+        assert managed_viewset.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        assert managed_viewset.id is not None
+        assert managed_viewset.created_at is not None
 
     def test_managed_viewset_unique_constraint(self):
         """Test that managed viewset has unique constraint on team and kind"""
@@ -259,12 +259,12 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
     def assertQueryIsEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
         assert saved_query.query is not None
         query_str = saved_query.query.get("query", "")
-        self.assertTrue("where false" in query_str.lower(), msg=msg)
+        assert "where false" in query_str.lower(), msg
 
     def assertQueryIsNotEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
         assert saved_query.query is not None
         query_str = saved_query.query.get("query", "")
-        self.assertFalse("where false" in query_str.lower(), msg=msg)
+        assert "where false" not in query_str.lower(), msg
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_produces_empty_queries_when_no_tables_exist(self, _):
@@ -272,7 +272,7 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         self.managed_viewset.sync_views()
 
         saved_queries = self._get_saved_queries()
-        self.assertEqual(len(saved_queries), 6)
+        assert len(saved_queries) == 6
 
         # MRR view references other saved queries (not tables directly),
         # so it always produces a non-empty query regardless of table state
@@ -296,7 +296,7 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
 
         self.managed_viewset.sync_views()
         saved_queries = self._get_saved_queries()
-        self.assertEqual(len(saved_queries), 6)
+        assert len(saved_queries) == 6
         for query in saved_queries:
             self.assertQueryIsNotEmpty(query, f"Expected not empty query after table creation for {query.name}")
 
@@ -315,8 +315,8 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         self.managed_viewset.sync_views()
         count_after_third = len(self._get_saved_queries())
 
-        self.assertEqual(count_after_first, count_after_second)
-        self.assertEqual(count_after_second, count_after_third)
+        assert count_after_first == count_after_second
+        assert count_after_second == count_after_third
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_partial_sync_only_creates_real_queries_for_available_tables(self, _):
@@ -360,15 +360,13 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
         with patch(SCHEDULE_MATERIALIZATION, side_effect=capture_count):
             self.managed_viewset.sync_views()
 
-        self.assertEqual(len(counts_observed_during_schedule), expected_view_count)
+        assert len(counts_observed_during_schedule) == expected_view_count
         for count in counts_observed_during_schedule:
-            self.assertEqual(
-                count,
-                expected_view_count,
+            assert count == expected_view_count, (
                 f"Expected all {expected_view_count} saved queries to be persisted when "
                 f"schedule_materialization runs (phase 2 after commit), but saw count={count}. "
                 f"This regression indicates schedule_materialization is being called from inside "
-                f"the sync_views transaction.",
+                f"the sync_views transaction."
             )
 
     def test_sync_views_persists_db_changes_when_schedule_materialization_fails(self):
@@ -384,4 +382,4 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
             self.managed_viewset.sync_views()
 
         saved_queries = self._get_saved_queries()
-        self.assertEqual(len(saved_queries), 6)
+        assert len(saved_queries) == 6

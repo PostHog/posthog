@@ -171,7 +171,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [
@@ -186,21 +186,21 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
         obj = getattr(self, attr)
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/{obj.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_list_score_definitions(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/score_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_list_trace_reviews(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/trace_reviews/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_retrieve_trace_review(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -209,14 +209,14 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/trace_reviews/{self.trace_review.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_list_review_queues(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/review_queues/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_retrieve_review_queue(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -225,14 +225,14 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/review_queues/{self.review_queue.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_list_review_queue_items(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/review_queue_items/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_retrieve_review_queue_item(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -241,7 +241,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/review_queue_items/{self.review_queue_item.id}/"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     # -- Viewer cannot create/update/delete --
 
@@ -260,7 +260,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_create_dataset(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -271,7 +271,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "New Dataset"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_update_evaluation(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -282,7 +282,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "Updated"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_delete_provider_key(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -291,7 +291,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{self.provider_key.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_create_score_definition(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -306,7 +306,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_create_trace_review(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -317,7 +317,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"trace_id": "trace_new"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_update_trace_review(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -328,7 +328,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"comment": "Updated"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_delete_trace_review(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -337,7 +337,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/trace_reviews/{self.trace_review.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_create_review_queue(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -348,7 +348,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "New queue"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_update_review_queue(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -359,7 +359,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "Renamed queue"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_delete_review_queue(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -368,7 +368,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/review_queues/{self.review_queue.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_create_review_queue_item(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -379,7 +379,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"queue_id": str(self.review_queue.id), "trace_id": "trace_new"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_update_review_queue_item(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -391,7 +391,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"queue_id": str(alternate_queue.id)},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_delete_review_queue_item(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -400,7 +400,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/review_queue_items/{self.review_queue_item.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Editor can create/update/delete --
 
@@ -419,7 +419,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_create_dataset(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -430,7 +430,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "Editor Dataset"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_update_evaluation(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -441,7 +441,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "Updated by editor"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [
@@ -458,7 +458,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         with patch("products.ai_observability.backend.api.provider_keys.validate_provider_key") as mock_validate:
             mock_validate.return_value = (LLMProviderKey.State.OK, None)
             response = self._mutate_provider_key(action)
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     @parameterized.expand(
         [
@@ -475,7 +475,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         with patch("products.ai_observability.backend.api.provider_keys.validate_provider_key") as mock_validate:
             mock_validate.return_value = (LLMProviderKey.State.OK, None)
             response = self._mutate_provider_key(action)
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def test_editor_can_create_score_definition(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -490,7 +490,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_create_trace_review(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -501,7 +501,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"trace_id": "trace_new"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_update_trace_review(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -512,7 +512,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"comment": "Updated by editor"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_delete_trace_review(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -521,7 +521,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/trace_reviews/{self.trace_review.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_editor_can_create_review_queue(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -532,7 +532,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "Escalations"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_update_review_queue(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -543,7 +543,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"name": "Renamed queue"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_delete_review_queue(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -552,7 +552,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/review_queues/{self.review_queue.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_editor_can_create_review_queue_item(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -563,7 +563,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"queue_id": str(self.review_queue.id), "trace_id": "trace_new"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_update_review_queue_item(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -575,7 +575,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             {"queue_id": str(alternate_queue.id)},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_delete_review_queue_item(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -584,7 +584,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/review_queue_items/{self.review_queue_item.id}/",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # -- None access blocks everything --
 
@@ -602,7 +602,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Resource inheritance: setting llm_analytics cascades to child resources --
 
@@ -618,7 +618,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [
@@ -632,7 +632,7 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Org admin has full access without explicit permissions --
 
@@ -654,4 +654,4 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED

@@ -114,7 +114,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_notset", "p_null"}, {row[0]["distinct_id"] for row in results})
+        assert {"p_notset", "p_null"} == {row[0]["distinct_id"] for row in results}
 
     def test_is_set_boolean(self):
         self._create_boolean_field_test_events()
@@ -128,7 +128,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_true", "p_false"}, {row[0]["distinct_id"] for row in results})
+        assert {"p_true", "p_false"} == {row[0]["distinct_id"] for row in results}
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(
@@ -143,16 +143,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Tuple, where_expr.right)
-        self.assertEqual(
-            [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
-        )
+        assert [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs] == ["id1", "id2"]
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Tuple, where_expr.right)
-        self.assertEqual(right_expr.exprs, [])
+        assert right_expr.exprs == []
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
@@ -168,8 +166,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Constant, where_expr.right)
-        self.assertEqual(right_expr.value, "%posthog.com%")
-        self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
+        assert right_expr.value == "%posthog.com%"
+        assert where_expr.op == CompareOperationOp.NotILike
 
     def test_big_int(self):
         BIG_INT = 2**159 - 24
@@ -447,8 +445,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = EventsQueryRunner(query=query, team=self.team)
         response = runner.run()
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
+        assert len(response.results) == 1
+        assert response.results[0][0]["properties"]["attr"] == "no div"
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -862,7 +860,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             all_results.extend(response.results)
 
         actual_indices = [row[0] for row in all_results]
-        self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
+        assert actual_indices == ["1", "2", "3", "4", "5"]
 
     def test_cursor_pagination_sets_before(self):
         query = EventsQuery(
@@ -874,7 +872,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = EventsQueryRunner(query=query, team=self.team)
         runner.apply_pagination_cursor("2020-01-11T12:00:00+00:00")
 
-        self.assertEqual(runner.query.before, "2020-01-11T12:00:00+00:00")
+        assert runner.query.before == "2020-01-11T12:00:00+00:00"
 
     def test_cursor_pagination_sets_after(self):
         query = EventsQuery(
@@ -886,7 +884,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = EventsQueryRunner(query=query, team=self.team)
         runner.apply_pagination_cursor("2020-01-11T12:00:00+00:00")
 
-        self.assertEqual(runner.query.after, "2020-01-11T12:00:00+00:00")
+        assert runner.query.after == "2020-01-11T12:00:00+00:00"
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -926,7 +924,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 break
 
         actual_indices = [row[0] for row in all_results]
-        self.assertEqual(actual_indices, ["5", "4", "3", "2", "1"])
+        assert actual_indices == ["5", "4", "3", "2", "1"]
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -966,7 +964,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 break
 
         actual_indices = [row[0] for row in all_results]
-        self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
+        assert actual_indices == ["1", "2", "3", "4", "5"]
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -991,7 +989,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertIsNone(response.nextCursor)
+        assert response.nextCursor is None
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -1014,7 +1012,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertIsNone(response.nextCursor)
+        assert response.nextCursor is None
 
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
@@ -1040,7 +1038,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert response.nextCursor is not None
-        self.assertEqual(datetime.fromisoformat(response.nextCursor), datetime.fromisoformat("2020-01-11T12:00:02Z"))
+        assert datetime.fromisoformat(response.nextCursor) == datetime.fromisoformat("2020-01-11T12:00:02Z")
 
     def test_action_steps_filters_events(self):
         self._create_events(
@@ -1067,8 +1065,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0][0]["event"], "$pageview")
+        assert len(response.results) == 1
+        assert response.results[0][0]["event"] == "$pageview"
 
     def _enable_property_access_control(self) -> None:
         from posthog.constants import AvailableFeature

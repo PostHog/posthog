@@ -69,7 +69,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
         response_json = response.json()
         return response_json.get("id", None), response_json
@@ -140,7 +140,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/{created_insight_id}",
                 {"name": f"{created_insight_id}-insight-changed-by-{the_user.id}"},
             )
-            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            assert update_response.status_code == status.HTTP_200_OK
 
             frozen_time.tick(delta=timedelta(minutes=6))
         assert (

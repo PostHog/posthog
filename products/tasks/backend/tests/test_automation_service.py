@@ -43,13 +43,13 @@ class TestAutomationService(TestCase):
                 str(automation.id), trigger_workflow_id="automation-workflow-123"
             )
 
-        self.assertEqual(first_task.id, second_task.id)
-        self.assertEqual(first_run.id, second_run.id)
-        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.AUTOMATION).count(), 1)
-        self.assertEqual(TaskRun.objects.filter(task__origin_product=Task.OriginProduct.AUTOMATION).count(), 1)
-        self.assertEqual(first_run.state["automation_id"], str(automation.id))
-        self.assertEqual(first_run.state["automation_trigger_workflow_id"], "automation-workflow-123")
-        self.assertEqual(mock_execute_workflow.call_count, 2)
+        assert first_task.id == second_task.id
+        assert first_run.id == second_run.id
+        assert Task.objects.filter(origin_product=Task.OriginProduct.AUTOMATION).count() == 1
+        assert TaskRun.objects.filter(task__origin_product=Task.OriginProduct.AUTOMATION).count() == 1
+        assert first_run.state["automation_id"] == str(automation.id)
+        assert first_run.state["automation_trigger_workflow_id"] == "automation-workflow-123"
+        assert mock_execute_workflow.call_count == 2
 
     @patch("products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation")
     def test_run_task_automation_does_not_reuse_run_from_another_team(self, mock_execute_workflow):
@@ -74,10 +74,10 @@ class TestAutomationService(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             task, task_run = run_task_automation(str(automation.id), trigger_workflow_id="automation-workflow-123")
 
-        self.assertNotEqual(task_run.id, other_run.id)
-        self.assertEqual(task.team_id, self.team.id)
-        self.assertEqual(task_run.task_id, task.id)
-        self.assertEqual(mock_execute_workflow.call_count, 1)
+        assert task_run.id != other_run.id
+        assert task.team_id == self.team.id
+        assert task_run.task_id == task.id
+        assert mock_execute_workflow.call_count == 1
 
     @patch("products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation")
     def test_run_task_automation_reuses_task_and_creates_new_runs(self, mock_execute_workflow):
@@ -89,14 +89,14 @@ class TestAutomationService(TestCase):
             second_task, second_run = run_task_automation(str(automation.id))
 
         automation.refresh_from_db()
-        self.assertEqual(first_task.id, second_task.id)
-        self.assertEqual(automation.task_id, first_task.id)
-        self.assertEqual(automation.last_run_at, second_run.created_at)
-        self.assertEqual(automation.last_run_status, TaskAutomation.RunStatus.RUNNING)
-        self.assertNotEqual(first_run.id, second_run.id)
-        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.AUTOMATION).count(), 1)
-        self.assertEqual(TaskRun.objects.filter(task=first_task).count(), 2)
-        self.assertEqual(mock_execute_workflow.call_count, 2)
+        assert first_task.id == second_task.id
+        assert automation.task_id == first_task.id
+        assert automation.last_run_at == second_run.created_at
+        assert automation.last_run_status == TaskAutomation.RunStatus.RUNNING
+        assert first_run.id != second_run.id
+        assert Task.objects.filter(origin_product=Task.OriginProduct.AUTOMATION).count() == 1
+        assert TaskRun.objects.filter(task=first_task).count() == 2
+        assert mock_execute_workflow.call_count == 2
 
     def test_automation_last_run_properties_come_from_last_task_run(self):
         automation = self.create_automation()
@@ -108,8 +108,8 @@ class TestAutomationService(TestCase):
         automation.save(update_fields=["last_task_run", "updated_at"])
 
         automation.refresh_from_db()
-        self.assertEqual(automation.last_run_at, task_run.created_at)
-        self.assertEqual(automation.last_run_status, TaskAutomation.RunStatus.SUCCESS)
+        assert automation.last_run_at == task_run.created_at
+        assert automation.last_run_status == TaskAutomation.RunStatus.SUCCESS
 
     def test_update_automation_run_result_records_failure_from_previous_run(self):
         automation = self.create_automation()
@@ -126,5 +126,5 @@ class TestAutomationService(TestCase):
         update_automation_run_result(first_run)
 
         automation.refresh_from_db()
-        self.assertEqual(automation.last_task_run_id, second_run.id)
-        self.assertEqual(automation.last_error, "Automation failed after a newer run started")
+        assert automation.last_task_run_id == second_run.id
+        assert automation.last_error == "Automation failed after a newer run started"

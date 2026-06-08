@@ -58,26 +58,26 @@ class TestEvaluationReportApi(APIBaseTest):
     def test_unauthenticated_user_cannot_access(self):
         self.client.logout()
         response = self.client.get(self.base_url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_list_reports(self):
         self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         self._create_report()
         response = self.client.get(self.base_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
         # Default (non-MCP) list keeps the full payload the web UI relies on.
         first = results[0]
         for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
-            self.assertIn(field, first)
+            assert field in first
 
     def test_mcp_list_returns_slim_payload(self):
         self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         response = self.client.get(self.base_url, HTTP_X_POSTHOG_CLIENT="mcp")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         first = results[0]
         for dropped in (
             "rrule",
@@ -90,27 +90,27 @@ class TestEvaluationReportApi(APIBaseTest):
             "daily_run_cap",
             "created_by",
         ):
-            self.assertNotIn(dropped, first)
-        self.assertIn("id", first)
-        self.assertIn("evaluation", first)
+            assert dropped not in first
+        assert "id" in first
+        assert "evaluation" in first
 
     def test_list_excludes_deleted(self):
         self._create_report()
         self._create_report(deleted=True)
         response = self.client.get(self.base_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
 
     def test_create_scheduled_report(self):
         response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        self.assertEqual(EvaluationReport.objects.count(), 1)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert EvaluationReport.objects.count() == 1
         report = EvaluationReport.objects.first()
         assert report is not None
-        self.assertEqual(report.team_id, self.team.id)
-        self.assertEqual(report.created_by_id, self.user.id)
-        self.assertEqual(report.rrule, "FREQ=DAILY")
-        self.assertEqual(report.timezone_name, "UTC")
+        assert report.team_id == self.team.id
+        assert report.created_by_id == self.user.id
+        assert report.rrule == "FREQ=DAILY"
+        assert report.timezone_name == "UTC"
 
     def test_create_count_triggered_report_is_default(self):
         response = self.client.post(
@@ -123,38 +123,38 @@ class TestEvaluationReportApi(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         report = EvaluationReport.objects.first()
         assert report is not None
-        self.assertTrue(report.is_count_triggered)
-        self.assertEqual(report.rrule, "")
-        self.assertIsNone(report.starts_at)
+        assert report.is_count_triggered
+        assert report.rrule == ""
+        assert report.starts_at is None
 
     def test_create_scheduled_sets_next_delivery_date(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=HOURLY"), format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        self.assertIsNotNone(response.json()["next_delivery_date"])
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["next_delivery_date"] is not None
 
     def test_create_allows_empty_delivery_targets(self):
         response = self.client.post(self.base_url, self._scheduled_payload(delivery_targets=[]), format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_create_scheduled_requires_rrule(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule=""), format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "rrule")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "rrule"
 
     def test_create_scheduled_requires_starts_at(self):
         payload = self._scheduled_payload()
         payload.pop("starts_at")
         response = self.client.post(self.base_url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "starts_at")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "starts_at"
 
     def test_create_rejects_invalid_rrule(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule="NOT_AN_RRULE"), format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "rrule")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "rrule"
 
     def test_create_rejects_rrule_with_dtstart(self):
         response = self.client.post(
@@ -162,7 +162,7 @@ class TestEvaluationReportApi(APIBaseTest):
             self._scheduled_payload(rrule="DTSTART:20260101T000000Z\nRRULE:FREQ=DAILY"),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [
@@ -180,8 +180,8 @@ class TestEvaluationReportApi(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "trigger_threshold")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "trigger_threshold"
 
     @parameterized.expand(
         [
@@ -201,8 +201,8 @@ class TestEvaluationReportApi(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "cooldown_minutes")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "cooldown_minutes"
 
     @parameterized.expand(
         [
@@ -222,8 +222,8 @@ class TestEvaluationReportApi(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "daily_run_cap")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "daily_run_cap"
 
     def test_create_accepts_custom_cooldown_minutes(self):
         response = self.client.post(
@@ -237,10 +237,10 @@ class TestEvaluationReportApi(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         report = EvaluationReport.objects.first()
         assert report is not None
-        self.assertEqual(report.cooldown_minutes, 6 * 60)
+        assert report.cooldown_minutes == 6 * 60
 
     def test_validate_email_target(self):
         response = self.client.post(
@@ -248,7 +248,7 @@ class TestEvaluationReportApi(APIBaseTest):
             self._scheduled_payload(delivery_targets=[{"type": "email"}]),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_validate_slack_target(self):
         response = self.client.post(
@@ -256,7 +256,7 @@ class TestEvaluationReportApi(APIBaseTest):
             self._scheduled_payload(delivery_targets=[{"type": "slack"}]),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_validate_slack_target_valid(self):
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK, config={})
@@ -267,7 +267,7 @@ class TestEvaluationReportApi(APIBaseTest):
             ),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_validate_slack_target_rejects_nonexistent_integration(self):
         response = self.client.post(
@@ -277,8 +277,8 @@ class TestEvaluationReportApi(APIBaseTest):
             ),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "delivery_targets")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "delivery_targets"
 
     def test_validate_slack_target_rejects_cross_team_integration(self):
         # Integration belongs to a different team; must not be usable by this team.
@@ -294,8 +294,8 @@ class TestEvaluationReportApi(APIBaseTest):
             ),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "delivery_targets")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "delivery_targets"
 
     def test_validate_slack_target_rejects_wrong_kind_integration(self):
         # Same team but not a Slack integration — reject so a github id can't masquerade.
@@ -309,8 +309,8 @@ class TestEvaluationReportApi(APIBaseTest):
             ),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "delivery_targets")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "delivery_targets"
 
     def test_validate_invalid_target_type(self):
         response = self.client.post(
@@ -318,13 +318,13 @@ class TestEvaluationReportApi(APIBaseTest):
             self._scheduled_payload(delivery_targets=[{"type": "webhook"}]),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_retrieve_report(self):
         report = self._create_report()
         response = self.client.get(f"{self.base_url}{report.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(report.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(report.id)
 
     def test_update_report(self):
         report = self._create_report()
@@ -333,23 +333,23 @@ class TestEvaluationReportApi(APIBaseTest):
             {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO", "starts_at": timezone.now().isoformat()},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
-        self.assertEqual(report.frequency, "scheduled")
-        self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+        assert report.frequency == "scheduled"
+        assert report.rrule == "FREQ=WEEKLY;BYDAY=MO"
 
     def test_delete_returns_405(self):
         report = self._create_report()
         response = self.client.delete(f"{self.base_url}{report.id}/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_soft_delete_via_patch(self):
         report = self._create_report()
         response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         report.refresh_from_db()
-        self.assertTrue(report.deleted)
-        self.assertEqual(EvaluationReport.objects.filter(deleted=False).count(), 0)
+        assert report.deleted
+        assert EvaluationReport.objects.filter(deleted=False).count() == 0
 
     def test_runs_action_returns_paginated_shape(self):
         report = self._create_report()
@@ -361,12 +361,12 @@ class TestEvaluationReportApi(APIBaseTest):
             period_end=timezone.now(),
         )
         response = self.client.get(f"{self.base_url}{report.id}/runs/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self.assertIn("results", body)
-        self.assertIn("count", body)
-        self.assertEqual(body["count"], 1)
-        self.assertEqual(len(body["results"]), 1)
+        assert "results" in body
+        assert "count" in body
+        assert body["count"] == 1
+        assert len(body["results"]) == 1
 
     # The /runs/ and /generate/ custom @actions have to declare required_scopes explicitly;
     # without them the default scope resolver returns None for non-CRUD action names and PAK
@@ -383,7 +383,7 @@ class TestEvaluationReportApi(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
         response = self.client.get(f"{self.base_url}{report.id}/runs/")
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     @parameterized.expand(
         [
@@ -408,31 +408,31 @@ class TestEvaluationReportApi(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
         response = self.client.post(f"{self.base_url}{report.id}/generate/")
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
     def test_create_reports_user_action(self, mock_report: MagicMock) -> None:
         response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         assert mock_report.called
         event_name = mock_report.call_args_list[0].args[1]
-        self.assertEqual(event_name, "llma evaluation report created")
+        assert event_name == "llma evaluation report created"
 
     @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
     def test_update_reports_user_action(self, mock_report: MagicMock) -> None:
         report = self._create_report()
         mock_report.reset_mock()
         response = self.client.patch(f"{self.base_url}{report.id}/", {"enabled": False}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assert mock_report.called
         event_name = mock_report.call_args_list[0].args[1]
-        self.assertEqual(event_name, "llma evaluation report updated")
+        assert event_name == "llma evaluation report updated"
 
     @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
     def test_soft_delete_reports_user_action(self, mock_report: MagicMock) -> None:
         report = self._create_report()
         mock_report.reset_mock()
         response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         event_name = mock_report.call_args_list[0].args[1]
-        self.assertEqual(event_name, "llma evaluation report deleted")
+        assert event_name == "llma evaluation report deleted"

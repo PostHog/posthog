@@ -38,9 +38,9 @@ class TestUserActivityLoggingConfiguration(BaseTest):
         """Test that field_exclusions['User'] contains the correct fields."""
         user_exclusions = field_exclusions.get("User", [])
         if should_be_excluded:
-            self.assertIn(field_name, user_exclusions, f"Field '{field_name}' should be in exclusions")
+            assert field_name in user_exclusions, f"Field '{field_name}' should be in exclusions"
         else:
-            self.assertNotIn(field_name, user_exclusions, f"Field '{field_name}' should NOT be in exclusions")
+            assert field_name not in user_exclusions, f"Field '{field_name}' should NOT be in exclusions"
 
     @parameterized.expand(
         [
@@ -56,9 +56,9 @@ class TestUserActivityLoggingConfiguration(BaseTest):
         """Test that field_with_masked_contents['User'] masks sensitive fields."""
         user_masked_fields = field_with_masked_contents.get("User", [])
         if should_be_masked:
-            self.assertIn(field_name, user_masked_fields, f"Field '{field_name}' should be masked")
+            assert field_name in user_masked_fields, f"Field '{field_name}' should be masked"
         else:
-            self.assertNotIn(field_name, user_masked_fields, f"Field '{field_name}' should NOT be masked")
+            assert field_name not in user_masked_fields, f"Field '{field_name}' should NOT be masked"
 
     @parameterized.expand(
         [
@@ -76,11 +76,9 @@ class TestUserActivityLoggingConfiguration(BaseTest):
         """Test that signal_exclusions['User'] prevents logging for high-frequency fields."""
         user_signal_exclusions = signal_exclusions.get("User", [])
         if should_exclude_signal:
-            self.assertIn(field_name, user_signal_exclusions, f"Field '{field_name}' should be in signal exclusions")
+            assert field_name in user_signal_exclusions, f"Field '{field_name}' should be in signal exclusions"
         else:
-            self.assertNotIn(
-                field_name, user_signal_exclusions, f"Field '{field_name}' should NOT be in signal exclusions"
-            )
+            assert field_name not in user_signal_exclusions, f"Field '{field_name}' should NOT be in signal exclusions"
 
     @parameterized.expand(
         [
@@ -96,15 +94,13 @@ class TestUserActivityLoggingConfiguration(BaseTest):
         for config in activity_visibility_restrictions:
             if config.get("scope") == "User":
                 user_activities.extend(config.get("activities", []))
-        self.assertIn(activity, user_activities, f"Activity '{activity}' should be restricted for User scope")
+        assert activity in user_activities, f"Activity '{activity}' should be restricted for User scope"
 
     def test_visibility_restrictions_allow_staff_to_view(self) -> None:
         """Test that staff users can view User activities."""
         for config in activity_visibility_restrictions:
             if config.get("scope") == "User":
-                self.assertTrue(
-                    config.get("allow_staff", False), "User activity restrictions should allow staff to view"
-                )
+                assert config.get("allow_staff", False), "User activity restrictions should allow staff to view"
 
 
 class TestUserModelMixinIntegration(BaseTest):
@@ -126,10 +122,10 @@ class TestUserModelMixinIntegration(BaseTest):
             user = User.objects.create_user(
                 email="newuser@example.com", password="testpass123", first_name="New", last_name="User"
             )
-            self.assertTrue(self.signal_received, "Signal should be received on user creation")
-            self.assertEqual(self.signal_data.get("activity"), "created")
-            self.assertEqual(self.signal_data.get("after_update"), user)
-            self.assertIsNone(self.signal_data.get("before_update"))
+            assert self.signal_received, "Signal should be received on user creation"
+            assert self.signal_data.get("activity") == "created"
+            assert self.signal_data.get("after_update") == user
+            assert self.signal_data.get("before_update") is None
         finally:
             model_activity_signal.disconnect(self._signal_handler, sender=User)
 
@@ -145,8 +141,8 @@ class TestUserModelMixinIntegration(BaseTest):
         try:
             user.first_name = "Updated"
             user.save()
-            self.assertTrue(self.signal_received, "Signal should be received on user update")
-            self.assertEqual(self.signal_data.get("activity"), "updated")
+            assert self.signal_received, "Signal should be received on user update"
+            assert self.signal_data.get("activity") == "updated"
         finally:
             model_activity_signal.disconnect(self._signal_handler, sender=User)
 
@@ -162,9 +158,7 @@ class TestUserModelMixinIntegration(BaseTest):
         try:
             user.last_login = timezone.now()
             user.save(update_fields=["last_login"])
-            self.assertFalse(
-                self.signal_received, "Signal should NOT be received when only updating signal-excluded fields"
-            )
+            assert not self.signal_received, "Signal should NOT be received when only updating signal-excluded fields"
         finally:
             model_activity_signal.disconnect(self._signal_handler, sender=User)
 
@@ -177,7 +171,7 @@ class TestUserModelMixinIntegration(BaseTest):
         user.save()
 
         user.refresh_from_db()
-        self.assertEqual(user.first_name, "SaveUpdated")
+        assert user.first_name == "SaveUpdated"
 
 
 class TestUserActivitySignalHandler(ActivityLogTestHelper):
@@ -203,15 +197,15 @@ class TestUserActivitySignalHandler(ActivityLogTestHelper):
 
         log = ActivityLog.objects.filter(scope="User", activity="updated", item_id=str(new_user.id)).first()
 
-        self.assertIsNotNone(log, "ActivityLog should be created for user update")
+        assert log is not None, "ActivityLog should be created for user update"
         assert log is not None
         assert log.detail is not None
         changes = log.detail.get("changes", [])
         first_name_change = next((c for c in changes if c["field"] == "first_name"), None)
-        self.assertIsNotNone(first_name_change)
         assert first_name_change is not None
-        self.assertEqual(first_name_change["before"], "Update")
-        self.assertEqual(first_name_change["after"], "Updated")
+        assert first_name_change is not None
+        assert first_name_change["before"] == "Update"
+        assert first_name_change["after"] == "Updated"
 
     def test_handler_logs_to_all_organizations_user_belongs_to(self) -> None:
         """Test handler logs to ALL organizations user belongs to (multi-org)."""
@@ -238,9 +232,9 @@ class TestUserActivitySignalHandler(ActivityLogTestHelper):
         logs = ActivityLog.objects.filter(scope="User", activity="updated", item_id=str(new_user.id))
         org_ids = {log.organization_id for log in logs}
 
-        self.assertEqual(len(org_ids), 2, "Should have activity logs for both organizations")
-        self.assertIn(self.organization.id, org_ids)
-        self.assertIn(org2.id, org_ids)
+        assert len(org_ids) == 2, "Should have activity logs for both organizations"
+        assert self.organization.id in org_ids
+        assert org2.id in org_ids
 
     def test_handler_handles_new_user_with_no_organization_memberships_gracefully(self) -> None:
         """Test handler handles new user with no organization memberships gracefully."""
@@ -249,7 +243,7 @@ class TestUserActivitySignalHandler(ActivityLogTestHelper):
         )
 
         logs = ActivityLog.objects.filter(scope="User", activity="created", item_id=str(new_user.id))
-        self.assertEqual(logs.count(), 0, "Should not create activity log for user with no organizations")
+        assert logs.count() == 0, "Should not create activity log for user with no organizations"
 
     def test_masked_fields_show_masked_instead_of_actual_values(self) -> None:
         """Test masked fields show 'masked' instead of actual values."""
@@ -275,7 +269,7 @@ class TestUserActivitySignalHandler(ActivityLogTestHelper):
             changes = log.detail.get("changes", [])
             email_change = next((c for c in changes if c["field"] == "pending_email"), None)
             if email_change:
-                self.assertEqual(email_change.get("after"), "masked", "pending_email should be masked")
+                assert email_change.get("after") == "masked", "pending_email should be masked"
 
 
 class TestUserActivityLoggingIntegration(ActivityLogTestHelper):
@@ -305,7 +299,7 @@ class TestUserActivityLoggingIntegration(ActivityLogTestHelper):
             organization_id=self.organization.id, scope="User", activity="updated", item_id=str(new_user.id)
         ).first()
 
-        self.assertIsNotNone(log, "ActivityLog should be created for user update")
+        assert log is not None, "ActivityLog should be created for user update"
 
     def test_activity_log_visibility_manager_filters_user_activities_for_non_staff(self) -> None:
         """Test ActivityLogVisibilityManager correctly filters User activities for non-staff."""
@@ -336,7 +330,5 @@ class TestUserActivityLoggingIntegration(ActivityLogTestHelper):
         filtered_non_staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
         filtered_staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
-        self.assertLess(filtered_non_staff.count(), filtered_staff.count())
-        self.assertFalse(
-            filtered_non_staff.filter(scope="User").exists(), "Non-staff should not see User activity logs"
-        )
+        assert filtered_non_staff.count() < filtered_staff.count()
+        assert not filtered_non_staff.filter(scope="User").exists(), "Non-staff should not see User activity logs"

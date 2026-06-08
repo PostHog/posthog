@@ -128,68 +128,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         results = runner.calculate().results
         formatted_results = runner.funnel_class._format_summarized_results(results)
 
-        self.assertEqual(len(results), 7)
-        self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
-
-    def _run_conversion_window_trends(self, *, hide_incomplete_periods: bool) -> list[dict]:
-        # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
-        # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
-        # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
-        journeys_for(
-            {
-                "user_a": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 7)},
-                    {"event": "step one", "timestamp": datetime(2021, 6, 12)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 13)},
-                ],
-                "recent_entrant": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 15)},
-                ],
-            },
-            self.team,
-        )
-
-        query = FunnelsQuery(
-            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-18 23:59:59"),
-            interval="day",
-            series=[EventsNode(event="step one"), EventsNode(event="step two")],
-            funnelsFilter=FunnelsFilter(
-                funnelVizType="trends",
-                funnelWindowInterval=7,
-                funnelWindowIntervalUnit="day",
-                hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
-            ),
-        )
-        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
-
-    @freeze_time("2021-06-18 12:00:00")
-    def test_keeps_incomplete_conversion_window_periods_by_default(self):
-        results = self._run_conversion_window_trends(hide_incomplete_periods=False)
-        by_day = {row["timestamp"].date(): row for row in results}
-
-        # every daily period in range is present, including the recent incomplete ones
-        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 19)])
-        # both of user_a's entrances converted
-        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
-        self.assertEqual(by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
-        # recent entrant shows as a non-converter, which is what drags the recent trend down
-        self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
-        self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
-
-    @freeze_time("2021-06-18 12:00:00")
-    def test_hides_incomplete_conversion_window_periods_when_enabled(self):
-        results = self._run_conversion_window_trends(hide_incomplete_periods=True)
-        by_day = {row["timestamp"].date(): row for row in results}
-
-        # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
-        # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
-        # on or before 2021-06-10.
-        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 11)])
-        # the old entrance that converted is retained, even though its conversion event is recent
-        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
-        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
-        self.assertNotIn(date(2021, 6, 12), by_day)
-        self.assertNotIn(date(2021, 6, 15), by_day)
+        assert len(results) == 7
+        assert formatted_results[0]["days"][0] == "2021-06-07"
 
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_only_one_user_reached_one_step(self, timezone):
@@ -227,78 +167,72 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 1,
-                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-                {
-                    "reached_to_step_count": 0,
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
-                },
-            ],
-        )
+        assert results == [
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 1,
+                "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+        ]
 
         # 1 user who dropped off starting 2021-06-07
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
             query, "2021-06-07 00:00:00", True
         )
 
-        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
-            [["user a"]],
-        )
+        assert len(funnel_trends_persons_existent_dropped_off_results) == 1
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user a"]]
 
         # No users converted 2021-06-07
         funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
             query, "2021-06-07 00:00:00", False
         )
 
-        self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
+        assert len(funnel_trends_persons_nonexistent_converted_results) == 0
 
         # No users dropped off 2021-06-08
         funnel_trends_persons_nonexistent_converted_results = self._get_actors_at_step(
             query, "2021-06-08 00:00:00", True
         )
 
-        self.assertEqual(len(funnel_trends_persons_nonexistent_converted_results), 0)
+        assert len(funnel_trends_persons_nonexistent_converted_results) == 0
 
     # minute, hour, day, week, month
     def test_hour_interval(self):
@@ -327,7 +261,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-05-06T23:40:59Z"):
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 144)
+        assert len(results) == 144
 
     def test_day_interval(self):
         query = FunnelsQuery(
@@ -367,11 +301,11 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(7, len(results))
+        assert 7 == len(results)
 
         persons = self._get_actors_at_step(query, "2021-05-01 00:00:00", False)
 
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        assert [person["distinct_ids"] for person in persons] == [["user_one"]]
 
     @snapshot_clickhouse_queries
     def test_week_interval(self):
@@ -413,8 +347,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
         persons = self._get_actors_at_step(query, "2021-04-25 00:00:00", False)
 
-        self.assertEqual(2, len(results))
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        assert 2 == len(results)
+        assert [person["distinct_ids"] for person in persons] == [["user_one"]]
 
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_month_interval(self, timezone):
@@ -458,57 +392,54 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(
-            results,
-            [
-                {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
-                    "timestamp": date(2020, 1, 1),
-                },
-                {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
-                    "timestamp": date(2020, 2, 1),
-                },
-                {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
-                    "timestamp": date(2020, 3, 1),
-                },
-                {
-                    "conversion_rate": 100.0 if timezone == "US/Pacific" else 0.0,
-                    "reached_from_step_count": 1 if timezone == "US/Pacific" else 0,
-                    "reached_to_step_count": 1 if timezone == "US/Pacific" else 0,
-                    "timestamp": date(2020, 4, 1),
-                },
-                {
-                    "conversion_rate": 100.0 if timezone == "UTC" else 0.0,
-                    "reached_from_step_count": 1 if timezone == "UTC" else 0,
-                    "reached_to_step_count": 1 if timezone == "UTC" else 0,
-                    "timestamp": date(2020, 5, 1),
-                },
-                {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
-                    "timestamp": date(2020, 6, 1),
-                },
-                {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
-                    "timestamp": date(2020, 7, 1),
-                },
-            ],
-        )
+        assert results == [
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 1, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 2, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 3, 1),
+            },
+            {
+                "conversion_rate": 100.0 if timezone == "US/Pacific" else 0.0,
+                "reached_from_step_count": 1 if timezone == "US/Pacific" else 0,
+                "reached_to_step_count": 1 if timezone == "US/Pacific" else 0,
+                "timestamp": date(2020, 4, 1),
+            },
+            {
+                "conversion_rate": 100.0 if timezone == "UTC" else 0.0,
+                "reached_from_step_count": 1 if timezone == "UTC" else 0,
+                "reached_to_step_count": 1 if timezone == "UTC" else 0,
+                "timestamp": date(2020, 5, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 6, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 7, 1),
+            },
+        ]
         entrance_period_start = "2020-05-01 00:00:00" if timezone == "UTC" else "2020-04-01 00:00:00"
         persons = self._get_actors_at_step(query, entrance_period_start, False)
 
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        assert [person["distinct_ids"] for person in persons] == [["user_one"]]
 
     def test_all_date_range(self):
         query = FunnelsQuery(
@@ -548,11 +479,11 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-05-20T13:01:01Z"):
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(20, len(results))
+        assert 20 == len(results)
 
         persons = self._get_actors_at_step(query, "2021-05-01 00:00:00", False)
 
-        self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
+        assert [person["distinct_ids"] for person in persons] == [["user_one"]]
 
     def test_all_results_for_day_interval(self):
         self._create_sample_data()
@@ -584,39 +515,39 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         saturday = results[0]  # 5/1
-        self.assertEqual(3, saturday["reached_to_step_count"])
-        self.assertEqual(3, saturday["reached_from_step_count"])
-        self.assertEqual(100, saturday["conversion_rate"])
+        assert 3 == saturday["reached_to_step_count"]
+        assert 3 == saturday["reached_from_step_count"]
+        assert 100 == saturday["conversion_rate"]
 
         sunday = results[1]  # 5/2
-        self.assertEqual(0, sunday["reached_to_step_count"])
-        self.assertEqual(2, sunday["reached_from_step_count"])
-        self.assertEqual(0, sunday["conversion_rate"])
+        assert 0 == sunday["reached_to_step_count"]
+        assert 2 == sunday["reached_from_step_count"]
+        assert 0 == sunday["conversion_rate"]
 
         monday = results[2]  # 5/3
-        self.assertEqual(0, monday["reached_to_step_count"])
-        self.assertEqual(0, monday["reached_from_step_count"])
-        self.assertEqual(0, monday["conversion_rate"])
+        assert 0 == monday["reached_to_step_count"]
+        assert 0 == monday["reached_from_step_count"]
+        assert 0 == monday["conversion_rate"]
 
         tuesday = results[3]  # 5/4
-        self.assertEqual(0, tuesday["reached_to_step_count"])
-        self.assertEqual(0, tuesday["reached_from_step_count"])
-        self.assertEqual(0, tuesday["conversion_rate"])
+        assert 0 == tuesday["reached_to_step_count"]
+        assert 0 == tuesday["reached_from_step_count"]
+        assert 0 == tuesday["conversion_rate"]
 
         wednesday = results[4]  # 5/5
-        self.assertEqual(0, wednesday["reached_to_step_count"])
-        self.assertEqual(0, wednesday["reached_from_step_count"])
-        self.assertEqual(0, wednesday["conversion_rate"])
+        assert 0 == wednesday["reached_to_step_count"]
+        assert 0 == wednesday["reached_from_step_count"]
+        assert 0 == wednesday["conversion_rate"]
 
         thursday = results[5]  # 5/6
-        self.assertEqual(0, thursday["reached_to_step_count"])
-        self.assertEqual(1, thursday["reached_from_step_count"])
-        self.assertEqual(0, thursday["conversion_rate"])
+        assert 0 == thursday["reached_to_step_count"]
+        assert 1 == thursday["reached_from_step_count"]
+        assert 0 == thursday["conversion_rate"]
 
         friday = results[6]  # 5/7
-        self.assertEqual(0, friday["reached_to_step_count"])
-        self.assertEqual(0, friday["reached_from_step_count"])
-        self.assertEqual(0, friday["conversion_rate"])
+        assert 0 == friday["reached_to_step_count"]
+        assert 0 == friday["reached_from_step_count"]
+        assert 0 == friday["conversion_rate"]
 
     def test_window_size_one_day(self):
         self._create_sample_data()
@@ -647,39 +578,39 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         saturday = results[0]  # 5/1
-        self.assertEqual(1, saturday["reached_to_step_count"])
-        self.assertEqual(3, saturday["reached_from_step_count"])
-        self.assertEqual(33.33, saturday["conversion_rate"])
+        assert 1 == saturday["reached_to_step_count"]
+        assert 3 == saturday["reached_from_step_count"]
+        assert 33.33 == saturday["conversion_rate"]
 
         sunday = results[1]  # 5/2
-        self.assertEqual(0, sunday["reached_to_step_count"])
-        self.assertEqual(2, sunday["reached_from_step_count"])
-        self.assertEqual(0, sunday["conversion_rate"])
+        assert 0 == sunday["reached_to_step_count"]
+        assert 2 == sunday["reached_from_step_count"]
+        assert 0 == sunday["conversion_rate"]
 
         monday = results[2]  # 5/3
-        self.assertEqual(0, monday["reached_to_step_count"])
-        self.assertEqual(0, monday["reached_from_step_count"])
-        self.assertEqual(0, monday["conversion_rate"])
+        assert 0 == monday["reached_to_step_count"]
+        assert 0 == monday["reached_from_step_count"]
+        assert 0 == monday["conversion_rate"]
 
         tuesday = results[3]  # 5/4
-        self.assertEqual(0, tuesday["reached_to_step_count"])
-        self.assertEqual(0, tuesday["reached_from_step_count"])
-        self.assertEqual(0, tuesday["conversion_rate"])
+        assert 0 == tuesday["reached_to_step_count"]
+        assert 0 == tuesday["reached_from_step_count"]
+        assert 0 == tuesday["conversion_rate"]
 
         wednesday = results[4]  # 5/5
-        self.assertEqual(0, wednesday["reached_to_step_count"])
-        self.assertEqual(0, wednesday["reached_from_step_count"])
-        self.assertEqual(0, wednesday["conversion_rate"])
+        assert 0 == wednesday["reached_to_step_count"]
+        assert 0 == wednesday["reached_from_step_count"]
+        assert 0 == wednesday["conversion_rate"]
 
         thursday = results[5]  # 5/6
-        self.assertEqual(0, thursday["reached_to_step_count"])
-        self.assertEqual(1, thursday["reached_from_step_count"])
-        self.assertEqual(0, thursday["conversion_rate"])
+        assert 0 == thursday["reached_to_step_count"]
+        assert 1 == thursday["reached_from_step_count"]
+        assert 0 == thursday["conversion_rate"]
 
         friday = results[6]  # 5/7
-        self.assertEqual(0, friday["reached_to_step_count"])
-        self.assertEqual(0, friday["reached_from_step_count"])
-        self.assertEqual(0, friday["conversion_rate"])
+        assert 0 == friday["reached_to_step_count"]
+        assert 0 == friday["reached_from_step_count"]
+        assert 0 == friday["conversion_rate"]
 
     @freeze_time("2021-05-02 12:00:00")
     def test_period_not_final(self):
@@ -722,25 +653,19 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
         day = results[0]  # yesterday
-        self.assertEqual(day["reached_from_step_count"], 0)
-        self.assertEqual(day["reached_to_step_count"], 0)
-        self.assertEqual(day["conversion_rate"], 0)
-        self.assertEqual(
-            day["timestamp"].replace(tzinfo=ZoneInfo("UTC")),
-            datetime(2021, 5, 1, tzinfo=ZoneInfo("UTC")),
-        )
+        assert day["reached_from_step_count"] == 0
+        assert day["reached_to_step_count"] == 0
+        assert day["conversion_rate"] == 0
+        assert day["timestamp"].replace(tzinfo=ZoneInfo("UTC")) == datetime(2021, 5, 1, tzinfo=ZoneInfo("UTC"))
 
         day = results[1]  # today
-        self.assertEqual(day["reached_from_step_count"], 1)
-        self.assertEqual(day["reached_to_step_count"], 1)
-        self.assertEqual(day["conversion_rate"], 100)
-        self.assertEqual(
-            day["timestamp"].replace(tzinfo=ZoneInfo("UTC")),
-            datetime(2021, 5, 2, tzinfo=ZoneInfo("UTC")),
-        )
+        assert day["reached_from_step_count"] == 1
+        assert day["reached_to_step_count"] == 1
+        assert day["conversion_rate"] == 100
+        assert day["timestamp"].replace(tzinfo=ZoneInfo("UTC")) == datetime(2021, 5, 2, tzinfo=ZoneInfo("UTC"))
 
     def test_two_runs_by_single_user_in_one_period(self):
         journeys_for(
@@ -785,12 +710,12 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
 
         day = results[0]  # 2021-05-01
-        self.assertEqual(day["reached_from_step_count"], 1)
-        self.assertEqual(day["reached_to_step_count"], 1)
-        self.assertEqual(day["conversion_rate"], 100)
+        assert day["reached_from_step_count"] == 1
+        assert day["reached_to_step_count"] == 1
+        assert day["conversion_rate"] == 100
 
     def test_steps_performed_in_period_but_in_reverse(self):
         journeys_for(
@@ -830,12 +755,12 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 0)
-        self.assertEqual(day_1["conversion_rate"], 0)
+        assert day_1["reached_from_step_count"] == 1
+        assert day_1["reached_to_step_count"] == 0
+        assert day_1["conversion_rate"] == 0
 
     def test_one_person_in_multiple_periods_and_windows(self):
         journeys_for(
@@ -886,49 +811,47 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 4)
+        assert len(results) == 4
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 1)
-        self.assertEqual(day_1["conversion_rate"], 100)
+        assert day_1["reached_from_step_count"] == 1
+        assert day_1["reached_to_step_count"] == 1
+        assert day_1["conversion_rate"] == 100
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["reached_from_step_count"], 0)
-        self.assertEqual(day_2["reached_to_step_count"], 0)
-        self.assertEqual(day_2["conversion_rate"], 0)
+        assert day_2["reached_from_step_count"] == 0
+        assert day_2["reached_to_step_count"] == 0
+        assert day_2["conversion_rate"] == 0
 
         day_3 = results[2]  # 2021-05-03
-        self.assertEqual(day_3["reached_from_step_count"], 1)
-        self.assertEqual(day_3["reached_to_step_count"], 0)
-        self.assertEqual(day_3["conversion_rate"], 0)
+        assert day_3["reached_from_step_count"] == 1
+        assert day_3["reached_to_step_count"] == 0
+        assert day_3["conversion_rate"] == 0
 
         day_4 = results[3]  # 2021-05-04
-        self.assertEqual(day_4["reached_from_step_count"], 2)
-        self.assertEqual(day_4["reached_to_step_count"], 1)
-        self.assertEqual(day_4["conversion_rate"], 50)
+        assert day_4["reached_from_step_count"] == 2
+        assert day_4["reached_to_step_count"] == 1
+        assert day_4["conversion_rate"] == 50
 
         # 1 user who dropped off starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
             query, "2021-05-04 00:00:00", True
         )
 
-        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
-            [["user_two"]],
-        )
+        assert len(funnel_trends_persons_existent_dropped_off_results) == 1
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_two"]
+        ]
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
             query, "2021-05-04 00:00:00", False
         )
 
-        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
-            [["user_one"]],
-        )
+        assert len(funnel_trends_persons_existent_dropped_off_results) == 1
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_one"]
+        ]
 
     def test_from_second_step(self):
         journeys_for(
@@ -984,17 +907,17 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 1)
-        self.assertEqual(day_1["conversion_rate"], 100)
+        assert day_1["reached_from_step_count"] == 1
+        assert day_1["reached_to_step_count"] == 1
+        assert day_1["conversion_rate"] == 100
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["reached_from_step_count"], 1)
-        self.assertEqual(day_2["reached_to_step_count"], 0)
-        self.assertEqual(day_2["conversion_rate"], 0)
+        assert day_2["reached_from_step_count"] == 1
+        assert day_2["reached_to_step_count"] == 0
+        assert day_2["conversion_rate"] == 0
 
     def test_to_second_step(self):
         journeys_for(
@@ -1050,17 +973,17 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["reached_from_step_count"], 2)
-        self.assertEqual(day_1["reached_to_step_count"], 1)
-        self.assertEqual(day_1["conversion_rate"], 50)
+        assert day_1["reached_from_step_count"] == 2
+        assert day_1["reached_to_step_count"] == 1
+        assert day_1["conversion_rate"] == 50
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["reached_from_step_count"], 1)
-        self.assertEqual(day_2["reached_to_step_count"], 1)
-        self.assertEqual(day_2["conversion_rate"], 100)
+        assert day_2["reached_from_step_count"] == 1
+        assert day_2["reached_to_step_count"] == 1
+        assert day_2["conversion_rate"] == 100
 
     def test_one_person_in_multiple_periods_and_windows_in_unordered_funnel(self):
         journeys_for(
@@ -1112,49 +1035,47 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 4)
+        assert len(results) == 4
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 1)
-        self.assertEqual(day_1["conversion_rate"], 100)
+        assert day_1["reached_from_step_count"] == 1
+        assert day_1["reached_to_step_count"] == 1
+        assert day_1["conversion_rate"] == 100
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["reached_from_step_count"], 0)
-        self.assertEqual(day_2["reached_to_step_count"], 0)
-        self.assertEqual(day_2["conversion_rate"], 0)
+        assert day_2["reached_from_step_count"] == 0
+        assert day_2["reached_to_step_count"] == 0
+        assert day_2["conversion_rate"] == 0
 
         day_3 = results[2]  # 2021-05-03
-        self.assertEqual(day_3["reached_from_step_count"], 1)
-        self.assertEqual(day_3["reached_to_step_count"], 0)
-        self.assertEqual(day_3["conversion_rate"], 0)
+        assert day_3["reached_from_step_count"] == 1
+        assert day_3["reached_to_step_count"] == 0
+        assert day_3["conversion_rate"] == 0
 
         day_4 = results[3]  # 2021-05-04
-        self.assertEqual(day_4["reached_from_step_count"], 2)
-        self.assertEqual(day_4["reached_to_step_count"], 1)
-        self.assertEqual(day_4["conversion_rate"], 50)
+        assert day_4["reached_from_step_count"] == 2
+        assert day_4["reached_to_step_count"] == 1
+        assert day_4["conversion_rate"] == 50
 
         # 1 user who dropped off starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
             query, "2021-05-04 00:00:00", True
         )
 
-        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
-            [["user_two"]],
-        )
+        assert len(funnel_trends_persons_existent_dropped_off_results) == 1
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_two"]
+        ]
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
             query, "2021-05-04 00:00:00", False
         )
 
-        self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
-        self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
-            [["user_one"]],
-        )
+        assert len(funnel_trends_persons_existent_dropped_off_results) == 1
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_one"]
+        ]
 
     def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
         journeys_for(
@@ -1213,27 +1134,27 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 4)
+        assert len(results) == 4
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 1)
-        self.assertEqual(day_1["conversion_rate"], 100)
+        assert day_1["reached_from_step_count"] == 1
+        assert day_1["reached_to_step_count"] == 1
+        assert day_1["conversion_rate"] == 100
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["reached_from_step_count"], 0)
-        self.assertEqual(day_2["reached_to_step_count"], 0)
-        self.assertEqual(day_2["conversion_rate"], 0)
+        assert day_2["reached_from_step_count"] == 0
+        assert day_2["reached_to_step_count"] == 0
+        assert day_2["conversion_rate"] == 0
 
         day_3 = results[2]  # 2021-05-03
-        self.assertEqual(day_3["reached_from_step_count"], 1)
-        self.assertEqual(day_3["reached_to_step_count"], 0)
-        self.assertEqual(day_3["conversion_rate"], 0)
+        assert day_3["reached_from_step_count"] == 1
+        assert day_3["reached_to_step_count"] == 0
+        assert day_3["conversion_rate"] == 0
 
         day_4 = results[3]  # 2021-05-04
-        self.assertEqual(day_4["reached_from_step_count"], 2)
-        self.assertEqual(day_4["reached_to_step_count"], 1)
-        self.assertEqual(day_4["conversion_rate"], 50)
+        assert day_4["reached_from_step_count"] == 2
+        assert day_4["reached_to_step_count"] == 1
+        assert day_4["conversion_rate"] == 50
 
     def test_funnel_step_breakdown_event(self):
         journeys_for(
@@ -1323,33 +1244,13 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
         for res in results:
             if res["breakdown_value"] == ["Chrome"]:
-                self.assertEqual(
-                    res["data"],
-                    [
-                        100.0,
-                        100.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                )
+                assert res["data"] == [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             elif res["breakdown_value"] == ["Safari"]:
-                self.assertEqual(
-                    res["data"],
-                    [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                )
+                assert res["data"] == [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             else:
                 self.fail(msg="Invalid breakdown value")
 
@@ -1445,74 +1346,11 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             response = FunnelsQueryRunner(query=query, team=self.team).calculate()
             results = response.results
 
-            self.assertEqual(len(results), 2)
-            self.assertEqual(results[0]["breakdown_value"], [""])
-            self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            self.assertEqual(results[1]["breakdown_value"], ["foo"])
-            self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-
-    @parameterized.expand(
-        [
-            ("bare", "IF(distinct_id = 'user_two', NULL, 'foo') AS Label"),
-            ("double_quoted", "IF(distinct_id = 'user_two', NULL, 'foo') AS \"Some Group\""),
-            ("backticked", "IF(distinct_id = 'user_two', NULL, 'foo') AS `Some Group`"),
-            ("nested", "IF(distinct_id = 'user_two', NULL, 'foo') AS Inner AS \"Outer\""),
-            ("inside_call", "coalesce(IF(distinct_id = 'user_two', NULL, 'foo') AS Inner) AS \"Outer\""),
-            ("system_alias_collision", "IF(distinct_id = 'user_two', NULL, 'foo') AS value"),
-        ]
-    )
-    def test_funnel_hogql_breakdown_with_alias(self, _name: str, breakdown_expr: str):
-        journeys_for(
-            {
-                "user_one": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
-                ],
-                "user_two": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 2), "properties": {"$browser": "Chrome"}},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
-                ],
-                "user_three": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Safari"}},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 4), "properties": {"$browser": "Safari"}},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Safari"}},
-                ],
-            },
-            self.team,
-        )
-
-        def _build_query(expr: str) -> FunnelsQuery:
-            return FunnelsQuery(
-                dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-13 23:59:59"),
-                interval="day",
-                series=[
-                    EventsNode(event="step one"),
-                    EventsNode(event="step two"),
-                    EventsNode(event="step three"),
-                ],
-                breakdownFilter=BreakdownFilter(breakdown=expr, breakdown_type="hogql"),
-                funnelsFilter=FunnelsFilter(
-                    funnelVizType="trends",
-                    funnelWindowInterval=7,
-                    funnelWindowIntervalUnit="day",
-                    breakdownAttributionType="first_touch",
-                ),
-            )
-
-        aliased = FunnelsQueryRunner(query=_build_query(breakdown_expr), team=self.team).calculate().results
-        baseline = (
-            FunnelsQueryRunner(query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo')"), team=self.team)
-            .calculate()
-            .results
-        )
-
-        self.assertEqual(
-            [r["breakdown_value"] for r in aliased],
-            [r["breakdown_value"] for r in baseline],
-        )
-        self.assertEqual([r["data"] for r in aliased], [r["data"] for r in baseline])
+            assert len(results) == 2
+            assert results[0]["breakdown_value"] == [""]
+            assert results[0]["data"] == [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            assert results[1]["breakdown_value"] == ["foo"]
+            assert results[1]["data"] == [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     def test_funnel_step_breakdown_event_with_breakdown_limit(self):
         journeys_for(
@@ -1603,26 +1441,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(
-            results[0]["data"],
-            [
-                100.0,
-                100.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            ],
-        )
-        self.assertEqual(results[0]["breakdown_value"], ["Chrome"])
+        assert len(results) == 1
+        assert results[0]["data"] == [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        assert results[0]["breakdown_value"] == ["Chrome"]
 
     @parameterized.expand(
         [
@@ -1658,7 +1479,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         expected_limit = breakdown_limit * num_periods
 
         actual_limit = cast(ast.Constant, runner.to_query().limit).value
-        self.assertEqual(actual_limit, expected_limit)
+        assert actual_limit == expected_limit
 
     def test_funnel_step_breakdown_person(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
@@ -1719,33 +1540,13 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
 
         for res in results:
             if res["breakdown_value"] == ["Chrome"]:
-                self.assertEqual(
-                    res["data"],
-                    [
-                        100.0,
-                        100.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                )
+                assert res["data"] == [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             elif res["breakdown_value"] == ["Safari"]:
-                self.assertEqual(
-                    res["data"],
-                    [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                )
+                assert res["data"] == [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             else:
                 self.fail(msg="Invalid breakdown value")
 
@@ -1971,17 +1772,17 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         results_pacific = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
         saturday = results[1]  # 5/1
-        self.assertEqual(3, saturday["reached_to_step_count"])
-        self.assertEqual(3, saturday["reached_from_step_count"])
-        self.assertEqual(100.0, saturday["conversion_rate"])
+        assert 3 == saturday["reached_to_step_count"]
+        assert 3 == saturday["reached_from_step_count"]
+        assert 100.0 == saturday["conversion_rate"]
 
         friday_pacific = results_pacific[0]
-        self.assertEqual(2, friday_pacific["reached_to_step_count"])
-        self.assertEqual(2, friday_pacific["reached_from_step_count"])
-        self.assertEqual(100.0, friday_pacific["conversion_rate"])
+        assert 2 == friday_pacific["reached_to_step_count"]
+        assert 2 == friday_pacific["reached_from_step_count"]
+        assert 100.0 == friday_pacific["conversion_rate"]
         saturday_pacific = results_pacific[1]
-        self.assertEqual(1, saturday_pacific["reached_to_step_count"])
-        self.assertEqual(1, saturday_pacific["reached_from_step_count"])
+        assert 1 == saturday_pacific["reached_to_step_count"]
+        assert 1 == saturday_pacific["reached_from_step_count"]
 
     def test_trend_for_hour_based_conversion_window(self):
         journeys_for(
@@ -2027,7 +1828,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-05-06T23:40:59Z"):
             results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
             conversion_rates = [row["conversion_rate"] for row in results]
-            self.assertEqual(conversion_rates, [50.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            assert conversion_rates == [50.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     def test_parses_breakdown_correctly(self):
         journeys_for(
@@ -2075,7 +1876,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
 
     def test_short_exclusions(self):
         journeys_for(
@@ -2140,8 +1941,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual([100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
+        assert len(results) == 1
+        assert [100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] == results[0]["data"]
 
     def test_funnel_exclusion_no_end_event(self):
         query = FunnelsQuery(
@@ -2239,9 +2040,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         # person2 and person3 should be excluded, person 1 and 4 should make it
-        self.assertEqual([50, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], results[0]["data"])
+        assert [50, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] == results[0]["data"]
 
     def test_funnel_exclusion_multiple_possible_no_end_event1(self):
         journeys_for(
@@ -2294,8 +2095,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
 
     def test_funnel_exclusion_multiple_possible_no_end_event2(self):
         journeys_for(
@@ -2348,8 +2149,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
 
     def test_funnel_exclusion_multiple_possible_no_end_event3(self):
         journeys_for(
@@ -2402,8 +2203,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(0, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
+        assert 0 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
 
     def test_exclusion_after_goal(self):
         events = [
@@ -2476,8 +2277,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(1, results[0]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 1 == results[0]["reached_to_step_count"]
 
     def test_exclusion_multiday_completion_on_first_day(self):
         events = [
@@ -2539,10 +2340,10 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(1, results[0]["reached_to_step_count"])
-        self.assertEqual(0, results[1]["reached_from_step_count"])
-        self.assertEqual(0, results[1]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 1 == results[0]["reached_to_step_count"]
+        assert 0 == results[1]["reached_from_step_count"]
+        assert 0 == results[1]["reached_to_step_count"]
 
     def test_exclusion_multiday_completion_on_second_day(self):
         events = [
@@ -2604,10 +2405,10 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(0, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
-        self.assertEqual(1, results[1]["reached_from_step_count"])
-        self.assertEqual(1, results[1]["reached_to_step_count"])
+        assert 0 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
+        assert 1 == results[1]["reached_from_step_count"]
+        assert 1 == results[1]["reached_to_step_count"]
 
     # When there is a partial match and then an exclusion, the partial match gets dropped
     # When there is a full match and then an exclusion, the full match doesn't get dropped
@@ -2666,10 +2467,10 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(0, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
-        self.assertEqual(0, results[1]["reached_from_step_count"])
-        self.assertEqual(0, results[1]["reached_to_step_count"])
+        assert 0 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
+        assert 0 == results[1]["reached_from_step_count"]
+        assert 0 == results[1]["reached_to_step_count"]
 
     def test_exclusion_multiday_partial_first_day_open_exclusion_second_day(self):
         journeys_for(
@@ -2722,10 +2523,10 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
-        self.assertEqual(0, results[1]["reached_from_step_count"])
-        self.assertEqual(0, results[1]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
+        assert 0 == results[1]["reached_from_step_count"]
+        assert 0 == results[1]["reached_to_step_count"]
 
     def test_open_exclusion_multiday(self):
         events = [
@@ -2790,10 +2591,10 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
-        self.assertEqual(0, results[1]["reached_from_step_count"])
-        self.assertEqual(0, results[1]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
+        assert 0 == results[1]["reached_from_step_count"]
+        assert 0 == results[1]["reached_to_step_count"]
 
     def test_excluded_completion(self):
         events = [
@@ -2856,8 +2657,8 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(0, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
+        assert 0 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
 
     def test_breakdown_with_attribution(self):
         events = [
@@ -3179,9 +2980,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(len(results), 7)
-        self.assertEqual(results[0]["reached_from_step_count"], 2)  # Both non-excluded users started the funnel
-        self.assertEqual(results[0]["reached_to_step_count"], 1)  # Only one user converted
+        assert len(results) == 7
+        assert results[0]["reached_from_step_count"] == 2  # Both non-excluded users started the funnel
+        assert results[0]["reached_to_step_count"] == 1  # Only one user converted
 
     def test_funnel_with_long_interval_no_first_step(self):
         # Create a person who only completes the second step of the funnel
@@ -3227,12 +3028,12 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # Since in funnel trends we're tracking conversion by day, not aggregated totals,
         # and the user only completes step 2 without step 1, there should be no conversions for any day
         for day_result in results[:2] + results[3:]:
-            self.assertEqual(day_result["reached_from_step_count"], 0)
-            self.assertEqual(day_result["reached_to_step_count"], 0)
-            self.assertEqual(day_result["conversion_rate"], 0.0)
+            assert day_result["reached_from_step_count"] == 0
+            assert day_result["reached_to_step_count"] == 0
+            assert day_result["conversion_rate"] == 0.0
 
-        self.assertEqual(results[2]["reached_from_step_count"], 1)
-        self.assertEqual(results[2]["reached_to_step_count"], 0)
+        assert results[2]["reached_from_step_count"] == 1
+        assert results[2]["reached_to_step_count"] == 0
 
     def test_funnel_trends_with_out_of_order_completion(self):
         journeys_for(
@@ -3275,9 +3076,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         runner = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True)
         results = runner.calculate().results
 
-        self.assertEqual(len(results), 7)  # 7 days in the date range
-        self.assertEqual(results[0]["reached_to_step_count"], 1)
-        self.assertEqual(results[1]["reached_to_step_count"], 0)
+        assert len(results) == 7  # 7 days in the date range
+        assert results[0]["reached_to_step_count"] == 1
+        assert results[1]["reached_to_step_count"] == 0
 
     def test_different_prop_val_in_strict_filter(self):
         funnels_query = FunnelsQuery(
@@ -3339,45 +3140,33 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # First Touchpoint (just "one")
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
 
-        self.assertEqual(
-            [
-                {
-                    "breakdown_value": ["one"],
-                    "count": 8,
-                    "data": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "days": [
-                        "2024-01-01",
-                        "2024-01-02",
-                        "2024-01-03",
-                        "2024-01-04",
-                        "2024-01-05",
-                        "2024-01-06",
-                        "2024-01-07",
-                        "2024-01-08",
-                    ],
-                    "labels": [
-                        "1-Jan-2024",
-                        "2-Jan-2024",
-                        "3-Jan-2024",
-                        "4-Jan-2024",
-                        "5-Jan-2024",
-                        "6-Jan-2024",
-                        "7-Jan-2024",
-                        "8-Jan-2024",
-                    ],
-                }
-            ],
-            results,
-        )
+        assert [
+            {
+                "breakdown_value": ["one"],
+                "count": 8,
+                "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "days": [
+                    "2024-01-01",
+                    "2024-01-02",
+                    "2024-01-03",
+                    "2024-01-04",
+                    "2024-01-05",
+                    "2024-01-06",
+                    "2024-01-07",
+                    "2024-01-08",
+                ],
+                "labels": [
+                    "1-Jan-2024",
+                    "2-Jan-2024",
+                    "3-Jan-2024",
+                    "4-Jan-2024",
+                    "5-Jan-2024",
+                    "6-Jan-2024",
+                    "7-Jan-2024",
+                    "8-Jan-2024",
+                ],
+            }
+        ] == results
 
         # All events attribution
         assert funnels_query.funnelsFilter is not None
@@ -3442,5 +3231,125 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertEqual(1, results[0]["reached_from_step_count"])
-        self.assertEqual(0, results[0]["reached_to_step_count"])
+        assert 1 == results[0]["reached_from_step_count"]
+        assert 0 == results[0]["reached_to_step_count"]
+
+    def _run_conversion_window_trends(self, *, hide_incomplete_periods: bool) -> list[dict]:
+        # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
+        # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
+        # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
+        journeys_for(
+            {
+                "user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7)},
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 13)},
+                ],
+                "recent_entrant": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 15)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-18 23:59:59"),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+                hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
+            ),
+        )
+        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_keeps_incomplete_conversion_window_periods_by_default(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=False)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # every daily period in range is present, including the recent incomplete ones
+        assert [row["timestamp"].date() for row in results] == [date(2021, 6, day) for day in range(7, 19)]
+        # both of user_a's entrances converted
+        assert by_day[date(2021, 6, 7)]["reached_to_step_count"] == 1
+        assert by_day[date(2021, 6, 12)]["reached_to_step_count"] == 1
+        # recent entrant shows as a non-converter, which is what drags the recent trend down
+        assert by_day[date(2021, 6, 15)]["reached_from_step_count"] == 1
+        assert by_day[date(2021, 6, 15)]["reached_to_step_count"] == 0
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_hides_incomplete_conversion_window_periods_when_enabled(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=True)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
+        # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
+        # on or before 2021-06-10.
+        assert [row["timestamp"].date() for row in results] == [date(2021, 6, day) for day in range(7, 11)]
+        # the old entrance that converted is retained, even though its conversion event is recent
+        assert by_day[date(2021, 6, 7)]["reached_to_step_count"] == 1
+        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
+        assert date(2021, 6, 12) not in by_day
+        assert date(2021, 6, 15) not in by_day
+
+    @parameterized.expand(
+        [
+            ("bare", "IF(distinct_id = 'user_two', NULL, 'foo') AS Label"),
+            ("double_quoted", "IF(distinct_id = 'user_two', NULL, 'foo') AS \"Some Group\""),
+            ("backticked", "IF(distinct_id = 'user_two', NULL, 'foo') AS `Some Group`"),
+            ("nested", "IF(distinct_id = 'user_two', NULL, 'foo') AS Inner AS \"Outer\""),
+            ("inside_call", "coalesce(IF(distinct_id = 'user_two', NULL, 'foo') AS Inner) AS \"Outer\""),
+            ("system_alias_collision", "IF(distinct_id = 'user_two', NULL, 'foo') AS value"),
+        ]
+    )
+    def test_funnel_hogql_breakdown_with_alias(self, _name: str, breakdown_expr: str):
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 2), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Safari"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 4), "properties": {"$browser": "Safari"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Safari"}},
+                ],
+            },
+            self.team,
+        )
+
+        def _build_query(expr: str) -> FunnelsQuery:
+            return FunnelsQuery(
+                dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-13 23:59:59"),
+                interval="day",
+                series=[
+                    EventsNode(event="step one"),
+                    EventsNode(event="step two"),
+                    EventsNode(event="step three"),
+                ],
+                breakdownFilter=BreakdownFilter(breakdown=expr, breakdown_type="hogql"),
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelWindowInterval=7,
+                    funnelWindowIntervalUnit="day",
+                    breakdownAttributionType="first_touch",
+                ),
+            )
+
+        aliased = FunnelsQueryRunner(query=_build_query(breakdown_expr), team=self.team).calculate().results
+        baseline = (
+            FunnelsQueryRunner(query=_build_query("IF(distinct_id = 'user_two', NULL, 'foo')"), team=self.team)
+            .calculate()
+            .results
+        )
+
+        assert [r["breakdown_value"] for r in aliased] == [r["breakdown_value"] for r in baseline]
+        assert [r["data"] for r in aliased] == [r["data"] for r in baseline]

@@ -153,19 +153,16 @@ class TestClickhouseLifecycle(TestLifecycleBase):
                 {"status": "returning", "data": [1] * 8},
             ],
         )
-        self.assertEqual(
-            result[0]["days"],
-            [
-                "2021-04-28",
-                "2021-04-29",
-                "2021-04-30",
-                "2021-05-01",
-                "2021-05-02",
-                "2021-05-03",
-                "2021-05-04",
-                "2021-05-05",
-            ],
-        )
+        assert result[0]["days"] == [
+            "2021-04-28",
+            "2021-04-29",
+            "2021-04-30",
+            "2021-05-01",
+            "2021-05-02",
+            "2021-05-03",
+            "2021-05-04",
+            "2021-05-05",
+        ]
 
     @snapshot_clickhouse_queries
     def test_interval_dates_weeks(self):
@@ -183,10 +180,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
                 {"status": "returning", "data": [1] * 5},
             ],
         )
-        self.assertEqual(
-            result[0]["days"],
-            ["2021-04-05", "2021-04-12", "2021-04-19", "2021-04-26", "2021-05-03"],
-        )
+        assert result[0]["days"] == ["2021-04-05", "2021-04-12", "2021-04-19", "2021-04-26", "2021-05-03"]
 
     @snapshot_clickhouse_queries
     def test_interval_dates_months(self):
@@ -204,7 +198,7 @@ class TestClickhouseLifecycle(TestLifecycleBase):
                 {"status": "returning", "data": [1] * 4},
             ],
         )
-        self.assertEqual(result[0]["days"], ["2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01"])
+        assert result[0]["days"] == ["2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01"]
 
     @also_test_with_materialized_columns(event_properties=["$current_url"])
     @snapshot_clickhouse_queries

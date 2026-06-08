@@ -468,7 +468,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         runner.query_compare_to_date_range = None
 
         builder = StatsTablePreAggregatedQueryBuilder(runner)
-        self.assertEqual(builder._is_recent_relative_date_range(), expected_is_recent)
+        assert builder._is_recent_relative_date_range() == expected_is_recent
 
     def test_can_use_preaggregated_tables_rejects_recent_relative_date_range(self):
         now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC)
@@ -492,7 +492,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         runner.query_compare_to_date_range = None
 
         builder = StatsTablePreAggregatedQueryBuilder(runner)
-        self.assertFalse(builder.can_use_preaggregated_tables())
+        assert not builder.can_use_preaggregated_tables()
 
     # NOTE: PAGE breakdown is not tested here because pre-aggregated tables have a known limitation
     # where they don't correctly return all mid-session pages for PAGE breakdown (only entry pages).

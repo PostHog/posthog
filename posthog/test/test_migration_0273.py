@@ -179,11 +179,10 @@ class MarkInactiveExportsAsFinished(TestCase):
         entries = ActivityLog.objects.filter(activity="export_fail", is_system=True)
         details = [cast(dict[str, Any], entry.detail) for entry in entries]
 
-        self.assertEqual({detail["trigger"]["job_id"] for detail in details}, {"1", "6"})
-        self.assertEqual(
-            {detail["trigger"]["failure_reason"] for detail in details},
-            {"Export was killed after too much inactivity"},
-        )
+        assert {detail["trigger"]["job_id"] for detail in details} == {"1", "6"}
+        assert {detail["trigger"]["failure_reason"] for detail in details} == {
+            "Export was killed after too much inactivity"
+        }
 
     def create_entry(self, plugin_config_id, activity, created_at, detail):
         ActivityLog.objects.create(

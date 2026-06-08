@@ -128,7 +128,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         )
-        self.assertEqual(len(runner.calculate().results), 4)
+        assert len(runner.calculate().results) == 4
 
     def test_persons_query_fixed_properties(self):
         self.random_uuid = self._create_random_persons()
@@ -144,36 +144,36 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
         )
-        self.assertEqual(len(runner.calculate().results), 2)
+        assert len(runner.calculate().results) == 2
 
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()
         self._create_random_persons()
         runner = self._create_runner(ActorsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        assert len(runner.calculate().results) == 1
         runner = self._create_runner(ActorsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        assert len(runner.calculate().results) == 1
 
     def test_persons_query_search_name(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(search=f"Mr Jacob {self.random_uuid}"))
-        self.assertEqual(len(runner.calculate().results), 10)
+        assert len(runner.calculate().results) == 10
         runner = self._create_runner(ActorsQuery(search=f"MR JACOB {self.random_uuid}"))
-        self.assertEqual(len(runner.calculate().results), 10)
+        assert len(runner.calculate().results) == 10
 
     def test_persons_query_search_distinct_id(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        assert len(runner.calculate().results) == 1
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        assert len(runner.calculate().results) == 1
 
     def test_persons_query_search_trims_whitespace(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(search=f"  jacob4@{self.random_uuid}.posthog  "))
-        self.assertEqual(len(runner.calculate().results), 1)
+        assert len(runner.calculate().results) == 1
         runner = self._create_runner(ActorsQuery(search=f"\tjacob4@{self.random_uuid}.posthog\n"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        assert len(runner.calculate().results) == 1
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_persons_query_search_snapshot(self):
@@ -184,13 +184,13 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(select=["properties.name", "count()"]))
         results = runner.calculate().results
-        self.assertEqual(results, [[f"Mr Jacob {self.random_uuid}", 10]])
+        assert results == [[f"Mr Jacob {self.random_uuid}", 10]]
 
     def test_persons_query_order_by(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
         results = runner.calculate().results
-        self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
+        assert results[0] == [f"jacob9@{self.random_uuid}.posthog.com"]
 
     def test_persons_query_order_by_virtual_property(self):
         self.random_uuid = self._create_random_persons()
@@ -198,7 +198,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = runner.calculate().results
 
-        self.assertIsNotNone(results, "The query should execute without errors")
+        assert results is not None, "The query should execute without errors"
 
     @freeze_time("2023-05-10T15:23:00Z")
     def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
@@ -244,14 +244,14 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
                 runner = self._create_runner(query)
                 results = runner.calculate().results
-                self.assertEqual(expected_email, results[0][0])
+                assert expected_email == results[0][0]
 
     def test_persons_query_order_by_with_aliases(self):
         # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(select=["properties.email as email"]))
         results = runner.calculate().results
-        self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+        assert results[0] == [f"jacob0@{self.random_uuid}.posthog.com"]
 
     def test_persons_query_order_by_person_display_name(self):
         _create_person(
@@ -288,7 +288,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 runner = self._create_runner(ActorsQuery(select=["person_display_name -- Person"], orderBy=order_by))
                 results = runner.calculate().results
                 response_order = [person[0]["display_name"] for person in results]
-                self.assertEqual(response_order, expected)
+                assert response_order == expected
 
     def test_persons_query_order_by_person_display_name_when_column_is_not_selected(self):
         _create_person(
@@ -325,7 +325,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 runner = self._create_runner(ActorsQuery(select=["properties.name"], orderBy=order_by))
                 results = runner.calculate().results
                 response_order = [person[0] for person in results]
-                self.assertEqual(response_order, expected)
+                assert response_order == expected
 
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
@@ -333,8 +333,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
         )
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        assert response.results == [[f"jacob9@{self.random_uuid}.posthog.com"]]
+        assert response.hasMore
 
         runner = self._create_runner(
             ActorsQuery(
@@ -345,8 +345,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
-        self.assertEqual(response.hasMore, True)
+        assert response.results == [[f"jacob7@{self.random_uuid}.posthog.com"]]
+        assert response.hasMore
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_source_hogql_query_poe_on(self):
@@ -359,7 +359,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = self._create_runner(query)
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+        assert response.results == [[f"jacob4@{self.random_uuid}.posthog.com"]]
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_source_hogql_query_poe_off(self):
@@ -372,7 +372,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = self._create_runner(query)
         response = runner.calculate()
-        self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+        assert response.results == [[f"jacob4@{self.random_uuid}.posthog.com"]]
 
     def test_source_lifecycle_query(self):
         with freeze_time("2021-01-01T12:00:00Z"):
@@ -397,7 +397,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
             runner = self._create_runner(query)
             response = runner.calculate()
-            self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+            assert response.results == [[f"jacob4@{self.random_uuid}.posthog.com"]]
 
     def test_source_lifecycle_query_runs_lifecycle_validations(self):
         query = ActorsQuery(
@@ -441,7 +441,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         # Should show a single person despite multiple distinct_ids
-        self.assertEqual(len(response.results), 1)
+        assert len(response.results) == 1
 
     def test_actors_query_for_first_matching_event(self):
         _create_person(
@@ -696,7 +696,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Verify that execute_hogql_query was called with the correct modifiers
         called_modifiers: HogQLQueryModifiers = spy_execute_hogql_query.call_args[1]["modifiers"]
-        self.assertEqual(called_modifiers.personsOnEventsMode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+        assert called_modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     def test_person_display_name_default(self):
         _create_person(
@@ -778,7 +778,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
 
-        self.assertEqual(response.results[0][0], "Test User With Spaces")
+        assert response.results[0][0] == "Test User With Spaces"
 
     def test_direct_actors_query_uses_latest_person_data_after_property_deletion(self):
         """Test that direct ActorsQuery uses latest person data and doesn't show deleted properties."""
@@ -819,17 +819,13 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Should return no results because latest version doesn't have email with @
         person_ids_in_results = [row[1] for row in response.results]
-        self.assertNotIn(
-            str(person.uuid),
-            person_ids_in_results,
-            "Person with deleted email property should not appear in search results for '@'",
+        assert str(person.uuid) not in person_ids_in_results, (
+            "Person with deleted email property should not appear in search results for '@'"
         )
 
         # Verify that direct ActorsQuery is using PersonsArgMaxVersion.V2
-        self.assertEqual(
-            runner.modifiers.personsArgMaxVersion,
-            PersonsArgMaxVersion.V2,
-            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
+        assert runner.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.V2, (
+            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data"
         )
 
     def test_person_strategy_batches_large_actor_sets(self):
@@ -857,9 +853,9 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2):
             result = strategy.get_actors(person_uuids)
 
-        self.assertEqual(len(result), 5)
+        assert len(result) == 5
         for uuid in person_uuids:
-            self.assertIn(uuid, result)
+            assert uuid in result
 
     @freeze_time("2023-05-07T15:23:00Z")
     def test_last_seen_for_persons(self):
@@ -879,8 +875,6 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = response.results[0]
         last_seen_idx = response.columns.index("last_seen_at")
         last_seen_value = result[last_seen_idx]
-        self.assertEqual(
-            "2023-05-07 15:00:00+00:00",
-            str(last_seen_value),
-            "Should round to the bottom of the hour of the event (user creation)",
+        assert "2023-05-07 15:00:00+00:00" == str(last_seen_value), (
+            "Should round to the bottom of the hour of the event (user creation)"
         )

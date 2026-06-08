@@ -44,11 +44,8 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_1_data = response_1.json()
 
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [person["id"] for person in response_1_data["results"][0]["people"]],
-            [str(user_a.uuid)],
-        )
+        assert response_1.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_1_data["results"][0]["people"]] == [str(user_a.uuid)]
 
         # No users converted 2021-06-07
         response_2 = self.client.get(
@@ -57,8 +54,8 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_2_data = response_2.json()
 
-        self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-        self.assertEqual([person["id"] for person in response_2_data["results"][0]["people"]], [])
+        assert response_2.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_2_data["results"][0]["people"]] == []
 
         # No users dropped off starting 2021-06-08
         response_3 = self.client.get(
@@ -67,8 +64,8 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_3_data = response_3.json()
 
-        self.assertEqual(response_3.status_code, status.HTTP_200_OK)
-        self.assertEqual([person["id"] for person in response_3_data["results"][0]["people"]], [])
+        assert response_3.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_3_data["results"][0]["people"]] == []
 
     def test_strict_order(self):
         user_a = _create_person(distinct_ids=["user a"], team=self.team)
@@ -144,11 +141,8 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_1_data = response_1.json()
 
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [person["id"] for person in response_1_data["results"][0]["people"]],
-            [str(user_a.uuid)],
-        )
+        assert response_1.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_1_data["results"][0]["people"]] == [str(user_a.uuid)]
 
         # 1 user who successfully converted
         response_1 = self.client.get(
@@ -157,11 +151,8 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_1_data = response_1.json()
 
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [person["id"] for person in response_1_data["results"][0]["people"]],
-            [str(user_b.uuid)],
-        )
+        assert response_1.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_1_data["results"][0]["people"]] == [str(user_b.uuid)]
 
     def test_unordered(self):
         user_a = _create_person(distinct_ids=["user a"], team=self.team)
@@ -225,11 +216,8 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_1_data = response_1.json()
 
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [person["id"] for person in response_1_data["results"][0]["people"]],
-            [str(user_a.uuid)],
-        )
+        assert response_1.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_1_data["results"][0]["people"]] == [str(user_a.uuid)]
 
         # 1 user who successfully converted
         response_1 = self.client.get(
@@ -238,8 +226,5 @@ class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):
         )
         response_1_data = response_1.json()
 
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [person["id"] for person in response_1_data["results"][0]["people"]],
-            [str(user_b.uuid)],
-        )
+        assert response_1.status_code == status.HTTP_200_OK
+        assert [person["id"] for person in response_1_data["results"][0]["people"]] == [str(user_b.uuid)]

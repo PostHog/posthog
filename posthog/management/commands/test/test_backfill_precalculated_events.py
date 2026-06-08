@@ -461,15 +461,15 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
             mock_workflow.return_value = "test-workflow-id"
             call_command("backfill_precalculated_events", "--team-id", str(self.team.id), stdout=self.command_output)
 
-        self.assertTrue(mock_workflow.called)
+        assert mock_workflow.called
         call_args = mock_workflow.call_args[1]
         filters = call_args["filters"]
         cohort_ids = call_args["cohort_ids"]
 
-        self.assertEqual(len(filters), 1)
-        self.assertEqual(set(cohort_ids), {cohort1.id, cohort2.id})
-        self.assertEqual(filters[0].condition_hash, shared_hash)
-        self.assertEqual(set(filters[0].cohort_ids), {cohort1.id, cohort2.id})
+        assert len(filters) == 1
+        assert set(cohort_ids) == {cohort1.id, cohort2.id}
+        assert filters[0].condition_hash == shared_hash
+        assert set(filters[0].cohort_ids) == {cohort1.id, cohort2.id}
 
     def test_skips_cohorts_without_behavioral_filters(self):
         good_cohort = Cohort.objects.create(
@@ -525,10 +525,10 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
         call_args = mock_workflow.call_args[1]
         cohort_ids = call_args["cohort_ids"]
 
-        self.assertEqual(cohort_ids, [good_cohort.id])
+        assert cohort_ids == [good_cohort.id]
 
         output = self.command_output.getvalue()
-        self.assertIn(f"Skipping cohort {person_only_cohort.id}", output)
+        assert f"Skipping cohort {person_only_cohort.id}" in output
 
     def test_days_override_clamped_to_max(self):
         Cohort.objects.create(
@@ -568,10 +568,10 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
             )
 
         call_args = mock_workflow.call_args[1]
-        self.assertEqual(call_args["effective_days"], MAX_BACKFILL_DAYS)
+        assert call_args["effective_days"] == MAX_BACKFILL_DAYS
 
         output = self.command_output.getvalue()
-        self.assertIn("exceeds MAX_BACKFILL_DAYS", output)
+        assert "exceeds MAX_BACKFILL_DAYS" in output
 
     def test_auto_computes_days_from_filters(self):
         Cohort.objects.create(
@@ -627,13 +627,13 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
             call_command("backfill_precalculated_events", "--team-id", str(self.team.id), stdout=self.command_output)
 
         call_args = mock_workflow.call_args[1]
-        self.assertEqual(call_args["effective_days"], 60)
+        assert call_args["effective_days"] == 60
 
     def test_no_realtime_cohorts_shows_warning(self):
         call_command("backfill_precalculated_events", "--team-id", str(self.team.id), stdout=self.command_output)
 
         output = self.command_output.getvalue()
-        self.assertIn("No realtime cohorts found", output)
+        assert "No realtime cohorts found" in output
 
     def test_validation_rejects_both_team_id_and_team_ids(self):
         with pytest.raises(CommandError, match="Cannot use both"):
@@ -719,9 +719,9 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
                 stdout=self.command_output,
             )
 
-        self.assertEqual(mock_workflow.call_count, 2)
+        assert mock_workflow.call_count == 2
         team_ids_called = sorted(call[1]["team_id"] for call in mock_workflow.call_args_list)
-        self.assertEqual(team_ids_called, sorted([self.team.id, team2.id]))
+        assert team_ids_called == sorted([self.team.id, team2.id])
 
     def test_cohort_id_restricts_to_specific_cohort(self):
         target_cohort = Cohort.objects.create(
@@ -783,14 +783,14 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
                 stdout=self.command_output,
             )
 
-        self.assertTrue(mock_workflow.called)
+        assert mock_workflow.called
         call_args = mock_workflow.call_args[1]
         filters = call_args["filters"]
         cohort_ids = call_args["cohort_ids"]
 
-        self.assertEqual(len(filters), 1)
-        self.assertEqual(filters[0].condition_hash, "target_hash")
-        self.assertEqual(cohort_ids, [target_cohort.id])
+        assert len(filters) == 1
+        assert filters[0].condition_hash == "target_hash"
+        assert cohort_ids == [target_cohort.id]
 
 
 class TestRunTemporalWorkflow(BaseTest):
@@ -843,20 +843,20 @@ class TestRunTemporalWorkflow(BaseTest):
         mock_store.assert_called_once_with(self.filters, self.team.id)
         mock_client.start_workflow.assert_awaited_once()
         args, kwargs = mock_client.start_workflow.call_args
-        self.assertEqual(args[0], "backfill-precalculated-events-coordinator")
+        assert args[0] == "backfill-precalculated-events-coordinator"
         inputs = args[1]
-        self.assertIsInstance(inputs, BackfillPrecalculatedEventsCoordinatorInputs)
-        self.assertEqual(inputs.team_id, self.team.id)
-        self.assertEqual(inputs.filter_storage_key, "redis-key")
-        self.assertEqual(inputs.cohort_ids, [1, 2])
-        self.assertEqual(inputs.condition_hashes, ["hash_1", "hash_2"])
-        self.assertEqual(inputs.days_to_backfill, 14)
-        self.assertEqual(inputs.concurrent_workflows, 5)
-        self.assertFalse(inputs.force_reprocess)
-        self.assertEqual(kwargs["task_queue"], settings.MESSAGING_TASK_QUEUE)
-        self.assertEqual(kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
-        self.assertEqual(kwargs["id"], workflow_id)
-        self.assertTrue(workflow_id.startswith(f"backfill-precalculated-events-team-{self.team.id}-"))
+        assert isinstance(inputs, BackfillPrecalculatedEventsCoordinatorInputs)
+        assert inputs.team_id == self.team.id
+        assert inputs.filter_storage_key == "redis-key"
+        assert inputs.cohort_ids == [1, 2]
+        assert inputs.condition_hashes == ["hash_1", "hash_2"]
+        assert inputs.days_to_backfill == 14
+        assert inputs.concurrent_workflows == 5
+        assert not inputs.force_reprocess
+        assert kwargs["task_queue"] == settings.MESSAGING_TASK_QUEUE
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        assert kwargs["id"] == workflow_id
+        assert workflow_id.startswith(f"backfill-precalculated-events-team-{self.team.id}-")
 
     def test_workflow_id_is_unique_across_rapid_invocations(self):
         mock_client = MagicMock()
@@ -884,7 +884,7 @@ class TestRunTemporalWorkflow(BaseTest):
                     )
                 )
 
-        self.assertEqual(len(set(ids)), len(ids))
+        assert len(set(ids)) == len(ids)
 
     def test_raises_when_start_workflow_fails(self):
         mock_client = MagicMock()

@@ -31,7 +31,7 @@ class TestWidgetAPI(BaseTest):
 
     def test_authentication_required(self):
         response = self.client.post("/api/conversations/v1/widget/message", {"message": "Hello"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_authentication_invalid_token(self):
         response = self.client.post(
@@ -39,7 +39,7 @@ class TestWidgetAPI(BaseTest):
             {"message": "Hello"},
             headers={"x-conversations-token": "invalid_token"},
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_authentication_conversations_disabled(self):
         self.team.conversations_enabled = False
@@ -49,7 +49,7 @@ class TestWidgetAPI(BaseTest):
             {"message": "Hello", "widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_create_message_creates_ticket(self):
         response = self.client.post(
@@ -61,15 +61,15 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("ticket_id", response.json())
-        self.assertIn("message_id", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert "ticket_id" in response.json()
+        assert "message_id" in response.json()
 
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(ticket.widget_session_id, self.widget_session_id)
-        self.assertEqual(ticket.distinct_id, self.distinct_id)
-        self.assertEqual(ticket.status, "new")
-        self.assertEqual(ticket.unread_team_count, 1)
+        assert ticket.widget_session_id == self.widget_session_id
+        assert ticket.distinct_id == self.distinct_id
+        assert ticket.status == "new"
+        assert ticket.unread_team_count == 1
 
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
@@ -79,9 +79,9 @@ class TestWidgetAPI(BaseTest):
             {"message": "Hi", "widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(ticket.channel_detail, ChannelDetail.WIDGET_EMBEDDED)
+        assert ticket.channel_detail == ChannelDetail.WIDGET_EMBEDDED
 
     def test_create_ticket_channel_detail_widget_disabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": False}
@@ -91,9 +91,9 @@ class TestWidgetAPI(BaseTest):
             {"message": "Hi", "widget_session_id": str(uuid.uuid4()), "distinct_id": "user-456"},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(ticket.channel_detail, ChannelDetail.WIDGET_API)
+        assert ticket.channel_detail == ChannelDetail.WIDGET_API
 
     def test_create_message_to_existing_ticket(self):
         ticket = Ticket.objects.create_with_number(
@@ -112,8 +112,8 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["ticket_id"], str(ticket.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ticket_id"] == str(ticket.id)
 
     def test_unverified_request_cannot_repoint_ticket_distinct_id(self):
         # An anonymous (widget_session_id-only) request must not be able to overwrite an
@@ -136,10 +136,10 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.distinct_id, self.distinct_id)
+        assert ticket.distinct_id == self.distinct_id
 
     def test_create_message_updates_session_data_on_existing_ticket(self):
         ticket = Ticket.objects.create_with_number(
@@ -162,13 +162,13 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.session_id, "new-session-id")
+        assert ticket.session_id == "new-session-id"
         # session_context should merge, not replace - preserves current_url while updating replay_url
-        self.assertEqual(ticket.session_context["current_url"], "/some-page")
-        self.assertEqual(ticket.session_context["replay_url"], "https://app.posthog.com/replay/new")
+        assert ticket.session_context["current_url"] == "/some-page"
+        assert ticket.session_context["replay_url"] == "https://app.posthog.com/replay/new"
 
     def test_create_message_wrong_widget_session_forbidden(self):
         ticket = Ticket.objects.create_with_number(
@@ -187,7 +187,7 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_create_message_missing_widget_session_id(self):
         response = self.client.post(
@@ -195,7 +195,7 @@ class TestWidgetAPI(BaseTest):
             {"message": "Hello", "distinct_id": self.distinct_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_message_missing_distinct_id(self):
         response = self.client.post(
@@ -203,7 +203,7 @@ class TestWidgetAPI(BaseTest):
             {"message": "Hello", "widget_session_id": self.widget_session_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_message_empty_content(self):
         response = self.client.post(
@@ -215,7 +215,7 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_message_with_traits(self):
         response = self.client.post(
@@ -228,10 +228,10 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(ticket.anonymous_traits["name"], "John")
-        self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
+        assert ticket.anonymous_traits["name"] == "John"
+        assert ticket.anonymous_traits["email"] == "john@example.com"
 
     def test_get_messages(self):
         ticket = Ticket.objects.create_with_number(
@@ -259,9 +259,9 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["messages"]), 2)
-        self.assertEqual(response.json()["messages"][0]["content"], "First message")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["messages"]) == 2
+        assert response.json()["messages"][0]["content"] == "First message"
 
     def test_get_messages_excludes_private(self):
         ticket = Ticket.objects.create_with_number(
@@ -289,9 +289,9 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["messages"]), 1)
-        self.assertEqual(response.json()["messages"][0]["content"], "Public message")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["messages"]) == 1
+        assert response.json()["messages"][0]["content"] == "Public message"
 
     def test_get_messages_does_not_expose_is_private_field(self):
         """Verify is_private field is never sent to widget, even for public messages."""
@@ -313,10 +313,10 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["messages"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["messages"]) == 1
         # is_private should NOT be present in the response
-        self.assertNotIn("is_private", response.json()["messages"][0])
+        assert "is_private" not in response.json()["messages"][0]
 
     def test_get_messages_wrong_widget_session_forbidden(self):
         ticket = Ticket.objects.create_with_number(
@@ -329,7 +329,7 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_get_messages_ticket_not_found(self):
         fake_ticket_id = str(uuid.uuid4())
@@ -337,7 +337,7 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/messages/{fake_ticket_id}?widget_session_id={self.widget_session_id}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_tickets(self):
         ticket1 = Ticket.objects.create_with_number(
@@ -366,11 +366,11 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
         ticket_ids = {t["id"] for t in response.json()["results"]}
-        self.assertIn(str(ticket1.id), ticket_ids)
-        self.assertIn(str(ticket2.id), ticket_ids)
+        assert str(ticket1.id) in ticket_ids
+        assert str(ticket2.id) in ticket_ids
 
     def test_list_tickets_filter_by_status(self):
         Ticket.objects.create_with_number(
@@ -392,9 +392,9 @@ class TestWidgetAPI(BaseTest):
             f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}&status={Status.NEW}",
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["status"], Status.NEW)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["status"] == Status.NEW
 
     def test_mark_read(self):
         ticket = Ticket.objects.create_with_number(
@@ -410,11 +410,11 @@ class TestWidgetAPI(BaseTest):
             {"widget_session_id": self.widget_session_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["unread_count"], 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["unread_count"] == 0
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.unread_customer_count, 0)
+        assert ticket.unread_customer_count == 0
 
     def test_mark_read_wrong_widget_session_forbidden(self):
         ticket = Ticket.objects.create_with_number(
@@ -430,10 +430,10 @@ class TestWidgetAPI(BaseTest):
             {"widget_session_id": self.widget_session_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.unread_customer_count, 5)
+        assert ticket.unread_customer_count == 5
 
     def test_honeypot_rejects_bot(self):
         response = self.client.post(
@@ -446,7 +446,7 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_invalid_widget_session_id_format(self):
         response = self.client.post(
@@ -458,7 +458,7 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_message_too_long(self):
         response = self.client.post(
@@ -470,7 +470,7 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestWidgetCacheInvalidation(BaseTest):
@@ -502,7 +502,7 @@ class TestWidgetCacheInvalidation(BaseTest):
                 },
                 **self._get_headers(),
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_invalidate.assert_called_once_with(self.team.id)
 
     def test_create_message_existing_ticket_invalidates_cache(self):
@@ -524,7 +524,7 @@ class TestWidgetCacheInvalidation(BaseTest):
                 },
                 **self._get_headers(),
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             mock_invalidate.assert_called_once_with(self.team.id)
 
 
@@ -569,8 +569,8 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
     def test_list_tickets_invalid_hash_returns_forbidden(self):
         self._create_ticket()
@@ -582,7 +582,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()
@@ -591,8 +591,8 @@ class TestWidgetIdentityVerification(BaseTest):
             {"widget_session_id": self.widget_session_id},
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
     def test_cross_browser_same_tickets(self):
         other_session = str(uuid.uuid4())
@@ -606,8 +606,8 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
 
     # --- Send message ---
 
@@ -621,9 +621,9 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
-        self.assertEqual(ticket.distinct_id, self.distinct_id)
+        assert ticket.distinct_id == self.distinct_id
 
     def test_send_message_existing_ticket_ownership_by_distinct_id(self):
         ticket = self._create_ticket()
@@ -645,7 +645,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_send_message_invalid_hash_no_session_returns_forbidden(self):
         response = self.client.post(
@@ -657,7 +657,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_send_message_wrong_distinct_id_returns_forbidden(self):
         ticket = self._create_ticket(distinct_id="user_123")
@@ -674,7 +674,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Get messages ---
 
@@ -696,8 +696,8 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["messages"]), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["messages"]) == 1
 
     def test_get_messages_invalid_hash_no_session_returns_forbidden(self):
         ticket = self._create_ticket()
@@ -709,7 +709,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_get_messages_wrong_distinct_id_returns_forbidden(self):
         ticket = self._create_ticket(distinct_id="user_123")
@@ -724,7 +724,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Mark read ---
 
@@ -741,9 +741,9 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ticket.refresh_from_db()
-        self.assertEqual(ticket.unread_customer_count, 0)
+        assert ticket.unread_customer_count == 0
 
     def test_mark_read_invalid_hash_no_session_returns_forbidden(self):
         ticket = self._create_ticket()
@@ -755,7 +755,7 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_mark_read_wrong_distinct_id_returns_forbidden(self):
         ticket = self._create_ticket(distinct_id="user_123")
@@ -770,4 +770,4 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN

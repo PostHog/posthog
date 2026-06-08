@@ -31,9 +31,9 @@ class TestParserCache(BaseTest):
         sql = "SELECT count() FROM events WHERE event = '$pageview' -- cache test"
         first = parse_select(sql)
         second = parse_select(sql)
-        self.assertEqual(first, second)
+        assert first == second
         # Verify the second call was actually a cache hit, not a re-parse.
-        self.assertEqual(self._total_cache_size(), 1)
+        assert self._total_cache_size() == 1
 
     def test_cache_hit_returns_distinct_object(self):
         # The resolver and printer mutate the AST in place — cache hits must
@@ -41,8 +41,8 @@ class TestParserCache(BaseTest):
         sql = "SELECT count() FROM events WHERE event = '$pageview' -- distinct test"
         first = parse_select(sql)
         second = parse_select(sql)
-        self.assertIsNot(first, second)
-        self.assertEqual(self._total_cache_size(), 1)
+        assert first is not second
+        assert self._total_cache_size() == 1
 
     def test_mutation_does_not_leak_across_calls(self):
         sql = "SELECT 1 FROM events WHERE event = '$exception' -- mutation isolation"
@@ -51,10 +51,10 @@ class TestParserCache(BaseTest):
         first.limit = ast.Constant(value=10)
         second = parse_select(sql)
         assert isinstance(second, ast.SelectQuery)
-        self.assertIsNone(second.limit)
+        assert second.limit is None
         # The second call must have hit the cache; otherwise mutation isolation
         # is trivially satisfied by re-parsing, which isn't what we're testing.
-        self.assertEqual(self._total_cache_size(), 1)
+        assert self._total_cache_size() == 1
 
     @parameterized.expand(
         [
@@ -64,15 +64,15 @@ class TestParserCache(BaseTest):
     )
     def test_explicit_origin_routes_to_matching_cache(self, origin, target_getter, other_getter):
         parse_select(f"SELECT 1 -- routing test {origin}, plenty long enough to cache", cache_origin=origin)
-        self.assertEqual(target_getter().currsize, 1)
-        self.assertEqual(other_getter().currsize, 0)
+        assert target_getter().currsize == 1
+        assert other_getter().currsize == 0
 
     def test_auto_detects_function_local_literal(self):
         # Literal must be long enough to bypass the auto-interning guard
         # (`_LITERAL_DETECTION_MIN_LEN`).
         parse_select("SELECT count() FROM events WHERE event = '$exception'")
-        self.assertEqual(_builtin_parse_cache.currsize, 1)
-        self.assertEqual(_user_parse_cache.currsize, 0)
+        assert _builtin_parse_cache.currsize == 1
+        assert _user_parse_cache.currsize == 0
 
     def test_auto_routes_constructed_strings_to_user_cache(self):
         # `.join` produces a fresh runtime string. Concat of two string
@@ -80,8 +80,8 @@ class TestParserCache(BaseTest):
         # single literal and incorrectly look built-in.
         sql = " ".join(["SELECT", "count()", "FROM", "events", "WHERE", "event", "=", "'$pageview'"])
         parse_select(sql)
-        self.assertEqual(_user_parse_cache.currsize, 1)
-        self.assertEqual(_builtin_parse_cache.currsize, 0)
+        assert _user_parse_cache.currsize == 1
+        assert _builtin_parse_cache.currsize == 0
 
     def test_user_pollution_does_not_displace_builtin(self):
         parse_select(
@@ -93,8 +93,8 @@ class TestParserCache(BaseTest):
             parse_select(
                 f"SELECT {i} -- pollution test row, plenty long enough to cache", cache_origin=CacheOrigin.USER
             )
-        self.assertEqual(_builtin_parse_cache.currsize, 1)
-        self.assertEqual(_user_parse_cache.currsize, user_maxsize)
+        assert _builtin_parse_cache.currsize == 1
+        assert _user_parse_cache.currsize == user_maxsize
 
     def test_different_placeholders_share_cache_entry(self):
         # Cache key is the raw SQL; placeholders are substituted on the
@@ -103,18 +103,18 @@ class TestParserCache(BaseTest):
         sql = "SELECT {x} FROM events WHERE event = '$pageview' LIMIT {n}"
 
         first = parse_select(sql, placeholders={"x": ast.Constant(value=1), "n": ast.Constant(value=10)})
-        self.assertEqual(_builtin_parse_cache.currsize + _user_parse_cache.currsize, 1)
+        assert _builtin_parse_cache.currsize + _user_parse_cache.currsize == 1
         assert isinstance(first, ast.SelectQuery)
         first_select = first.select[0]
         assert isinstance(first_select, ast.Constant)
-        self.assertEqual(first_select.value, 1)
+        assert first_select.value == 1
 
         second = parse_select(sql, placeholders={"x": ast.Constant(value=99), "n": ast.Constant(value=50)})
-        self.assertEqual(_builtin_parse_cache.currsize + _user_parse_cache.currsize, 1)
+        assert _builtin_parse_cache.currsize + _user_parse_cache.currsize == 1
         assert isinstance(second, ast.SelectQuery)
         second_select = second.select[0]
         assert isinstance(second_select, ast.Constant)
-        self.assertEqual(second_select.value, 99)
+        assert second_select.value == 99
 
     def test_returned_ast_has_independent_nested_objects(self):
         # deepcopy must reach nested children — mutating a deep field must
@@ -125,10 +125,10 @@ class TestParserCache(BaseTest):
         first.where = ast.Constant(value=False)
         second = parse_select(sql)
         assert isinstance(second, ast.SelectQuery) and second.where is not None
-        self.assertNotEqual(second.where, ast.Constant(value=False))
+        assert second.where != ast.Constant(value=False)
         # Cache must have served the second call; otherwise this only proves
         # that a fresh parse produces a fresh AST, which is uninteresting.
-        self.assertEqual(self._total_cache_size(), 1)
+        assert self._total_cache_size() == 1
 
     def test_parse_expr_cached_separately_by_start_arg(self):
         # `parse_expr` short identifier-only inputs route to user cache via
@@ -137,23 +137,23 @@ class TestParserCache(BaseTest):
         expr = "1 + 1 -- start-arg keying test, long enough to cache"
         parse_expr(expr, start=0, cache_origin=CacheOrigin.BUILTIN)
         parse_expr(expr, start=1, cache_origin=CacheOrigin.BUILTIN)
-        self.assertEqual(_builtin_parse_cache.currsize, 2)
+        assert _builtin_parse_cache.currsize == 2
 
     def test_looks_like_code_literal_finds_function_literal(self):
         s = "this is a literal in this function — definitely past the min length"
-        self.assertTrue(_looks_like_code_literal(s))
+        assert _looks_like_code_literal(s)
 
     def test_looks_like_code_literal_rejects_constructed_strings(self):
         # `.join` produces a fresh runtime string (compile-time concat would
         # be folded into a single literal).
         s = " ".join(["constructed", "string", "definitely", "long", "enough", "now"])
-        self.assertFalse(_looks_like_code_literal(s))
+        assert not _looks_like_code_literal(s)
 
     def test_looks_like_code_literal_rejects_short_strings(self):
         # Short identifier-shaped strings may be process-wide-interned by
         # CPython and falsely identity-match `co_consts` elsewhere.
         s = "event"
-        self.assertFalse(_looks_like_code_literal(s))
+        assert not _looks_like_code_literal(s)
 
     def test_cache_origin_typo_raises(self):
         with self.assertRaises(ValueError):
@@ -164,8 +164,8 @@ class TestParserCache(BaseTest):
         padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
         sql = f"SELECT 1 -- {padding}"
         parse_select(sql, cache_origin=origin)
-        self.assertEqual(_builtin_parse_cache.currsize, 0)
-        self.assertEqual(_user_parse_cache.currsize, 0)
+        assert _builtin_parse_cache.currsize == 0
+        assert _user_parse_cache.currsize == 0
 
     @parameterized.expand([(CacheOrigin.AUTO,), (CacheOrigin.USER,), (CacheOrigin.BUILTIN,)])
     def test_undersized_query_skips_cache(self, origin):
@@ -175,8 +175,8 @@ class TestParserCache(BaseTest):
         sql = "SELECT 1"
         assert len(sql) < _MIN_CACHEABLE_STATEMENT_LEN
         parse_select(sql, cache_origin=origin)
-        self.assertEqual(_builtin_parse_cache.currsize, 0)
-        self.assertEqual(_user_parse_cache.currsize, 0)
+        assert _builtin_parse_cache.currsize == 0
+        assert _user_parse_cache.currsize == 0
 
     def test_oversized_query_still_caches_under_explicit_builtin(self):
         # Explicit BUILTIN bypasses the upper bound (trusted opt-in for
@@ -184,15 +184,15 @@ class TestParserCache(BaseTest):
         padding = "x" * (_MAX_CACHEABLE_STATEMENT_LEN + 1)
         sql = f"SELECT 1 -- {padding}"
         parse_select(sql, cache_origin=CacheOrigin.BUILTIN)
-        self.assertEqual(_builtin_parse_cache.currsize, 1)
+        assert _builtin_parse_cache.currsize == 1
 
     def test_parse_string_template_literal_routes_to_builtin(self):
         # The cache key is `"F'" + string` (runtime concat) so naive
         # auto-detect would never see a built-in literal here — we
         # classify against the raw `string` arg instead.
         parse_string_template("hello {x} world, this is a long enough template now")
-        self.assertEqual(_builtin_parse_cache.currsize, 1)
-        self.assertEqual(_user_parse_cache.currsize, 0)
+        assert _builtin_parse_cache.currsize == 1
+        assert _user_parse_cache.currsize == 0
 
     def test_syntax_errors_are_not_cached(self):
         # SQL has to clear `_MIN_CACHEABLE_STATEMENT_LEN`; otherwise the
@@ -202,8 +202,8 @@ class TestParserCache(BaseTest):
                 "NOT VALID SQL -- padding to exceed the minimum cacheable length",
                 cache_origin=CacheOrigin.USER,
             )
-        self.assertEqual(_user_parse_cache.currsize, 0)
-        self.assertEqual(_builtin_parse_cache.currsize, 0)
+        assert _user_parse_cache.currsize == 0
+        assert _builtin_parse_cache.currsize == 0
 
     @parameterized.expand(
         [

@@ -77,9 +77,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("Date|test", result)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "Date|test" in result
         mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -101,9 +101,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantFunnelsQuery(series=[])
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("Metric|test", result)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "Metric|test" in result
         mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -121,9 +121,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         )
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("Date|Number of persons on date", result)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "Date|Number of persons on date" in result
         mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -134,21 +134,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantHogQLQuery(query="SELECT count() FROM events")
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("count\n100\n200", result)
-        mock_process_query.assert_called_once()
-
-    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
-        mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
-
-        query = DataVisualizationNode(source=HogQLQuery(query="SELECT count() FROM events"))
-        result, used_fallback = await self.query_runner.arun_and_format_query(query)
-
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("count\n100\n200", result)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "count\n100\n200" in result
         mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -161,9 +149,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("Date|test", result)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "Date|test" in result
 
     @patch("ee.hogai.context.insight.query_executor.capture_exception")
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -180,10 +168,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         ):
             result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertTrue(used_fallback)
+        assert isinstance(result, str)
+        assert used_fallback
         # Should be JSON formatted
-        self.assertIn('{"invalid":"data"}', result)
+        assert '{"invalid":"data"}' in result
         # Should capture the exception for non-NotImplementedError
         mock_capture.assert_called_once()
 
@@ -204,8 +192,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         ):
             result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertTrue(used_fallback)
+        assert isinstance(result, str)
+        assert used_fallback
         # Should NOT capture NotImplementedError
         mock_capture.assert_not_called()
 
@@ -220,7 +208,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("API error message", str(context.exception))
+        assert "API error message" in str(context.exception)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
@@ -233,7 +221,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("HogQL error", str(context.exception))
+        assert "HogQL error" in str(context.exception)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
@@ -246,7 +234,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("ClickHouse error", str(context.exception))
+        assert "ClickHouse error" in str(context.exception)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
@@ -258,7 +246,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(Exception) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an unknown error running this query.", str(context.exception))
+        assert "There was an unknown error running this query." in str(context.exception)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -284,11 +272,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep") as mock_sleep:
             result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("Date|test", result)
-        self.assertEqual(mock_get_query_status.call_count, 2)
-        self.assertEqual(mock_sleep.call_count, 2)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "Date|test" in result
+        assert mock_get_query_status.call_count == 2
+        assert mock_sleep.call_count == 2
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -306,7 +294,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query hasn't completed in time", str(context.exception))
+        assert "Query hasn't completed in time" in str(context.exception)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -331,7 +319,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query failed with error", str(context.exception))
+        assert "Query failed with error" in str(context.exception)
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -344,11 +332,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         # Check that the execution mode was set correctly (not CALCULATE_BLOCKING_ALWAYS which is test mode)
         call_args = mock_process_query.call_args
-        self.assertIn("execution_mode", call_args.kwargs)
+        assert "execution_mode" in call_args.kwargs
         # In production it should be RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
         from posthog.hogql_queries.query_runner import ExecutionMode
 
-        self.assertEqual(call_args.kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
+        assert call_args.kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 
     async def test_compress_results_full_ui_queries(self):
         """Test _compress_results works with full UI query types by casting to assistant types"""
@@ -356,7 +344,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         trends_query = TrendsQuery(series=[])
         response = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
         result = await self.query_runner._compress_results(trends_query, response)
-        self.assertIn("Date|test", result)
+        assert "Date|test" in result
 
         # Test FunnelsQuery -> AssistantFunnelsQuery casting
         funnels_query = FunnelsQuery(series=[])
@@ -373,19 +361,19 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(funnels_query, funnels_response)
-        self.assertIn("Metric|test", result)
+        assert "Metric|test" in result
 
         # Test RetentionQuery -> AssistantRetentionQuery casting
         retention_query = RetentionQuery(retentionFilter=RetentionFilter())
         response = {"results": [{"date": "2025-01-01", "label": "Day 0", "values": [{"count": 100}]}]}
         result = await self.query_runner._compress_results(retention_query, response)
-        self.assertIn("Date|Number of persons on date", result)
+        assert "Date|Number of persons on date" in result
 
         # Test HogQLQuery -> AssistantHogQLQuery casting
         hogql_query = HogQLQuery(query="SELECT 1")
         hogql_response: dict[str, Any] = {"results": [{"count": 100}], "columns": ["count"]}
         result = await self.query_runner._compress_results(hogql_query, hogql_response)
-        self.assertIn("count\n100", result)
+        assert "count\n100" in result
 
     async def test_compress_results_stickiness_query(self):
         query = StickinessQuery(series=[EventsNode(event="$pageview")])
@@ -408,8 +396,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(query, response)
-        self.assertIn("Interval|$pageview", result)
-        self.assertIn("1 day|200", result)
+        assert "Interval|$pageview" in result
+        assert "1 day|200" in result
 
     async def test_compress_results_lifecycle_query(self):
         query = LifecycleQuery(series=[EventsNode(event="$pageview")])
@@ -450,8 +438,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(query, response)
-        self.assertIn("Date|New|Returning|Resurrecting|Dormant", result)
-        self.assertIn("2025-01-20|46|120|15|-30", result)
+        assert "Date|New|Returning|Resurrecting|Dormant" in result
+        assert "2025-01-20|46|120|15|-30" in result
 
     async def test_compress_results_boxplot_data(self):
         query = TrendsQuery(
@@ -475,9 +463,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ],
         }
         result = await self.query_runner._compress_results(query, response)
-        self.assertIn("Date|Min|P25|Median|P75|Max|Mean", result)
-        self.assertIn("2025-01-20|1.2|5.5|12.3|25.8|100.4|18.7", result)
-        self.assertNotIn("No data recorded", result)
+        assert "Date|Min|P25|Median|P75|Max|Mean" in result
+        assert "2025-01-20|1.2|5.5|12.3|25.8|100.4|18.7" in result
+        assert "No data recorded" not in result
 
     async def test_compress_results_boxplot_data_none_falls_back_to_trends(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
@@ -485,37 +473,35 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             "results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}],
         }
         result = await self.query_runner._compress_results(query, response)
-        self.assertIn("Date|test", result)
+        assert "Date|test" in result
 
     def test_is_supported_query_includes_new_types(self):
-        self.assertTrue(is_supported_query(StickinessQuery(series=[])))
-        self.assertTrue(is_supported_query(AssistantStickinessQuery(series=[])))
-        self.assertTrue(is_supported_query(LifecycleQuery(series=[EventsNode(event="$pageview")])))
+        assert is_supported_query(StickinessQuery(series=[]))
+        assert is_supported_query(AssistantStickinessQuery(series=[]))
+        assert is_supported_query(LifecycleQuery(series=[EventsNode(event="$pageview")]))
 
     def test_get_example_prompt_stickiness(self):
         from ee.hogai.context.insight.prompts import STICKINESS_EXAMPLE_PROMPT
 
-        self.assertEqual(get_example_prompt(StickinessQuery(series=[])), STICKINESS_EXAMPLE_PROMPT)
-        self.assertEqual(get_example_prompt(AssistantStickinessQuery(series=[])), STICKINESS_EXAMPLE_PROMPT)
+        assert get_example_prompt(StickinessQuery(series=[])) == STICKINESS_EXAMPLE_PROMPT
+        assert get_example_prompt(AssistantStickinessQuery(series=[])) == STICKINESS_EXAMPLE_PROMPT
 
     def test_get_example_prompt_lifecycle(self):
         from ee.hogai.context.insight.prompts import LIFECYCLE_EXAMPLE_PROMPT
 
-        self.assertEqual(
-            get_example_prompt(LifecycleQuery(series=[EventsNode(event="$pageview")])), LIFECYCLE_EXAMPLE_PROMPT
-        )
+        assert get_example_prompt(LifecycleQuery(series=[EventsNode(event="$pageview")])) == LIFECYCLE_EXAMPLE_PROMPT
 
     def test_get_example_prompt_boxplot(self):
         from ee.hogai.context.insight.prompts import BOX_PLOT_EXAMPLE_PROMPT
 
         query = TrendsQuery(series=[], trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT))
-        self.assertEqual(get_example_prompt(query), BOX_PLOT_EXAMPLE_PROMPT)
+        assert get_example_prompt(query) == BOX_PLOT_EXAMPLE_PROMPT
 
     def test_get_example_prompt_regular_trends_not_boxplot(self):
         from ee.hogai.context.insight.prompts import TRENDS_EXAMPLE_PROMPT
 
         query = TrendsQuery(series=[])
-        self.assertEqual(get_example_prompt(query), TRENDS_EXAMPLE_PROMPT)
+        assert get_example_prompt(query) == TRENDS_EXAMPLE_PROMPT
 
     async def test_compress_results_revenue_analytics_gross_revenue_query(self):
         revenue_analytics_gross_revenue_query = RevenueAnalyticsGrossRevenueQuery(
@@ -539,8 +525,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(revenue_analytics_gross_revenue_query, response)
-        self.assertIn("Breakdown by revenue_analytics_product.name", result)
-        self.assertIn("Date|stripe", result)
+        assert "Breakdown by revenue_analytics_product.name" in result
+        assert "Date|stripe" in result
 
     async def test_compress_results_revenue_analytics_metrics_query(self):
         revenue_analytics_metrics_query = RevenueAnalyticsMetricsQuery(
@@ -597,16 +583,16 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(revenue_analytics_metrics_query, response)
-        self.assertIn("Breakdown by revenue_analytics_product.name", result)
-        self.assertIn("Date|stripe", result)
-        self.assertIn("Subscription Count", result)
-        self.assertIn("New Subscription Count", result)
-        self.assertIn("Churned Subscription Count", result)
-        self.assertIn("Customer Count", result)
-        self.assertIn("New Customer Count", result)
-        self.assertIn("Churned Customer Count", result)
-        self.assertIn("ARPU", result)
-        self.assertIn("LTV", result)
+        assert "Breakdown by revenue_analytics_product.name" in result
+        assert "Date|stripe" in result
+        assert "Subscription Count" in result
+        assert "New Subscription Count" in result
+        assert "Churned Subscription Count" in result
+        assert "Customer Count" in result
+        assert "New Customer Count" in result
+        assert "Churned Customer Count" in result
+        assert "ARPU" in result
+        assert "LTV" in result
 
     async def test_compress_results_revenue_analytics_mrr_query(self):
         revenue_analytics_mrr_query = RevenueAnalyticsMRRQuery(
@@ -647,13 +633,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(revenue_analytics_mrr_query, response)
-        self.assertIn("Breakdown by revenue_analytics_product.name", result)
-        self.assertIn("Date|stripe", result)
-        self.assertIn("Total MRR", result)
-        self.assertIn("New MRR", result)
-        self.assertIn("Expansion MRR", result)
-        self.assertIn("Contraction MRR", result)
-        self.assertIn("Churned MRR", result)
+        assert "Breakdown by revenue_analytics_product.name" in result
+        assert "Date|stripe" in result
+        assert "Total MRR" in result
+        assert "New MRR" in result
+        assert "Expansion MRR" in result
+        assert "Contraction MRR" in result
+        assert "Churned MRR" in result
 
     async def test_compress_results_revenue_analytics_top_customers_query(self):
         revenue_analytics_top_customers_query = RevenueAnalyticsTopCustomersQuery(
@@ -669,10 +655,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(revenue_analytics_top_customers_query, month_response)
-        self.assertIn("Grouped by month", result)
-        self.assertIn("John Smith", result)
-        self.assertIn("Jane Doe", result)
-        self.assertIn("John Doe", result)
+        assert "Grouped by month" in result
+        assert "John Smith" in result
+        assert "Jane Doe" in result
+        assert "John Doe" in result
 
         revenue_analytics_top_customers_query_all = RevenueAnalyticsTopCustomersQuery(
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
@@ -687,10 +673,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ]
         }
         result = await self.query_runner._compress_results(revenue_analytics_top_customers_query_all, all_response)
-        self.assertNotIn("Grouped by month", result)
-        self.assertIn("John Smith", result)
-        self.assertIn("Jane Doe", result)
-        self.assertIn("John Doe", result)
+        assert "Grouped by month" not in result
+        assert "John Smith" in result
+        assert "Jane Doe" in result
+        assert "John Doe" in result
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_response_dict_handling(self, mock_process_query):
@@ -700,7 +686,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
-        self.assertIn("Date|test", result)
+        assert "Date|test" in result
 
         # Test with model response that has model_dump method
         mock_response = Mock()
@@ -708,7 +694,19 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         mock_process_query.return_value = mock_response
 
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
-        self.assertIn("Date|test2", result)
+        assert "Date|test2" in result
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
+        mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
+
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT count() FROM events"))
+        result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "count\n100\n200" in result
+        mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_outer_tags_propagate_across_sync_boundary(self, mock_process_query):
@@ -729,13 +727,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             await self.query_runner.arun_and_format_query(query, insight_id=42)
 
         # Outer-context tags propagated through the sync boundary
-        self.assertEqual(captured_tags.get("scene"), "my-scene")
+        assert captured_tags.get("scene") == "my-scene"
         # Outer feature wins over the default POSTHOG_AI fallback in arun_and_format_query
-        self.assertEqual(captured_tags.get("feature"), Feature.MCP.value)
+        assert captured_tags.get("feature") == Feature.MCP.value
         # Tags applied by arun_and_format_query also propagate
-        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
-        self.assertEqual(captured_tags.get("team_id"), self.team.pk)
-        self.assertEqual(captured_tags.get("insight_id"), 42)
+        assert captured_tags.get("product") == Product.MAX_AI.value
+        assert captured_tags.get("team_id") == self.team.pk
+        assert captured_tags.get("insight_id") == 42
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_default_feature_when_no_outer_feature(self, mock_process_query):
@@ -751,8 +749,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
         await self.query_runner.arun_and_format_query(query)
 
-        self.assertEqual(captured_tags.get("feature"), Feature.POSTHOG_AI.value)
-        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
+        assert captured_tags.get("feature") == Feature.POSTHOG_AI.value
+        assert captured_tags.get("product") == Product.MAX_AI.value
 
 
 class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
@@ -767,16 +765,16 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
         """Test successful execution and formatting of funnels query"""
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="event")])
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
+        assert isinstance(result, str)
+        assert not used_fallback
 
     async def test_sql_query_default_limit_is_applied(self):
         query = AssistantHogQLQuery(query="SELECT arrayJoin(range(1, 100001))")
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
-        self.assertFalse(used_fallback)
+        assert not used_fallback
         lines = result.strip().split("\n")
         data_rows = len(lines) - 1  # subtract header
-        self.assertEqual(data_rows, DEFAULT_POSTHOG_AI_RETURNED_ROWS)
+        assert data_rows == DEFAULT_POSTHOG_AI_RETURNED_ROWS
 
 
 class TestExecuteAndFormatQuery(NonAtomicBaseTest):
@@ -800,9 +798,9 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         result = await execute_and_format_query(self.team, query)
 
         # Verify schema section is present
-        self.assertIn("```json", result)
+        assert "```json" in result
         # Verify it contains query configuration
-        self.assertIn("kind", result)
+        assert "kind" in result
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_insight_schema_excludes_unset_fields(self, mock_process_query):
@@ -812,8 +810,8 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         result = await execute_and_format_query(self.team, query)
 
-        self.assertIn("kind", result)
-        self.assertNotIn("breakdownFilter", result)
+        assert "kind" in result
+        assert "breakdownFilter" not in result
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_insight_schema_excludes_none_values(self, mock_process_query):
@@ -825,8 +823,8 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         result = await execute_and_format_query(self.team, query)
 
         # The schema should not contain null values
-        self.assertNotIn("null", result)
-        self.assertNotIn("breakdownFilter", result)
+        assert "null" not in result
+        assert "breakdownFilter" not in result
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_excludes_sql_schema(self, mock_process_query):
@@ -838,7 +836,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         result = await execute_and_format_query(self.team, query)
 
         # The schema should not be present
-        self.assertNotIn("SELECT 1", result)
+        assert "SELECT 1" not in result
 
     async def test_compress_results_formats_paths_query(self):
         paths_query = PathsQuery(pathsFilter=PathsFilter(includeEventTypes=["$pageview"]))
@@ -850,8 +848,8 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         }
 
         result = await self.query_runner._compress_results(paths_query, response)
-        self.assertIn("Source|Target|Users|Avg. conversion time", result)
-        self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
+        assert "Source|Target|Users|Avg. conversion time" in result
+        assert "1_/home|2_/pricing|150|2m 30s" in result
 
 
 class TestValidateAssistantQuery(NonAtomicBaseTest):
@@ -863,7 +861,7 @@ class TestValidateAssistantQuery(NonAtomicBaseTest):
         """Test that assistant-specific queries are validated via AssistantSupportedQueryRoot."""
         query_dict = {"kind": "TrendsQuery", "series": []}
         result = validate_assistant_query(query_dict)
-        self.assertIsInstance(result, AssistantTrendsQuery)
+        assert isinstance(result, AssistantTrendsQuery)
 
     def test_validates_paths_query_via_fallback(self):
         """Test that PathsQuery is validated via QuerySchemaRoot fallback."""
@@ -872,10 +870,10 @@ class TestValidateAssistantQuery(NonAtomicBaseTest):
             "pathsFilter": {"includeEventTypes": ["$pageview"]},
         }
         result = validate_assistant_query(query_dict)
-        self.assertIsInstance(result, PathsQuery)
+        assert isinstance(result, PathsQuery)
 
     def test_validates_funnels_query(self):
         """Test that FunnelsQuery can be validated."""
         query_dict = {"kind": "FunnelsQuery", "series": []}
         result = validate_assistant_query(query_dict)
-        self.assertIsInstance(result, AssistantFunnelsQuery)
+        assert isinstance(result, AssistantFunnelsQuery)

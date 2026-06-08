@@ -33,7 +33,7 @@ class TestModelCache(TestCase):
         org = Organization.objects.create(name="org name")
 
         initial_team = get_team_in_cache(api_token)
-        self.assertIsNone(initial_team)
+        assert initial_team is None
 
         team = Team.objects.create(
             organization=org,
@@ -43,11 +43,11 @@ class TestModelCache(TestCase):
 
         cached_team = get_team_in_cache(api_token)
         assert cached_team is not None
-        self.assertEqual(cached_team.session_recording_opt_in, False)
-        self.assertEqual(cached_team.api_token, api_token)
-        self.assertEqual(cached_team.uuid, str(team.uuid))
-        self.assertEqual(cached_team.id, team.id)
-        self.assertEqual(cached_team.name, "Default project")
+        assert not cached_team.session_recording_opt_in
+        assert cached_team.api_token == api_token
+        assert cached_team.uuid == str(team.uuid)
+        assert cached_team.id == team.id
+        assert cached_team.name == "Default project"
 
         team.name = "New name"
         team.session_recording_opt_in = True
@@ -55,11 +55,11 @@ class TestModelCache(TestCase):
 
         cached_team = get_team_in_cache(api_token)
         assert cached_team is not None
-        self.assertEqual(cached_team.session_recording_opt_in, True)
-        self.assertEqual(cached_team.api_token, api_token)
-        self.assertEqual(cached_team.uuid, str(team.uuid))
-        self.assertEqual(cached_team.id, team.id)
-        self.assertEqual(cached_team.name, "New name")
+        assert cached_team.session_recording_opt_in
+        assert cached_team.api_token == api_token
+        assert cached_team.uuid == str(team.uuid)
+        assert cached_team.id == team.id
+        assert cached_team.name == "New name"
 
         team.delete()
         cached_team = get_team_in_cache(api_token)
@@ -69,12 +69,12 @@ class TestModelCache(TestCase):
 class TestTeam(BaseTest):
     def test_team_has_expected_defaults(self):
         team: Team = Team.objects.create(name="New Team", organization=self.organization)
-        self.assertEqual(team.timezone, "UTC")
-        self.assertEqual(team.data_attributes, ["data-attr"])
-        self.assertEqual(team.autocapture_exceptions_opt_in, None)
-        self.assertEqual(team.autocapture_web_vitals_opt_in, None)
-        self.assertEqual(team.autocapture_web_vitals_allowed_metrics, None)
-        self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
+        assert team.timezone == "UTC"
+        assert team.data_attributes == ["data-attr"]
+        assert team.autocapture_exceptions_opt_in is None
+        assert team.autocapture_web_vitals_opt_in is None
+        assert team.autocapture_web_vitals_allowed_metrics is None
+        assert team.autocapture_exceptions_errors_to_ignore is None
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
@@ -82,47 +82,33 @@ class TestTeam(BaseTest):
         # An internal/test users cohort should be created
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
 
-        self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
+        assert test_users_cohort.kind == CohortKind.INTERNAL_TEST_USERS
 
         # Cohort should have $internal_or_test_user filter AND email domain filter (posthog.com is not generic)
-        self.assertEqual(
-            test_users_cohort.filters,
-            {
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$internal_or_test_user",
-                                    "type": "person",
-                                    "value": [True],
-                                    "operator": "exact",
-                                }
-                            ],
-                        },
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
-                                }
-                            ],
-                        },
-                    ],
-                }
-            },
-        )
+        assert test_users_cohort.filters == {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$internal_or_test_user", "type": "person", "value": [True], "operator": "exact"}
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                        ],
+                    },
+                ],
+            }
+        }
 
         # test_account_filters should reference the cohort with not_in
-        self.assertEqual(
-            team.test_account_filters,
-            [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}],
-        )
+        assert team.test_account_filters == [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
 
     def test_create_team_with_generic_email_skips_domain_filter(self):
         user = User.objects.create(email="test@gmail.com")
@@ -132,50 +118,39 @@ class TestTeam(BaseTest):
 
         # Cohort should only have $internal_or_test_user filter (no email domain for gmail.com)
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
-        self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
-        self.assertEqual(
-            test_users_cohort.filters,
-            {
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$internal_or_test_user",
-                                    "type": "person",
-                                    "value": [True],
-                                    "operator": "exact",
-                                }
-                            ],
-                        },
-                    ],
-                }
-            },
-        )
+        assert test_users_cohort.kind == CohortKind.INTERNAL_TEST_USERS
+        assert test_users_cohort.filters == {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$internal_or_test_user", "type": "person", "value": [True], "operator": "exact"}
+                        ],
+                    }
+                ],
+            }
+        }
 
         # test_account_filters should still reference the cohort
-        self.assertEqual(
-            team.test_account_filters,
-            [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}],
-        )
+        assert team.test_account_filters == [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
 
     def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        self.assertIsInstance(team.primary_dashboard, Dashboard)
+        assert isinstance(team.primary_dashboard, Dashboard)
 
         # Ensure insights are created and linked
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
+        assert DashboardTile.objects.filter(dashboard=team.primary_dashboard).count() == 6
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-                self.assertEqual(
-                    team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-                )
+                assert team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
                     "persons-on-events-v2-reads-enabled",
@@ -196,16 +171,14 @@ class TestTeam(BaseTest):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-                self.assertEqual(
-                    team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-                )
+                assert team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 for args_list in mock_feature_enabled.call_args_list:
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+                assert team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
                 for args_list in mock_feature_enabled.call_args_list:
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
@@ -217,7 +190,7 @@ class TestTeam(BaseTest):
         project = Project.objects.filter(id=team.id).first()
 
         assert project is not None
-        self.assertEqual(project.name, "Default project")
+        assert project.name == "Default project"
 
     def test_each_team_gets_project_with_custom_name_and_same_id(self):
         # Can be removed once environments are fully rolled out
@@ -226,8 +199,8 @@ class TestTeam(BaseTest):
         project = Project.objects.filter(id=team.id).first()
 
         assert project is not None
-        self.assertEqual(project.organization, team.organization)
-        self.assertEqual(project.name, "Hogflix")
+        assert project.organization == team.organization
+        assert project.name == "Hogflix"
 
     @mock.patch("posthog.models.project.Project.objects.create", side_effect=Exception)
     def test_team_not_created_if_project_creation_fails(self, mock_create):
@@ -238,14 +211,14 @@ class TestTeam(BaseTest):
         with self.assertRaises(Exception):
             Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Hogflix")
 
-        self.assertEqual(Team.objects.count(), initial_team_count)
-        self.assertEqual(Project.objects.count(), initial_project_count)
+        assert Team.objects.count() == initial_team_count
+        assert Project.objects.count() == initial_project_count
 
     def test_increment_id_sequence(self):
         initial = Team.objects.increment_id_sequence()
         subsequent = Team.objects.increment_id_sequence()
 
-        self.assertEqual(subsequent, initial + 1)
+        assert subsequent == initial + 1
 
     @parameterized.expand(
         [
@@ -258,7 +231,7 @@ class TestTeam(BaseTest):
         team = Team.objects.create_with_data(
             initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
         )
-        self.assertEqual(team.extra_settings, expected_extra_settings)
+        assert team.extra_settings == expected_extra_settings
 
     @parameterized.expand(
         [

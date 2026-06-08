@@ -19,8 +19,8 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
     def test_get_returns_empty_defaults_for_fresh_team(self):
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"enabled": False, "default_groups": []})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"enabled": False, "default_groups": []}
 
     def test_put_stores_valid_groups(self):
         groups = [
@@ -42,12 +42,12 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertTrue(data["enabled"])
-        self.assertEqual(len(data["default_groups"]), 2)
-        self.assertEqual(data["default_groups"][0]["rollout_percentage"], 100)
-        self.assertEqual(data["default_groups"][1]["rollout_percentage"], 50)
+        assert data["enabled"]
+        assert len(data["default_groups"]) == 2
+        assert data["default_groups"][0]["rollout_percentage"] == 100
+        assert data["default_groups"][1]["rollout_percentage"] == 50
 
     def test_put_toggles_enabled(self):
         # Enable
@@ -56,8 +56,8 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
             {"enabled": True, "default_groups": []},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["enabled"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"]
 
         # Disable
         response = self.client.put(
@@ -65,8 +65,8 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
             {"enabled": False},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["enabled"])
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["enabled"]
 
     def test_put_with_empty_array_clears_defaults(self):
         config = get_or_create_team_extension(self.team, TeamFeatureFlagDefaultsConfig)
@@ -79,8 +79,8 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["default_groups"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["default_groups"] == []
 
     @parameterized.expand(
         [
@@ -101,8 +101,8 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
     def test_put_rejects_invalid_input(self, _name, payload, expected_error_substring):
         response = self.client.put(self.url, payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_error_substring, response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_substring in response.json()["error"]
 
     def test_put_accepts_null_rollout_percentage(self):
         response = self.client.put(
@@ -110,18 +110,18 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
             {"default_groups": [{"properties": [], "rollout_percentage": None}]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["default_groups"][0]["rollout_percentage"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["default_groups"][0]["rollout_percentage"] is None
 
     def test_non_admin_can_read_and_write(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.put(self.url, {"enabled": True, "default_groups": []}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_get_returns_previously_saved_config(self):
         config = get_or_create_team_extension(self.team, TeamFeatureFlagDefaultsConfig)
@@ -136,8 +136,8 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertTrue(data["enabled"])
-        self.assertEqual(len(data["default_groups"]), 1)
-        self.assertEqual(data["default_groups"][0]["properties"][0]["key"], "plan")
+        assert data["enabled"]
+        assert len(data["default_groups"]) == 1
+        assert data["default_groups"][0]["properties"][0]["key"] == "plan"

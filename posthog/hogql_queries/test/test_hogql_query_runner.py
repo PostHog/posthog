@@ -70,19 +70,19 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 10)
+        assert response.results[0][0] == 10
 
-        self.assertEqual(response.hasMore, False)
-        self.assertIsNotNone(response.limit)
+        assert not response.hasMore
+        assert response.limit is not None
 
     def test_default_hogql_query_with_limit(self):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
         response = runner.calculate()
         assert response.results is not None
-        self.assertEqual(len(response.results), 5)
-        self.assertNotIn("hasMore", response)
+        assert len(response.results) == 5
+        assert "hasMore" not in response
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(
@@ -102,9 +102,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 right=ast.Constant(value="clicky-3"),
             ),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 1)
+        assert response.results[0][0] == 1
 
     def test_hogql_query_values(self):
         runner = self._create_runner(
@@ -124,9 +124,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 right=ast.Constant(value="clicky-3"),
             ),
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], 1)
+        assert response.results[0][0] == 1
 
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
@@ -140,8 +140,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             response = cast(CachedHogQLQueryResponse, runner.run())
 
-            self.assertIsNotNone(response.cache_target_age)
-            self.assertEqual(response.cache_target_age, expected_target_age)
+            assert response.cache_target_age is not None
+            assert response.cache_target_age == expected_target_age
 
     def test_variables_in_hog_expression(self):
         variable = InsightVariable.objects.create(team=self.team, name="Foo", code_name="foo", type="Boolean")
@@ -157,7 +157,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = runner.calculate()
-        self.assertEqual(response.results[0][0], "exists")
+        assert response.results[0][0] == "exists"
 
     def test_variables_in_hog_expression_sql(self):
         variable = InsightVariable.objects.create(team=self.team, name="Bar", code_name="bar", type="Boolean")
@@ -177,7 +177,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         result_true = runner_true.calculate()
-        self.assertEqual(result_true.results[0][0], 2)
+        assert result_true.results[0][0] == 2
 
         runner_false = self._create_runner(
             HogQLQuery(
@@ -188,7 +188,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         result_false = runner_false.calculate()
-        self.assertEqual(result_false.results[0][0], 1)
+        assert result_false.results[0][0] == 1
 
     def test_invalid_connection_id_raises_exposed_hogql_error(self):
         runner = self._create_runner(
@@ -224,11 +224,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
 
-        self.assertEqual(response.results, [(1,)])
+        assert response.results == [(1,)]
         mock_execute_hogql_query.assert_called_once()
-        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["query"], "select 1::int as value")
-        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["connection_id"], str(source.id))
-        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["send_raw_query"], True)
+        assert mock_execute_hogql_query.call_args.kwargs["query"] == "select 1::int as value"
+        assert mock_execute_hogql_query.call_args.kwargs["connection_id"] == str(source.id)
+        assert mock_execute_hogql_query.call_args.kwargs["send_raw_query"]
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
     def test_send_raw_query_is_ignored_without_direct_connection(self, mock_execute_hogql_query):
@@ -243,10 +243,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
 
-        self.assertEqual(response.results, [(10,)])
+        assert response.results == [(10,)]
         mock_execute_hogql_query.assert_called_once()
-        self.assertIsInstance(mock_execute_hogql_query.call_args.kwargs["query"], ast.SelectQuery)
-        self.assertNotIn("send_raw_query", mock_execute_hogql_query.call_args.kwargs)
+        assert isinstance(mock_execute_hogql_query.call_args.kwargs["query"], ast.SelectQuery)
+        assert "send_raw_query" not in mock_execute_hogql_query.call_args.kwargs
 
     def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
         source = ExternalDataSource.objects.create(
@@ -314,7 +314,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(QueryError) as ctx:
             runner.calculate()
-        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
+        assert OFFSET_NOT_ALLOWED_MESSAGE == str(ctx.exception)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_query_service_allows_offset_when_org_on_allow_list(self, _mock_flag):
@@ -323,7 +323,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner.is_query_service = True
 
         response = runner.calculate()
-        self.assertEqual(len(response.results), 5)
+        assert len(response.results) == 5
 
     def test_query_service_fails_open_when_flag_service_errors(self):
         # Flag-service outage must not cascade into rejecting previously-valid traffic.
@@ -339,7 +339,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with patch("posthoganalytics.feature_enabled", side_effect=flag_side_effect):
             response = runner.calculate()
-        self.assertEqual(len(response.results), 5)
+        assert len(response.results) == 5
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):
@@ -348,4 +348,4 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
 
         response = runner.calculate()
-        self.assertEqual(len(response.results), 5)
+        assert len(response.results) == 5

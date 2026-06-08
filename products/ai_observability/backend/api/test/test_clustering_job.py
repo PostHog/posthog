@@ -36,19 +36,19 @@ class TestClusteringJobViewSet(APIBaseTest):
     def test_unauthenticated_user_cannot_access(self):
         self.client.logout()
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_list_returns_empty_when_no_jobs(self):
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
     def test_list_returns_jobs_ordered_by_created_at(self):
         self._create_job(name="First")
         self._create_job(name="Second")
         response = self.client.get(self._url())
         names = [j["name"] for j in response.json()["results"]]
-        self.assertEqual(names, ["First", "Second"])
+        assert names == ["First", "Second"]
 
     def test_create_job(self):
         response = self.client.post(
@@ -56,9 +56,9 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Prod Traffic", "analysis_level": "trace", "event_filters": [], "enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Prod Traffic")
-        self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 1)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "Prod Traffic"
+        assert ClusteringJob.objects.filter(team=self.team).count() == 1
 
     def test_create_job_with_filters(self):
         filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
@@ -67,10 +67,10 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "GPT-4 Only", "analysis_level": "generation", "event_filters": filters, "enabled": True},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         job = ClusteringJob.objects.get(id=response.json()["id"])
-        self.assertEqual(job.event_filters, filters)
-        self.assertEqual(job.analysis_level, "generation")
+        assert job.event_filters == filters
+        assert job.analysis_level == "generation"
 
     def test_create_enforces_max_jobs_per_team(self):
         from products.ai_observability.backend.api.clustering_job import MAX_JOBS_PER_TEAM
@@ -83,8 +83,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Too Many", "analysis_level": "trace"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Maximum", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Maximum" in response.json()["detail"]
 
     def test_create_enforces_unique_name_per_team(self):
         self._create_job(name="Duplicate")
@@ -93,8 +93,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Duplicate", "analysis_level": "trace"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already exists", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
 
     def test_partial_update(self):
         job = self._create_job(name="Old Name")
@@ -103,9 +103,9 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "New Name"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         job.refresh_from_db()
-        self.assertEqual(job.name, "New Name")
+        assert job.name == "New Name"
 
     def test_update_enabled_toggle(self):
         job = self._create_job(enabled=True)
@@ -114,15 +114,15 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"enabled": False},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         job.refresh_from_db()
-        self.assertFalse(job.enabled)
+        assert not job.enabled
 
     def test_destroy(self):
         job = self._create_job()
         response = self.client.delete(self._url(f"{job.id}/"))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 0)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert ClusteringJob.objects.filter(team=self.team).count() == 0
 
     def test_cannot_see_other_teams_jobs(self):
         from posthog.models import Organization, Project, Team
@@ -133,7 +133,7 @@ class TestClusteringJobViewSet(APIBaseTest):
         ClusteringJob.objects.create(team=other_team, name="Other Team Job", analysis_level="trace")
 
         response = self.client.get(self._url())
-        self.assertEqual(response.json()["results"], [])
+        assert response.json()["results"] == []
 
     @parameterized.expand(
         [
@@ -147,8 +147,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": f"Test {level}", "analysis_level": level},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["analysis_level"], level)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["analysis_level"] == level
 
     def test_create_rejects_invalid_analysis_level(self):
         response = self.client.post(
@@ -156,7 +156,7 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Bad Level", "analysis_level": "invalid"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_disables_default_job_at_same_level(self):
         default_trace = self._create_job(name="Default - traces", analysis_level="trace", enabled=True)
@@ -167,12 +167,12 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Prod Traffic", "analysis_level": "trace"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         default_trace.refresh_from_db()
         default_gen.refresh_from_db()
-        self.assertFalse(default_trace.enabled)
-        self.assertTrue(default_gen.enabled)
+        assert not default_trace.enabled
+        assert default_gen.enabled
 
     def test_update_enforces_unique_name_per_team(self):
         self._create_job(name="Existing Name")
@@ -182,8 +182,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Existing Name"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already exists", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
 
     def test_update_allows_keeping_same_name(self):
         job = self._create_job(name="Keep Me")
@@ -192,7 +192,7 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Keep Me", "enabled": False},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_create_does_not_disable_non_default_jobs(self):
         custom = self._create_job(name="Custom Trace Job", analysis_level="trace", enabled=True)
@@ -202,10 +202,10 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"name": "Another Trace Job", "analysis_level": "trace"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         custom.refresh_from_db()
-        self.assertTrue(custom.enabled)
+        assert custom.enabled
 
     def _cohort_filter(self, cohort_id: int | str) -> dict:
         return {"key": "id", "value": cohort_id, "type": "cohort"}
@@ -223,7 +223,7 @@ class TestClusteringJobViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     @parameterized.expand(
         [
@@ -241,8 +241,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not found or deleted", str(response.json()))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found or deleted" in str(response.json())
 
     def test_create_rejects_soft_deleted_cohort_filter(self):
         from posthog.models.cohort import Cohort
@@ -257,8 +257,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not found or deleted", str(response.json()))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found or deleted" in str(response.json())
 
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
@@ -267,9 +267,9 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"event_filters": [self._cohort_filter(999_999)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         job.refresh_from_db()
-        self.assertEqual(job.event_filters, [])
+        assert job.event_filters == []
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
@@ -345,11 +345,11 @@ class TestClusteringRunWithJobId(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        assert response.status_code == status.HTTP_202_ACCEPTED
         call_kwargs = mock_client.start_workflow.call_args
         workflow_inputs = call_kwargs[0][1]
-        self.assertEqual(workflow_inputs.analysis_level, "generation")
-        self.assertEqual(workflow_inputs.event_filters, filters)
+        assert workflow_inputs.analysis_level == "generation"
+        assert workflow_inputs.event_filters == filters
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("products.ai_observability.backend.api.clustering.sync_connect")
@@ -359,7 +359,7 @@ class TestClusteringRunWithJobId(APIBaseTest):
             self._minimal_run_payload(clustering_job_id=str(uuid.uuid4())),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_connect.assert_not_called()
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -383,7 +383,7 @@ class TestClusteringRunWithJobId(APIBaseTest):
             format="json",
         )
         # 403 or 404 — either way the cross-team job is not accessible
-        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
         mock_connect.assert_not_called()
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -399,7 +399,7 @@ class TestClusteringRunWithJobId(APIBaseTest):
             self._minimal_run_payload(event_filters=request_filters),
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        assert response.status_code == status.HTTP_202_ACCEPTED
         call_kwargs = mock_client.start_workflow.call_args
         workflow_inputs = call_kwargs[0][1]
-        self.assertEqual(workflow_inputs.event_filters, request_filters)
+        assert workflow_inputs.event_filters == request_filters

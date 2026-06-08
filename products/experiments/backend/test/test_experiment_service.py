@@ -3620,8 +3620,8 @@ class TestExperimentService(APIBaseTest):
         # Should block update
         with self.assertRaises(ValidationError) as cm:
             service.update_experiment(experiment, update_data)
-        self.assertIn("legacy metric formats", str(cm.exception))
-        self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+        assert "legacy metric formats" in str(cm.exception)
+        assert f"Cannot update: {expected_field_in_error}" in str(cm.exception)
 
     @parameterized.expand(
         [
@@ -3684,7 +3684,7 @@ class TestExperimentService(APIBaseTest):
         # All should be detected as legacy and block disallowed updates
         with self.assertRaises(ValidationError) as cm:
             service.update_experiment(experiment, {"metrics": []})
-        self.assertIn("legacy metric formats", str(cm.exception))
+        assert "legacy metric formats" in str(cm.exception)
 
     def test_update_experiment_without_legacy_metrics_allows_all_updates(self):
         """Test that experiments without legacy metrics can be updated normally."""

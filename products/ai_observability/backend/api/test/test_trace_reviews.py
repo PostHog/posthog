@@ -101,31 +101,17 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint())
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    @override_settings(SITE_URL="https://us.posthog.com")
-    def test_list_response_includes_absolute_trace_url(self):
-        self._create_review(trace_id="trace_link_check")
-
-        response = self.client.get(self._endpoint())
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(
-            results[0]["trace_url"],
-            f"https://us.posthog.com/project/{self.team.id}/ai-observability/traces/trace_link_check",
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_can_create_review_without_score_or_comment(self):
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         review = TraceReview.objects.get(trace_id="trace_123", team=self.team, deleted=False)
-        self.assertEqual(review.created_by, self.user)
-        self.assertEqual(review.reviewed_by, self.user)
-        self.assertIsNone(review.comment)
-        self.assertEqual(review.scores.count(), 0)
+        assert review.created_by == self.user
+        assert review.reviewed_by == self.user
+        assert review.comment is None
+        assert review.scores.count() == 0
 
     def test_creating_review_soft_deletes_pending_queue_item_without_queue_context(self):
         queue = self._create_queue()
@@ -133,10 +119,10 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         item.refresh_from_db()
-        self.assertTrue(item.deleted)
-        self.assertIsNotNone(item.deleted_at)
+        assert item.deleted
+        assert item.deleted_at is not None
 
     def test_creating_review_soft_deletes_matching_pending_queue_item_with_queue_context(self):
         queue = self._create_queue()
@@ -148,10 +134,10 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         item.refresh_from_db()
-        self.assertTrue(item.deleted)
-        self.assertIsNotNone(item.deleted_at)
+        assert item.deleted
+        assert item.deleted_at is not None
 
     def test_updating_review_soft_deletes_pending_queue_item_without_queue_context(self):
         review = self._create_review(trace_id="trace_123", comment="Before")
@@ -164,10 +150,10 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         item.refresh_from_db()
-        self.assertTrue(item.deleted)
-        self.assertIsNotNone(item.deleted_at)
+        assert item.deleted
+        assert item.deleted_at is not None
 
     def test_updating_review_soft_deletes_matching_pending_queue_item_with_queue_context(self):
         review = self._create_review(trace_id="trace_123", comment="Before")
@@ -180,10 +166,10 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         item.refresh_from_db()
-        self.assertTrue(item.deleted)
-        self.assertIsNotNone(item.deleted_at)
+        assert item.deleted
+        assert item.deleted_at is not None
 
     def test_can_create_review_with_multiple_scores(self):
         themes = self._create_multi_select_definition(minimum_selections=1, maximum_selections=2)
@@ -216,21 +202,21 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         review = TraceReview.objects.get(trace_id="trace_multi", team=self.team, deleted=False)
-        self.assertEqual(review.comment, "Needs a follow-up prompt tweak")
-        self.assertEqual(review.scores.count(), 3)
+        assert review.comment == "Needs a follow-up prompt tweak"
+        assert review.scores.count() == 3
 
         themes_score = review.scores.get(definition=themes)
         resolved_score = review.scores.get(definition=resolved)
         confidence_score = review.scores.get(definition=confidence)
 
-        self.assertEqual(themes_score.definition_version, themes_version.id)
-        self.assertEqual(themes_score.definition_version_number, themes_version.version)
-        self.assertEqual(themes_score.definition_config, themes_version.config)
-        self.assertEqual(themes_score.categorical_values, ["helpful", "accurate"])
-        self.assertEqual(resolved_score.boolean_value, True)
-        self.assertEqual(str(confidence_score.numeric_value), "4.500000")
+        assert themes_score.definition_version == themes_version.id
+        assert themes_score.definition_version_number == themes_version.version
+        assert themes_score.definition_config == themes_version.config
+        assert themes_score.categorical_values == ["helpful", "accurate"]
+        assert resolved_score.boolean_value
+        assert str(confidence_score.numeric_value) == "4.500000"
 
     def test_can_create_review_with_an_explicit_definition_version(self):
         definition = self._create_definition()
@@ -261,9 +247,9 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         review = TraceReview.objects.get(trace_id="trace_versioned", team=self.team, deleted=False)
-        self.assertEqual(review.scores.get().definition_version, original_version.id)
+        assert review.scores.get().definition_version == original_version.id
 
     @parameterized.expand(
         [
@@ -369,23 +355,19 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.post(self._endpoint(), payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["type"], "validation_error")
-        self.assertEqual(response.data["attr"], "scores")
-        self.assertIn(field, str(response.data["detail"]))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["type"] == "validation_error"
+        assert response.data["attr"] == "scores"
+        assert field in str(response.data["detail"])
 
     def test_duplicate_active_review_is_rejected(self):
         self._create_review(trace_id="trace_123")
 
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.data,
-            self.validation_error_response(
-                message="An active review already exists for this trace.",
-                attr="trace_id",
-            ),
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data == self.validation_error_response(
+            message="An active review already exists for this trace.", attr="trace_id"
         )
 
     def test_can_list_reviews_filtered_by_trace_id_in(self):
@@ -395,9 +377,9 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint(), {"trace_id__in": "trace_a,trace_c"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         returned_trace_ids = {review["trace_id"] for review in response.data["results"]}
-        self.assertEqual(returned_trace_ids, {"trace_a", "trace_c"})
+        assert returned_trace_ids == {"trace_a", "trace_c"}
 
     def test_can_list_reviews_filtered_by_definition_id(self):
         quality = self._create_definition()
@@ -435,8 +417,8 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint(), {"definition_id": str(quality.id)})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([review["trace_id"] for review in response.data["results"]], ["trace_quality"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [review["trace_id"] for review in response.data["results"]] == ["trace_quality"]
 
     def test_search_matches_trace_id_and_comment(self):
         self._create_review(trace_id="trace_hallucination", comment="Potential hallucination")
@@ -444,9 +426,9 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint(), {"search": "hallucination"})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["results"][0]["trace_id"], "trace_hallucination")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 1
+        assert response.data["results"][0]["trace_id"] == "trace_hallucination"
 
     def test_patch_replaces_the_full_score_set(self):
         quality = self._create_definition()
@@ -491,14 +473,14 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         review.refresh_from_db()
-        self.assertEqual(review.comment, "Updated comment")
-        self.assertEqual(review.reviewed_by, another_user)
-        self.assertEqual(review.scores.count(), 1)
+        assert review.comment == "Updated comment"
+        assert review.reviewed_by == another_user
+        assert review.scores.count() == 1
         remaining_score = review.scores.get()
-        self.assertEqual(remaining_score.definition, resolved)
-        self.assertEqual(remaining_score.boolean_value, False)
+        assert remaining_score.definition == resolved
+        assert not remaining_score.boolean_value
 
     def test_patch_can_clear_all_scores_while_keeping_the_review(self):
         quality = self._create_definition()
@@ -521,23 +503,37 @@ class TestTraceReviewsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         review.refresh_from_db()
-        self.assertEqual(review.scores.count(), 0)
+        assert review.scores.count() == 0
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_list_response_includes_absolute_trace_url(self):
+        self._create_review(trace_id="trace_link_check")
+
+        response = self.client.get(self._endpoint())
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert (
+            results[0]["trace_url"]
+            == f"https://us.posthog.com/project/{self.team.id}/ai-observability/traces/trace_link_check"
+        )
 
     def test_delete_soft_deletes_review_and_allows_recreate(self):
         review = self._create_review(trace_id="trace_soft_delete")
 
         response = self.client.delete(f"{self._endpoint()}{review.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
         review.refresh_from_db()
-        self.assertTrue(review.deleted)
-        self.assertIsNotNone(review.deleted_at)
+        assert review.deleted
+        assert review.deleted_at is not None
 
         list_response = self.client.get(self._endpoint())
-        self.assertEqual(len(list_response.data["results"]), 0)
+        assert len(list_response.data["results"]) == 0
 
         recreate_response = self.client.post(self._endpoint(), {"trace_id": "trace_soft_delete"}, format="json")
-        self.assertEqual(recreate_response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(TraceReview.objects.filter(team=self.team, trace_id="trace_soft_delete").count(), 2)
+        assert recreate_response.status_code == status.HTTP_201_CREATED
+        assert TraceReview.objects.filter(team=self.team, trace_id="trace_soft_delete").count() == 2

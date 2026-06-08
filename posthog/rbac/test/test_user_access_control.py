@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -298,7 +300,7 @@ class TestUserAccessControl(BaseUserAccessControlTest):
                 Team.objects.all(), include_all_if_admin=True
             ).order_by("id")
         )
-        self.assertListEqual([self.team, team2, team3], filtered_teams)
+        assert [self.team, team2, team3] == filtered_teams
 
     def test_organization_access_control(self):
         # A team isn't always available like for organization level routing
@@ -408,16 +410,16 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         queryset = FileSystem.objects.all()
 
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+        assert Counter([self.file_a, self.file_b]) == Counter(filtered_for_user)
 
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_other)
+        assert Counter([self.file_a, self.file_b]) == Counter(filtered_for_other)
 
         # We can also check the .effective_access_level annotation:
         a_for_user = filtered_for_user.get(id=self.file_a.id)
         b_for_user = filtered_for_user.get(id=self.file_b.id)
-        self.assertEqual(a_for_user.effective_access_level, "some")  # type: ignore
-        self.assertEqual(b_for_user.effective_access_level, "some")  # type: ignore
+        assert a_for_user.effective_access_level == "some"  # type: ignore
+        assert b_for_user.effective_access_level == "some"  # type: ignore
 
     def test_none_access_on_resource_excludes_items_for_non_creator(self):
         """
@@ -438,11 +440,11 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
 
         # user is the creator of file_a => sees it
         # user is NOT the creator of file_b => 'none' access => excluded
-        self.assertCountEqual([self.file_a], filtered_for_user)
+        assert Counter([self.file_a]) == Counter(filtered_for_user)
 
         # Meanwhile, other_user is the *creator* of file_b => they still see it
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_other)
+        assert Counter([self.file_a, self.file_b]) == Counter(filtered_for_other)
 
     def test_org_admin_sees_all_even_if_none(self):
         # Make "def" = none for everyone
@@ -461,7 +463,7 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         queryset = FileSystem.objects.all()
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
         # Because user is org admin => sees everything
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+        assert Counter([self.file_a, self.file_b]) == Counter(filtered_for_user)
 
     def test_setting_explicit_viewer_or_editor_access(self):
         """
@@ -478,12 +480,12 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
 
         # file_a => "abc" => default is "none" from that row, but user is also the creator of file_a => sees it anyway
         # file_b => "def" => explicit "viewer" => user sees it
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+        assert Counter([self.file_a, self.file_b]) == Counter(filtered_for_user)
 
         # Meanwhile, other_user is the creator of file_b, but for file_a there's a "none" row
         # and other_user is not the creator of file_a => "none" excludes them from file_a
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        self.assertCountEqual([self.file_b], filtered_for_other)
+        assert Counter([self.file_b]) == Counter(filtered_for_other)
 
     def test_project_admin_allows_visibility_even_if_none(self):
         """
@@ -511,7 +513,7 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         queryset = FileSystem.objects.all()
         # Now, because user is project admin, they should see file_b despite 'none'
         filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+        assert Counter([self.file_a, self.file_b]) == Counter(filtered_for_user)
 
         # 3) Remove the "admin" row, confirm user no longer sees file_b.
         AccessControl.objects.filter(
@@ -525,7 +527,7 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         queryset = FileSystem.objects.all()
         filtered_for_user_after_removal = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
         # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
-        self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
+        assert Counter([self.file_a]) == Counter(filtered_for_user_after_removal)
 
 
 @pytest.mark.ee

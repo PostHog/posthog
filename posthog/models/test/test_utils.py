@@ -28,19 +28,19 @@ from posthog.models.utils import (
 
 class TestUUIDv7(BaseTest):
     def test_has_version_of_7(self):
-        self.assertEqual(uuid7().version, 7)
+        assert uuid7().version == 7
 
     def test_can_be_deterministic(self):
         time_component = 1718800371653
         pnrg = Random(42)
         uuid = uuid7(unix_ms_time=time_component, random=pnrg)
-        self.assertEqual(uuid, UUID("0190307c-4fc5-7a3b-8006-671a1c80317f"))
+        assert uuid == UUID("0190307c-4fc5-7a3b-8006-671a1c80317f")
 
     def test_can_parse_date_string(self):
         time_component = "2024-06-19T13:33:37"
         pnrg = Random(42)
         uuid = uuid7(unix_ms_time=time_component, random=pnrg)
-        self.assertEqual(uuid, UUID("019030b3-ef68-7a3b-8006-671a1c80317f"))
+        assert uuid == UUID("019030b3-ef68-7a3b-8006-671a1c80317f")
 
 
 class TestValidateRateLimit(BaseTest):
@@ -54,7 +54,7 @@ class TestValidateRateLimit(BaseTest):
 
     def test_correct_values(self):
         for v in ["1/s", "2/m", "3/h", "4/d", "5/sec", "6/min", "7/hour", "8/day"]:
-            self.assertIsNone(validate_rate_limit(v), f"validate_rate_limit should not raise for {v}")
+            assert validate_rate_limit(v) is None, f"validate_rate_limit should not raise for {v}"
 
 
 def test_mask_key_value():

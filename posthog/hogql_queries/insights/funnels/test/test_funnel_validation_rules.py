@@ -33,8 +33,8 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             RequireAtLeastTwoFunnelSteps().validate(self._context(query))
 
-        self.assertIn("Funnels require at least two steps.", str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnels_require_at_least_two_steps"])
+        assert "Funnels require at least two steps." in str(context.exception)
+        assert context.exception.get_codes() == ["funnels_require_at_least_two_steps"]
 
     @parameterized.expand(
         [
@@ -64,8 +64,8 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateFunnelStepRange().validate(self._context(query))
 
-        self.assertIn(expected_error, str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnel_step_range_invalid"])
+        assert expected_error in str(context.exception)
+        assert context.exception.get_codes() == ["funnel_step_range_invalid"]
 
     @parameterized.expand(
         [
@@ -95,8 +95,8 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateFunnelExclusions().validate(self._context(query))
 
-        self.assertIn(expected_error, str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
+        assert expected_error in str(context.exception)
+        assert context.exception.get_codes() == ["funnel_exclusions_invalid"]
 
     def test_disallows_exclusion_that_matches_funnel_step(self):
         query = FunnelsQuery(
@@ -109,8 +109,8 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateFunnelExclusions().validate(self._context(query))
 
-        self.assertIn("Exclusion steps cannot contain an event that's part of funnel steps.", str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
+        assert "Exclusion steps cannot contain an event that's part of funnel steps." in str(context.exception)
+        assert context.exception.get_codes() == ["funnel_exclusions_invalid"]
 
     @parameterized.expand(
         [
@@ -136,8 +136,8 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateFunnelExclusions().validate(self._context(query))
 
-        self.assertIn("Partial Exclusions not allowed in unordered funnels", str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
+        assert "Partial Exclusions not allowed in unordered funnels" in str(context.exception)
+        assert context.exception.get_codes() == ["funnel_exclusions_invalid"]
 
     @parameterized.expand(
         [
@@ -202,5 +202,5 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateOptionalFunnelSteps().validate(self._context(query))
 
-        self.assertIn(expected_error, str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnel_optional_steps_invalid"])
+        assert expected_error in str(context.exception)
+        assert context.exception.get_codes() == ["funnel_optional_steps_invalid"]

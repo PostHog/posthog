@@ -35,7 +35,7 @@ class TestPersonPropertySelector(unittest.TestCase):
                 }
             }
         )
-        self.assertTrue(PropertyOptimizer.using_only_person_properties(filter.property_groups))
+        assert PropertyOptimizer.using_only_person_properties(filter.property_groups)
 
     def test_multilevel_selector(self):
         filter = BASE_FILTER.shallow_clone(
@@ -78,7 +78,7 @@ class TestPersonPropertySelector(unittest.TestCase):
             }
         )
 
-        self.assertFalse(PropertyOptimizer.using_only_person_properties(filter.property_groups))
+        assert not PropertyOptimizer.using_only_person_properties(filter.property_groups)
 
     def test_multilevel_selector_with_valid_OR_persons(self):
         filter = BASE_FILTER.shallow_clone(
@@ -121,7 +121,7 @@ class TestPersonPropertySelector(unittest.TestCase):
             }
         )
 
-        self.assertTrue(PropertyOptimizer.using_only_person_properties(filter.property_groups))
+        assert PropertyOptimizer.using_only_person_properties(filter.property_groups)
 
 
 class TestPersonPushdown(unittest.TestCase):
@@ -135,37 +135,17 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        self.assertEqual(
-            inner.to_dict(),
-            {
-                "type": "AND",
-                "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
-            },
-        )
+        assert inner.to_dict() == {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}
 
-        self.assertEqual(
-            outer.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
-                    {"key": "id", "value": 1, "type": "cohort"},
-                    {
-                        "key": "tag_name",
-                        "value": ["label"],
-                        "operator": "exact",
-                        "type": "element",
-                    },
-                    {
-                        "key": "group_prop",
-                        "value": ["value"],
-                        "operator": "exact",
-                        "type": "group",
-                        "group_type_index": 2,
-                    },
-                ],
-            },
-        )
+        assert outer.to_dict() == {
+            "type": "AND",
+            "values": [
+                {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+                {"key": "id", "value": 1, "type": "cohort"},
+                {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"},
+                {"key": "group_prop", "value": ["value"], "operator": "exact", "type": "group", "group_type_index": 2},
+            ],
+        }
 
     def test_person_properties_mixed_with_event_properties(self):
         filter = BASE_FILTER.shallow_clone(
@@ -215,49 +195,38 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        self.assertEqual(
-            inner.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
-                    }
-                ],
-            },
-        )
+        assert inner.to_dict() == {
+            "type": "AND",
+            "values": [{"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}],
+        }
 
-        self.assertEqual(
-            outer.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "event_prop2",
-                                "value": ["foo2", "bar2"],
-                                "type": "event",
-                            },
-                            {"key": "person_prop2", "value": "efg2", "type": "person"},
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "event_prop",
-                                "value": ["foo", "bar"],
-                                "type": "event",
-                            },
-                            # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
-                        ],
-                    },
-                ],
-            },
-        )
+        assert outer.to_dict() == {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "event_prop2",
+                            "value": ["foo2", "bar2"],
+                            "type": "event",
+                        },
+                        {"key": "person_prop2", "value": "efg2", "type": "person"},
+                    ],
+                },
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "event_prop",
+                            "value": ["foo", "bar"],
+                            "type": "event",
+                        },
+                        # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
+                    ],
+                },
+            ],
+        }
 
     def test_person_properties_with_or_not_mixed_with_event_properties(self):
         filter = BASE_FILTER.shallow_clone(
@@ -307,50 +276,37 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        self.assertEqual(
-            inner.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "person_prop2",
-                                "value": ["foo2", "bar2"],
-                                "type": "person",
-                            },
-                            {"key": "person_prop2", "value": "efg2", "type": "person"},
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
-                    },
-                ],
-            },
-        )
+        assert inner.to_dict() == {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {"key": "person_prop2", "value": ["foo2", "bar2"], "type": "person"},
+                        {"key": "person_prop2", "value": "efg2", "type": "person"},
+                    ],
+                },
+                {"type": "AND", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]},
+            ],
+        }
 
-        self.assertEqual(
-            outer.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    #  OR group was pushed down, so not here anymore
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "event_prop",
-                                "value": ["foo", "bar"],
-                                "type": "event",
-                            },
-                            # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
-                        ],
-                    }
-                ],
-            },
-        )
+        assert outer.to_dict() == {
+            "type": "AND",
+            "values": [
+                #  OR group was pushed down, so not here anymore
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "event_prop",
+                            "value": ["foo", "bar"],
+                            "type": "event",
+                        },
+                        # {"key": "person_prop", "value": "efg", "type": "person", }, # this was pushed down
+                    ],
+                }
+            ],
+        }
 
     def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
         filter = BASE_FILTER.shallow_clone(
@@ -445,108 +401,96 @@ class TestPersonPushdown(unittest.TestCase):
         assert inner is not None
         assert outer is not None
 
-        self.assertEqual(
-            inner.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "type": "OR",
-                                "values": [
-                                    {
-                                        "type": "AND",
-                                        "values": [
-                                            {
-                                                "type": "OR",
-                                                "values": [
-                                                    {
-                                                        "key": "person_prop",
-                                                        "value": "efg",
-                                                        "type": "person",
-                                                    }
-                                                ],
-                                            }
-                                        ],
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
+        assert inner.to_dict() == {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "type": "OR",
+                                            "values": [{"key": "person_prop", "value": "efg", "type": "person"}],
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
 
-        self.assertEqual(
-            outer.to_dict(),
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "type": "AND",
-                                "values": [
-                                    {
-                                        "type": "OR",
-                                        "values": [
-                                            {
-                                                "type": "OR",
-                                                "values": [
-                                                    {
-                                                        "key": "event_prop2",
-                                                        "value": ["foo2", "bar2"],
-                                                        "type": "event",
-                                                    }
-                                                ],
-                                            }
-                                        ],
-                                    },
-                                    {
-                                        "type": "AND",
-                                        "values": [
-                                            {
-                                                "key": "person_prop2",
-                                                "value": "efg2",
-                                                "type": "person",
-                                            }
-                                        ],
-                                    },
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "type": "OR",
-                                "values": [
-                                    {
-                                        "type": "AND",
-                                        "values": [
-                                            {
-                                                "key": "event_prop",
-                                                "value": ["foo", "bar"],
-                                                "type": "event",
-                                            }
-                                        ],
-                                    }
-                                ],
-                            },
-                            # {"type": "OR", "values": [
-                            #     {"type": "AND", "values": [
-                            #         {"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]
-                            #     }]}
-                            # this was pushed down
-                        ],
-                    },
-                ],
-            },
-        )
+        assert outer.to_dict() == {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "type": "OR",
+                                            "values": [
+                                                {
+                                                    "key": "event_prop2",
+                                                    "value": ["foo2", "bar2"],
+                                                    "type": "event",
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "person_prop2",
+                                            "value": "efg2",
+                                            "type": "person",
+                                        }
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "event_prop",
+                                            "value": ["foo", "bar"],
+                                            "type": "event",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        # {"type": "OR", "values": [
+                        #     {"type": "AND", "values": [
+                        #         {"type": "OR", "values": [{"key": "person_prop", "value": "efg", "type": "person"}]}]
+                        #     }]}
+                        # this was pushed down
+                    ],
+                },
+            ],
+        }
 
 
 # TODO: add macobo-groups in mixture to tests as well

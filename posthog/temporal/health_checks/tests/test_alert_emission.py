@@ -32,25 +32,25 @@ class TestEmitHealthCheckAlert(SimpleTestCase):
     def test_firing_emits_event_with_envelope(self, produce, _lookup):
         issue = _make_issue()
         fired = emit_health_check_alert(issue, status="firing")
-        self.assertTrue(fired)
+        assert fired
         produce.assert_called_once()
         kwargs = produce.call_args.kwargs
-        self.assertEqual(kwargs["team_id"], 42)
+        assert kwargs["team_id"] == 42
         event = kwargs["event"]
-        self.assertEqual(event.event, EVENT_FIRING)
-        self.assertEqual(event.distinct_id, "team_42")
-        self.assertEqual(event.properties["kind"], "stub_check")
-        self.assertEqual(event.properties["severity"], "warning")
-        self.assertEqual(event.properties["title"], "stub title")
-        self.assertEqual(event.properties["summary"], "stub for stub_check")
-        self.assertEqual(event.properties["link"], "/health/stub")
-        self.assertEqual(event.properties["payload"], {"detail": "x"})
+        assert event.event == EVENT_FIRING
+        assert event.distinct_id == "team_42"
+        assert event.properties["kind"] == "stub_check"
+        assert event.properties["severity"] == "warning"
+        assert event.properties["title"] == "stub title"
+        assert event.properties["summary"] == "stub for stub_check"
+        assert event.properties["link"] == "/health/stub"
+        assert event.properties["payload"] == {"detail": "x"}
 
     @patch("posthog.temporal.health_checks.alerts._check_class_for_kind", return_value=_StubCheck)
     @patch("posthog.temporal.health_checks.alerts.produce_internal_event")
     def test_resolved_emits_resolved_event(self, produce, _lookup):
         emit_health_check_alert(_make_issue(), status="resolved")
-        self.assertEqual(produce.call_args.kwargs["event"].event, EVENT_RESOLVED)
+        assert produce.call_args.kwargs["event"].event == EVENT_RESOLVED
 
     @patch("posthog.temporal.health_checks.alerts._check_class_for_kind", return_value=None)
     @patch("posthog.temporal.health_checks.alerts.produce_internal_event")
@@ -58,8 +58,8 @@ class TestEmitHealthCheckAlert(SimpleTestCase):
         emit_health_check_alert(_make_issue(kind="not_in_registry"), status="firing")
         props = produce.call_args.kwargs["event"].properties
         # Generic fallback: title == kind, link defaults to /health
-        self.assertEqual(props["title"], "not_in_registry")
-        self.assertEqual(props["link"], "/health")
+        assert props["title"] == "not_in_registry"
+        assert props["link"] == "/health"
 
     @parameterized.expand(
         [
@@ -83,7 +83,7 @@ class TestEmitHealthCheckAlert(SimpleTestCase):
             patch("posthog.temporal.health_checks.alerts.capture_exception") as capture,
         ):
             fired = emit_health_check_alert(_make_issue(), status="firing")
-            self.assertFalse(fired)
+            assert not fired
             if expects_produce_call:
                 produce.assert_called_once()
             else:

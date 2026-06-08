@@ -26,16 +26,16 @@ class TestTeamScopedRootMixinWiring(SimpleTestCase):
     def test_objects_is_team_scoped_manager(self) -> None:
         """The default manager is fail-closed by team scope, overriding RootTeamManager."""
         manager = TeamScopedRootMixin._meta.managers_map["objects"]
-        self.assertIsInstance(manager, TeamScopedManager)
-        self.assertNotIsInstance(manager, RootTeamManager)
+        assert isinstance(manager, TeamScopedManager)
+        assert not isinstance(manager, RootTeamManager)
 
     def test_inherits_from_root_team_mixin(self) -> None:
         """Inherits the canonical-team save() rewrite via RootTeamMixin."""
-        self.assertTrue(issubclass(TeamScopedRootMixin, RootTeamMixin))
+        assert issubclass(TeamScopedRootMixin, RootTeamMixin)
 
     def test_is_abstract(self) -> None:
         """The mixin itself does not create a table."""
-        self.assertTrue(TeamScopedRootMixin._meta.abstract)
+        assert TeamScopedRootMixin._meta.abstract
 
 
 class TestFailClosedIntrospection(SimpleTestCase):
@@ -59,10 +59,10 @@ class TestFailClosedIntrospection(SimpleTestCase):
         return isinstance(model._meta.managers_map.get("objects"), TeamScopedManager)
 
     def test_product_team_model_is_detected(self) -> None:
-        self.assertTrue(self._objects_is_team_scoped(ProductTeamModel))
+        assert self._objects_is_team_scoped(ProductTeamModel)
 
     def test_team_scoped_root_mixin_is_detected(self) -> None:
-        self.assertTrue(self._objects_is_team_scoped(TeamScopedRootMixin))
+        assert self._objects_is_team_scoped(TeamScopedRootMixin)
 
     def test_adhoc_declaration_is_detected(self) -> None:
         """A bare `objects = TeamScopedManager()` on a model that doesn't inherit
@@ -70,7 +70,7 @@ class TestFailClosedIntrospection(SimpleTestCase):
         rather than a real `models.Model` subclass to avoid registering an
         abstract test model in the live `posthog` app registry."""
         stub = SimpleNamespace(_meta=SimpleNamespace(managers_map={"objects": TeamScopedManager()}))
-        self.assertTrue(self._objects_is_team_scoped(stub))  # type: ignore[arg-type]
+        assert self._objects_is_team_scoped(stub)  # type: ignore[arg-type]
 
     def test_bypass_via_secondary_manager_is_not_detected(self) -> None:
         """A model with `objects = RootTeamManager()` and a secondary
@@ -84,4 +84,4 @@ class TestFailClosedIntrospection(SimpleTestCase):
                 }
             )
         )
-        self.assertFalse(self._objects_is_team_scoped(stub))  # type: ignore[arg-type]
+        assert not self._objects_is_team_scoped(stub)  # type: ignore[arg-type]

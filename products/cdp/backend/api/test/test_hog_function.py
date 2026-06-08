@@ -164,7 +164,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         function_id = response.json()["id"]
 
         # Update it
@@ -172,15 +172,15 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={"name": "New name"},
         )
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
-        self.assertEqual(update_response.json()["name"], "New name")
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        assert update_response.json()["name"] == "New name"
 
         # Delete it
         delete_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={"deleted": True},
         )
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+        assert delete_response.status_code == status.HTTP_200_OK, delete_response.json()
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -207,7 +207,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if function_id:
             params["item_id"] = function_id
         activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", data=params)
-        self.assertEqual(activity.status_code, status.HTTP_200_OK)
+        assert activity.status_code == status.HTTP_200_OK
         return activity.json().get("results")
 
     def _filter_expected_keys(self, actual_data, expected_structure):
@@ -2315,7 +2315,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         hog_function_id = response.json()["id"]
 
         from posthog.models.file_system.file_system import FileSystem

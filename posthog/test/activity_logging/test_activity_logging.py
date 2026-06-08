@@ -32,14 +32,14 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
 
-        self.assertEqual(log.team_id, self.team.id)
-        self.assertEqual(log.organization_id, self.organization.id)
-        self.assertEqual(log.user, self.user)
-        self.assertEqual(log.item_id, "6")
-        self.assertEqual(log.scope, "FeatureFlag")
-        self.assertEqual(log.activity, "updated")
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.organization.id
+        assert log.user == self.user
+        assert log.item_id == "6"
+        assert log.scope == "FeatureFlag"
+        assert log.activity == "updated"
         assert log.detail is not None
-        self.assertEqual(log.detail["changes"], [change.__dict__])
+        assert log.detail["changes"] == [change.__dict__]
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:
         log_activity(
@@ -53,7 +53,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.activity, "added_to_clink_expander")
+        assert log.activity == "added_to_clink_expander"
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")
@@ -72,7 +72,7 @@ class TestActivityLogModel(BaseTest):
             activity_storage.clear_client()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.client, "posthog-js/1.234.0")
+        assert log.client == "posthog-js/1.234.0"
 
     def test_explicit_client_overrides_storage(self) -> None:
         activity_storage.set_client("storage-client")
@@ -92,7 +92,7 @@ class TestActivityLogModel(BaseTest):
             activity_storage.clear_client()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.client, "explicit-client")
+        assert log.client == "explicit-client"
 
     def test_client_defaults_to_none_when_unset(self) -> None:
         log_activity(
@@ -106,7 +106,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertIsNone(log.client)
+        assert log.client is None
 
     def test_ip_address_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_ip_address("203.0.113.42")
@@ -125,7 +125,7 @@ class TestActivityLogModel(BaseTest):
             activity_storage.clear_ip_address()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.ip_address, "203.0.113.42")
+        assert log.ip_address == "203.0.113.42"
 
     def test_explicit_ip_address_overrides_storage(self) -> None:
         activity_storage.set_ip_address("10.0.0.1")
@@ -145,7 +145,7 @@ class TestActivityLogModel(BaseTest):
             activity_storage.clear_ip_address()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.ip_address, "198.51.100.7")
+        assert log.ip_address == "198.51.100.7"
 
     def test_ip_address_defaults_to_none_when_unset(self) -> None:
         log_activity(
@@ -159,7 +159,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertIsNone(log.ip_address)
+        assert log.ip_address is None
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
@@ -183,9 +183,9 @@ class TestActivityLogModel(BaseTest):
         with self.assertRaises(IntegrityError) as error:
             ActivityLog.objects.create()
 
-        self.assertIn(
-            'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id',
-            error.exception.args[0],
+        assert (
+            'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id'
+            in error.exception.args[0]
         )
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
@@ -208,15 +208,12 @@ class TestActivityLogModel(BaseTest):
                     raise pytest.fail(f"Should not have raised exception: {e}")
 
             logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(
-                logged_warning["msg"]["event"],
-                "activity_log.failed_to_write_to_activity_log",
-            )
-            self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
-            self.assertEqual(logged_warning["msg"]["team"], 1)
-            self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
-            self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+            assert logged_warning["levelname"] == "WARNING"
+            assert logged_warning["msg"]["event"] == "activity_log.failed_to_write_to_activity_log"
+            assert logged_warning["msg"]["scope"] == "testing throwing exceptions on create"
+            assert logged_warning["msg"]["team"] == 1
+            assert logged_warning["msg"]["activity"] == "does not explode"
+            assert isinstance(logged_warning["msg"]["exception"], ValueError)
 
 
 class TestActivityLogVisibilityManager(BaseTest):
@@ -252,7 +249,7 @@ class TestActivityLogVisibilityManager(BaseTest):
             activity=activity,
             was_impersonated=was_impersonated,
         )
-        self.assertEqual(activity_visibility_manager.is_restricted(log, restrict_for_staff=True), expected_restricted)
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True) == expected_restricted
 
     @parameterized.expand(
         [
@@ -277,7 +274,7 @@ class TestActivityLogVisibilityManager(BaseTest):
             activity=activity,
             was_impersonated=was_impersonated,
         )
-        self.assertEqual(activity_visibility_manager.is_restricted(log, restrict_for_staff=False), expected_restricted)
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=False) == expected_restricted
 
     def test_queryset_excludes_restricted_logs_for_non_staff(self) -> None:
         # Create a mix of activity logs
@@ -293,12 +290,12 @@ class TestActivityLogVisibilityManager(BaseTest):
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
 
         # Impersonated logins and user updates should be filtered, but normal logins should remain
-        self.assertEqual(queryset.count(), 5)
-        self.assertEqual(filtered.count(), 2)  # normal login + feature flag
-        self.assertTrue(filtered.filter(scope="User", activity="logged_in", was_impersonated=False).exists())
-        self.assertFalse(filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists())
-        self.assertFalse(filtered.filter(scope="User", activity="updated").exists())
-        self.assertTrue(filtered.filter(scope="FeatureFlag", activity="created").exists())
+        assert queryset.count() == 5
+        assert filtered.count() == 2  # normal login + feature flag
+        assert filtered.filter(scope="User", activity="logged_in", was_impersonated=False).exists()
+        assert not filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists()
+        assert not filtered.filter(scope="User", activity="updated").exists()
+        assert filtered.filter(scope="FeatureFlag", activity="created").exists()
 
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
@@ -311,4 +308,4 @@ class TestActivityLogVisibilityManager(BaseTest):
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
-        self.assertEqual(filtered.count(), 4)
+        assert filtered.count() == 4
