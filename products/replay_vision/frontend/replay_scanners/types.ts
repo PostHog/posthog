@@ -157,10 +157,6 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
     },
 ]
 
-export type EditorTab = 'observations' | 'configuration'
-
-export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
-
 export interface MonitorScannerConfig {
     prompt: string
     allow_inconclusive?: boolean
