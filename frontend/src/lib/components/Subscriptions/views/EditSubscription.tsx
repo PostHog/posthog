@@ -552,18 +552,6 @@ function EditSubscriptionForm({
                             </>
                         ) : null}
 
-                        {subscription.target_type === 'webhook' ? (
-                            <>
-                                <LemonField name="target_value" label="Webhook URL">
-                                    <LemonInput placeholder="https://example.com/webhooks/1234" />
-                                </LemonField>
-                                <div className="text-xs text-secondary mt-2">
-                                    Webhooks will be called with a HTTP POST request. The webhook endpoint should
-                                    respond with a healthy HTTP code (2xx).
-                                </div>
-                            </>
-                        ) : null}
-
                         <div>
                             <div className="flex items-baseline justify-between w-full">
                                 <LemonLabel className="mb-2">Recurrence</LemonLabel>
