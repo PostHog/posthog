@@ -18,6 +18,7 @@ describe('createClientWarningsConsumer', () => {
             INGESTION_PIPELINE: 'analytics',
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
+            DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
             ...({} as IngestionOutputsConfig),
         }
     }
@@ -41,9 +42,6 @@ describe('createClientWarningsConsumer', () => {
                             value: {} as KafkaProducerRegistry<ProducerName>,
                             stop: () => Promise.resolve(),
                         }),
-                })
-                .add('staticDropEventTokens', {
-                    start: () => Promise.resolve({ value: [] as string[], stop: () => Promise.resolve() }),
                 })
         )
     }

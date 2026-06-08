@@ -158,21 +158,16 @@ export class IngestionGeneralServer implements NodeServer {
         // it picks up `postgres` from the started infra scope's container
         // and is owned by that scope. The server extracts it from the
         // started container to pass on to CDP services etc.
-        const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
-            builder
-                .add(
-                    'teamManager',
-                    // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
-                    // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
-                    // transient failure can surface as an unhandled rejection and restart the worker.
-                    new TeamManagerComponent(container.postgres, {
-                        loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
-                    })
-                )
-                .add('staticDropEventTokens', {
-                    start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
+            builder.add(
+                'teamManager',
+                // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
+                // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
+                // transient failure can surface as an unhandled rejection and restart the worker.
+                new TeamManagerComponent(container.postgres, {
+                    loaderRetry: { retryIntervalMs: 250, retryJitterMs: 250, maxElapsedMs: 5000 },
                 })
+            )
         )
 
         const sharedServices = await sharedServicesScope.start()

@@ -7,26 +7,28 @@ import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '../
 import { ProducerName } from '../common/outputs'
 import { Scope, extend } from '../common/scopes'
 import { PromiseSchedulerComponent } from '../common/utils/promise-scheduler'
-import { IngestionOutputsConfig } from '../config'
+import { IngestionConsumerConfig, IngestionOutputsConfig } from '../config'
 import { IngestionOutputsComponent } from '../outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
 import { createOutputsRegistry } from './outputs/registry'
 import { createClientWarningsPipeline } from './pipeline'
 
-export type ClientWarningsConsumerConfig = CommonIngestionConsumerConfig & IngestionOutputsConfig
+export type ClientWarningsConsumerConfig = CommonIngestionConsumerConfig &
+    IngestionOutputsConfig &
+    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'>
 
 export type ClientWarningsSharedScope = Scope<{
     postgres: PostgresRouter
     redisPool: RedisPool
     teamManager: TeamManager
     producerRegistry: KafkaProducerRegistry<ProducerName>
-    staticDropEventTokens: string[]
 }>
 
 export function createClientWarningsConsumer(
     config: ClientWarningsConsumerConfig,
     sharedScope: ClientWarningsSharedScope
 ) {
+    const staticDropEventTokens = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
     const scope = extend(sharedScope, 'clientwarnings', (container, builder) =>
         builder
             .add('promiseScheduler', new PromiseSchedulerComponent())
@@ -34,7 +36,7 @@ export function createClientWarningsConsumer(
                 'eventIngestionRestrictionManager',
                 new EventIngestionRestrictionManagerComponent(container.redisPool, {
                     pipeline: 'clientwarnings',
-                    staticDropEventTokens: container.staticDropEventTokens,
+                    staticDropEventTokens,
                 })
             )
             .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))

@@ -96,8 +96,6 @@ describe('ClientWarnings consumer E2E', () => {
             ...getDefaultKafkaWarpstreamProducerEnvConfig(),
             ...getDefaultKafkaIngestionProducerEnvConfig(),
         }
-        const noDropTokens: string[] = []
-
         const sharedScope: ClientWarningsSharedScope = newScope('clientwarnings-e2e-shared', (b) =>
             b
                 .add('postgres', constComponent(infra.postgres))
@@ -107,7 +105,6 @@ describe('ClientWarnings consumer E2E', () => {
                     'producerRegistry',
                     new KafkaProducerRegistryComponent(infra.config.KAFKA_CLIENT_RACK, registryConfig)
                 )
-                .add('staticDropEventTokens', constComponent(noDropTokens))
         )
 
         return new ClientWarningsTestIngester(createClientWarningsConsumer(config, sharedScope))
