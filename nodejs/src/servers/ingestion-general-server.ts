@@ -39,6 +39,7 @@ import {
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
+import { createHeatmapsConsumer } from '../ingestion/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
@@ -289,13 +290,27 @@ export class IngestionGeneralServer implements NodeServer {
                 })
             }
 
+            const startHeatmaps = (override?: { topic: string; groupId: string }) => {
+                serviceLoaders.push(async () => {
+                    const consumerConfig = override
+                        ? {
+                              ...this.config,
+                              INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                              INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                          }
+                        : this.config
+                    const consumerScope = createHeatmapsConsumer(consumerConfig, sharedServicesScope)
+                    const { consumer, stop } = await consumerScope.start()
+                    return ingestionConsumerService(consumer, stop)
+                })
+            }
+
             if (isCombinedMode) {
                 // Local dev / hobby: run multiple consumers for all ingestion topics in one process
                 const consumersOptions = [
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-                    { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
                 ]
 
                 for (const consumerOption of consumersOptions) {
@@ -313,8 +328,15 @@ export class IngestionGeneralServer implements NodeServer {
                     topic: 'ingestion-clientwarnings-main-1',
                     groupId: 'ingestion-clientwarnings-main',
                 })
+
+                startHeatmaps({
+                    topic: 'heatmaps_ingestion',
+                    groupId: 'heatmaps_ingestion',
+                })
             } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
                 startClientWarnings()
+            } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
+                startHeatmaps()
             } else {
                 // Production ingestion-v2: single consumer using config-provided topic
                 serviceLoaders.push(async () => {

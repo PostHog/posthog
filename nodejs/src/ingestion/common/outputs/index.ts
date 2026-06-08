@@ -15,6 +15,9 @@ export type OverflowOutput = typeof OVERFLOW_OUTPUT
 export const GROUPS_OUTPUT = 'groups' as const
 export type GroupsOutput = typeof GROUPS_OUTPUT
 
+export const HEATMAPS_OUTPUT = 'heatmaps' as const
+export type HeatmapsOutput = typeof HEATMAPS_OUTPUT
+
 export const APP_METRICS_OUTPUT = 'app_metrics' as const
 export type AppMetricsOutput = typeof APP_METRICS_OUTPUT
 
