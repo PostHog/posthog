@@ -105,7 +105,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 # own node_modules, replacing the pnpm symlink that pointed into the root node_modules. The final
 # image then carries just this package instead of the entire ~469MB root /code/node_modules.
 RUN cd /code/common/plugin_transpiler && \
-    BABEL_REAL="$(node -e "process.stdout.write(require('path').dirname(require.resolve('@babel/standalone/package.json')))")" && \
+    BABEL_REAL=$(node -e "process.stdout.write(require('path').dirname(require.resolve('@babel/standalone/package.json')))") && \
     rm -rf node_modules/@babel/standalone && \
     mkdir -p node_modules/@babel && \
     cp -rL "$BABEL_REAL" node_modules/@babel/standalone

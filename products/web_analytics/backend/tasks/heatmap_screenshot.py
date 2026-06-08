@@ -492,7 +492,12 @@ def _launch_local_browser(p: Playwright) -> Browser:
     proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
     # Use the system Chromium (CHROME_BIN) in production so the image ships a single browser shared
     # with the selenium export path. Falls back to Playwright's bundled Chromium locally (env unset).
+    # NOTE: Playwright skips its browser-version enforcement when executable_path is set, so when
+    # bumping the `playwright` package verify the image's system chromium is still compatible.
     executable_path = os.environ.get("CHROME_BIN") or None
+    if executable_path and not os.path.exists(executable_path):
+        logger.warning("heatmap_screenshot.chrome_bin_missing", chrome_bin=executable_path)
+        executable_path = None
     return p.chromium.launch(
         headless=True,  # TIP: for debugging, set to False
         executable_path=executable_path,
