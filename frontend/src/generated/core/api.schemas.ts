@@ -2260,6 +2260,68 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FolderInstructionsApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Markdown instructions describing the contents of the folder. */
+    readonly content: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+    /** When this version row was last modified. */
+    readonly updated_at: string
+}
+
+export interface FolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+export interface PatchedFolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content?: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+/**
+ * Version-history entry: metadata only, with the markdown content omitted.
+ */
+export interface FolderInstructionsVersionApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+}
+
+export interface PaginatedFolderInstructionsVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FolderInstructionsVersionApi[]
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -3575,6 +3637,21 @@ export type OrganizationsProjectsListParams = {
 }
 
 export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemInstructionsVersionsListParams = {
     /**
      * Number of results to return per page.
      */

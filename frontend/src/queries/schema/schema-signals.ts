@@ -304,6 +304,9 @@ export interface SignalsScoutEvidenceEntry {
 
 export interface SignalsScoutSignalExtra {
     scout_run_id: string
+    /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
+     * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
+    task_run_id: string
     finding_id: string
     skill_name: string
     skill_version: number

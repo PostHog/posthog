@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
 from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
@@ -5693,6 +5694,53 @@ class TestExternalDataSource(APIBaseTest):
         # than on availability — i.e. the eligibility check no longer blocks it.
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] != "Custom REST source is not available for this team."
+
+    @parameterized.expand(
+        [
+            # name, seed sources soft-deleted?, seed for a different team?, expect the limit error
+            ("active_sources_at_limit", False, False, True),
+            ("soft_deleted_excluded", True, False, False),
+            ("other_team_excluded", False, True, False),
+        ]
+    )
+    def test_create_custom_source_per_team_limit(self, _name, deleted, other_team, expect_blocked):
+        seed_team_id = self.team.pk
+        if other_team:
+            seed_team_id = Team.objects.create(organization=self.organization, name="other team").pk
+
+        for i in range(MAX_CUSTOM_SOURCES_PER_TEAM):
+            ExternalDataSource.objects.create(
+                team_id=seed_team_id,
+                source_id=str(uuid.uuid4()),
+                connection_id=str(uuid.uuid4()),
+                destination_id=str(uuid.uuid4()),
+                source_type="Custom",
+                prefix=f"custom_{i}_",
+                job_inputs={"manifest_json": "{}"},
+                deleted=deleted,
+            )
+
+        with patch(
+            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
+            return_value=True,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Custom",
+                    "prefix": "custom_new_",
+                    "payload": {"manifest_json": "{}"},
+                },
+            )
+
+        # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
+        # excluded cases pass the gate and fail later on the (empty) manifest instead.
+        limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        if expect_blocked:
+            assert response.json()["message"] == limit_message
+        else:
+            assert response.json()["message"] != limit_message
 
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""

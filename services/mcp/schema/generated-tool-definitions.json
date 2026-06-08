@@ -191,7 +191,7 @@
         }
     },
     "actions-get-all": {
-        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
+        "description": "Get actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with `limit` and `offset`, and case-insensitive name filtering with `search`. Projects can have thousands of actions, so pass `limit` (and `search` when looking for a specific action by name) rather than fetching every action at once.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Get all actions",
@@ -786,7 +786,7 @@
         }
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
-        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).",
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Add persons to static cohort",
@@ -800,7 +800,7 @@
         }
     },
     "cohorts-create": {
-        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true' then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.",
+        "description": "Create a cohort (a saved group of persons). Two kinds:\n\n- Dynamic cohort (default): provide 'filters' with AND/OR groups of property conditions (person properties, behavioral filters, or cohort references). Membership is recalculated automatically.\n- Static cohort ('is_static: true'): a fixed snapshot of persons. PREFER populating it from a 'query' (see below) — the server runs the query and inserts every matching person in a single call, with no row limit. Only use 'cohorts-add-persons-to-static-cohort-partial-update' for tiny, ad-hoc additions (up to ~20 people).\n\nPopulate a static cohort from a query by setting BOTH 'is_static: true' and 'query'. 'query' accepts a HogQLQuery (raw SQL) or an ActorsQuery (the actors behind a product-analytics insight such as trends or funnels). The query MUST expose the person identifier under one of these column names, checked in this order: 'person_id', 'actor_id', 'id', or 'distinct_id'. Selecting from the 'events' or 'persons' tables resolves the actor automatically. If none of those columns is present the call fails with \"Could not find a person_id, actor_id, id, or distinct_id column in the query\".\n\nALWAYS validate the query before saving it: run a HogQLQuery through the 'execute-sql' tool, and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors', 'query-lifecycle-actors'). Only pass a 'query' that returned successfully — this catches column-name and syntax errors before they fail cohort population.\n\nExample — from SQL (HogQLQuery), alias the id column as person_id:\n{\"name\": \"Power users\", \"is_static\": true, \"query\": {\"kind\": \"HogQLQuery\", \"query\": \"SELECT person_id FROM events WHERE event = '$pageview' GROUP BY person_id HAVING count() > 100\"}}\n\nExample — from a product-analytics trends insight (ActorsQuery):\n{\"name\": \"Viewed pricing last 7d\", \"is_static\": true, \"query\": {\"kind\": \"ActorsQuery\", \"source\": {\"kind\": \"InsightActorsQuery\", \"source\": {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\", \"event\": \"$pageview\"}], \"dateRange\": {\"date_from\": \"-7d\"}}}}}",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Create cohort",
@@ -828,7 +828,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
@@ -1221,6 +1221,76 @@
             "readOnlyHint": false
         }
     },
+    "desktop-file-system-create": {
+        "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the update-instructions tool to fill it in.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create desktop channel",
+        "title": "Create desktop channel",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "desktop-file-system-instructions-partial-update": {
+        "description": "Publish a new version of a channel's markdown instructions, describing what the channel contains. The `id` is the channel (folder) id. Each call creates a new version. To erase a channel's instructions, publish empty `content` — this clears the text while keeping the instruction set in place (the instruction set itself cannot be deleted).",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update channel instructions",
+        "title": "Update channel instructions",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "desktop-file-system-instructions-retrieve": {
+        "description": "Get the latest markdown instructions for a channel (desktop folder).",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get channel instructions",
+        "title": "Get channel instructions",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "desktop-file-system-list": {
+        "description": "List channels and items on the desktop surface. Filter with query params such as `type` (e.g. \"folder\"), `parent`, `path`, `depth`, or `search`.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List desktop channels",
+        "title": "List desktop channels",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "desktop-file-system-retrieve": {
+        "description": "Retrieve a single channel or item on the desktop surface by id.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get desktop channel",
+        "title": "Get desktop channel",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "docs-search": {
         "description": "Use this tool for any PostHog questions to search the documentation. If the user's question mentions multiple topics, search for each topic separately and combine the results. It relies on a hybrid (semantic + full-text) search, so phrase your query in natural language. Our product and docs change often, so this tool is required for accurate answers:\n\n- How to use PostHog\n- How to use PostHog features\n- How to contact support or other humans\n- How to report bugs\n- How to submit feature requests\n- To troubleshoot something\n- What default fields and properties are available for events and persons\n- …Or anything else PostHog-related\n\nFor troubleshooting, ask the user to provide the error messages they are encountering. If no error message is involved, ask the user to describe their expected results vs. the actual results they're seeing. You avoid suggesting things that the user has told you they've already tried.\n\nImportant:\n\n1. Don't rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials. If current docs or tutorials contradict core memory on product facts, prefer the docs result.\n2. Always search PostHog docs/tutorials and prioritize results from posthog.com over training data.\n3. Always include at least one relevant docs/tutorial link in your reply.\n4. Never suggest emailing support@posthog.com or say you'll create a support ticket.\n5. Never use Community Questions as a source or cite them; they're often outdated or incorrect.",
         "category": "Docs",
@@ -1404,7 +1474,7 @@
         }
     },
     "endpoint-versions": {
-        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, data freshness, and materialization status at that point in time.",
+        "description": "List all versions for an endpoint, in descending order (latest first). Each version contains the query snapshot, description, data freshness, last execution time, and materialization status at that point in time.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Get endpoint versions",
@@ -1423,6 +1493,34 @@
         "feature": "endpoints",
         "summary": "Get all endpoints",
         "title": "Get all endpoints",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoints-last-execution-times": {
+        "description": "Get the most recent execution time per endpoint (endpoint-level, personal API key calls only). Pass an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or history, query the query_log table with execute-sql.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get endpoints last execution times",
+        "title": "Get endpoints last execution times",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "endpoints-materialization-preview": {
+        "description": "Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL, detected range pairs, and aggregate re-aggregation info, plus a rejection reason if the query is not eligible. Supports an optional version body param. Read-only — does not enable materialization.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Preview endpoint materialization",
+        "title": "Preview endpoint materialization",
         "required_scopes": ["endpoint:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4753,10 +4851,10 @@
             "readOnlyHint": false
         }
     },
-    "sdk-doctor-get": {
+    "sdk-health-get": {
         "description": "Returns a pre-digested health report for the PostHog SDKs this project is using. Covers which SDKs are current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version breakdowns, and a human-readable reason for each assessment. Use when the user asks about PostHog SDK versions, outdated SDKs, SDK health, version upgrade recommendations, or why events may not be captured due to SDK issues.",
-        "category": "SDK Doctor",
-        "feature": "sdk_doctor",
+        "category": "SDK Health",
+        "feature": "sdk_health",
         "summary": "Get SDK health report",
         "title": "Get SDK health report",
         "required_scopes": ["project:read"],
@@ -6244,7 +6342,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
+        "description": "List the snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Currently-quarantined snapshots are EXCLUDED by default — they are known-flaky noise, not changes to review — and reported only as a `quarantined_count` on the response; pass `include_quarantined=true` to fetch them too. Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",

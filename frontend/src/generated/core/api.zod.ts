@@ -2514,6 +2514,8 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemCreateBodyTypeMax = 100
 
@@ -2531,6 +2533,8 @@ export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUpdateBodyTypeMax = 100
 
@@ -2548,6 +2552,8 @@ export const DesktopFileSystemUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemPartialUpdateBodyTypeMax = 100
 
@@ -2579,8 +2585,42 @@ export const DesktopFileSystemCountCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsUpdateBodyBaseVersionMin)
+        .optional()
+        .describe(
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
+        ),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
+        .optional()
+        .describe(
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
+        ),
+})
+
+/**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLinkCreateBodyTypeMax = 100
 
@@ -2598,6 +2638,8 @@ export const DesktopFileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemMoveCreateBodyTypeMax = 100
 
@@ -2631,6 +2673,8 @@ export const DesktopFileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewCreateBodyTypeMax = 100
 
@@ -2648,6 +2692,8 @@ export const DesktopFileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
 scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUndoDeleteCreateBodyTypeMax = 100
 
