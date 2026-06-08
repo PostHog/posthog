@@ -72,7 +72,7 @@ import re
 import sys
 import json
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 
 SKILL_PREFIX = "signals-scout-"
 
@@ -135,9 +135,12 @@ def parse_ts(ts: str | None) -> datetime | None:
     if not ts or ts == "None":
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
         return None
+    # Normalize to UTC-aware so a naive `--now` can't clash with offset-aware
+    # signal timestamps in ago()/--since (the date sort dodges this via .timestamp()).
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
 def ago(dt: datetime | None, now: datetime | None) -> str:

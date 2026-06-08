@@ -42,7 +42,7 @@ There are five things you can observe about the fleet, each with its own tool:
 | What the scouts actually **emitted**         | `execute-sql` over `document_embeddings` | The authoritative per-finding record (weight, severity, confidence) — see below |
 | What the scouts surfaced to the user         | `inbox-reports-list`                     | Findings that cleared the bar and became inbox reports                          |
 
-The orienting fifth is `signals-scout-project-profile-get` — the deterministic snapshot of "what's
+The orienting sixth is `signals-scout-project-profile-get` — the deterministic snapshot of "what's
 true about this project" that every scout cold-starts from. When a scout found nothing, this is
 usually why.
 
