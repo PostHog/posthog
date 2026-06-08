@@ -1,11 +1,8 @@
 import { randomString } from '@playwright-utils'
-import { expect, test } from '@playwright-utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Page } from '@playwright/test'
 
 import { urls } from 'scenes/urls'
-
-import { randomString } from '../../utils'
-import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 const saveFeatureFlag = async (page: Page): Promise<void> => {
     const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
