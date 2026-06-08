@@ -381,7 +381,6 @@ export function DashboardItems(): JSX.Element {
                                 onEnterEditModeFromEdge,
                                 onDragHandleMouseDown,
                                 showEditingControls,
-                                isDashboardEditMode: dashboardMode === DashboardMode.Edit,
                                 moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                     moveToDashboard(tile, requireDashboardId('move this tile'), id, name)
                                 },
@@ -522,7 +521,6 @@ export function DashboardItems(): JSX.Element {
                                         onCopyToDashboard={commonTileProps.copyToDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
                                         showEditingControls={commonTileProps.showEditingControls}
-                                        isDashboardEditMode={commonTileProps.isDashboardEditMode}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}

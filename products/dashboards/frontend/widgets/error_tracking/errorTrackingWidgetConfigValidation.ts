@@ -1,12 +1,15 @@
 import { z } from 'zod'
 
+import type { ErrorTrackingQuery } from '~/queries/schema/schema-general'
+
 import {
     errorTrackingWidgetConfigSchema,
     errorTrackingWidgetFormSchema,
     type ErrorTrackingWidgetConfig,
-    type ErrorTrackingWidgetFormStatus,
+    type StoredWidgetFilter,
 } from '../../widget_types/configSchemas'
-import type { StoredWidgetFilter } from '../../widget_types/configSchemas'
+
+export type ErrorTrackingWidgetFormStatus = NonNullable<ErrorTrackingQuery['status']> | 'all'
 import {
     fieldErrorsFromZodError,
     parseWidgetConfig,

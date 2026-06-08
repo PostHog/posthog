@@ -21,6 +21,7 @@ import {
 } from '../../components/WidgetCard'
 import { WidgetCardProductIntroduction } from '../../components/WidgetCardProductIntroduction/WidgetCardProductIntroduction'
 import type { DashboardWidgetComponentProps } from '../registry'
+import type { WidgetIssueMetadataDelta } from './applyWidgetIssueMetadataChange'
 import { parseErrorTrackingWidgetConfig } from './errorTrackingWidgetConfigValidation'
 import { errorTrackingWidgetLogic } from './errorTrackingWidgetLogic'
 import { canConfigureErrorTrackingWidgetIssues } from './utils'
@@ -57,7 +58,7 @@ export function ErrorTrackingWidget({
                 props={{
                     tileId,
                     onApplyIssueMetadataChange: onApplyIssueMetadataChange
-                        ? (issueId, delta) => {
+                        ? (issueId: string, delta: WidgetIssueMetadataDelta) => {
                               const parsed = parseErrorTrackingWidgetConfig(config)
                               onApplyIssueMetadataChange(issueId, delta, {
                                   statusFilter: parsed.status ?? 'active',

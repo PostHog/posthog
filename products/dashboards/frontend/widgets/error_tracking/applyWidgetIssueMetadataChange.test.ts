@@ -1,21 +1,23 @@
+import type { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+
+import { errorTrackingSampleIssues } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 import { applyIssueMetadataToWidgetListResult } from './applyWidgetIssueMetadataChange'
 
 describe('applyIssueMetadataToWidgetListResult', () => {
     const baseResult = {
-        results: [
-            { id: 'a', status: 'active', assignee: null, name: 'Error A' },
-            { id: 'b', status: 'active', assignee: null, name: 'Error B' },
-        ],
+        results: errorTrackingSampleIssues.slice(0, 2).map((issue, index) => ({
+            ...issue,
+            id: index === 0 ? 'a' : 'b',
+            name: index === 0 ? 'Error A' : 'Error B',
+        })) as ErrorTrackingIssue[],
         hasMore: false,
     }
 
     it('updates assignee in place', () => {
         const assignee = { type: 'user' as const, id: 7 }
         const next = applyIssueMetadataToWidgetListResult(baseResult, 'a', { assignee }, { statusFilter: 'active' })
-        expect(next.results).toEqual([
-            { id: 'a', status: 'active', assignee, name: 'Error A' },
-            { id: 'b', status: 'active', assignee: null, name: 'Error B' },
-        ])
+        expect(next.results?.[0]?.assignee).toEqual(assignee)
+        expect(next.results?.[1]?.assignee).toBeNull()
     })
 
     it('removes the issue when status no longer matches the tile filter', () => {
@@ -46,11 +48,12 @@ describe('applyIssueMetadataToWidgetListResult', () => {
                 ...baseResult,
                 results: [
                     {
+                        ...errorTrackingSampleIssues[0],
                         id: 'a',
                         status: 'active',
                         assignee: { type: 'user', id: 1 },
                         name: 'Error A',
-                    },
+                    } as ErrorTrackingIssue,
                 ],
             },
             'a',

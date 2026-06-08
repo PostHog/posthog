@@ -1,5 +1,7 @@
 import { ApiError } from 'lib/api-error'
 
+import { PropertyOperator } from '~/types'
+
 import { errorTrackingWidgetConfigSchema } from '../../widget_types/configSchemas'
 import {
     parseErrorTrackingWidgetConfigApiError,
@@ -106,7 +108,7 @@ describe('patchErrorTrackingWidgetFilterFields', () => {
                     propertyName: '$environment',
                     optionId: 'opt-1',
                     value: 'production',
-                    operator: 'exact',
+                    operator: PropertyOperator.Exact,
                 },
             },
         })
