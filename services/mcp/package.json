@@ -30,7 +30,7 @@
         "test:hono": "vitest run --config vitest.hono.config.mts",
         "test:perf": "vitest run --config vitest.perf.config.mts",
         "test:watch": "vitest watch",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "tsgo --noEmit",
         "typecheck:tsgo": "tsgo --noEmit",
         "generate-mcp-types": "node scripts/generate-mcp-types.mjs",
         "generate-orval-schemas": "node scripts/generate-orval-schemas.mjs",

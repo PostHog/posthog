@@ -131,12 +131,8 @@ jobs:
             - name: Build package
               run: cd services/mcp && pnpm build
 
-            - name: Type check
+            - name: Type check (tsgo)
               run: cd services/mcp && pnpm typecheck
-
-            - name: Type check (tsgo, shadow, non-blocking)
-              run: cd services/mcp && pnpm typecheck:tsgo
-              continue-on-error: true
 
             - name: Check MCP schema is up to date
               run: |

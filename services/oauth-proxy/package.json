@@ -17,7 +17,7 @@
         "cf-typegen": "wrangler types",
         "test": "vitest",
         "test:watch": "vitest watch",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "tsgo --noEmit",
         "typecheck:tsgo": "tsgo --noEmit"
     },
     "devDependencies": {
