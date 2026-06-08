@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 from typing import Any
 
@@ -12,6 +13,9 @@ from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
 
+# Default timeout for connecting to Temporal server (seconds)
+DEFAULT_CONNECT_TIMEOUT = 10.0
+
 
 async def connect(
     host: str,
@@ -23,6 +27,7 @@ async def connect(
     server_root_ca_cert: str | None = None,
     settings: Any | None = django_settings,
     use_pydantic_converter: bool = False,
+    connect_timeout: float | None = DEFAULT_CONNECT_TIMEOUT,
 ) -> Client:
     tls: TLSConfig | bool = False
     if client_cert and client_key:
@@ -42,7 +47,7 @@ async def connect(
             payload_codec=EncryptionCodec.from_settings(settings=settings),
         )
 
-    client = await Client.connect(
+    connect_coro = Client.connect(
         f"{host}:{port}",
         namespace=namespace,
         tls=tls,
@@ -50,6 +55,12 @@ async def connect(
         interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
         data_converter=data_converter,
     )
+
+    if connect_timeout is not None:
+        client = await asyncio.wait_for(connect_coro, timeout=connect_timeout)
+    else:
+        client = await connect_coro
+
     return client
 
 

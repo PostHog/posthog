@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import random
 
 import pytest_asyncio
@@ -5,6 +7,8 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 from posthog.models.team.util import delete_batch_exports
+
+logger = logging.getLogger(__name__)
 
 
 @pytest_asyncio.fixture
@@ -24,5 +28,13 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    try:
+        await asyncio.wait_for(
+            sync_to_async(delete_batch_exports)(team_ids=[team.pk]),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Timed out deleting batch exports for team %s during teardown", team.pk)
+    except Exception:
+        logger.warning("Failed to delete batch exports for team %s during teardown", team.pk, exc_info=True)
     await sync_to_async(team.delete)()
