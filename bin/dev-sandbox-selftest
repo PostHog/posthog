@@ -176,6 +176,19 @@ if [[ -d "$HOME/.cargo/bin" ]]; then
     check_write_blocked "$HOME/.cargo/bin/.dev_sandbox_selftest_probe" "cargo bin"
 fi
 
+# 12. The rendered profile + its preflight stamp are read-only inside the sandbox.
+#     Otherwise a dependency could overwrite them and have a poisoned profile
+#     loaded on the next cache hit (which re-runs neither render nor preflight),
+#     bypassing the sandbox entirely. Earlier checks have already rendered it.
+rendered_profiles=("${TMPDIR:-/tmp}"/posthog-dev-sandbox-*.sb)
+rendered_profile="${rendered_profiles[0]}" # literal glob if none matched -> -f false below
+if [[ -f "$rendered_profile" ]]; then
+    check_write_blocked "$rendered_profile" "rendered profile (cache poisoning)"
+    check_write_blocked "$rendered_profile.ok" "rendered profile stamp (cache poisoning)"
+else
+    die "rendered profile not found (expected after earlier sandbox runs)"
+fi
+
 echo
 if [[ $fail -eq 0 ]]; then
     echo "PASS — all dev-sandbox self-tests passed"

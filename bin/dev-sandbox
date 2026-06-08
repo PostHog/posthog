@@ -45,12 +45,15 @@ if [[ -f "$gitfile" ]]; then
 fi
 
 # Effective-profile path, keyed on every input that affects its contents: the
-# base profile (via the mtime check below) and the ancestor chain + SSH socket
-# (via this hash). Any change yields a new path or fails the freshness check, so
-# a cache hit is never stale. Keying lets the ~13 services phrocs starts
+# base profile + this wrapper (via the mtime checks below) and the ancestor chain
+# + SSH socket (via this hash). Any change yields a new path or fails a freshness
+# check, so a cache hit is never stale. Keying lets the ~13 services phrocs starts
 # concurrently reuse one render instead of each re-rendering identical bytes.
+# TMPDIR is canonicalized so the profile's self-write-deny (rendered below) matches
+# the physical path Seatbelt enforces against (/var/folders -> /private/var/...).
+tmpdir="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P || echo "${TMPDIR:-/tmp}")"
 cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" | /usr/bin/shasum -a256 | cut -c1-16)"
-rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$cache_key.sb"
+rendered="$tmpdir/posthog-dev-sandbox-$cache_key.sb"
 stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
 
 # Render = base profile + ancestor read-allows ($HOME down to each repo root, so
@@ -72,7 +75,7 @@ render_profile() {
     ancestors+=("$HOME")
     # Paths are emitted as SBPL string literals; a " or \ would corrupt the
     # profile (quoted expansions match literally, dodging glob/escape ambiguity).
-    for _a in "${ancestors[@]}"; do
+    for _a in "${ancestors[@]}" "$rendered" "$stamp"; do
         case "$_a" in
         *"$_dq"* | *"$_bs"*)
             echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
@@ -80,7 +83,7 @@ render_profile() {
             ;;
         esac
     done
-    tmp="$(mktemp "${TMPDIR:-/tmp}/posthog-dev-sandbox.XXXXXX")" || return 1
+    tmp="$(mktemp "$tmpdir/posthog-dev-sandbox.XXXXXX")" || return 1
     if {
         cat "$base_profile"
         printf '(allow file-read*'
@@ -97,6 +100,12 @@ render_profile() {
                 printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
             fi
         fi
+        # Deny the sandboxed process from rewriting its own cached profile + stamp.
+        # They sit in TMPDIR (outside $HOME, hence writable by default); poisoning
+        # them would bypass the sandbox on the next cache hit, which re-runs neither
+        # render nor preflight. The legit render here runs outside the sandbox, so
+        # it is unaffected. Literals are canonical (TMPDIR resolved above).
+        printf '(deny file-write* (literal "%s") (literal "%s"))\n' "$rendered" "$stamp"
     } >"$tmp" 2>/dev/null && mv -f "$tmp" "$rendered"; then
         rm -f "$stamp" # new contents: force a fresh init preflight
         return 0
@@ -105,8 +114,10 @@ render_profile() {
     return 1
 }
 
-# Render only on a cache miss: no rendered file, or the base profile is newer.
-if [[ ! -f "$rendered" || "$base_profile" -nt "$rendered" ]]; then
+# Render on a cache miss: no rendered file, or the base profile / this wrapper is
+# newer than the cache. The wrapper check means a render-logic change (e.g. on git
+# pull) self-invalidates every stale profile — no version token to bump.
+if [[ ! -f "$rendered" || "$base_profile" -nt "$rendered" || "$project/bin/dev-sandbox" -nt "$rendered" ]]; then
     render_profile || run_unsandboxed
 fi
 
