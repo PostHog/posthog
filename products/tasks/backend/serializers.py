@@ -2,7 +2,6 @@ import base64
 import binascii
 from zoneinfo import available_timezones
 
-from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
@@ -24,6 +23,7 @@ from .constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
 )
 from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
+from .redis import get_tasks_cache
 from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -419,14 +419,14 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         """Return presigned S3 URL for log access, cached to avoid regeneration."""
         cache_key = f"task_run_log_url:{obj.id}"
 
-        cached_url = cache.get(cache_key)
+        cached_url = get_tasks_cache().get(cache_key)
         if cached_url:
             return cached_url
 
         presigned_url = object_storage.get_presigned_url(obj.log_url, expiration=3600)
 
         if presigned_url:
-            cache.set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
+            get_tasks_cache().set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
 
         return presigned_url
 

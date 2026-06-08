@@ -6,7 +6,7 @@ import structlog
 from corsheaders.defaults import default_headers
 
 from posthog.scopes import get_scope_descriptions
-from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
+from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
@@ -829,3 +829,19 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
+
+# Teams force-enrolled in web analytics lazy precompute: the eligibility gate
+# bypasses the org rollout flag for these, and the eager warmer uses the same
+# list as its audience — one source of truth so warmer and reader cannot drift.
+# The default enrolls the Cloud dogfooding team (project 2) ONLY on Cloud —
+# never self-hosted, where lazy precompute is Cloud-only and project id 2 is an
+# arbitrary customer project. A comma-separated env var overrides it on any
+# deployment; changing enrollment is a deploy-time env-var change (Django +
+# Dagster), not runtime-overridable.
+_LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS = (
+    "2" if (CLOUD_DEPLOYMENT or "").upper() in ("EU", "US", "DEV", "E2E") and not TEST else ""
+)
+WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]

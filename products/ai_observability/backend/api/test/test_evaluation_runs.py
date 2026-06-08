@@ -8,6 +8,8 @@ from django.conf import settings
 
 from rest_framework import status
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+
 from ...models.evaluations import Evaluation
 
 
@@ -82,6 +84,57 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert workflow_inputs.evaluation_id == str(self.evaluation.id)
         assert workflow_inputs.event_data is not None
         assert workflow_inputs.event_data["uuid"] == target_event_id.replace("-", "")
+
+    @patch("products.ai_observability.backend.api.evaluation_runs.query_with_columns")
+    @patch("products.ai_observability.backend.api.evaluation_runs.sync_connect")
+    def test_create_evaluation_run_tags_clickhouse_query(self, mock_connect, mock_query):
+        """The manual eval-trigger ClickHouse lookup must run inside an LLM analytics tag context.
+
+        Mocking `query_with_columns` bypasses `sync_execute`'s tag plumbing, so assert directly
+        that the tags are set on the active context at the moment the query runs.
+        """
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_connect.return_value = mock_client
+
+        target_event_id = str(uuid.uuid4())
+        timestamp = datetime.now()
+        captured: dict = {}
+
+        def capture_tags(*args, **kwargs):
+            tags = get_query_tags()
+            captured["product"] = tags.product
+            captured["feature"] = tags.feature
+            captured["team_id"] = tags.team_id
+            return [
+                {
+                    "uuid": target_event_id.replace("-", ""),
+                    "event": "$ai_generation",
+                    "properties": "{}",
+                    "timestamp": timestamp,
+                    "team_id": self.team.id,
+                    "distinct_id": "test_user",
+                    "person_id": str(uuid.uuid4()),
+                }
+            ]
+
+        mock_query.side_effect = capture_tags
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluation_runs/",
+            {
+                "evaluation_id": str(self.evaluation.id),
+                "target_event_id": target_event_id,
+                "timestamp": timestamp.isoformat(),
+                "event": "$ai_generation",
+                "distinct_id": "test_user",
+            },
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert captured["product"] == Product.LLM_ANALYTICS
+        assert captured["feature"] == Feature.QUERY
+        assert captured["team_id"] == self.team.id
 
     def test_create_evaluation_run_invalid_evaluation(self):
         """Test creating evaluation run with non-existent evaluation"""

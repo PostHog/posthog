@@ -6,6 +6,7 @@ import { percentage } from '../../utils/format'
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
+import { useHoverIntent } from './useHoverIntent'
 
 export type { MetricChange }
 
@@ -42,6 +43,9 @@ export interface MetricCardProps {
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
     subtitle?: React.ReactNode
     animationMs?: number
+    /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
+     *  Keeps a quick pass-through from grabbing attention. `0` disables the gating. */
+    hoverIntentMs?: number
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
@@ -84,6 +88,7 @@ function MetricCardInner({
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
     animationMs = 350,
+    hoverIntentMs = 140,
     className,
     dataAttr,
 }: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
@@ -91,10 +96,11 @@ function MetricCardInner({
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
-    const activeIndex = hoverIndex >= 0 ? hoverIndex : lastIndex
+    const intentIndex = useHoverIntent(hoverIndex, hoverIntentMs)
+    const activeIndex = intentIndex >= 0 ? intentIndex : lastIndex
 
     const restingValue = value ?? (sparklineData ? sparklineData[lastIndex] : undefined)
-    const animationTarget = sparklineData && hoverIndex >= 0 ? (sparklineData[hoverIndex] ?? 0) : (restingValue ?? 0)
+    const animationTarget = sparklineData && intentIndex >= 0 ? (sparklineData[intentIndex] ?? 0) : (restingValue ?? 0)
     const animatedValue = useAnimatedNumber(animationTarget, animationMs)
 
     const baselineValue = useMemo(() => sparklineData?.find((v) => v !== 0 && Number.isFinite(v)), [sparklineData])

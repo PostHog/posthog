@@ -55,6 +55,7 @@ from posthog.scopes import (
     effective_ceiling,
     get_oauth_scopes_supported,
     narrow_scopes_to_ceiling,
+    scopes_outside_ceiling,
     scopes_within_ceiling,
 )
 from posthog.security.url_validation import has_authority_bypass_chars
@@ -963,6 +964,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
         if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
             distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None) or application.client_id
+            # invalid_scope only reaches error_response from the GET authorize request, where
+            # oauthlib raises it pre-consent (the consent POST returns it as a redirect, not a
+            # raise), so the requested scope is always in the query string here.
+            requested_scope = self.request.query_params.get("scope") or ""
+            rejected_scopes = scopes_outside_ceiling(
+                requested_scope.split(),
+                application.scopes or [],
+                allow_wildcard_under_empty_ceiling=True,
+            )
             posthoganalytics.capture(
                 distinct_id=str(distinct_id),
                 event="oauth_authorization_rejected",
@@ -973,6 +983,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "registration_type": self._registration_type(application),
                     "is_verified": application.is_verified,
                     "is_first_party": application.is_first_party,
+                    "requested_scopes": requested_scope,
+                    "rejected_scopes": rejected_scopes,
                 },
             )
 
