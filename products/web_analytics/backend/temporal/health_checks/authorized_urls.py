@@ -23,13 +23,18 @@ class AuthorizedUrlsCheck(HealthCheck):
             subdomains.
         """,
         agent="""
-            This is a PostHog project setting (the team's `app_urls`), not a codebase change — and you can
-            fix it directly. Use `execute-sql` on recent $pageview events' `properties.$host` /
-            `properties.$current_url` to list the domains the project actually sends events from
-            (`SELECT properties.$host, count() FROM events WHERE event = '$pageview' AND timestamp > now()
-            - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC`). Then call `project-get` to read the current
-            settings and `project-settings-update` to set `app_urls` to those domains (append, don't
-            clobber existing entries). The issue resolves once at least one authorized URL is set.
+            This is a PostHog project setting (the team's `app_urls`), not a codebase change. `app_urls` is
+            a security boundary — it's the allowlist the toolbar uses to decide which domains it may redirect
+            to — so never populate it from event data unattended. Use `execute-sql` on recent $pageview
+            events' `properties.$host` / `properties.$current_url` for DISCOVERY ONLY (`SELECT
+            properties.$host, count() FROM events WHERE event = '$pageview' AND timestamp > now() - INTERVAL
+            7 DAY GROUP BY 1 ORDER BY 2 DESC`). Treat every host you find as untrusted: anyone who knows the
+            project's public token can send spoofed $pageview events with an arbitrary `$host`, so a domain
+            showing up here is NOT proof the user owns it. Present the discovered domains and have the user
+            confirm which ones they actually own; then call `project-get` to read the current settings and
+            `project-settings-update` to append only the user-confirmed domains (don't clobber existing
+            entries). Never add an event-derived domain without that explicit confirmation. The issue
+            resolves once at least one authorized URL is set.
         """,
     )
 
