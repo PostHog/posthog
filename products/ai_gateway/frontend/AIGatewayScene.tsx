@@ -195,7 +195,9 @@ export function EditGatewayModal(): JSX.Element {
                 }
             >
                 <LemonField name="slug" label="Slug">
-                    <LemonInput placeholder="posthog_code" autoFocus />
+                    {/* The submit button lives in the portaled modal footer, outside this form's
+                        DOM, so Enter wouldn't reach it — submit explicitly on Enter. */}
+                    <LemonInput placeholder="posthog_code" autoFocus onPressEnter={() => submitEditingGateway()} />
                 </LemonField>
             </LemonModal>
         </Form>
